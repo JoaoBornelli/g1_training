@@ -24,7 +24,12 @@ class Scene:
 
 @dataclass
 class Command:
-    target_x: tuple[float, float] = (0.40, 0.50)
+    # target_x era (0.40, 0.50) -- MAIS LONGE que o próprio box_xy (0.30, borda
+    # da mesa): depois de pegar num alcance confortável, o alvo pedia pra
+    # empurrar a caixa ainda mais pra frente (user 07-16: "muito longe, não vai
+    # conseguir alcançar"). Trazido pra dentro do alcance de pega -- o robô pode
+    # puxar a caixa em direção ao corpo enquanto ergue (mais alavanca).
+    target_x: tuple[float, float] = (0.20, 0.30)
     target_y: tuple[float, float] = (-0.05, 0.05)
     target_z: tuple[float, float] = (0.78, 0.85)   # acima do topo da mesa => erguer
 
