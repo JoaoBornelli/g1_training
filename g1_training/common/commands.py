@@ -11,7 +11,7 @@ constante é ignorado pela rede até um fine-tune com ele variando (fase de plac
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import torch
@@ -21,6 +21,7 @@ from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
+    from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 TARGET_IDX = slice(0, 3)
 PHASE_IDX = 3
@@ -66,6 +67,20 @@ class LiftBoxCommand(CommandTerm):
         err = torch.norm(self._command[:, TARGET_IDX] - box_pos, dim=-1)
         self.metrics["position_error"] += err / max_step
 
+    def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
+        """Esfera translúcida no alvo -- mesmo padrão do `LiftingCommand` do mjlab
+        (manipulation/mdp/commands.py), só que pro nosso vetor de comando (4D,
+        alvo em [0:3]). Só desenha se `cfg.debug_vis=True` (o manager já filtra)."""
+        env_indices = visualizer.get_env_indices(self.num_envs)
+        if not env_indices:
+            return
+        for batch in env_indices:
+            target_pos = self._command[batch, TARGET_IDX].cpu().numpy()
+            visualizer.add_sphere(
+                center=target_pos, radius=0.03,
+                color=self.cfg.viz.target_color, label=f"lift_box_target_{batch}",
+            )
+
 
 @dataclass(kw_only=True)
 class LiftBoxCommandCfg(CommandTermCfg):
@@ -75,6 +90,12 @@ class LiftBoxCommandCfg(CommandTermCfg):
     target_y: tuple[float, float] = (-0.05, 0.05)
     target_z: tuple[float, float] = (0.78, 0.85)  # acima do topo da mesa (0.55) => erguer
     phase_value: float = 0.0                       # 0=hold agora; 1=place (futuro)
+
+    @dataclass
+    class VizCfg:
+        target_color: tuple[float, float, float, float] = (1.0, 0.5, 0.0, 0.3)
+
+    viz: VizCfg = field(default_factory=VizCfg)
 
     def build(self, env: "ManagerBasedRlEnv") -> LiftBoxCommand:
         return LiftBoxCommand(self, env)

@@ -126,10 +126,13 @@ def build_base_env(
     cfg.terminations["nonfinite"] = TerminationTermCfg(
         func=lift_terms.nonfinite_state, time_out=False)
 
-    # 6. COMANDO: alvo de sustentação (+ bit de fase reservado).
+    # 6. COMANDO: alvo de sustentação (+ bit de fase reservado). debug_vis=True
+    #    desenha uma esfera translúcida no alvo no viewer/play/vídeo (mesmo padrão
+    #    do LiftingCommand do mjlab) — sem custo em treino headless (só desenha
+    #    quando tem visualizer real).
     cfg.commands = {
         "lift_target": LiftBoxCommandCfg(
-            entity_name="box",
+            entity_name="box", debug_vis=True,
             resampling_time_range=(cfg.episode_length_s, cfg.episode_length_s),
         )
     }
