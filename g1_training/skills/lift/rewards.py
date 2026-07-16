@@ -164,3 +164,17 @@ def com_over_feet_penalty(env, asset_cfg, forward_margin=0.05):
     feet_center = robot.data.site_pos_w[:, asset_cfg.site_ids].mean(dim=1)  # [B,3] centro dos pés
     fwd = com[:, 0] - feet_center[:, 0] - forward_margin                    # +X = frente
     return torch.clamp(fwd, min=0.0) ** 2                                   # só frente, quadrático
+
+
+def box_shake_penalty(env, object_name):
+    """Pune SACUDIR a caixa: soma dos quadrados da velocidade ANGULAR da caixa.
+
+    Alvo = manuseio violento (girar/balançar a caixa na mão), confirmado no play
+    07-16 (grab rápido -> caixa roda na mão). Quadrático: sacudida grande custa
+    caro, movimento estável passa barato. Só a ANGULAR — a linear NÃO, porque
+    erguer é mover a caixa pra cima (penalizar linear brigaria com o lift).
+    Complementa o kernel de orientação (kernel = não terminar torta; este = não
+    ficar rodando no caminho). Reward-only: dinâmica da caixa é privilegiada do
+    sim, NÃO entra na obs do actor -> contrato sim-to-real intacto."""
+    obj: Entity = env.scene[object_name]
+    return torch.sum(torch.square(obj.data.root_link_ang_vel_w), dim=-1)

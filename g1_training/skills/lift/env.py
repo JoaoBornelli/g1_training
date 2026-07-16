@@ -93,4 +93,7 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
         params={"asset_cfg": SceneEntityCfg("robot", site_names=FOOT_SITES),
                 "forward_margin": r.com_margin},
     )
+    cfg.rewards["box_shake"] = RewardTermCfg(
+        func=R.box_shake_penalty, weight=r.box_shake, params={"object_name": "box"},
+    )
     return cfg

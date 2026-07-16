@@ -40,7 +40,8 @@ print("OK: feet_slip presente e com o mesmo peso nas 3 skills")
 print("Stand rewards:", list(stand_cfg.rewards))
 print("Stand-Step rewards:", list(step_cfg.rewards))
 print("Lift rewards:", list(lift_cfg.rewards))
-for t in ("reaching", "grasp", "lift", "sustain_precise", "com_balance", "table_contact"):
+for t in ("reaching", "grasp", "lift", "sustain_precise", "com_balance", "table_contact",
+          "box_shake"):
     assert t not in stand_cfg.rewards, f"{t} vazou no Stand"
     assert t not in step_cfg.rewards, f"{t} vazou no Stand-Step"
     assert t in lift_cfg.rewards, f"{t} ausente na Lift"
@@ -83,6 +84,7 @@ assert lift_cfg.rewards["back_penalty"].weight == r.back
 assert lift_cfg.rewards["table_contact"].weight == r.table_contact
 assert lift_cfg.rewards["com_balance"].weight == r.com_balance
 assert lift_cfg.rewards["com_balance"].params.get("forward_margin") == r.com_margin
+assert lift_cfg.rewards["box_shake"].weight == r.box_shake
 print("OK: pesos/params de tarefa da Lift refletem o config ATIVO (wiring correto)")
 
 # --- FIX DE GEOMETRIA 07-16: caixa na BORDA da mesa, não mais no centro ---

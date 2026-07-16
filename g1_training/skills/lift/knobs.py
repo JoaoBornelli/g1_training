@@ -51,6 +51,7 @@ class Reward:
     table_contact: float = -0.8
     com_balance: float = -3.0
     com_margin: float = 0.08
+    box_shake: float = -0.15             # pune vel. angular² da caixa (sacudir/rodar violento)
     # fundação escopada por skill:
     upright: float = 1.0   # ⚠ NUNCA baixar sem motivo forte — tentado e revertido 07-15
                             #    (afrouxar upright/posture pra "liberar reach" degradou o
