@@ -9,6 +9,8 @@ pra manipular). Ver `rewards.py` pro racional de cada termo e a memória
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp import events as base_events
+from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
@@ -30,8 +32,9 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     box_pos = (s.box_xy[0], s.box_xy[1], box_z)
     table_pos = (s.table_xy[0], s.table_xy[1], s.table_half[2])
 
-    jitter = s.box_xy_jitter
-    box_pose_range = {"x": (-jitter, jitter), "y": (-jitter, jitter)} if jitter > 0 else {}
+    jx, jy = s.box_jitter_x, s.box_jitter_y
+    box_pose_range = ({"x": tuple(jx), "y": tuple(jy)}
+                      if any(jx) or any(jy) else {})
 
     cfg = build_base_env(
         play=play,
@@ -52,6 +55,20 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
         vr = cfg.events["push_robot"].params["velocity_range"]
         vr["x"] = knobs.push.x
         vr["y"] = knobs.push.y
+
+    # FORÇA SUSTENTADA na pelvis (mesmo apply_body_impulse do stand_step) — perturbação
+    # contínua imitando o peso da caixa no CoM; robustez de equilíbrio sob carga. Só treino.
+    if knobs.push.force_enabled and not play:
+        cfg.events["push_force"] = EventTermCfg(
+            func=base_events.apply_body_impulse, mode="step",
+            params={
+                "force_range": knobs.push.force_range,
+                "torque_range": (0.0, 0.0),
+                "duration_s": knobs.push.force_duration_s,
+                "cooldown_s": knobs.push.force_cooldown_s,
+                "asset_cfg": SceneEntityCfg("robot", body_names="pelvis"),
+            },
+        )
 
     cmd = cfg.commands["lift_target"]
     cmd.target_x = knobs.command.target_x

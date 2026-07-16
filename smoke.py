@@ -92,13 +92,21 @@ assert lift_active.scene.box_xy == (0.30, 0.0), \
     "config ativo da Lift não está com a caixa na borda (ver configs/c2026_07_16_box_edge.py)"
 print(f"OK: config ativo da Lift = caixa em x={lift_active.scene.box_xy[0]} (borda da mesa)")
 
-# --- DR de posição da caixa (jitter xy, 07-16): reset_box precisa refletir o
-#     knob, e a MESA nunca varia (pose_range sempre {}) ---
-j = lift_active.scene.box_xy_jitter
-expected_range = {"x": (-j, j), "y": (-j, j)} if j > 0 else {}
-assert lift_cfg.events["reset_box"].params["pose_range"] == expected_range
+# --- DR de posição da caixa (offset xy, 07-16): reset_box precisa refletir os
+#     ranges do knob, e a MESA nunca varia (pose_range sempre {}) ---
+jx, jy = lift_active.scene.box_jitter_x, lift_active.scene.box_jitter_y
+expected_range = {"x": tuple(jx), "y": tuple(jy)} if (any(jx) or any(jy)) else {}
+assert lift_cfg.events["reset_box"].params["pose_range"] == expected_range, \
+    f"reset_box pose_range {lift_cfg.events['reset_box'].params['pose_range']} != {expected_range}"
 assert lift_cfg.events["reset_table"].params["pose_range"] == {}, "mesa não deveria variar"
-print(f"OK: jitter da caixa = ±{j}m em xy (mesa fixa)")
+print(f"OK: jitter da caixa x={jx} y={jy} (mesa fixa)")
+
+# --- push sob carga (generalize): push_robot mais forte + push_force na Lift de treino ---
+if lift_active.push.force_enabled:
+    assert "push_force" in lift_cfg.events, "force_enabled mas push_force ausente na Lift"
+    assert lift_cfg.events["push_force"].mode == "step"
+assert tuple(lift_cfg.events["push_robot"].params["velocity_range"]["x"]) == tuple(lift_active.push.x)
+print(f"OK: push_robot x={lift_active.push.x}, push_force={'on' if lift_active.push.force_enabled else 'off'}")
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -119,14 +127,14 @@ _build_and_step("Mjlab-Lift-Box-Unitree-G1-Stand-Step", "Stand-Step (push_force)
 lift_env = _build_and_step("Mjlab-Lift-Box-Unitree-G1-Lift",
                            "Lift (reaching/grasp/lift/com_balance/feet_slip)")
 
-if j > 0:
+if any(jx) or any(jy):
     # confirma o jitter DE VERDADE (não só o wiring): reseta de novo e observa
-    # a posição x da caixa variar entre os 4 envs (cada um sorteia seu próprio offset).
+    # a posição da caixa variar entre os 4 envs (cada um sorteia seu próprio offset).
     lift_env.reset()
-    box_x = lift_env.scene["box"].data.root_link_pos_w[:, 0] - lift_env.scene.env_origins[:, 0]
-    spread = (box_x.max() - box_x.min()).item()
-    assert spread > 0.0, "jitter configurado mas caixa nasceu no mesmo x em todo env (4 envs)"
-    print(f"OK: jitter observado no reset -> spread de x entre envs = {spread:.3f}m")
+    box_xy = lift_env.scene["box"].data.root_link_pos_w[:, :2] - lift_env.scene.env_origins[:, :2]
+    spread = (box_xy.max(dim=0).values - box_xy.min(dim=0).values)
+    assert (spread > 0.0).any(), "jitter configurado mas caixa nasceu na mesma pose em todo env"
+    print(f"OK: jitter observado no reset -> spread x={spread[0]:.3f}m y={spread[1]:.3f}m entre envs")
 
 print("\nOK smoke completo: 3 skills registradas, fundação (feet_slip) sempre presente,")
 print("knobs por-config conferem, caixa na borda, os 3 envs sobem e dão 1 step.")

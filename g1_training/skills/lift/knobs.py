@@ -13,7 +13,11 @@ from dataclasses import dataclass, field
 @dataclass
 class Scene:
     box_xy: tuple[float, float] = (0.50, 0.0)
-    box_xy_jitter: float = 0.0          # DR: +-metros somados a box_xy em CADA reset (0=off)
+    # DR de posição: OFFSET (lo, hi) em metros somado a box_xy em CADA reset. (0,0)=off.
+    # x costuma ser ASSIMÉTRICO (só +, pra dentro da mesa): box_xy fica na borda da
+    # frente, então -x jogaria a caixa pra fora e ela cairia. y é simétrico (mesa simétrica).
+    box_jitter_x: tuple[float, float] = (0.0, 0.0)
+    box_jitter_y: tuple[float, float] = (0.0, 0.0)
     box_z: float | None = None          # None = repousa no topo da mesa (calculado)
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0
@@ -70,6 +74,12 @@ class Foundation:
 class Push:
     x: tuple[float, float] = (-0.5, 0.5)
     y: tuple[float, float] = (-0.5, 0.5)
+    # FORÇA SUSTENTADA (apply_body_impulse na pelvis) — a perturbação contínua que
+    # imita o peso da caixa deslocando o CoM; robustez de equilíbrio sob carga. Só treino.
+    force_enabled: bool = False
+    force_range: tuple[float, float] = (-50.0, 50.0)
+    force_duration_s: tuple[float, float] = (0.3, 3.0)
+    force_cooldown_s: tuple[float, float] = (1.5, 3.0)
 
 
 @dataclass
