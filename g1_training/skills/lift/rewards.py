@@ -14,7 +14,6 @@ Contato pode entrar aqui (reward NÃO roda no robô real) — nunca na obs do ac
 """
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -100,13 +99,20 @@ def grasp_reward(env, palm_sensors, back_sensors):
 
 
 def lift_reward(env, object_name, command_name, palm_sensors, back_sensors, rest_z,
-                upright_gate_deg: float = 10.0, gate_band: float = 0.015):
+                upright_std: float = 0.1):
     """Preensão × ORIENTAÇÃO × PROGRESSO de altura (0 na mesa -> 1 no alvo). Contínuo e
     monotônico, exige preensão (mata arremesso). O fator de ORIENTAÇÃO (alinhamento do
-    eixo-up da caixa com o mundo, clamp 0..1) FECHA o hack de TOMBAR: deitar a caixa na
-    diagonal subia o centro (~4cm a 45°) e dava progresso DE GRAÇA sem tirá-la da mesa;
-    agora tombada -> fator cai -> lift cai. Erguer ERETA (fator 1) é estritamente melhor,
-    e empurrar pra baixo (que tomba) deixa de compensar."""
+    eixo-up da caixa com o mundo) FECHA o hack de TOMBAR: deitar a caixa subia o centro
+    de graça; tombada -> fator cai -> lift cai.
+
+    KERNEL SUAVE (2026-07-16, substitui o corte duro em 10°): `exp(-(1-cos θ)/upright_std)`,
+    onde cos θ = box_up_z (1=reta, 0=deitada). O corte duro só PUNIA a inclinação (0 além
+    de 10°, gradiente nenhum de 11°..45°); o kernel dá gradiente em TODA a faixa puxando
+    pra vertical -> a política é ativamente empurrada a manter nível, o que a força a
+    PEGAR QUADRADO na face (não na quina) pra conseguir erguer reto. Diagnóstico (user,
+    confirmado no play 07-16): grab rápido pega na quina -> caixa roda na mão -> chega
+    tortа -> gate zerava o lift. std=0.1: fator 0.86@10°, 0.55@20°, 0.26@30°, 0.06@45°
+    (demandante mas graduado; menor std = mais exigente)."""
     obj: Entity = env.scene[object_name]
     box_z = obj.data.root_link_pos_w[:, 2]
     target_z = env.command_manager.get_term(command_name).command[:, 2]
@@ -114,12 +120,7 @@ def lift_reward(env, object_name, command_name, palm_sensors, back_sensors, rest
     world_up = torch.zeros(box_z.shape[0], 3, device=box_z.device)
     world_up[:, 2] = 1.0
     box_up = quat_apply(obj.data.root_link_quat_w, world_up)   # eixo-up da caixa no mundo
-    # ORIENTAÇÃO com corte DURO em upright_gate_deg (cheio perto da vertical, 0 além do
-    # gate). O clamp linear puro (cos direto, 0.707 a 45°) era mole — tombar ainda pagava
-    # 71%. gate_band = largura da rampa em unidades de cosseno (empírico, não é ângulo).
-    # ⚠ gradiente some além do gate: se lift ficar ~0, alargar upright_gate_deg.
-    threshold = math.cos(math.radians(upright_gate_deg))
-    upright = torch.clamp((box_up[:, 2] - threshold) / gate_band, 0.0, 1.0)
+    upright = torch.exp(-(1.0 - box_up[:, 2]) / upright_std)   # 1=reta, cai suave c/ tombo
     return _grasp(env, palm_sensors, back_sensors) * upright * progress
 
 

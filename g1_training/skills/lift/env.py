@@ -74,7 +74,7 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     cfg.rewards["lift"] = RewardTermCfg(
         func=R.lift_reward, weight=r.lift,
         params={"object_name": "box", "command_name": "lift_target", "rest_z": box_z,
-                "upright_gate_deg": r.upright_gate_deg, **grasp_sensors},
+                "upright_std": r.upright_std, **grasp_sensors},
     )
     cfg.rewards["sustain_precise"] = RewardTermCfg(
         func=R.sustain_precise_reward, weight=r.sustain_precise,

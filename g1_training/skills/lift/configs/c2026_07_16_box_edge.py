@@ -21,4 +21,7 @@ from dataclasses import replace
 from ..knobs import LiftKnobs
 from .c2026_07_15_gate_and_com import KNOBS as _PREV
 
-KNOBS = replace(_PREV, scene=replace(_PREV.scene, box_xy=(0.30, 0.0), box_xy_jitter=0.10))
+KNOBS = replace(_PREV,
+      scene=replace(_PREV.scene, box_xy=(0.30, 0.0), box_xy_jitter=0.10),
+      foundation=replace(_PREV.foundation, action_rate_l2=-0.25),
+      )

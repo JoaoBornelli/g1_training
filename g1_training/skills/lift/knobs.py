@@ -44,7 +44,7 @@ class Reward:
     lateral_offset: float | None = None  # None = box_half[1] (alvo por-mão, meia-largura)
     grasp: float = 0.5
     lift: float = 2.0
-    upright_gate_deg: float = 10.0       # ⚠ gradiente some além do gate; alargar se lift ~0
+    upright_std: float = 0.1             # kernel suave de orientação (menor = mais exigente)
     sustain_precise: float = 1.0
     sustain_std: float = 0.05
     back: float = -0.5

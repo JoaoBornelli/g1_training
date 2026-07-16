@@ -77,7 +77,7 @@ assert lift_cfg.rewards["reaching"].weight == r.reaching
 assert lift_cfg.rewards["reaching"].params.get("lateral_offset") == _lateral
 assert lift_cfg.rewards["grasp"].weight == r.grasp
 assert lift_cfg.rewards["lift"].weight == r.lift
-assert lift_cfg.rewards["lift"].params.get("upright_gate_deg") == r.upright_gate_deg
+assert lift_cfg.rewards["lift"].params.get("upright_std") == r.upright_std
 assert lift_cfg.rewards["sustain_precise"].weight == r.sustain_precise
 assert lift_cfg.rewards["back_penalty"].weight == r.back
 assert lift_cfg.rewards["table_contact"].weight == r.table_contact
