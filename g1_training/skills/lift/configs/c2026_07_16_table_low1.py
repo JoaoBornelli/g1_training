@@ -24,5 +24,5 @@ from .c2026_07_16_box_edge import KNOBS as _PREV
 KNOBS = replace(
     _PREV,
     scene=replace(_PREV.scene, table_half=(0.30, 0.30, 0.225)),
-    command=replace(_PREV.command, target_z=(0.68, 0.75)),
+    command=replace(_PREV.command, target_z=(0.78, 0.85)),
 )
