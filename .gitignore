@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+
+# checkpoints e logs de treino: vivem no Google Drive, não no git
+tb_reach/
+runs/
+logs/
+*.pt
+*.zip
+
+# artefatos de debug do MuJoCo (gerados ao rodar/crashar localmente)
+MJDATA.TXT
+MJMODEL.TXT
+MUJOCO_LOG.TXT
+*.mjb
+
+# renders/screenshots de debug
+*.png
