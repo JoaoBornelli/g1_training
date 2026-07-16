@@ -45,14 +45,15 @@ for t in ("reaching", "grasp", "lift", "sustain_precise", "com_balance", "table_
     assert t not in step_cfg.rewards, f"{t} vazou no Stand-Step"
     assert t in lift_cfg.rewards, f"{t} ausente na Lift"
 
-# --- postura escopada por skill ---
+# --- postura da Stand/Stand-Step (baseline retrofitado, não é o que se tuna agora) ---
 assert stand_cfg.rewards["posture"].weight == 0.5, "Stand: posture deveria ser 0.5"
 assert step_cfg.rewards["posture"].weight == 0.5, "Stand-Step: posture deveria ser 0.5"
-assert lift_cfg.rewards["posture"].weight == 0.25, "Lift: posture deveria ser 0.25"
 
-# --- fundação NUNCA mexida (upright cheio; nunca mais baixar, ver knobs.py) ---
+# --- upright é GUARDA, não knob de fine-tune (nunca baixar sem motivo forte — ver
+#     knobs.py: afrouxar pra "liberar reach" já degradou o treino inteiro em 07-15) ---
 assert stand_cfg.rewards["upright"].weight == 1.0
-assert lift_cfg.rewards["upright"].weight == 1.0
+assert lift_cfg.rewards["upright"].weight == 1.0, \
+    "upright da Lift saiu de 1.0 — se foi de propósito, ok; se foi acidente, ver 07-15"
 
 # --- anti-dinâmica afrouxada SÓ no Stand-Step ---
 assert step_cfg.rewards["action_rate_l2"].weight == -0.03
@@ -64,14 +65,38 @@ assert tuple(stand_cfg.events["push_robot"].params["velocity_range"]["x"]) == (-
 assert "push_force" in step_cfg.events and step_cfg.events["push_force"].mode == "step"
 assert "push_force" not in stand_cfg.events
 
-# --- alvos por-mão (reaching) + gate de orientação (lift) vindos dos knobs ---
-assert lift_cfg.rewards["reaching"].params.get("lateral_offset") == 0.10
-assert lift_cfg.rewards["lift"].params.get("upright_gate_deg") == 10.0
+# --- pesos/params de TAREFA da Lift: são KNOBS (tunados a cada fine-tune, ver
+#     configs/), então aqui NÃO travamos valor nenhum — só provamos que o env
+#     aplicou exatamente o que o config ATIVO diz (wiring correto, não um número
+#     esquecido hardcoded em algum lugar). Se você mudar um knob, este bloco
+#     acompanha sozinho; se ele falhar, o bug está no wiring (env.py), não no knob. ---
+r, s = lift_active.reward, lift_active.scene
+_lateral = r.lateral_offset if r.lateral_offset is not None else s.box_half[1]
+assert lift_cfg.rewards["posture"].weight == r.posture
+assert lift_cfg.rewards["reaching"].weight == r.reaching
+assert lift_cfg.rewards["reaching"].params.get("lateral_offset") == _lateral
+assert lift_cfg.rewards["grasp"].weight == r.grasp
+assert lift_cfg.rewards["lift"].weight == r.lift
+assert lift_cfg.rewards["lift"].params.get("upright_gate_deg") == r.upright_gate_deg
+assert lift_cfg.rewards["sustain_precise"].weight == r.sustain_precise
+assert lift_cfg.rewards["back_penalty"].weight == r.back
+assert lift_cfg.rewards["table_contact"].weight == r.table_contact
+assert lift_cfg.rewards["com_balance"].weight == r.com_balance
+assert lift_cfg.rewards["com_balance"].params.get("forward_margin") == r.com_margin
+print("OK: pesos/params de tarefa da Lift refletem o config ATIVO (wiring correto)")
 
 # --- FIX DE GEOMETRIA 07-16: caixa na BORDA da mesa, não mais no centro ---
 assert lift_active.scene.box_xy == (0.30, 0.0), \
     "config ativo da Lift não está com a caixa na borda (ver configs/c2026_07_16_box_edge.py)"
 print(f"OK: config ativo da Lift = caixa em x={lift_active.scene.box_xy[0]} (borda da mesa)")
+
+# --- DR de posição da caixa (jitter xy, 07-16): reset_box precisa refletir o
+#     knob, e a MESA nunca varia (pose_range sempre {}) ---
+j = lift_active.scene.box_xy_jitter
+expected_range = {"x": (-j, j), "y": (-j, j)} if j > 0 else {}
+assert lift_cfg.events["reset_box"].params["pose_range"] == expected_range
+assert lift_cfg.events["reset_table"].params["pose_range"] == {}, "mesa não deveria variar"
+print(f"OK: jitter da caixa = ±{j}m em xy (mesa fixa)")
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -89,7 +114,17 @@ def _build_and_step(task_id: str, label: str):
 
 _build_and_step("Mjlab-Lift-Box-Unitree-G1-Stand", "Stand")
 _build_and_step("Mjlab-Lift-Box-Unitree-G1-Stand-Step", "Stand-Step (push_force)")
-_build_and_step("Mjlab-Lift-Box-Unitree-G1-Lift", "Lift (reaching/grasp/lift/com_balance/feet_slip)")
+lift_env = _build_and_step("Mjlab-Lift-Box-Unitree-G1-Lift",
+                           "Lift (reaching/grasp/lift/com_balance/feet_slip)")
+
+if j > 0:
+    # confirma o jitter DE VERDADE (não só o wiring): reseta de novo e observa
+    # a posição x da caixa variar entre os 4 envs (cada um sorteia seu próprio offset).
+    lift_env.reset()
+    box_x = lift_env.scene["box"].data.root_link_pos_w[:, 0] - lift_env.scene.env_origins[:, 0]
+    spread = (box_x.max() - box_x.min()).item()
+    assert spread > 0.0, "jitter configurado mas caixa nasceu no mesmo x em todo env (4 envs)"
+    print(f"OK: jitter observado no reset -> spread de x entre envs = {spread:.3f}m")
 
 print("\nOK smoke completo: 3 skills registradas, fundação (feet_slip) sempre presente,")
 print("knobs por-config conferem, caixa na borda, os 3 envs sobem e dão 1 step.")

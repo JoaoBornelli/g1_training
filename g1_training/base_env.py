@@ -67,6 +67,7 @@ def build_base_env(
     box_mass: float = 1.0,
     table_half: tuple[float, float, float] = (0.30, 0.30, 0.275),
     table_mass: float = 20.0,
+    box_pose_range: dict | None = None,
     reset_base_pose_range: dict,
     posture_weight: float,
     posture_joints: list[str],
@@ -91,10 +92,15 @@ def build_base_env(
 
     # 2. GOTCHA por-ambiente: corpo livre sem evento de reset fica no
     #    world-origin pra TODOS os envs -> a caixa erraria a mesa.
+    #    `reset_root_state_uniform` SOMA uma amostra uniforme de `pose_range` à
+    #    posição de repouso (default_root_state) antes do env_origin — é o
+    #    mecanismo que dá o jitter de posição da caixa (só a caixa; a mesa
+    #    nunca varia, pose_range={} = sempre exatamente em table_pos).
     for name in ("box", "table"):
+        rng = (box_pose_range or {}) if name == "box" else {}
         cfg.events[f"reset_{name}"] = EventTermCfg(
             func=vel_mdp.reset_root_state_uniform, mode="reset",
-            params={"pose_range": {}, "velocity_range": {}, "asset_cfg": SceneEntityCfg(name)},
+            params={"pose_range": rng, "velocity_range": {}, "asset_cfg": SceneEntityCfg(name)},
         )
 
     # 3. reset da BASE (task parada; range decidido por skill — Stand fica

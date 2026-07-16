@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Scene:
     box_xy: tuple[float, float] = (0.50, 0.0)
+    box_xy_jitter: float = 0.0          # DR: +-metros somados a box_xy em CADA reset (0=off)
     box_z: float | None = None          # None = repousa no topo da mesa (calculado)
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0
@@ -42,14 +43,14 @@ class Reward:
     sustain_precise: float = 1.0
     sustain_std: float = 0.05
     back: float = -0.5
-    table_contact: float = -0.5
-    com_balance: float = -5.0
-    com_margin: float = 0.05
+    table_contact: float = -0.8
+    com_balance: float = -3.0
+    com_margin: float = 0.08
     # fundação escopada por skill:
     upright: float = 1.0   # ⚠ NUNCA baixar sem motivo forte — tentado e revertido 07-15
                             #    (afrouxar upright/posture pra "liberar reach" degradou o
                             #    treino inteiro; fundação de pé não é knob de reach).
-    posture: float = 0.25
+    posture: float = 0.5
 
 
 @dataclass

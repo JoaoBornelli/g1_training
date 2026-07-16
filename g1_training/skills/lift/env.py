@@ -30,11 +30,15 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     box_pos = (s.box_xy[0], s.box_xy[1], box_z)
     table_pos = (s.table_xy[0], s.table_xy[1], s.table_half[2])
 
+    jitter = s.box_xy_jitter
+    box_pose_range = {"x": (-jitter, jitter), "y": (-jitter, jitter)} if jitter > 0 else {}
+
     cfg = build_base_env(
         play=play,
         box_pos=box_pos, table_pos=table_pos,
         box_half=s.box_half, box_mass=s.box_mass,
         table_half=s.table_half, table_mass=s.table_mass,
+        box_pose_range=box_pose_range,
         reset_base_pose_range=_RESET_BASE_POSE_RANGE,
         posture_weight=knobs.reward.posture,
         posture_joints=_POSTURE_JOINTS,
