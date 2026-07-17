@@ -8,10 +8,7 @@ pra manipular). Ver `rewards.py` pro racional de cada termo e a memória
 """
 from __future__ import annotations
 
-import math
-
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp import events as base_events
 from mjlab.envs.mdp import rewards as base_rewards
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
@@ -126,18 +123,6 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
                 "cooldown_s": knobs.push.force_cooldown_s,
                 "asset_cfg": SceneEntityCfg("robot", body_names="pelvis"),
             },
-        )
-
-    # DR DE MASSA DA CAIXA (eixo 2 do currículo): cada env sorteia uma massa no startup.
-    # pseudo_inertia escala massa E inércia por e^(2·alpha) (fisicamente consistente);
-    # alpha = 0.5·ln(mass/box_mass) mapeia o range em kg -> massa log-uniforme em [lo, hi].
-    if s.box_mass_range is not None:
-        lo, hi = s.box_mass_range
-        a_lo = 0.5 * math.log(lo / s.box_mass)
-        a_hi = 0.5 * math.log(hi / s.box_mass)
-        cfg.events["box_mass_dr"] = EventTermCfg(
-            func=dr.pseudo_inertia, mode="startup",
-            params={"asset_cfg": SceneEntityCfg("box"), "alpha_range": (a_lo, a_hi)},
         )
 
     cmd = cfg.commands["lift_target"]

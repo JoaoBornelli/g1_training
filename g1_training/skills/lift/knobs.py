@@ -24,10 +24,6 @@ class Scene:
     rehearsal_far_x: float = 5.0
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0
-    # DR de MASSA da caixa (eixo 2 do currículo). None = massa fixa (box_mass). Se
-    # setado (lo, hi) em kg, cada env sorteia uma massa nesse range no STARTUP via
-    # dr.pseudo_inertia (massa E inércia escalam juntas — fisicamente consistente).
-    box_mass_range: tuple[float, float] | None = None
     # PRATELEIRA mocap (fina, flutuante): `shelf_top` = altura do topo (onde a caixa
     # repousa em cima). É o EIXO do currículo de altura — baixar shelf_top desce a
     # caixa rumo ao chão, por-env em runtime, SEM recompilar (era o limite da mesa).

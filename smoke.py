@@ -135,13 +135,6 @@ if lift_active.push.force_enabled:
 assert tuple(lift_cfg.events["push_robot"].params["velocity_range"]["x"]) == tuple(lift_active.push.x)
 print(f"OK: push_robot x={lift_active.push.x}, push_force={'on' if lift_active.push.force_enabled else 'off'}")
 
-# --- DR de MASSA da caixa (eixo 2): se setado, um evento STARTUP box_mass_dr randomiza
-#     a massa/inércia da caixa por-env (via dr.pseudo_inertia). ---
-if lift_active.scene.box_mass_range is not None:
-    assert "box_mass_dr" in lift_cfg.events, "box_mass_range setado mas box_mass_dr ausente"
-    assert lift_cfg.events["box_mass_dr"].mode == "startup", "box_mass_dr deveria ser startup"
-    print(f"OK: DR de massa da caixa {lift_active.scene.box_mass_range} kg (evento startup)")
-
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
