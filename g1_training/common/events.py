@@ -182,3 +182,41 @@ def reset_scene_plr(
     tab_pos[:, 2] = shelf_center_z
     table.write_mocap_pose_to_sim(
         torch.cat([tab_pos, tab_root[:, 3:7]], dim=-1), env_ids=env_ids)
+
+
+_GRAVITY = 9.81
+
+
+def apply_box_payload(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor | None,
+    weight_range: tuple[float, float],
+    box_mass: float,
+    box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
+) -> None:
+    """PESO variável da caixa via força constante pra BAIXO (payload) — mode='reset'.
+
+    Simula uma caixa de massa EFETIVA sorteada em `weight_range` (kg): aplica uma força
+    extra −z de (m − box_mass)·g no COM da caixa, re-sorteada a cada episódio. O robô
+    sente o peso pela pega/torque das juntas (o mesmo sinal que terá no robô real).
+
+    POR QUE ASSIM (e não mudar o campo de massa): `dr.body_mass`/`dr.pseudo_inertia` do
+    mjlab são código NÃO-testado (nenhum treino da fabricante usa) e CORROMPEM a heap
+    (CUDA illegal access). Este usa `write_external_wrench_to_sim` — o MESMO primitivo do
+    `apply_external_force_torque` testado do mjlab — só que com força DIRIGIDA em −z (peso)
+    em vez de isotrópica. `xfrc_applied` é world-frame (−z = pra baixo) e age no COM (sem
+    torque espúrio). Só PESO (força), não inércia — domina no lift/hold. A força não expira;
+    o próximo reset re-escreve (padrão `mode='reset'` recomendado pelo mjlab p/ payload).
+    Ver [[g1-lift-box-task]] e [[feedback-use-tested-manufacturer-reference]]."""
+    env_ids = mjlab_events.resolve_env_ids(env, env_ids)
+    n = len(env_ids)
+    box: Entity = env.scene[box_cfg.name]
+    num_bodies = (len(box_cfg.body_ids) if isinstance(box_cfg.body_ids, list)
+                  else box.num_bodies)
+    m = mjlab_events.sample_uniform(weight_range[0], weight_range[1], (n,), env.device)
+    fz = -(m - box_mass) * _GRAVITY                 # extra pra baixo; m<box_mass => pra cima
+    forces = torch.zeros(n, num_bodies, 3, device=env.device)
+    forces[:, :, 2] = fz.unsqueeze(-1)
+    torques = torch.zeros_like(forces)
+    box.write_external_wrench_to_sim(
+        forces, torques, env_ids=env_ids, body_ids=box_cfg.body_ids)

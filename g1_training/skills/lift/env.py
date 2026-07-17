@@ -125,6 +125,15 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
             },
         )
 
+    # PESO variável da caixa (payload via força −z constante; mecanismo TESTADO
+    # write_external_wrench_to_sim, NÃO o dr de massa que corrompe). mode=reset:
+    # re-sorteia por episódio; a força não expira, o próximo reset sobrescreve.
+    if s.box_weight_range is not None:
+        cfg.events["box_payload"] = EventTermCfg(
+            func=lift_events.apply_box_payload, mode="reset",
+            params={"weight_range": s.box_weight_range, "box_mass": s.box_mass},
+        )
+
     cmd = cfg.commands["lift_target"]
     cmd.target_x = knobs.command.target_x
     cmd.target_y = knobs.command.target_y

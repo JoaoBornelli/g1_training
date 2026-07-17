@@ -24,6 +24,11 @@ class Scene:
     rehearsal_far_x: float = 5.0
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0
+    # PESO variável da caixa (payload) — massa EFETIVA total em kg. None = off (usa box_mass
+    # real). Setado (lo, hi): cada episódio sorteia um peso e aplica força −z extra na caixa
+    # (evento apply_box_payload, mode=reset). Mecanismo TESTADO (write_external_wrench_to_sim),
+    # NÃO o dr.body_mass/pseudo_inertia (não-testado, corrompe heap). Só peso, não inércia.
+    box_weight_range: tuple[float, float] | None = None
     # PRATELEIRA mocap (fina, flutuante): `shelf_top` = altura do topo (onde a caixa
     # repousa em cima). É o EIXO do currículo de altura — baixar shelf_top desce a
     # caixa rumo ao chão, por-env em runtime, SEM recompilar (era o limite da mesa).

@@ -135,6 +135,13 @@ if lift_active.push.force_enabled:
 assert tuple(lift_cfg.events["push_robot"].params["velocity_range"]["x"]) == tuple(lift_active.push.x)
 print(f"OK: push_robot x={lift_active.push.x}, push_force={'on' if lift_active.push.force_enabled else 'off'}")
 
+# --- PESO variável da caixa (payload): se setado, evento de reset box_payload aplica
+#     força −z (via write_external_wrench_to_sim, mecanismo testado). ---
+if lift_active.scene.box_weight_range is not None:
+    assert "box_payload" in lift_cfg.events, "box_weight_range setado mas box_payload ausente"
+    assert lift_cfg.events["box_payload"].mode == "reset", "box_payload deveria ser mode=reset"
+    print(f"OK: payload de peso da caixa {lift_active.scene.box_weight_range} kg (força −z, mode=reset)")
+
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
