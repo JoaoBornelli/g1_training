@@ -2,22 +2,54 @@
 
 Uso (do venv do projeto, numa máquina COM display — não precisa de GPU):
 
-    python play.py CAMINHO/model_999.pt
     python play.py CAMINHO/model_999.pt --task Lift
-    python play.py CAMINHO/model_999.pt --video   # grava mp4 (headless)
+    python play.py CAMINHO/model_999.pt --task Lift --shelf-top 0.45   # testa a caixa mais baixa
+    python play.py CAMINHO/model_999.pt --task Lift --rehearsal        # inclui os envs "só de pé"
+    python play.py CAMINHO/model_999.pt --task Stand-Step
+    python play.py CAMINHO/model_999.pt --task Lift --video            # grava mp4 (headless)
 
-O checkpoint é o `model_<iter>.pt` que o treino salva em
-<log_root>/g1_lifting_box/<timestamp>_<fase>/.
+Por padrão, na Lift o rehearsal fica DESLIGADO no play (a caixa sempre perto, pra
+você inspecionar a pega/erguer limpo). `--shelf-top X` põe a prateleira mocap em
+qualquer altura (testa o currículo). `--rehearsal` mantém os envs "só ficar de pé".
+
+Interação no viewer nativo: Ctrl+arrasto = empurrar o robô/mover a caixa; SPACE
+pausa; setinha = 1 step; -/= = devagar/rápido; R = mostra/esconde o alvo (esfera).
+
+O checkpoint é o `model_<iter>.pt` salvo em <log_root>/g1_lifting_box/<timestamp>_<fase>/.
 """
 import argparse
+import dataclasses
 import pathlib
 import sys
 
-# põe a raiz do repo no path pra `import g1_training` (o pacote) resolver de qualquer cwd.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import g1_training  # noqa: F401  (o import registra as tasks Stand/Stand-Step/Lift)
 from mjlab.scripts.play import PlayConfig, run_play
+from mjlab.tasks.registry import register_mjlab_task
+
+from g1_training.rl_cfg import lift_box_ppo_runner_cfg
+from g1_training.skills.lift.configs import ACTIVE as LIFT_ACTIVE
+from g1_training.skills.lift.env import build_lift_env
+
+_CUSTOM_TASK = "Mjlab-Lift-Box-Unitree-G1-LiftPlay"
+
+
+def _register_custom_lift(shelf_top: float | None, rehearsal: bool) -> str:
+    """Registra uma task de play da Lift com knobs ajustados (altura da prateleira /
+    rehearsal on-off), pra inspecionar sem mexer no config de treino."""
+    scene_over = {} if shelf_top is None else {"shelf_top": shelf_top}
+    if not rehearsal:
+        scene_over["rehearsal_fraction"] = 0.0     # caixa sempre perto, pega/erguer limpo
+    knobs = dataclasses.replace(
+        LIFT_ACTIVE, scene=dataclasses.replace(LIFT_ACTIVE.scene, **scene_over))
+    register_mjlab_task(
+        task_id=_CUSTOM_TASK,
+        env_cfg=build_lift_env(knobs, play=False),
+        play_env_cfg=build_lift_env(knobs, play=True),
+        rl_cfg=lift_box_ppo_runner_cfg(run_name="lift"),
+    )
+    return _CUSTOM_TASK
 
 
 def main() -> None:
@@ -26,6 +58,10 @@ def main() -> None:
     p.add_argument("--task", choices=("Stand", "Stand-Step", "Lift"), default="Stand",
                    help="fase treinada no checkpoint (default: Stand)")
     p.add_argument("--envs", type=int, default=1, help="nº de robôs na cena (default: 1)")
+    p.add_argument("--shelf-top", type=float, default=None,
+                   help="[Lift] altura da prateleira mocap (testa o currículo de altura)")
+    p.add_argument("--rehearsal", action="store_true",
+                   help="[Lift] mantém os envs 'só ficar de pé' (default: off no play)")
     p.add_argument("--video", action="store_true",
                    help="grava mp4 em vez de abrir janela (use em máquina headless)")
     p.add_argument("--video-length", type=int, default=500, help="steps do vídeo (default: 500)")
@@ -35,6 +71,13 @@ def main() -> None:
     if not ckpt.is_file():
         p.error(f"checkpoint não encontrado: {ckpt}")
 
+    # Lift: por padrão desliga o rehearsal (caixa sempre perto). Com --shelf-top ou
+    # sem --rehearsal, registra uma task custom; senão usa a registrada normal.
+    if args.task == "Lift" and (args.shelf_top is not None or not args.rehearsal):
+        task_id = _register_custom_lift(args.shelf_top, rehearsal=args.rehearsal)
+    else:
+        task_id = f"Mjlab-Lift-Box-Unitree-G1-{args.task}"
+
     cfg = PlayConfig(
         agent="trained",
         checkpoint_file=str(ckpt),
@@ -43,7 +86,7 @@ def main() -> None:
         video=args.video,
         video_length=args.video_length,
     )
-    run_play(f"Mjlab-Lift-Box-Unitree-G1-{args.task}", cfg)
+    run_play(task_id, cfg)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from ...base_env import build_base_env
 from .knobs import StandKnobs
 
 _BOX_HALF = (0.10, 0.10, 0.10)
-_TABLE_HALF = (0.30, 0.30, 0.275)
+_SHELF_HALF = (0.30, 0.30, 0.02)       # prateleira fina mocap (longe no Stand)
 _RESET_BASE_POSE_RANGE = {
     "x": (-0.10, 0.0), "y": (-0.10, 0.10), "z": (0.01, 0.05), "yaw": (-0.2, 0.2),
 }
@@ -27,8 +27,8 @@ def build_stand_env(knobs: StandKnobs, play: bool = False) -> ManagerBasedRlEnvC
     cfg = build_base_env(
         play=play,
         box_pos=(0.50, 0.0, _BOX_HALF[2]),     # chão, ~0.5m à frente (fora de alcance útil)
-        table_pos=(5.0, 0.0, _TABLE_HALF[2]),   # bem longe: nada pra escorar
-        box_half=_BOX_HALF, table_half=_TABLE_HALF,
+        table_pos=(5.0, 0.0, 0.53),             # prateleira bem longe: nada pra escorar
+        box_half=_BOX_HALF, shelf_half=_SHELF_HALF,
         reset_base_pose_range=_RESET_BASE_POSE_RANGE,
         posture_weight=knobs.foundation.posture_weight,
         posture_joints=list(knobs.foundation.posture_joints),

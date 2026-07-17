@@ -28,10 +28,11 @@ _POSTURE_JOINTS = [".*(hip|knee|ankle|waist).*"]  # braços LIVRES pra manipular
 
 def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg:
     s = knobs.scene
-    table_top = 2 * s.table_half[2]
-    box_z = s.box_z if s.box_z is not None else table_top + s.box_half[2]
+    box_z = s.shelf_top + s.box_half[2]                    # caixa repousa no topo da prateleira
+    shelf_center_z = s.shelf_top - s.shelf_half_z          # centro do slab fino (mocap)
     box_pos = (s.box_xy[0], s.box_xy[1], box_z)
-    table_pos = (s.table_xy[0], s.table_xy[1], s.table_half[2])
+    table_pos = (s.table_xy[0], s.table_xy[1], shelf_center_z)
+    shelf_half = (s.shelf_half_xy, s.shelf_half_xy, s.shelf_half_z)
 
     jx, jy = s.box_jitter_x, s.box_jitter_y
     box_pose_range = ({"x": tuple(jx), "y": tuple(jy)}
@@ -41,7 +42,7 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
         play=play,
         box_pos=box_pos, table_pos=table_pos,
         box_half=s.box_half, box_mass=s.box_mass,
-        table_half=s.table_half, table_mass=s.table_mass,
+        shelf_half=shelf_half,
         box_pose_range=box_pose_range,
         reset_base_pose_range=_RESET_BASE_POSE_RANGE,
         posture_weight=knobs.reward.posture,

@@ -22,12 +22,16 @@ class Scene:
     # metros (fora de alcance, no chão) → esses envs só praticam ficar de pé. 0=off.
     rehearsal_fraction: float = 0.0
     rehearsal_far_x: float = 5.0
-    box_z: float | None = None          # None = repousa no topo da mesa (calculado)
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0
+    # PRATELEIRA mocap (fina, flutuante): `shelf_top` = altura do topo (onde a caixa
+    # repousa em cima). É o EIXO do currículo de altura — baixar shelf_top desce a
+    # caixa rumo ao chão, por-env em runtime, SEM recompilar (era o limite da mesa).
+    # box repousa em z = shelf_top + box_half[2] (calculado no env).
     table_xy: tuple[float, float] = (0.50, 0.0)
-    table_half: tuple[float, float, float] = (0.30, 0.30, 0.275)
-    table_mass: float = 20.0
+    shelf_top: float = 0.55             # altura de repouso da caixa (topo da prateleira)
+    shelf_half_xy: float = 0.30
+    shelf_half_z: float = 0.02          # fina (plateleira, não paredão)
 
 
 @dataclass

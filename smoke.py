@@ -170,5 +170,30 @@ if lift_active.scene.rehearsal_fraction > 0:
     print(f"OK: rehearsal — caixa+mesa perto E a ~{far_x}m juntas (fração alvo "
           f"{lift_active.scene.rehearsal_fraction}, observada ~{frac:.2f} no último reset)")
 
+# --- PRATELEIRA MOCAP: a caixa PERTO tem que REPOUSAR nela (não cair pelo chão).
+#     É o teste crítico da conversão mesa->prateleira-mocap: se o corpo cinemático
+#     não colidir com a caixa, ela atravessa e cai (z->chão). ---
+shelf_cfg = load_env_cfg("Mjlab-Lift-Box-Unitree-G1-Lift")
+shelf_cfg.scene.num_envs = 16
+shelf_env = ManagerBasedRlEnv(cfg=shelf_cfg, device=DEVICE)
+shelf_env.reset()
+_a0 = torch.zeros(shelf_env.num_envs, shelf_env.action_manager.total_action_dim, device=shelf_env.device)
+for _ in range(25):                      # deixa acomodar sob gravidade
+    shelf_env.step(_a0)
+box_rest_z = lift_active.scene.shelf_top + lift_active.scene.box_half[2]
+bz = shelf_env.scene["box"].data.root_link_pos_w[:, 2]
+bx = shelf_env.scene["box"].data.root_link_pos_w[:, 0] - shelf_env.scene.env_origins[:, 0]
+near = bx < 1.0
+assert bool(near.any()), "sem caixa perto pra testar o apoio"
+resting = (bz[near] > box_rest_z - 0.08).float().mean().item()   # tolera pequena acomodação
+assert resting > 0.5, (f"caixa PERTO caiu da prateleira mocap (z médio {bz[near].mean():.3f}, "
+                       f"esperado ~{box_rest_z:.2f}) — mocap não está segurando a caixa")
+# a prateleira (mocap) é FIXA (cinemática): não deve cair sob gravidade
+tz = shelf_env.scene["table"].data.root_link_pos_w[:, 2]
+assert (tz > lift_active.scene.shelf_top - lift_active.scene.shelf_half_z - 0.02).all(), \
+    "prateleira mocap caiu (deveria ser cinemática/fixa)"
+print(f"OK: prateleira mocap segura a caixa ({resting:.0%} das perto repousando ~{box_rest_z:.2f} "
+      f"após 25 steps) e ela própria não cai (cinemática)")
+
 print("\nOK smoke completo: 3 skills registradas, fundação (feet_slip) sempre presente,")
-print("knobs por-config conferem, caixa na borda, os 3 envs sobem e dão 1 step.")
+print("prateleira mocap segura a caixa (é levantável), rehearsal move caixa+mesa, envs sobem.")

@@ -9,6 +9,10 @@ logs/
 *.pt
 *.zip
 
+# EXCEÇÃO: checkpoints de REFERÊNCIA (milestones) versionados de propósito (~6MB cada)
+!reference_checkpoints/
+!reference_checkpoints/*.pt
+
 # artefatos de debug do MuJoCo (gerados ao rodar/crashar localmente)
 MJDATA.TXT
 MJMODEL.TXT
