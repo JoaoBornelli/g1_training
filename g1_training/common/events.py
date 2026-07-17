@@ -67,3 +67,61 @@ def reset_joints_by_offset(
         env_ids=env_ids,
         joint_ids=joint_ids,
     )
+
+
+def _write_root(asset: Entity, positions, orientations, env_ids, device) -> None:
+    n = len(env_ids)
+    asset.write_root_link_pose_to_sim(
+        torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
+    asset.write_root_link_velocity_to_sim(
+        torch.zeros(n, 6, device=device), env_ids=env_ids)
+
+
+def reset_scene_with_rehearsal(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor | None,
+    box_pose_range: dict[str, tuple[float, float]],
+    rehearsal_fraction: float,
+    far_x: float = 5.0,
+    box_far_z: float = 0.10,
+    box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> None:
+    """Reset COMBINADO caixa+mesa com REHEARSAL anti-esquecimento entre skills.
+
+    A maioria dos envs spawna normal (caixa na mesa + jitter de `box_pose_range`,
+    mesa no lugar). Uma FRAÇÃO (`rehearsal_fraction`) manda caixa E MESA pra LONGE
+    (~`far_x` m à frente, fora de alcance) → cena LIMPA de "só ficar de pé": nada
+    na frente pra alcançar nem esbarrar. Nesses envs os rewards de tarefa zeram
+    sozinhos (nada pra pegar) e só a fundação (upright/postura/slip) + o push ficam
+    ativos → praticam ficar de pé/recuperar empurrão. A obs (box_pos_b longe) é o
+    sinal → a política aprende a condicionar "sem caixa = fico de pé", sem mascarar
+    reward. Caixa e mesa usam a MESMA máscara por-env (por isso um evento só) e
+    ficam offsetadas entre si quando longe (não se sobrepõem). Ver [[g1-lift-box-task]]."""
+    env_ids = mjlab_events.resolve_env_ids(env, env_ids)
+    n = len(env_ids)
+    device = env.device
+    origins = env.scene.env_origins[env_ids]
+    is_stand = torch.rand(n, device=device) < rehearsal_fraction   # MESMA máscara p/ os 2
+
+    # --- CAIXA: normal = repouso + jitter; rehearsal = longe, no chão ---
+    box: Entity = env.scene[box_cfg.name]
+    box_root = box.data.default_root_state[env_ids].clone()
+    off = torch.zeros(n, 3, device=device)
+    for i, key in enumerate(("x", "y", "z")):
+        if key in box_pose_range:
+            off[:, i] = mjlab_events.sample_uniform(
+                box_pose_range[key][0], box_pose_range[key][1], (n,), device)
+    box_pos = box_root[:, 0:3] + off + origins
+    box_pos[is_stand, 0] = origins[is_stand, 0] + far_x
+    box_pos[is_stand, 1] = origins[is_stand, 1]
+    box_pos[is_stand, 2] = box_far_z
+    _write_root(box, box_pos, box_root[:, 3:7], env_ids, device)
+
+    # --- MESA: normal = no lugar; rehearsal = longe (offset da caixa p/ não sobrepor) ---
+    table: Entity = env.scene[table_cfg.name]
+    tab_root = table.data.default_root_state[env_ids].clone()
+    tab_pos = tab_root[:, 0:3] + origins
+    tab_pos[is_stand, 0] = origins[is_stand, 0] + far_x + 1.5      # 1.5 m além da caixa
+    tab_pos[is_stand, 1] = origins[is_stand, 1]
+    _write_root(table, tab_pos, tab_root[:, 3:7], env_ids, device)

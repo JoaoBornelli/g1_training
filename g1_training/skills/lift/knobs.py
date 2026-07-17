@@ -18,6 +18,10 @@ class Scene:
     # frente, então -x jogaria a caixa pra fora e ela cairia. y é simétrico (mesa simétrica).
     box_jitter_x: tuple[float, float] = (0.0, 0.0)
     box_jitter_y: tuple[float, float] = (0.0, 0.0)
+    # REHEARSAL anti-esquecimento: fração dos envs spawna a caixa a `rehearsal_far_x`
+    # metros (fora de alcance, no chão) → esses envs só praticam ficar de pé. 0=off.
+    rehearsal_fraction: float = 0.0
+    rehearsal_far_x: float = 5.0
     box_z: float | None = None          # None = repousa no topo da mesa (calculado)
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10)
     box_mass: float = 1.0

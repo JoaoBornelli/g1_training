@@ -15,6 +15,7 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from ...base_env import BACK_SENSORS, BODY_TABLE_SENSOR, FOOT_SITES, PALM_SENSORS, build_base_env
+from ...common import events as lift_events
 from ...common.robot import PALM_SITES
 from . import rewards as R
 from .knobs import LiftKnobs
@@ -46,6 +47,22 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
         posture_weight=knobs.reward.posture,
         posture_joints=_POSTURE_JOINTS,
     )
+    # REHEARSAL: troca os resets separados de caixa/mesa por UM evento combinado
+    # que joga caixa E mesa pra LONGE numa fração dos envs (cena limpa de só ficar
+    # de pé) — mesma máscara por-env pros dois. Ver events.py.
+    if s.rehearsal_fraction > 0:
+        cfg.events.pop("reset_box", None)
+        cfg.events.pop("reset_table", None)
+        cfg.events["reset_scene_rehearsal"] = EventTermCfg(
+            func=lift_events.reset_scene_with_rehearsal, mode="reset",
+            params={
+                "box_pose_range": box_pose_range,
+                "rehearsal_fraction": s.rehearsal_fraction,
+                "far_x": s.rehearsal_far_x,
+                "box_far_z": s.box_half[2],
+            },
+        )
+
     cfg.rewards["upright"].weight = knobs.reward.upright
     cfg.rewards["action_rate_l2"].weight = knobs.foundation.action_rate_l2
     cfg.rewards["body_ang_vel"].weight = knobs.foundation.body_ang_vel

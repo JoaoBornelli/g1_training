@@ -92,14 +92,23 @@ assert lift_active.scene.box_xy == (0.30, 0.0), \
     "config ativo da Lift não está com a caixa na borda (ver configs/c2026_07_16_box_edge.py)"
 print(f"OK: config ativo da Lift = caixa em x={lift_active.scene.box_xy[0]} (borda da mesa)")
 
-# --- DR de posição da caixa (offset xy, 07-16): reset_box precisa refletir os
-#     ranges do knob, e a MESA nunca varia (pose_range sempre {}) ---
+# --- DR de posição da caixa (offset xy) + rehearsal: o jitter da caixa precisa
+#     refletir os ranges do knob. Sem rehearsal: reset_box/reset_table separados.
+#     Com rehearsal: um evento combinado reset_scene_rehearsal (caixa+mesa). ---
 jx, jy = lift_active.scene.box_jitter_x, lift_active.scene.box_jitter_y
 expected_range = {"x": tuple(jx), "y": tuple(jy)} if (any(jx) or any(jy)) else {}
-assert lift_cfg.events["reset_box"].params["pose_range"] == expected_range, \
-    f"reset_box pose_range {lift_cfg.events['reset_box'].params['pose_range']} != {expected_range}"
-assert lift_cfg.events["reset_table"].params["pose_range"] == {}, "mesa não deveria variar"
-print(f"OK: jitter da caixa x={jx} y={jy} (mesa fixa)")
+_reh = lift_active.scene.rehearsal_fraction > 0
+if _reh:
+    assert "reset_box" not in lift_cfg.events and "reset_table" not in lift_cfg.events, \
+        "rehearsal ligado mas os resets separados de caixa/mesa não foram substituídos"
+    ev = lift_cfg.events["reset_scene_rehearsal"]
+    assert ev.params["box_pose_range"] == expected_range
+    assert ev.params["rehearsal_fraction"] == lift_active.scene.rehearsal_fraction
+    print(f"OK: reset combinado (rehearsal) — jitter caixa {expected_range}, mesa vai junto")
+else:
+    assert lift_cfg.events["reset_box"].params["pose_range"] == expected_range
+    assert lift_cfg.events["reset_table"].params["pose_range"] == {}, "mesa não deveria variar"
+    print(f"OK: jitter da caixa x={jx} y={jy} (mesa fixa)")
 
 # --- push sob carga (generalize): push_robot mais forte + push_force na Lift de treino ---
 if lift_active.push.force_enabled:
@@ -135,6 +144,31 @@ if any(jx) or any(jy):
     spread = (box_xy.max(dim=0).values - box_xy.min(dim=0).values)
     assert (spread > 0.0).any(), "jitter configurado mas caixa nasceu na mesma pose em todo env"
     print(f"OK: jitter observado no reset -> spread x={spread[0]:.3f}m y={spread[1]:.3f}m entre envs")
+
+# --- REHEARSAL: se ligado, uma fração dos envs spawna a caixa LONGE (~far_x) ---
+if lift_active.scene.rehearsal_fraction > 0:
+    far_x = lift_active.scene.rehearsal_far_x
+    reh_cfg = load_env_cfg("Mjlab-Lift-Box-Unitree-G1-Lift")
+    reh_cfg.scene.num_envs = 64          # 64 * fração garante ver os 2 modos num reset
+    reh_env = ManagerBasedRlEnv(cfg=reh_cfg, device=DEVICE)
+    saw_far = saw_near = False
+    table_followed = True
+    for _ in range(3):                   # poucos resets, sorteio novo a cada um
+        reh_env.reset()
+        bx = reh_env.scene["box"].data.root_link_pos_w[:, 0] - reh_env.scene.env_origins[:, 0]
+        tx = reh_env.scene["table"].data.root_link_pos_w[:, 0] - reh_env.scene.env_origins[:, 0]
+        far_mask = bx > far_x - 0.5
+        saw_far = saw_far or bool(far_mask.any())
+        saw_near = saw_near or bool((bx < 1.0).any())
+        # nos envs com caixa longe, a MESA também tem que estar longe (foi junto)
+        if bool(far_mask.any()):
+            table_followed = table_followed and bool((tx[far_mask] > far_x - 0.5).all())
+    assert saw_far, f"rehearsal ligado mas nenhuma caixa spawnou longe (~{far_x}m)"
+    assert saw_near, "rehearsal levou TODAS as caixas pra longe (fração alta demais?)"
+    assert table_followed, "caixa foi pra longe mas a MESA ficou (deveriam ir juntas)"
+    frac = far_mask.float().mean().item()
+    print(f"OK: rehearsal — caixa+mesa perto E a ~{far_x}m juntas (fração alvo "
+          f"{lift_active.scene.rehearsal_fraction}, observada ~{frac:.2f} no último reset)")
 
 print("\nOK smoke completo: 3 skills registradas, fundação (feet_slip) sempre presente,")
 print("knobs por-config conferem, caixa na borda, os 3 envs sobem e dão 1 step.")
