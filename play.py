@@ -35,9 +35,10 @@ from g1_training.skills.lift.env import build_lift_env
 _CUSTOM_TASK = "Mjlab-Lift-Box-Unitree-G1-LiftPlay"
 
 
-def _register_custom_lift(shelf_top: float | None, rehearsal: bool) -> str:
+def _register_custom_lift(shelf_top: float | None, rehearsal: bool,
+                          weight: float | None = None) -> str:
     """Registra uma task de play da Lift com knobs ajustados (altura da prateleira /
-    rehearsal on-off), pra inspecionar sem mexer no config de treino."""
+    rehearsal on-off / peso da caixa), pra inspecionar sem mexer no config de treino."""
     over: dict = {}
     scene_over: dict = {}
     plr = LIFT_ACTIVE.plr
@@ -51,6 +52,11 @@ def _register_custom_lift(shelf_top: float | None, rehearsal: bool) -> str:
             scene_over["shelf_top"] = shelf_top
         if not rehearsal:
             scene_over["rehearsal_fraction"] = 0.0   # caixa sempre perto, pega/erguer limpo
+    if weight is not None:
+        # FIXA o peso da caixa (payload) nesse valor pra inspecionar um peso específico.
+        # Sem --weight, o config varia o peso por episódio (aleatório no range).
+        scene_over["box_weight_range"] = (weight, weight)
+        print(f"[play] peso da caixa FIXADO em {weight} kg (payload)")
     if scene_over:
         over["scene"] = dataclasses.replace(LIFT_ACTIVE.scene, **scene_over)
     knobs = dataclasses.replace(LIFT_ACTIVE, **over)
@@ -74,6 +80,9 @@ def main() -> None:
                         "FIXA nessa altura (default = a mais baixa da lista de níveis)")
     p.add_argument("--rehearsal", action="store_true",
                    help="[Lift] mantém os envs 'só ficar de pé' (default: off no play)")
+    p.add_argument("--weight", type=float, default=None,
+                   help="[Lift] FIXA o peso da caixa em X kg (payload) pra inspecionar. "
+                        "Sem isso, o config varia o peso por episódio")
     p.add_argument("--video", action="store_true",
                    help="grava mp4 em vez de abrir janela (use em máquina headless)")
     p.add_argument("--video-length", type=int, default=500, help="steps do vídeo (default: 500)")
@@ -83,10 +92,12 @@ def main() -> None:
     if not ckpt.is_file():
         p.error(f"checkpoint não encontrado: {ckpt}")
 
-    # Lift: por padrão desliga o rehearsal (caixa sempre perto). Com --shelf-top ou
-    # sem --rehearsal, registra uma task custom; senão usa a registrada normal.
-    if args.task == "Lift" and (args.shelf_top is not None or not args.rehearsal):
-        task_id = _register_custom_lift(args.shelf_top, rehearsal=args.rehearsal)
+    # Lift: por padrão desliga o rehearsal (caixa sempre perto). Com --shelf-top/--weight
+    # ou sem --rehearsal, registra uma task custom; senão usa a registrada normal.
+    if args.task == "Lift" and (args.shelf_top is not None or args.weight is not None
+                                or not args.rehearsal):
+        task_id = _register_custom_lift(args.shelf_top, rehearsal=args.rehearsal,
+                                        weight=args.weight)
     else:
         task_id = f"Mjlab-Lift-Box-Unitree-G1-{args.task}"
 
