@@ -37,7 +37,7 @@ from .common import events as lift_events
 from .common import observations as obs
 from .common import rewards as foundation
 from .common import terminations as lift_terms
-from .common.box import BOX_GEOM, TABLE_GEOM, get_box_spec, get_table_spec
+from .common.box import BOX_GEOM, TABLE_GEOM, get_box_spec, get_shelf_spec
 from .common.commands import LiftBoxCommandCfg
 from .common.robot import BACK_PAD_GEOMS, PALM_PAD_GEOMS, get_lift_box_robot_cfg
 
@@ -65,8 +65,7 @@ def build_base_env(
     table_pos: tuple[float, float, float],
     box_half: tuple[float, float, float] = (0.10, 0.10, 0.10),
     box_mass: float = 1.0,
-    table_half: tuple[float, float, float] = (0.30, 0.30, 0.275),
-    table_mass: float = 20.0,
+    shelf_half: tuple[float, float, float] = (0.30, 0.30, 0.02),
     box_pose_range: dict | None = None,
     reset_base_pose_range: dict,
     posture_weight: float,
@@ -75,9 +74,10 @@ def build_base_env(
 ) -> ManagerBasedRlEnvCfg:
     cfg = unitree_g1_flat_env_cfg(play=play)
 
-    # 1. ENTIDADES: robô com pads + caixa + mesa. Caixa/mesa existem em TODA
-    #    skill (mesmo Stand) pra shape de obs não variar entre elas — só a
-    #    POSIÇÃO muda (cada skill decide via box_pos/table_pos).
+    # 1. ENTIDADES: robô com pads + caixa (LIVRE, levantável) + PRATELEIRA (fina,
+    #    fixa -> auto-mocap: cinemática, posicionável por-env em qualquer z sem tocar
+    #    o chão). Caixa/prateleira existem em TODA skill pra shape de obs não variar;
+    #    só a POSIÇÃO muda (cada skill via box_pos/table_pos).
     cfg.scene.entities = {
         "robot": get_lift_box_robot_cfg(),
         "box": EntityCfg(
@@ -85,17 +85,16 @@ def build_base_env(
             init_state=EntityCfg.InitialStateCfg(pos=box_pos),
         ),
         "table": EntityCfg(
-            spec_fn=lambda: get_table_spec(table_half, table_mass),
+            spec_fn=lambda: get_shelf_spec(shelf_half),
             init_state=EntityCfg.InitialStateCfg(pos=table_pos),
         ),
     }
 
-    # 2. GOTCHA por-ambiente: corpo livre sem evento de reset fica no
-    #    world-origin pra TODOS os envs -> a caixa erraria a mesa.
-    #    `reset_root_state_uniform` SOMA uma amostra uniforme de `pose_range` à
-    #    posição de repouso (default_root_state) antes do env_origin — é o
-    #    mecanismo que dá o jitter de posição da caixa (só a caixa; a mesa
-    #    nunca varia, pose_range={} = sempre exatamente em table_pos).
+    # 2. GOTCHA por-ambiente: sem evento de reset a entidade fica no world-origin
+    #    pra TODOS os envs. `reset_root_state_uniform` é POLIMÓRFICO — trata a caixa
+    #    (free-body: write_root_state) E a prateleira (mocap: write_mocap_pose) no
+    #    mesmo código, somando a amostra de pose_range à posição de repouso +
+    #    env_origin. É o que dá o jitter da caixa (só a caixa; prateleira pose_range={}).
     for name in ("box", "table"):
         rng = (box_pose_range or {}) if name == "box" else {}
         cfg.events[f"reset_{name}"] = EventTermCfg(

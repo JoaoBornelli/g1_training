@@ -118,10 +118,13 @@ def reset_scene_with_rehearsal(
     box_pos[is_stand, 2] = box_far_z
     _write_root(box, box_pos, box_root[:, 3:7], env_ids, device)
 
-    # --- MESA: normal = no lugar; rehearsal = longe (offset da caixa p/ não sobrepor) ---
+    # --- PRATELEIRA (MOCAP): normal = no lugar; rehearsal = longe (offset da caixa
+    #     p/ não sobrepor). MOCAP => write_mocap_pose_to_sim (não write_root_link), sem
+    #     velocidade (corpo cinemático). ---
     table: Entity = env.scene[table_cfg.name]
     tab_root = table.data.default_root_state[env_ids].clone()
     tab_pos = tab_root[:, 0:3] + origins
     tab_pos[is_stand, 0] = origins[is_stand, 0] + far_x + 1.5      # 1.5 m além da caixa
     tab_pos[is_stand, 1] = origins[is_stand, 1]
-    _write_root(table, tab_pos, tab_root[:, 3:7], env_ids, device)
+    table.write_mocap_pose_to_sim(
+        torch.cat([tab_pos, tab_root[:, 3:7]], dim=-1), env_ids=env_ids)
