@@ -25,5 +25,5 @@ from .c2026_07_16_box_edge import KNOBS as _PREV
 
 KNOBS = replace(_PREV,
     scene=replace(_PREV.scene, box_jitter_x=(0.0, 0.20), box_jitter_y=(-0.18, 0.18)),
-    push=replace(_PREV.push, x=(-0.8, 0.8), y=(-0.8, 0.8), force_enabled=True),
+    push=replace(_PREV.push, x=(-0.6, 0.6), y=(-0.6, 0.6), force_enabled=True),
 )
