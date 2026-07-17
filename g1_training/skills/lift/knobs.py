@@ -71,7 +71,16 @@ class Reward:
     box_shake: float = -0.15             # pune vel. angular² da caixa (sacudir/rodar violento)
     arm_vel: float = 0.0                  # freio de VELOCIDADE das juntas do braço (0=off;
                                           # joint_vel_l2 em shoulder/elbow/wrist). Ataca o
-                                          # "correr" pra pegar/levar. TODO: migrar p/ accel/torque.
+                                          # "correr" pra pegar/levar.
+    joint_acc: float = 0.0                # freio de ACELERAÇÃO das juntas (0=off; joint_acc_l2,
+                                          # CORPO TODO). Pune movimento explosivo/jerky — ataca
+                                          # a CAUSA do "pulo" da perna ao erguer rápido. Mais
+                                          # elegante que velocidade pura (pune a mudança, não o
+                                          # movimento em si → não sufoca o balanço estável).
+    joint_torque_pen: float = 0.0        # freio de TORQUE das juntas (0=off; joint_torques_l2,
+                                          # corpo todo). ⚠ COM PAYLOAD LIGADO: briga com segurar
+                                          # peso (caixa pesada = mais torque) → NÃO usar junto do
+                                          # box_weight_range. Só útil sem payload / sim-to-real.
     # fundação escopada por skill:
     upright: float = 1.0   # ⚠ NUNCA baixar sem motivo forte — tentado e revertido 07-15
                             #    (afrouxar upright/posture pra "liberar reach" degradou o

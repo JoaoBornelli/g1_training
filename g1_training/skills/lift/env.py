@@ -188,4 +188,18 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
             params={"asset_cfg": SceneEntityCfg(
                 "robot", joint_names=[".*(shoulder|elbow|wrist).*"])},
         )
+    # ACELERAÇÃO das juntas (corpo todo): pune movimento explosivo/jerky — o "pulo" da
+    # perna ao erguer. Ataca a causa do jerk melhor que velocidade pura.
+    if r.joint_acc != 0.0:
+        cfg.rewards["joint_acc"] = RewardTermCfg(
+            func=base_rewards.joint_acc_l2, weight=r.joint_acc,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+    # TORQUE das juntas (corpo todo). ⚠ briga com o payload (segurar peso = torque) —
+    # não usar junto do box_weight_range. Aqui só como capability.
+    if r.joint_torque_pen != 0.0:
+        cfg.rewards["joint_torque_pen"] = RewardTermCfg(
+            func=base_rewards.joint_torques_l2, weight=r.joint_torque_pen,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
     return cfg
