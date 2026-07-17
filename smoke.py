@@ -85,6 +85,8 @@ assert lift_cfg.rewards["table_contact"].weight == r.table_contact
 assert lift_cfg.rewards["com_balance"].weight == r.com_balance
 assert lift_cfg.rewards["com_balance"].params.get("forward_margin") == r.com_margin
 assert lift_cfg.rewards["box_shake"].weight == r.box_shake
+if r.arm_vel != 0.0:   # freio de velocidade do braço só existe se ligado
+    assert "arm_vel" in lift_cfg.rewards and lift_cfg.rewards["arm_vel"].weight == r.arm_vel
 print("OK: pesos/params de tarefa da Lift refletem o config ATIVO (wiring correto)")
 
 # --- FIX DE GEOMETRIA 07-16: caixa na BORDA da mesa, não mais no centro ---
@@ -132,6 +134,13 @@ if lift_active.push.force_enabled:
     assert lift_cfg.events["push_force"].mode == "step"
 assert tuple(lift_cfg.events["push_robot"].params["velocity_range"]["x"]) == tuple(lift_active.push.x)
 print(f"OK: push_robot x={lift_active.push.x}, push_force={'on' if lift_active.push.force_enabled else 'off'}")
+
+# --- DR de MASSA da caixa (eixo 2): se setado, um evento STARTUP box_mass_dr randomiza
+#     a massa/inércia da caixa por-env (via dr.pseudo_inertia). ---
+if lift_active.scene.box_mass_range is not None:
+    assert "box_mass_dr" in lift_cfg.events, "box_mass_range setado mas box_mass_dr ausente"
+    assert lift_cfg.events["box_mass_dr"].mode == "startup", "box_mass_dr deveria ser startup"
+    print(f"OK: DR de massa da caixa {lift_active.scene.box_mass_range} kg (evento startup)")
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 

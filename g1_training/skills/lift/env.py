@@ -8,8 +8,12 @@ pra manipular). Ver `rewards.py` pro racional de cada termo e a memória
 """
 from __future__ import annotations
 
+import math
+
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp import dr
 from mjlab.envs.mdp import events as base_events
+from mjlab.envs.mdp import rewards as base_rewards
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -124,6 +128,18 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
             },
         )
 
+    # DR DE MASSA DA CAIXA (eixo 2 do currículo): cada env sorteia uma massa no startup.
+    # pseudo_inertia escala massa E inércia por e^(2·alpha) (fisicamente consistente);
+    # alpha = 0.5·ln(mass/box_mass) mapeia o range em kg -> massa log-uniforme em [lo, hi].
+    if s.box_mass_range is not None:
+        lo, hi = s.box_mass_range
+        a_lo = 0.5 * math.log(lo / s.box_mass)
+        a_hi = 0.5 * math.log(hi / s.box_mass)
+        cfg.events["box_mass_dr"] = EventTermCfg(
+            func=dr.pseudo_inertia, mode="startup",
+            params={"asset_cfg": SceneEntityCfg("box"), "alpha_range": (a_lo, a_hi)},
+        )
+
     cmd = cfg.commands["lift_target"]
     cmd.target_x = knobs.command.target_x
     cmd.target_y = knobs.command.target_y
@@ -169,4 +185,13 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     cfg.rewards["box_shake"] = RewardTermCfg(
         func=R.box_shake_penalty, weight=r.box_shake, params={"object_name": "box"},
     )
+    # FREIO DE VELOCIDADE do braço (só se ligado): joint_vel_l2 nas juntas de manipulação
+    # (shoulder/elbow/wrist). Ataca o "correr" pra pegar/levar. NÃO inclui perna — ela
+    # precisa de velocidade pra agachar/equilibrar. (Migrar p/ accel/torque no futuro.)
+    if r.arm_vel != 0.0:
+        cfg.rewards["arm_vel"] = RewardTermCfg(
+            func=base_rewards.joint_vel_l2, weight=r.arm_vel,
+            params={"asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*(shoulder|elbow|wrist).*"])},
+        )
     return cfg
