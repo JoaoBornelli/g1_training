@@ -91,6 +91,25 @@ class Push:
 
 
 @dataclass
+class Plr:
+    """Prioritized Level Replay sobre ALTURAS de prateleira (currículo de altura).
+
+    Cada "nível" = uma altura de repouso da caixa. Lista VAZIA = PLR OFF (usa o
+    `shelf_top` único da Scene, comportamento antigo). Adicionar um degrau do currículo
+    = fazer APPEND de uma altura nova aqui (as anteriores continuam no sorteio →
+    anti-esquecimento). O sampler rank-based dá um piso a todas e foca sozinho na mais
+    difícil. Ver common/curriculums.py pro mecanismo."""
+    shelf_levels: tuple[float, ...] = ()   # () = OFF; ex: (0.55, 0.45, 0.35) do alto p/ baixo
+    floor_rho: float = 0.30                # piso uniforme: massa mínima em TODA altura
+    focus_beta: float = 1.0               # agressividade do foco na altura difícil (rank)
+    ema_alpha: float = 0.1                 # inércia do score de dificuldade (EMA)
+    level_jitter_z: float = 0.02           # ±jitter em z dentro de cada nível (generaliza)
+    seed_newest_high: bool = True          # nível mais novo (menor altura) começa prioritário
+    sustain_term: str = "sustain_precise"  # termo cuja soma do episódio vira performance
+    sustain_weight: float = 1.0            # peso do termo (normaliza performance p/ [0,1])
+
+
+@dataclass
 class Train:
     entropy_coef: float = 0.01
     num_envs: int = 4096
@@ -104,4 +123,5 @@ class LiftKnobs:
     reward: Reward = field(default_factory=Reward)
     foundation: Foundation = field(default_factory=Foundation)
     push: Push = field(default_factory=Push)
+    plr: Plr = field(default_factory=Plr)
     train: Train = field(default_factory=Train)

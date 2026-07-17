@@ -38,11 +38,22 @@ _CUSTOM_TASK = "Mjlab-Lift-Box-Unitree-G1-LiftPlay"
 def _register_custom_lift(shelf_top: float | None, rehearsal: bool) -> str:
     """Registra uma task de play da Lift com knobs ajustados (altura da prateleira /
     rehearsal on-off), pra inspecionar sem mexer no config de treino."""
-    scene_over = {} if shelf_top is None else {"shelf_top": shelf_top}
-    if not rehearsal:
-        scene_over["rehearsal_fraction"] = 0.0     # caixa sempre perto, pega/erguer limpo
-    knobs = dataclasses.replace(
-        LIFT_ACTIVE, scene=dataclasses.replace(LIFT_ACTIVE.scene, **scene_over))
+    over: dict = {}
+    scene_over: dict = {}
+    plr = LIFT_ACTIVE.plr
+    if plr.shelf_levels:
+        # PLR ativo: FIXA uma altura só pra inspecionar limpo (--shelf-top, senão a mais
+        # BAIXA = a mais nova/difícil). level_jitter_z=0 → a caixa cai exatamente na altura.
+        pin = shelf_top if shelf_top is not None else min(plr.shelf_levels)
+        over["plr"] = dataclasses.replace(plr, shelf_levels=(pin,), level_jitter_z=0.0)
+    else:
+        if shelf_top is not None:
+            scene_over["shelf_top"] = shelf_top
+        if not rehearsal:
+            scene_over["rehearsal_fraction"] = 0.0   # caixa sempre perto, pega/erguer limpo
+    if scene_over:
+        over["scene"] = dataclasses.replace(LIFT_ACTIVE.scene, **scene_over)
+    knobs = dataclasses.replace(LIFT_ACTIVE, **over)
     register_mjlab_task(
         task_id=_CUSTOM_TASK,
         env_cfg=build_lift_env(knobs, play=False),
@@ -59,7 +70,8 @@ def main() -> None:
                    help="fase treinada no checkpoint (default: Stand)")
     p.add_argument("--envs", type=int, default=1, help="nº de robôs na cena (default: 1)")
     p.add_argument("--shelf-top", type=float, default=None,
-                   help="[Lift] altura da prateleira mocap (testa o currículo de altura)")
+                   help="[Lift] altura da prateleira mocap a inspecionar. Com PLR ativo, "
+                        "FIXA nessa altura (default = a mais baixa da lista de níveis)")
     p.add_argument("--rehearsal", action="store_true",
                    help="[Lift] mantém os envs 'só ficar de pé' (default: off no play)")
     p.add_argument("--video", action="store_true",

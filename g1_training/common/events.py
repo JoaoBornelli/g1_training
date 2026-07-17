@@ -128,3 +128,57 @@ def reset_scene_with_rehearsal(
     tab_pos[is_stand, 1] = origins[is_stand, 1]
     table.write_mocap_pose_to_sim(
         torch.cat([tab_pos, tab_root[:, 3:7]], dim=-1), env_ids=env_ids)
+
+
+def reset_scene_plr(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor | None,
+    box_pose_range: dict[str, tuple[float, float]],
+    box_half_z: float,
+    shelf_half_z: float,
+    level_jitter_z: float = 0.0,
+    box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> None:
+    """Posiciona caixa+prateleira nas ALTURAS que o PLR sorteou (por-env).
+
+    Lê `env.plr_shelf_top[env_ids]` — a altura do nível escolhida pelo curriculum
+    `plr_heights`, que roda ANTES deste evento no reset (curriculum.compute na linha
+    554 vs event.apply na 560 do manager_based_rl_env) → sem off-by-one. Aplica jitter
+    ±`level_jitter_z` (generaliza EM TORNO de cada altura, não decora valores exatos) e
+    posiciona: prateleira mocap no centro do slab fino, caixa repousando em cima. Grava
+    `env.plr_rest_z[env_ids]` (z de repouso REAL, com jitter) pro `lift_reward` normalizar
+    o progresso de erguer POR-ENV (cada altura tem seu zero). O xy da caixa recebe o
+    jitter de `box_pose_range` (herdado do generalize). Ver common/curriculums.py."""
+    env_ids = mjlab_events.resolve_env_ids(env, env_ids)
+    n = len(env_ids)
+    device = env.device
+    origins = env.scene.env_origins[env_ids]
+
+    shelf_top = env.plr_shelf_top[env_ids].clone()                # [n] altura do nível
+    if level_jitter_z > 0.0:
+        shelf_top = shelf_top + mjlab_events.sample_uniform(
+            -level_jitter_z, level_jitter_z, (n,), device)
+    box_z = shelf_top + box_half_z                                # repouso no topo
+    shelf_center_z = shelf_top - shelf_half_z                     # centro do slab fino
+    env.plr_rest_z[env_ids] = box_z                              # p/ o lift_reward (per-env)
+
+    # --- CAIXA (livre): xy default + jitter + origin; z = repouso na prateleira ---
+    box: Entity = env.scene[box_cfg.name]
+    box_root = box.data.default_root_state[env_ids].clone()
+    off = torch.zeros(n, 3, device=device)
+    for i, key in enumerate(("x", "y")):
+        if key in box_pose_range:
+            off[:, i] = mjlab_events.sample_uniform(
+                box_pose_range[key][0], box_pose_range[key][1], (n,), device)
+    box_pos = box_root[:, 0:3] + off + origins
+    box_pos[:, 2] = box_z
+    _write_root(box, box_pos, box_root[:, 3:7], env_ids, device)
+
+    # --- PRATELEIRA (mocap): xy default + origin; z = centro do slab na altura do nível ---
+    table: Entity = env.scene[table_cfg.name]
+    tab_root = table.data.default_root_state[env_ids].clone()
+    tab_pos = tab_root[:, 0:3] + origins
+    tab_pos[:, 2] = shelf_center_z
+    table.write_mocap_pose_to_sim(
+        torch.cat([tab_pos, tab_root[:, 3:7]], dim=-1), env_ids=env_ids)

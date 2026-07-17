@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import events as base_events
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from ...base_env import BACK_SENSORS, BODY_TABLE_SENSOR, FOOT_SITES, PALM_SENSORS, build_base_env
+from ...common import curriculums as C
 from ...common import events as lift_events
 from ...common.robot import PALM_SITES
 from . import rewards as R
@@ -48,10 +50,13 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
         posture_weight=knobs.reward.posture,
         posture_joints=_POSTURE_JOINTS,
     )
-    # REHEARSAL: troca os resets separados de caixa/mesa por UM evento combinado
-    # que joga caixa E mesa pra LONGE numa fração dos envs (cena limpa de só ficar
-    # de pé) — mesma máscara por-env pros dois. Ver events.py.
-    if s.rehearsal_fraction > 0:
+    plr = knobs.plr
+    use_plr = len(plr.shelf_levels) > 0
+
+    # REHEARSAL (cross-skill, LEGADO): troca os resets de caixa/mesa por um evento
+    # que joga caixa E mesa pra LONGE numa fração dos envs (cena "só ficar de pé").
+    # Desativado quando o PLR está on (o PLR É o rehearsal multi-altura). Ver events.py.
+    if s.rehearsal_fraction > 0 and not use_plr:
         cfg.events.pop("reset_box", None)
         cfg.events.pop("reset_table", None)
         cfg.events["reset_scene_rehearsal"] = EventTermCfg(
@@ -61,6 +66,37 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
                 "rehearsal_fraction": s.rehearsal_fraction,
                 "far_x": s.rehearsal_far_x,
                 "box_far_z": s.box_half[2],
+            },
+        )
+
+    # PLR DE ALTURA (currículo): se houver níveis, troca os resets de caixa/mesa por um
+    # evento que posiciona nas alturas sorteadas por um curriculum rank-based (piso em
+    # todas as alturas conhecidas + foco na difícil, rebalanceado sozinho). O curriculum
+    # roda ANTES do evento no reset → grava env.plr_shelf_top, o evento lê e posiciona.
+    # Ver common/curriculums.py. Mutuamente exclusivo com o rehearsal legado.
+    if use_plr:
+        cfg.events.pop("reset_box", None)
+        cfg.events.pop("reset_table", None)
+        cfg.events["reset_scene_plr"] = EventTermCfg(
+            func=lift_events.reset_scene_plr, mode="reset",
+            params={
+                "box_pose_range": box_pose_range,
+                "box_half_z": s.box_half[2],
+                "shelf_half_z": s.shelf_half_z,
+                "level_jitter_z": (0.0 if play else plr.level_jitter_z),
+            },
+        )
+        cfg.curriculum["plr_heights"] = CurriculumTermCfg(
+            func=C.PlrHeights,
+            params={
+                "shelf_levels": tuple(plr.shelf_levels),
+                "floor_rho": plr.floor_rho,
+                "focus_beta": plr.focus_beta,
+                "ema_alpha": plr.ema_alpha,
+                "seed_newest_high": plr.seed_newest_high,
+                "sustain_term": plr.sustain_term,
+                "sustain_weight": plr.sustain_weight,
+                "box_half_z": s.box_half[2],
             },
         )
 
@@ -109,7 +145,9 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     cfg.rewards["lift"] = RewardTermCfg(
         func=R.lift_reward, weight=r.lift,
         params={"object_name": "box", "command_name": "lift_target", "rest_z": box_z,
-                "upright_std": r.upright_std, **grasp_sensors},
+                "upright_std": r.upright_std,
+                "rest_z_attr": ("plr_rest_z" if use_plr else None),   # PLR: rest_z por-env
+                **grasp_sensors},
     )
     cfg.rewards["sustain_precise"] = RewardTermCfg(
         func=R.sustain_precise_reward, weight=r.sustain_precise,

@@ -97,8 +97,24 @@ print(f"OK: config ativo da Lift = caixa em x={lift_active.scene.box_xy[0]} (bor
 #     Com rehearsal: um evento combinado reset_scene_rehearsal (caixa+mesa). ---
 jx, jy = lift_active.scene.box_jitter_x, lift_active.scene.box_jitter_y
 expected_range = {"x": tuple(jx), "y": tuple(jy)} if (any(jx) or any(jy)) else {}
-_reh = lift_active.scene.rehearsal_fraction > 0
-if _reh:
+_plr = len(lift_active.plr.shelf_levels) > 0
+_reh = lift_active.scene.rehearsal_fraction > 0 and not _plr
+if _plr:
+    # PLR de altura: resets separados de caixa/mesa dão lugar ao reset_scene_plr
+    # (posiciona nas alturas sorteadas) + curriculum plr_heights (sorteia/pontua).
+    assert "reset_box" not in lift_cfg.events and "reset_table" not in lift_cfg.events, \
+        "PLR ligado mas os resets separados de caixa/mesa não foram substituídos"
+    ev = lift_cfg.events["reset_scene_plr"]
+    assert ev.params["box_pose_range"] == expected_range
+    assert ev.params["shelf_half_z"] == lift_active.scene.shelf_half_z
+    assert "plr_heights" in lift_cfg.curriculum, "curriculum plr_heights ausente"
+    assert tuple(lift_cfg.curriculum["plr_heights"].params["shelf_levels"]) \
+        == tuple(lift_active.plr.shelf_levels)
+    assert lift_cfg.rewards["lift"].params.get("rest_z_attr") == "plr_rest_z", \
+        "PLR ligado mas o lift_reward não está com rest_z POR-ENV (plr_rest_z)"
+    print(f"OK: PLR ligado — reset_scene_plr + curriculum plr_heights, "
+          f"níveis {tuple(lift_active.plr.shelf_levels)}")
+elif _reh:
     assert "reset_box" not in lift_cfg.events and "reset_table" not in lift_cfg.events, \
         "rehearsal ligado mas os resets separados de caixa/mesa não foram substituídos"
     ev = lift_cfg.events["reset_scene_rehearsal"]
@@ -180,20 +196,50 @@ shelf_env.reset()
 _a0 = torch.zeros(shelf_env.num_envs, shelf_env.action_manager.total_action_dim, device=shelf_env.device)
 for _ in range(25):                      # deixa acomodar sob gravidade
     shelf_env.step(_a0)
-box_rest_z = lift_active.scene.shelf_top + lift_active.scene.box_half[2]
 bz = shelf_env.scene["box"].data.root_link_pos_w[:, 2]
 bx = shelf_env.scene["box"].data.root_link_pos_w[:, 0] - shelf_env.scene.env_origins[:, 0]
 near = bx < 1.0
 assert bool(near.any()), "sem caixa perto pra testar o apoio"
-resting = (bz[near] > box_rest_z - 0.08).float().mean().item()   # tolera pequena acomodação
+# altura de repouso esperada: POR-ENV com PLR (cada altura tem a sua), senão escalar
+if _plr:
+    expected_rest = shelf_env.plr_rest_z                       # [B] z de repouso por-env
+else:
+    expected_rest = torch.full_like(
+        bz, lift_active.scene.shelf_top + lift_active.scene.box_half[2])
+resting = (bz[near] > expected_rest[near] - 0.08).float().mean().item()  # tolera acomodação
 assert resting > 0.5, (f"caixa PERTO caiu da prateleira mocap (z médio {bz[near].mean():.3f}, "
-                       f"esperado ~{box_rest_z:.2f}) — mocap não está segurando a caixa")
-# a prateleira (mocap) é FIXA (cinemática): não deve cair sob gravidade
+                       f"esperado ~{expected_rest[near].mean():.2f}) — mocap não segura a caixa")
+# a prateleira (mocap) é FIXA (cinemática): não deve cair. z do slab = repouso - box_half - meia-espessura
 tz = shelf_env.scene["table"].data.root_link_pos_w[:, 2]
-assert (tz > lift_active.scene.shelf_top - lift_active.scene.shelf_half_z - 0.02).all(), \
-    "prateleira mocap caiu (deveria ser cinemática/fixa)"
-print(f"OK: prateleira mocap segura a caixa ({resting:.0%} das perto repousando ~{box_rest_z:.2f} "
-      f"após 25 steps) e ela própria não cai (cinemática)")
+min_shelf = expected_rest - lift_active.scene.box_half[2] - lift_active.scene.shelf_half_z - 0.02
+assert (tz > min_shelf).all(), "prateleira mocap caiu (deveria ser cinemática/fixa)"
+print(f"OK: prateleira mocap segura a caixa ({resting:.0%} das perto repousando "
+      f"~{expected_rest[near].mean():.2f}) e ela própria não cai (cinemática)")
+
+# --- PLR DE ALTURA: os envs têm que aparecer em MÚLTIPLAS alturas ao longo de resets,
+#     e a distribuição de sorteio precisa dar massa a TODAS as alturas (piso ρ). ---
+if _plr:
+    plr_cfg = load_env_cfg("Mjlab-Lift-Box-Unitree-G1-Lift")
+    plr_cfg.scene.num_envs = 128
+    plr_env = ManagerBasedRlEnv(cfg=plr_cfg, device=DEVICE)
+    levels = torch.tensor(lift_active.plr.shelf_levels, device=plr_env.device)
+    seen: set[float] = set()
+    for _ in range(4):                   # sorteio novo a cada reset
+        plr_env.reset()
+        for h in plr_env.plr_shelf_top.unique():
+            assert bool((torch.abs(levels - h) < 1e-4).any()), \
+                f"altura sorteada {float(h):.3f} não é um dos níveis {tuple(lift_active.plr.shelf_levels)}"
+            seen.add(round(float(h), 3))
+    assert len(seen) >= min(2, len(lift_active.plr.shelf_levels)), \
+        f"PLR sorteou só {sorted(seen)}; esperava ver múltiplas alturas em 4 resets"
+    # distribuição rank-based: piso em TODAS (nenhuma zerada) e soma 1
+    term = plr_env.curriculum_manager.get_term_cfg("plr_heights").func
+    P = term._distribution()
+    assert bool((P > 0).all()), f"PLR zerou alguma altura (piso ρ falhou): {P.tolist()}"
+    assert abs(float(P.sum()) - 1.0) < 1e-4, "distribuição do PLR não soma 1"
+    assert plr_env.plr_rest_z.shape[0] == plr_env.num_envs, "buffer plr_rest_z por-env ausente"
+    print(f"OK: PLR — alturas sorteadas {sorted(seen)}, piso em todas "
+          f"(P={[round(x, 2) for x in P.tolist()]}), rest_z por-env presente")
 
 print("\nOK smoke completo: 3 skills registradas, fundação (feet_slip) sempre presente,")
-print("prateleira mocap segura a caixa (é levantável), rehearsal move caixa+mesa, envs sobem.")
+print("prateleira mocap segura a caixa (levantável), PLR de altura sorteia múltiplas alturas.")

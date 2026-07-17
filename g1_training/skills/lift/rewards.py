@@ -99,7 +99,7 @@ def grasp_reward(env, palm_sensors, back_sensors):
 
 
 def lift_reward(env, object_name, command_name, palm_sensors, back_sensors, rest_z,
-                upright_std: float = 0.1):
+                upright_std: float = 0.1, rest_z_attr: str | None = None):
     """Preensão × ORIENTAÇÃO × PROGRESSO de altura (0 na mesa -> 1 no alvo). Contínuo e
     monotônico, exige preensão (mata arremesso). O fator de ORIENTAÇÃO (alinhamento do
     eixo-up da caixa com o mundo) FECHA o hack de TOMBAR: deitar a caixa subia o centro
@@ -116,7 +116,12 @@ def lift_reward(env, object_name, command_name, palm_sensors, back_sensors, rest
     obj: Entity = env.scene[object_name]
     box_z = obj.data.root_link_pos_w[:, 2]
     target_z = env.command_manager.get_term(command_name).command[:, 2]
-    progress = torch.clamp((box_z - rest_z) / (target_z - rest_z), 0.0, 1.0)
+    # rest_z (altura de repouso da caixa = zero do progresso). ESCALAR por default;
+    # com PLR de altura vira POR-ENV (cada altura tem seu zero) via buffer env.plr_rest_z
+    # — senão as alturas baixas ficariam sem gradiente de lift (a caixa nasce abaixo do
+    # rest_z fixo → progresso clampado em 0 na maior parte do erguer). Ver curriculums.py.
+    rz = getattr(env, rest_z_attr) if rest_z_attr is not None else rest_z
+    progress = torch.clamp((box_z - rz) / (target_z - rz), 0.0, 1.0)
     world_up = torch.zeros(box_z.shape[0], 3, device=box_z.device)
     world_up[:, 2] = 1.0
     box_up = quat_apply(obj.data.root_link_quat_w, world_up)   # eixo-up da caixa no mundo
