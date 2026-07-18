@@ -12,6 +12,7 @@ ficam só os pontos de partida confiáveis pra warm-start / play / comparação.
 | `model_8150_dual_height_stable.pt` | **lift** | 2 alturas [0.55, 0.45] + **payload 0.5–5kg** (it 8150) | `python play.py reference_checkpoints/model_8150_dual_height_stable.pt --task Lift --shelf-top 0.45 --weight 3.0` |
 | `model_8650_triple_height_payload.pt` | **lift** | **3 alturas [0.55, 0.45, 0.35] + payload 0.5–5kg** (it 8650) | `python play.py reference_checkpoints/model_8650_triple_height_payload.pt --task Lift --shelf-top 0.35 --weight 3.0` |
 | `model_10000_smooth_impact.pt` | **lift** | 4 alturas [0.55,0.45,0.35,0.25] + payload + **action_scale 0.8 + impact** (it 10000). RECUPERADO do dip profundo do warm-start, MAS exibe o hack de "correr" pra minimizar tempo sob penalidade (por-step) → salvo "por enquanto" como referência/comparação, NÃO milestone limpo | `python play.py reference_checkpoints/model_10000_smooth_impact.pt --task Lift --shelf-top 0.25 --weight 3.0` |
+| `model_11300_lift_to_0-15.pt` | **lift** | **MELHOR até agora** (it 11300): pega bem em ~todas as alturas até **0.15** (gener. do currículo 0.25 + refino feet_slip −0.3 / table_contact −5 anti-apoio). Base do warm-start da passada final rumo ao chão (0.0) | `python play.py reference_checkpoints/model_11300_lift_to_0-15.pt --task Lift --shelf-top 0.15 --weight 3.0` |
 
 Notas:
 - `lift_6550` é a **base do currículo de altura**: warm-start daqui pra baixar a
