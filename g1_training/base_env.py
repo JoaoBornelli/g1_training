@@ -46,6 +46,7 @@ PALM_SENSORS = ("palm_L_box", "palm_R_box")
 BACK_SENSORS = ("back_L_box", "back_R_box")
 SUPPORT_SENSOR = "box_support"
 BODY_TABLE_SENSOR = "body_table"
+BODY_IMPACT_SENSOR = "body_table_impact"
 FOOT_SITES = foundation.FOOT_SITES
 
 
@@ -193,6 +194,18 @@ def build_base_env(
         secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),
         fields=("found",), reduce="netforce", num_slots=1,
     )
-    cfg.scene.sensors = (cfg.scene.sensors or ()) + (*palm_sensors, *back_sensors, box_support, body_table)
+    # IMPACTO na mesa (força no 1º contato): subtree torso_link cobre tronco+braço+punho+MÃO
+    # → pega o "bate na mesa ao alcançar" que o body_table (.*_collision, sem pads) não vê.
+    # track_air_time + campo force = pré-requisitos do soft_landing (espelha o
+    # feet_ground_contact testado da velocity). Separado do body_table booleano: aqui a
+    # PANCADA da mão conta (first_contact × força), lá a escora do corpo (booleano) conta.
+    body_table_impact = ContactSensorCfg(
+        name=BODY_IMPACT_SENSOR,
+        primary=ContactMatch(mode="subtree", pattern=r"^torso_link$", entity="robot"),
+        secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),
+        fields=("found", "force"), reduce="netforce", num_slots=1, track_air_time=True,
+    )
+    cfg.scene.sensors = (cfg.scene.sensors or ()) + (
+        *palm_sensors, *back_sensors, box_support, body_table, body_table_impact)
 
     return cfg

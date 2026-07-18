@@ -81,6 +81,13 @@ class Reward:
                                           # corpo todo). ⚠ COM PAYLOAD LIGADO: briga com segurar
                                           # peso (caixa pesada = mais torque) → NÃO usar junto do
                                           # box_weight_range. Só útil sem payload / sim-to-real.
+    impact: float = 0.0                  # ANTI-IMPACTO (0=off): pune a MAGNITUDE da força no
+                                          # PRIMEIRO contato tronco/braço/punho/mão↔mesa. Reusa o
+                                          # soft_landing TESTADO do mjlab (sensor body_table_impact,
+                                          # subtree torso). first_contact => aproximar gentil é de
+                                          # graça, só a PANCADA custa. Watch Metrics/landing_force_mean
+                                          # pra calibrar. COMPLEMENTA (não substitui) o table_contact
+                                          # booleano (escora). Start típico ~−1e-4.
     # fundação escopada por skill:
     upright: float = 1.0   # ⚠ NUNCA baixar sem motivo forte — tentado e revertido 07-15
                             #    (afrouxar upright/posture pra "liberar reach" degradou o
@@ -93,6 +100,13 @@ class Foundation:
     action_rate_l2: float = -0.1
     body_ang_vel: float = -0.05
     angular_momentum: float = -0.02
+    # ESCALA DE AÇÃO (estrutural, ataca "movimento rápido"): multiplicador GLOBAL sobre o
+    # G1_ACTION_SCALE por-junta (0.25·effort/stiffness da fabricante). <1.0 encolhe o
+    # deslocamento-alvo POR PASSO → movimento mais gentil, SEM competir na soma de reward
+    # (não dá pra ser "vencido" por reaching/lift). É o próprio action_scale do G1, só menor
+    # = lever testado. ⚠ warm-start com scale novo MUDA a dinâmica ação→junta → baixar a LR
+    # inicial (5e-4, ver [[warmstart-lower-lr]]). 1.0 = off (default da fabricante).
+    action_scale_mult: float = 1.0
 
 
 @dataclass

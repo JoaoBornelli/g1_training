@@ -11,12 +11,16 @@ from __future__ import annotations
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import events as base_events
 from mjlab.envs.mdp import rewards as base_rewards
+from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from ...base_env import BACK_SENSORS, BODY_TABLE_SENSOR, FOOT_SITES, PALM_SENSORS, build_base_env
+from ...base_env import (
+    BACK_SENSORS, BODY_IMPACT_SENSOR, BODY_TABLE_SENSOR, FOOT_SITES, PALM_SENSORS,
+    build_base_env,
+)
 from ...common import curriculums as C
 from ...common import events as lift_events
 from ...common.robot import PALM_SITES
@@ -106,6 +110,16 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     cfg.rewards["body_ang_vel"].weight = knobs.foundation.body_ang_vel
     cfg.rewards["angular_momentum"].weight = knobs.foundation.angular_momentum
 
+    # ESCALA DE AÇÃO (estrutural, movimento mais gentil): encolhe o G1_ACTION_SCALE por-junta
+    # por um fator global. Não entra na soma de reward → não compete com reach/lift.
+    mult = knobs.foundation.action_scale_mult
+    if mult != 1.0:
+        act = cfg.actions["joint_pos"]
+        if isinstance(act.scale, dict):
+            act.scale = {k: v * mult for k, v in act.scale.items()}
+        else:
+            act.scale = act.scale * mult
+
     if "push_robot" in cfg.events:
         vr = cfg.events["push_robot"].params["velocity_range"]
         vr["x"] = knobs.push.x
@@ -179,6 +193,14 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
     cfg.rewards["box_shake"] = RewardTermCfg(
         func=R.box_shake_penalty, weight=r.box_shake, params={"object_name": "box"},
     )
+    # ANTI-IMPACTO (só se ligado): reusa o soft_landing TESTADO do mjlab no sensor
+    # body_table_impact — força no PRIMEIRO contato tronco/braço/mão↔mesa. Aproximar
+    # gentil = de graça; PANCADA custa. Loga Metrics/landing_force_mean (calibra o peso).
+    if r.impact != 0.0:
+        cfg.rewards["impact"] = RewardTermCfg(
+            func=vel_mdp.soft_landing, weight=r.impact,
+            params={"sensor_name": BODY_IMPACT_SENSOR},
+        )
     # FREIO DE VELOCIDADE do braço (só se ligado): joint_vel_l2 nas juntas de manipulação
     # (shoulder/elbow/wrist). Ataca o "correr" pra pegar/levar. NÃO inclui perna — ela
     # precisa de velocidade pra agachar/equilibrar. (Migrar p/ accel/torque no futuro.)
