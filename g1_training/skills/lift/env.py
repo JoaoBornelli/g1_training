@@ -224,4 +224,13 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
             func=base_rewards.joint_torques_l2, weight=r.joint_torque_pen,
             params={"asset_cfg": SceneEntityCfg("robot")},
         )
+    # DESVIO L1 de hip ROLL/YAW (só se ligado): anti-"perna esticada ao lado"/espacate. Escopo
+    # roll+yaw → deixa hip/knee/ankle PITCH livres (o agachar). L1 reboca splay grande que a
+    # posture gaussiana satura e não puxa. Ver R.joint_deviation_l1 e [[g1-lift-box-future-refinements]].
+    if r.hip_deviation != 0.0:
+        cfg.rewards["hip_deviation"] = RewardTermCfg(
+            func=R.joint_deviation_l1, weight=r.hip_deviation,
+            params={"asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*_hip_(roll|yaw)_joint"])},
+        )
     return cfg

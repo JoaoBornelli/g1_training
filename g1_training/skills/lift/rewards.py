@@ -183,3 +183,22 @@ def box_shake_penalty(env, object_name):
     sim, NÃO entra na obs do actor -> contrato sim-to-real intacto."""
     obj: Entity = env.scene[object_name]
     return torch.sum(torch.square(obj.data.root_link_ang_vel_w), dim=-1)
+
+
+def joint_deviation_l1(env, asset_cfg):
+    """Penaliza |ângulo − keyframe default| (L1) das juntas em asset_cfg — pra HIP_ROLL/YAW.
+
+    Ataca a 'perna esticada pro lado' / espacate: no play (model_15700) a hip_roll esquerda
+    ficava aberta +53.7° (default 0) enquanto a direita agachava — base assimétrica, pose
+    final não-natural. Por que L1 e não a posture existente: a posture é GAUSSIANA (exp(-dev²
+    /std²)) → a 53° (~0.94 rad, std 0.5) ela SATURA (~0.03) e não tem mais gradiente pra
+    rebocar. L1 dá gradiente CONSTANTE em qualquer desvio → puxa de volta mesmo de 53°.
+
+    Escopo hip ROLL/YAW só (via joint_names no asset_cfg) — deixa hip/knee/ankle PITCH LIVRES,
+    que são o agachar. Molde real-G1: IsaacLab joint_deviation_l1 (hip −0.1) / unitree_rl_gym
+    hip_pos. feet_slip NÃO resolve isso (o splay é hip_roll estático com pé plantado → slip 0,
+    invisível pro feet_slip)."""
+    robot: Entity = env.scene[asset_cfg.name]
+    dev = (robot.data.joint_pos[:, asset_cfg.joint_ids]
+           - robot.data.default_joint_pos[:, asset_cfg.joint_ids])
+    return torch.sum(torch.abs(dev), dim=-1)

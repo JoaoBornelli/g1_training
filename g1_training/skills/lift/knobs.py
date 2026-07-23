@@ -81,6 +81,12 @@ class Reward:
                                           # corpo todo). ⚠ COM PAYLOAD LIGADO: briga com segurar
                                           # peso (caixa pesada = mais torque) → NÃO usar junto do
                                           # box_weight_range. Só útil sem payload / sim-to-real.
+    hip_deviation: float = 0.0           # ANTI-ESPACATE / "perna esticada ao lado" (0=off):
+                                          # desvio L1 de hip_ROLL/YAW vs keyframe (deixa PITCH
+                                          # livre = agachar). L1 = gradiente constante → reboca
+                                          # splay grande (53°) que a posture gaussiana satura e
+                                          # não puxa. feet_slip NÃO pega (splay estático = slip 0).
+                                          # Molde IsaacLab joint_deviation_l1 hip. Start ~−0.1.
     impact: float = 0.0                  # ANTI-IMPACTO (0=off): pune a MAGNITUDE da força no
                                           # PRIMEIRO contato tronco/braço/punho/mão↔mesa. Reusa o
                                           # soft_landing TESTADO do mjlab (sensor body_table_impact,
