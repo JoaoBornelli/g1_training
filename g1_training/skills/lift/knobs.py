@@ -81,6 +81,11 @@ class Reward:
                                           # corpo todo). ⚠ COM PAYLOAD LIGADO: briga com segurar
                                           # peso (caixa pesada = mais torque) → NÃO usar junto do
                                           # box_weight_range. Só útil sem payload / sim-to-real.
+    hold_still: float = 0.0              # ANTI-REBOLADO (0=off): BÔNUS de quietude no hold =
+                                          # grasp × kernel(caixa→alvo, std 0.25) × exp(−‖ω_pelve‖²
+                                          # /0.5²). Bônus (não penalidade: seria absorvida) e
+                                          # gated (não taxa reach/lift). Par com a posture:
+                                          # posição (posture) + VELOCIDADE (este). Start ~+0.5.
     hip_deviation: float = 0.0           # ANTI-ESPACATE / "perna esticada ao lado" (0=off):
                                           # desvio L1 de hip_ROLL/YAW vs keyframe (deixa PITCH
                                           # livre = agachar). L1 = gradiente constante → reboca

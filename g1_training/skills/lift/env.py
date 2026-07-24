@@ -224,6 +224,15 @@ def build_lift_env(knobs: LiftKnobs, play: bool = False) -> ManagerBasedRlEnvCfg
             func=base_rewards.joint_torques_l2, weight=r.joint_torque_pen,
             params={"asset_cfg": SceneEntityCfg("robot")},
         )
+    # QUIETUDE NO HOLD (só se ligado): bônus anti-rebolado — grasp × perto-do-alvo ×
+    # exp(−‖ω_pelve‖²). Ver R.hold_still_bonus pro racional completo (ponto cego dos
+    # 5 termos, bônus vs penalidade, par posição+velocidade).
+    if r.hold_still != 0.0:
+        cfg.rewards["hold_still"] = RewardTermCfg(
+            func=R.hold_still_bonus, weight=r.hold_still,
+            params={"object_name": "box", "command_name": "lift_target",
+                    "gate_std": 0.25, "still_std": 0.5, **grasp_sensors},
+        )
     # DESVIO L1 de hip ROLL/YAW (só se ligado): anti-"perna esticada ao lado"/espacate. Escopo
     # roll+yaw → deixa hip/knee/ankle PITCH livres (o agachar). L1 reboca splay grande que a
     # posture gaussiana satura e não puxa. Ver R.joint_deviation_l1 e [[g1-lift-box-future-refinements]].

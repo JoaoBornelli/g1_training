@@ -185,6 +185,29 @@ def box_shake_penalty(env, object_name):
     return torch.sum(torch.square(obj.data.root_link_ang_vel_w), dim=-1)
 
 
+def hold_still_bonus(env, object_name, command_name, palm_sensors, back_sensors,
+                     gate_std: float = 0.25, still_std: float = 0.5):
+    """BÔNUS de QUIETUDE no hold: grasp × kernel(caixa→alvo) × exp(−‖ω_pelve‖²/std²).
+
+    Anti-REBOLADO (recipe #2/SplitAdapter). Por que cada escolha:
+    - PELVE (root do G1), não torso: o rebolado é da pelve; a cintura contra-rotaciona
+      e mantém o torso parado → body_ang_vel (torso) é CEGO. angular_momentum também
+      (oscilação interna cancela o momento LÍQUIDO). feet_slip não vê pivô sem deslize.
+      posture não tem gradiente p/ oscilação CENTRADA no keyframe (gaussiana plana no topo).
+    - BÔNUS, não penalidade: penalidade em estratégia que protege renda é ABSORVIDA
+      (hip_deviation −0.6, 07-24); bônus não dá pra absorver — ou fica quieto e ganha, ou não.
+    - GATED no hold (grasp × perto-do-alvo): não taxa reach/lift (inclinar pra pegar É
+      rotação de pelve). Espelha o stand da velocity: posture apertada + tracking de
+      velocidade→ZERO (par posição+velocidade; posture sozinha nunca segura quietude).
+    - ‖ω‖² é invariante de frame (norma preserva sob rotação) → world frame ok.
+    still_std=0.5: micro-correção (ω~0.2) ganha 0.85 do bônus; rebolado (ω~1) ganha 0.02."""
+    err_sq = _box_target_err_sq(env, object_name, command_name)
+    gate = _grasp(env, palm_sensors, back_sensors) * height_kernel(err_sq, gate_std)
+    robot: Entity = env.scene["robot"]
+    w2 = torch.sum(torch.square(robot.data.root_link_ang_vel_w), dim=-1)
+    return gate * torch.exp(-w2 / (still_std ** 2))
+
+
 def joint_deviation_l1(env, asset_cfg):
     """Penaliza |ângulo − keyframe default| (L1) das juntas em asset_cfg — pra HIP_ROLL/YAW.
 
