@@ -366,10 +366,29 @@ class Curriculum:
 
 @dataclass
 class Train:
+    """⚠️ **DOCUMENTAÇÃO, não configuração. Nada aqui é lido pelo código.**
+
+    Estes números moram em outro lugar, e mudá-los AQUI não tem efeito nenhum —
+    ficaria um knob pendurado, do tipo que engana quem for tunar depois. Onde cada um
+    vive de verdade:
+
+    | número | onde se muda de verdade |
+    |---|---|
+    | `num_envs` | `cfg.env.scene.num_envs` no lançamento |
+    | `num_steps_per_env` | `rl_cfg` do fabricante (já é 24) |
+    | `entropy_coef` | `cfg.agent.algorithm.entropy_coef` (já é 0.01) |
+    | `iters_por_bloco` | `cfg.agent.max_iterations` no lançamento |
+    | `save_interval` | `rl_cfg` do fabricante (já é 50) |
+
+    Ficam registrados porque são o número da §14 e o valor conferido do fabricante —
+    serve de referência ao montar a célula de lançamento. Ver
+    `g1_multitask/kaggle/`."""
+
     num_envs: int = 4096
     """§14 — e com DDP este número é POR RANK, não total."""
-    num_steps_per_env: int = 24         # §14 — medido
-    entropy_coef: float = 0.01
+    num_steps_per_env: int = 24         # §14 — medido; = default do fabricante
+    entropy_coef: float = 0.01          # = default do fabricante, conferido 30/07
+    save_interval: int = 50             # = default do fabricante -> 20 ckpts em 1000 iters
     iters_por_bloco: int = 2500
     """A run é fatiada em blocos de 2k-3k, com inspeção entre um e o outro — não é
     uma sessão de 30 000. Consequência: `save`/`resume` dispara 10-15 vezes."""
