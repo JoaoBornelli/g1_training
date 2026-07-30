@@ -1,17 +1,17 @@
 """Pré-voo em GPU. Rode ANTES de submeter treino — leva ~2 min:
 
-    python g1_multitask/preflight_gpu.py
+    python g1_multitask/preflight_gpu.py [num_envs]
 
-Existe por um motivo só: **`dr.body_com_offset` corrompe a heap no backend CPU do
-warp** (medido 30/07 — core dump, e derruba a task do próprio fabricante do mesmo
-jeito). O evento fica LIGADO no config porque o treino roda em GPU, onde o caminho de
-kernel é outro e o bug pode não existir. Mas "pode não existir" não é verificação.
+Mede o que **só a GPU revela**: pico de VRAM e steps/s reais, que é o que dimensiona
+os blocos de 2k-3k de verdade. E guarda que o `base_com` continua fora.
 
-Se este script passar, submeta. Se ele derrubar o processo, ponha
-`DR(base_com=False)` no config e siga — perde-se ±2.5 cm de randomização de CoM, não
-se perde a run.
+Ele nasceu para testar o item 0 — `dr.body_com_offset` — e esse item **fechou em
+30/07**: o A/B em processos separados com `CUDA_LAUNCH_BLOCKING=1` mostrou que o
+evento corrompe memória em GPU também, não só em CPU, e a resposta foi desligar. O
+assert aqui virou o contrário do que era: agora ele falha se o evento VOLTAR.
 
-De brinde, mede o que só a GPU revela: pico de VRAM e steps/s reais.
+Se ele derrubar o processo mesmo com o `base_com` fora, o suspeito passa a ser escala
+— rode com `1024`, depois `2048`, depois `4096`, e veja onde estoura.
 """
 import pathlib
 import sys
@@ -38,8 +38,15 @@ print(f"GPU: {torch.cuda.get_device_name(0)}   "
 
 cfg = load_env_cfg(g1_multitask.TASK_ID)
 cfg.scene.num_envs = NUM_ENVS
-assert "base_com" in cfg.events, "o config deveria trazer o base_com — ver knobs.DR"
-print(f"\nbase_com LIGADO, {NUM_ENVS} envs. Construindo...")
+# O `base_com` tem que estar FORA: `dr.body_com_offset` corrompe memória em CPU e em
+# GPU (fechado 30/07 por A/B com CUDA_LAUNCH_BLOCKING=1). Se ele reaparecer aqui,
+# alguém religou sem rodar o A/B — e o sintoma é um `illegal memory access` cujo
+# traceback aponta pro lugar errado, em `curriculum.py::_medir`.
+assert "base_com" not in cfg.events, (
+    "base_com voltou ao config e ele corrompe memória — ver knobs.DR.base_com")
+dr_ativa = [e for e in ("foot_friction", "encoder_bias") if e in cfg.events]
+print(f"\nDR ativa: {dr_ativa}  (base_com fora, de propósito)")
+print(f"{NUM_ENVS} envs. Construindo...")
 
 env = ManagerBasedRlEnv(cfg=cfg, device=dev)
 env.reset()
