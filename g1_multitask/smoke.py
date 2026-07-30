@@ -807,6 +807,29 @@ check("orquestrador tem state_dict e load_state_dict",
 check("14 células (13 tarefa×eixo + push)", len(orq_env.celulas) == 14,
       f"deu {len(orq_env.celulas)}")
 
+# ALARME DE ESTAGNAÇÃO: o contador tem que ser transições DE VERDADE.
+# A versão de 30/07 fazia `len(ids) * max_episode_length` e contava cada env que
+# terminou como episódio COMPLETO de 1000 passos. Com episódio de 11 passos isso
+# inflava 91x e o alarme disparava ~1900 iterações antes da hora. O cenário abaixo
+# é exatamente o que expôs o bug: episódio CURTO e nenhum sucesso.
+from g1_multitask.curriculum import Orquestrador  # noqa: E402
+from g1_multitask.sim_curriculo import _CfgFalso, _EnvFalso  # noqa: E402
+
+_n, _passos, _chamadas = 64, 11, 300
+_env_c = _EnvFalso(_n)
+_orq_c = Orquestrador(_CfgFalso({"curriculum": ACTIVE.curriculum,
+                                 "min_amostras_evento": 10**9,  # nunca destrava
+                                 "verboso": False}), _env_c)
+_env_c.success_buf.fill_(0.0)
+for _ in range(_chamadas):
+    _env_c.common_step_counter += _passos
+    _orq_c(_env_c, torch.arange(_n))
+_esperado = float(_passos * _chamadas * _n)
+check("alarme conta transições reais, não episódios cheios",
+      abs(_orq_c.transicoes_sem_evento - _esperado) < 1e-6,
+      f"deu {_orq_c.transicoes_sem_evento:.3e}, esperado {_esperado:.3e} "
+      f"(a versão antiga daria {_chamadas * _n * 1000:.3e}, ou seja 91x)")
+
 # T15 (treinar, salvar, retomar) mora em `smoke_resume.py`: ele instancia PPO de
 # verdade e leva minutos, o que quebraria a promessa deste arquivo de rodar em
 # segundos. Rode os DOIS antes de submeter.

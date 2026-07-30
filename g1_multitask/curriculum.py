@@ -122,6 +122,10 @@ class Orquestrador:
         env.nivel = {eixo: torch.zeros(env.num_envs, dtype=torch.long, device=dev)
                      for eixo in T.LEVELS}
         self._visitou = torch.zeros(env.num_envs, dtype=torch.bool, device=dev)
+        # Marca do `common_step_counter` na última medição, pra contar transição por
+        # DIFERENÇA. Fica FORA do checkpoint de propósito: o contador do env zera em
+        # processo novo, e esta marca zera com ele — assim o resume não vê um salto.
+        self._ultimo_passo = 0
         # o nível de push é GLOBAL: um número, não um por env
         self.push_nivel = 0
 
@@ -226,7 +230,16 @@ class Orquestrador:
                               + self.alpha * media)
         self.amostras[cel][self.push_nivel] += float(len(ids))
         self._congelamento(cel, self.push_nivel)
-        self.transicoes_sem_evento += float(len(ids)) * float(env.max_episode_length)
+        # Transições EXATAS desde a medição anterior, pelo contador do próprio env.
+        # A versão de antes fazia `len(ids) * max_episode_length` e contava cada env
+        # que terminou como um episódio COMPLETO de 1000 passos. Com episódio real de
+        # 11 passos isso inflava ~90x — medido 30/07: o alarme acusava 1.15e9 contra
+        # 1.4e7 transições reais na iteração 146, ou seja disparava ~1900 iterações
+        # antes da hora e enchia o log de centenas de linhas.
+        passo = int(env.common_step_counter)
+        self.transicoes_sem_evento += (float(passo - self._ultimo_passo)
+                                       * float(env.num_envs))
+        self._ultimo_passo = passo
         self._visitou[env_ids] = True
 
     def _congelamento(self, cel, nivel: int) -> None:

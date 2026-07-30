@@ -40,6 +40,8 @@ class _EnvFalso:
         self.device = dev
         self.max_episode_length = 1000
         self.success_buf = torch.ones(n, device=dev)
+        # o alarme de estagnação conta transição pela DIFERENÇA deste contador
+        self.common_step_counter = 0
 
 
 class _CfgFalso:
@@ -65,6 +67,9 @@ def simula(num_envs: int = 64, max_chamadas: int = 40_000, verboso: bool = False
         # Se o robô sempre vence, a sequência é a mais curta possível e o total tem
         # que ser exatamente o do desenho.
         env.success_buf.fill_(1.0)
+        # cada chamada é um episódio inteiro por env, então o contador do env
+        # anda `max_episode_length`. É isso que o alarme mede.
+        env.common_step_counter += env.max_episode_length
         antes_abertas = set(orq.abertas)
         antes_push = orq.abertos[(T.PARADO, PUSH)]
         orq(env, ids)
