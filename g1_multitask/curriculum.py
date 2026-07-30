@@ -98,7 +98,15 @@ class Orquestrador:
         self.abertos: dict[tuple[int, str], int] = {}
         for cel in self.celulas:
             n = len(self._niveis(cel))
-            self.perf[cel] = torch.full((n,), 0.5, device=dev)
+            # EMA começa em 0.0, não em 0.5. O 0.5 era um prior otimista e ele
+            # ARMAVA O CONGELAMENTO SOZINHO: o `_congelamento` põe o pico em
+            # max(pico, perf), então o 0.5 inicial virava pico; a medição real
+            # levava a EMA a ~0 (o robô cai); a queda de 0.5 passava do limiar de
+            # 0.10 e a célula congelava por volta da 8ª atualização. Medido na
+            # sessão de 30/07: `parado_push/congeladas = 1.0` na iteração 29, sem
+            # nenhuma regressão real. Zero é honesto — célula não medida vale
+            # "sem competência", não "meia competência".
+            self.perf[cel] = torch.zeros(n, device=dev)
             self.pico[cel] = torch.zeros(n, device=dev)
             self.amostras[cel] = torch.zeros(n, device=dev)
             self.congelado[cel] = torch.zeros(n, dtype=torch.bool, device=dev)
