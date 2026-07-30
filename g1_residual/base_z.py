@@ -55,7 +55,7 @@ vai aonde quiser: 40° com |c|~1, 59° com |c|~2."""
 PRIOR = {
     T.PARADO:       "move-ego-0-0",
     T.ANDAR:        "move-ego-0-0.3",
-    T.PEGAR:        "crouch-0",
+    T.PEGAR:        "move-ego-0-0",
     T.BOTAR:        "raisearms-m-m",
     T.REORIENTAR:   "raisearms-m-m",
     T.PARADO_CAIXA: "raisearms-m-m",
@@ -63,11 +63,32 @@ PRIOR = {
 }
 """Onde cada tarefa COMEÇA. Não onde ela termina.
 
-`move-arms-0-0.7-m-m` é literalmente "anda para frente com os braços erguidos", que
-é a postura do `andar c/ caixa`. E `crouch-0` é um palpite meu sobre pegar caixa —
-a rede tem autoridade para sair dele, e é essa a intenção.
+⚠️ **O prior do `pegar` era `crouch-0` e ele DESABA.** Medido no `fumaca.py`, 16 envs,
+150 passos, residual em zero:
 
-Prior errado custa iterações, não custa resultado."""
+    crouch-0                  0% de pé   10 passos   pelve mín 0,124 m
+    crouch-0.25               0% de pé    9 passos   pelve mín 0,159 m
+    move-ego-low0.5-0-0       0% de pé    8 passos   pelve mín 0,293 m
+    move-ego-low0.6-0-0.7   6,2% de pé   47 passos   pelve mín 0,478 m
+    move-ego-0-0            100% de pé  150 passos   pelve mín 0,735 m
+    raisearms-m-m           100% de pé  150 passos   pelve mín 0,762 m
+    sitonground            18,8% de pé   83 passos   pelve mín 0,101 m
+
+**Nenhum comportamento de agachar do BFM sobrevive sozinho no nosso env.** O
+`crouch-N` é ALTURA ALVO, não intensidade — `crouch-0` quer dizer "vai ao chão", e
+sem residual para estabilizar a descida ele não segura. O `sitonground` de fato
+senta, o que é comportamento correto, não falha.
+
+Consequência boa: agachar passa a ser o que a REDE descobre. E `crouch-0` continua
+alcançável na base (é um dos 41), então ela pode ir para lá quando aprender a
+estabilizar a descida. Era exatamente o pedido — não fixar minha suposição.
+
+Consequência a vigiar: o residual tem trabalho real na perna, então o clamp de
+0,35 rad pode ser pouco. Se o `pegar` não sair do lugar, alargue a perna antes de
+mexer em qualquer outra coisa.
+
+`move-arms-0-0.7-m-m` (`andar c/ caixa`) ainda NÃO foi medido — a varredura só cobriu
+o que o experimento do `pegar` usa."""
 
 PRIOR_UNICO = "move-ego-0-0"
 """Alternativa sem suposição nenhuma: as 7 tarefas partem de ficar de pé.

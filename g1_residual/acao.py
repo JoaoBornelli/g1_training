@@ -38,7 +38,7 @@ from g1_residual.base_z import DIM_C, ESCALA_C, BaseZ  # noqa: E402
 from g1_residual.bfm import PESO, AtorBFM  # noqa: E402
 from g1_residual.obs_bfm import ObsBFM  # noqa: E402
 from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg  # noqa: E402
-from mjlab.utils.spec_config import resolve_matching_names_values  # noqa: E402
+from mjlab.utils.lab_api.string import resolve_matching_names_values  # noqa: E402
 
 LIMITE_PADRAO: dict[str, float] = {
     # cadeia de equilíbrio — o BFM manda, a RL só corrige
@@ -75,7 +75,14 @@ class ResidualBFMActionCfg(JointPositionActionCfg):
     semente_z: int | None = None
 
     def __post_init__(self):
-        self.class_type = ResidualBFMAction
+        # chama o do pai: ele fixa `transmission_type = JOINT`
+        super().__post_init__()
+
+    def build(self, env) -> "ResidualBFMAction":
+        # O mjlab escolhe a classe por MÉTODO `build`, não por atributo
+        # `class_type`. Sem sobrescrever isto o cfg novo constrói o termo VELHO —
+        # sem erro nenhum, e o BFM simplesmente nunca entra no laço.
+        return ResidualBFMAction(self, env)
 
 
 class ResidualBFMAction(JointPositionAction):
@@ -117,6 +124,7 @@ class ResidualBFMAction(JointPositionAction):
             f"ela: {[n for n, v in zip(self._target_names, self._limite[0].tolist()) if v <= 0]}")
 
         self._z = torch.zeros(self.num_envs, self._ator.z_dim, device=dev)
+        self._alvo_anterior = self._processed_actions.clone()
         print(f"[RESIDUAL] ação {self._action_dim} = {self._n_juntas} residual + "
               f"{cfg.dim_c} comportamento | base cobre "
               f"{self._base.energia:.1%} da energia dos 41 | "
@@ -146,7 +154,20 @@ class ResidualBFMAction(JointPositionAction):
         # 4. residual em radianos. `clamp(d, -1, 1) * limite` em vez de
         #    `clamp(d * escala, -limite, limite)`: assim `d = ±1` é exatamente o
         #    limite e a política não precisa descobrir a escala.
+        self._alvo_anterior = self._processed_actions
         self._processed_actions = alvo + delta_bruto.clamp(-1.0, 1.0) * self._limite
+
+    @property
+    def taxa_alvo(self) -> torch.Tensor:
+        """`||alvo_t - alvo_{t-1}||²` no ALVO DE JUNTA composto, em rad².
+
+        Diagnóstico, não reward. O `action_rate_l2` do fabricante lê a saída CRUA da
+        política, então ele não vê a parte do BFM — se o residual e o reflexo do BFM
+        entrarem em oscilação, isso fica invisível lá. Aqui aparece.
+
+        O `joint_acc` cobre o mesmo fenômeno pelo lado físico (`data.joint_acc`), e
+        os dois juntos separam "o alvo tremeu" de "a junta tremeu"."""
+        return torch.square(self._processed_actions - self._alvo_anterior).sum(dim=-1)
 
     def reset(self, env_ids=None) -> None:
         # O BFM começa episódio com histórico ZERADO, igual ao `env.py:397` dele.
