@@ -99,13 +99,12 @@ check("giro tem 5 níveis (o 5º é topo/fundo)", len(T.LEVELS["giro"]) == 5)
 # ------------------------------------------------------- T1: env monta e roda
 print("\n-- env monta, reseta, 1 step --")
 def sem_dr_instavel(c):
-    """Desliga o `base_com` quando se está em CPU. Ver `knobs.DR.base_com`.
+    """Rede de segurança: garante que o `base_com` não voltou.
 
-    `dr.body_com_offset` corrompe a heap no backend CPU do warp — derruba até a task
-    do próprio fabricante. Sem este pop não existe validação local nenhuma. Em GPU o
-    evento fica ligado, e conferi-lo é o item 0 do checklist da micro-sessão."""
-    if DEVICE == "cpu":
-        c.events.pop("base_com", None)
+    `dr.body_com_offset` corrompe memória em CPU **e em GPU** (medido 30/07, A/B com
+    `CUDA_LAUNCH_BLOCKING=1`). Ele está desligado por default no `knobs.DR`, então
+    este pop é no-op — existe pra o caso de alguém religar sem rodar o A/B."""
+    c.events.pop("base_com", None)
     return c
 
 
@@ -361,20 +360,16 @@ check("DR foot_friction com geoms do pé preenchidos",
       len(cfg.events["foot_friction"].params["asset_cfg"].geom_names) == 14,
       "14 geoms, preenchidos por robô pelo fabricante")
 
-# O `base_com` é um caso à parte: o CONFIG tem que trazê-lo (o desenho exige DR de
-# CoM desde a 1ª iteração), mas o guard de CPU tira antes de instanciar. As duas
-# coisas são checadas separadas — se o config parar de trazê-lo, foi acidente.
+# O `base_com` tem que estar AUSENTE do config registrado: `dr.body_com_evento`
+# corrompe memória em CPU e em GPU (item 0, resolvido 30/07 desligando). Se ele
+# reaparecer aqui, alguém religou sem rodar o A/B — e o sintoma em GPU é um
+# `illegal memory access` cujo traceback aponta pro lugar ERRADO.
 cfg_bruto = load_env_cfg(g1_multitask.TASK_ID)
-ev = cfg_bruto.events.get("base_com")
-check("config REGISTRADO traz o base_com",
-      ev is not None and ev.mode == "startup", "" if ev else "AUSENTE do registro")
-if ev:
-    check("base_com no torso_link",
-          ev.params["asset_cfg"].body_names == ("torso_link",),
-          str(ev.params["asset_cfg"].body_names))
-check("base_com desligado nesta run de CPU (corrompe heap)",
-      "base_com" not in cfg.events,
-      "item 0 do checklist da micro-sessão: conferir em GPU")
+check("base_com AUSENTE do config registrado (corrompe CPU e GPU)",
+      "base_com" not in cfg_bruto.events,
+      "ver knobs.DR.base_com — religar só depois do A/B passar")
+check("as outras 2 DR seguem ligadas",
+      "foot_friction" in cfg_bruto.events and "encoder_bias" in cfg_bruto.events)
 
 # Com DR ligada o mundo tem que continuar finito. O `nonfinite` da base é a rede de
 # segurança, mas se ele disparar no 1º step o problema é a DR, não o robô — foi

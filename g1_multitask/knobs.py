@@ -266,25 +266,38 @@ class DR:
     foot_friction: bool = True           # dr.geom_friction — testado, OK em CPU e GPU
     encoder_bias: bool = True            # dr.encoder_bias  — testado, OK em CPU e GPU
 
-    base_com: bool = True
-    """⚠️ **CORROMPE A HEAP NO BACKEND CPU DO WARP** (medido 30/07).
+    base_com: bool = False
+    """❌ **DESLIGADO. `dr.body_com_offset` corrompe memória em CPU E EM GPU.**
 
-    `dr.body_com_offset` derruba o processo com core dump — e derruba a task do
-    PRÓPRIO FABRICANTE (`Mjlab-Velocity-Flat-Unitree-G1`) do mesmo jeito, então não
-    é interação com a nossa cena de 3 entidades. Com 32 envs cai durante a
-    construção; com 4 envs roda os 5 steps e só dumpa no teardown — assinatura
-    clássica de corrupção de heap, não de índice fora de faixa.
+    Item 0 do checklist, **resolvido em 30/07 — e a resposta foi desligar.**
 
-    Mesma família do `dr.body_mass`, que já foi revertido neste projeto pelo mesmo
-    motivo (commit b46d730, "API nao-testada do mjlab corrompe heap") e substituído
-    pelo mecanismo testado `write_external_wrench_to_sim`.
+    | backend | sintoma |
+    |---|---|
+    | CPU (warp) | core dump. 32 envs cai na construção; 4 envs roda 5 steps e dumpa no teardown |
+    | GPU (T4, Kaggle) | `CUDA error: illegal memory access`, e `Warp CUDA error 700` em `wp_free_device_async` |
 
-    Fica LIGADO porque o treino roda em GPU, onde o caminho de kernel é outro e o
-    bug pode não existir. Mas é **item 0 do checklist da micro-sessão**: se
-    derrubar na Kaggle, põe `base_com=False` e a run segue sem randomização de CoM
-    — perde-se ±2.5 cm de gap sim-to-real, não se perde a run.
+    Provado por A/B no mesmo processo-filho, 256 envs, `CUDA_LAUNCH_BLOCKING=1`: com o
+    evento **cai**, sem o evento **sobrevive**. E derruba a task do PRÓPRIO FABRICANTE
+    (`Mjlab-Velocity-Flat-Unitree-G1`) em CPU do mesmo jeito — não é interação com a
+    nossa cena de 3 entidades.
 
-    O `smoke.py` desliga sozinho em CPU, senão não há validação local nenhuma."""
+    ⚠️ **O traceback mente.** O erro aparece em `curriculum.py::_medir`, no
+    `valido.any()`, porque erro de CUDA é reportado de forma ASSÍNCRONA e aquela é a
+    primeira chamada que força host-device sync. O evento roda em `mode="startup"`,
+    ou seja antes do reset. Quem for reabrir isto: não caça o bug onde o traceback
+    aponta.
+
+    Terceira API de DR desta família a corromper heap neste projeto — depois do
+    `dr.body_mass` (commit b46d730). Corolário que fica: **"o fabricante usa" não
+    implica "funciona neste backend".**
+
+    **O que se perde:** ±2.5 cm de randomização de CoM no `torso_link` (x/y ±0.025,
+    z ±0.03). É gap real de sim-to-real, e fica em aberto — o truque do
+    `write_external_wrench_to_sim` que resolveu o `dr.body_mass` não serve aqui,
+    porque força constante não desloca centro de massa. `dr.pseudo_inertia` é
+    candidato, e é igualmente não-testado.
+
+    Religar só depois de o A/B acima passar numa versão nova do mjlab."""
 
 
 @dataclass
