@@ -408,7 +408,6 @@ def build_multitask_env(
                 # a caixa só fica onde ela é usada de fato: quem manipula, e quem
                 # nasce segurando (esses o `reset_segurando` reposiciona logo depois)
                 "tarefas_com_caixa": tuple(set(T.MANIPULA) | set(T.SPAWN_SEGURANDO)),
-                "pos_prateleira": (s.table_xy[0], s.table_xy[1], shelf_center_z),
                 "distancia": s.afasta_distancia},
     )
 

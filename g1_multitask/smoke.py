@@ -754,6 +754,17 @@ print("\n-- T11: contribuição por tarefa × termo --")
 cfg_obs = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_obs.scene.num_envs = 64
 cfg_obs.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)
+# ⚠️ `min_amostras` alto de propósito: o `Relatorio` ZERA o acumulador quando emite,
+# e ele emite no reset assim que `cont.sum()` passa do limiar — 500 é atingido no
+# passo 8 de 30. Com isso o check de contagem mediria "passos desde o último reset",
+# não "todo par (env, passo)", e falharia sempre que um env terminasse no meio.
+#
+# Foi o que aconteceu em 30/07: deu 960 de 1920, ou seja um reset no passo 15. A causa
+# é boa — antes a prateleira ficava embaixo do robô nas tarefas c/ caixa e SEGURAVA a
+# caixa que escorregava, então a terminação `largou` (caixa_z < 0.30) nunca disparava.
+# Com a prateleira afastada a caixa cai até o chão e o `largou` passa a funcionar como
+# projetado. O comportamento melhorou; o check é que media a coisa errada.
+cfg_obs.curriculum["contrib"].params["min_amostras"] = 10**9
 env_o = ManagerBasedRlEnv(cfg=cfg_obs, device=DEVICE)
 acao_o = torch.zeros(env_o.num_envs, env_o.action_manager.total_action_dim,
                      device=env_o.device)
