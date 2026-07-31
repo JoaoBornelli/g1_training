@@ -51,20 +51,24 @@ def _registra(tarefa: int | None, escala: float | None) -> str:
     O `OrquestradorPegar` já é a subclasse que fixa a lista `abertas`; aqui só troco
     QUAL tarefa ele fixa. O `super()` explícito pula o `__init__` dele e vai direto no
     `Orquestrador`, senão a lista voltaria para o `pegar`."""
-    cfg = g1_residual.build_env_residual(
+    # `env_cfg`, não `cfg`: o `CurriculumManager` instancia o termo com KEYWORD
+    # (`cfg=..., env=...`), então o parâmetro do `__init__` TEM que se chamar `cfg`.
+    # Renomeá-lo para não colidir com a variável de fora dá
+    # `TypeError: got an unexpected keyword argument 'cfg'`.
+    env_cfg = g1_residual.build_env_residual(
         play=True, escala_delta=0.15 if escala is None else escala)
 
     if tarefa is not None:
         class _Uma(OrquestradorPegar):
-            def __init__(self, c, env):
-                super(OrquestradorPegar, self).__init__(c, env)
+            def __init__(self, cfg, env):
+                super(OrquestradorPegar, self).__init__(cfg, env)
                 self.abertas = [tarefa]
                 env.tarefa_sorteada[:] = tarefa
 
-        cfg.curriculum["orquestrador"].func = _Uma
+        env_cfg.curriculum["orquestrador"].func = _Uma
 
     register_mjlab_task(
-        task_id=TASK_CUSTOM, env_cfg=cfg, play_env_cfg=cfg,
+        task_id=TASK_CUSTOM, env_cfg=env_cfg, play_env_cfg=env_cfg,
         rl_cfg=g1_residual._rl_cfg(), runner_cls=MultitaskRunner)
     return TASK_CUSTOM
 
