@@ -39,31 +39,34 @@ NOMES = {
 }
 
 
-TASK_UMA = g1_residual.TASK_ID + "-Uma"
+TASK_CUSTOM = g1_residual.TASK_ID + "-PlayCustom"
 """Id SEPARADO. O `register_mjlab_task` NÃO sobrescreve: com o mesmo id ele levanta
 `ValueError: Task ... is already registered`. É o mesmo padrão do `play.py` da raiz,
 que registra `...-LiftPlay` em vez de mexer na entrada da Lift."""
 
 
-def _forca_tarefa(tarefa: int) -> str:
-    """Registra uma task de play com o orquestrador abrindo só a tarefa pedida.
+def _registra(tarefa: int | None, escala: float | None) -> str:
+    """Registra uma task de play com tarefa fixada e/ou escala do residual trocada.
 
     O `OrquestradorPegar` já é a subclasse que fixa a lista `abertas`; aqui só troco
     QUAL tarefa ele fixa. O `super()` explícito pula o `__init__` dele e vai direto no
     `Orquestrador`, senão a lista voltaria para o `pegar`."""
+    cfg = g1_residual.build_env_residual(
+        play=True, escala_delta=0.15 if escala is None else escala)
 
-    class _Uma(OrquestradorPegar):
-        def __init__(self, cfg, env):
-            super(OrquestradorPegar, self).__init__(cfg, env)
-            self.abertas = [tarefa]
-            env.tarefa_sorteada[:] = tarefa
+    if tarefa is not None:
+        class _Uma(OrquestradorPegar):
+            def __init__(self, c, env):
+                super(OrquestradorPegar, self).__init__(c, env)
+                self.abertas = [tarefa]
+                env.tarefa_sorteada[:] = tarefa
 
-    cfg = g1_residual.build_env_residual(play=True)
-    cfg.curriculum["orquestrador"].func = _Uma
+        cfg.curriculum["orquestrador"].func = _Uma
+
     register_mjlab_task(
-        task_id=TASK_UMA, env_cfg=cfg, play_env_cfg=cfg,
+        task_id=TASK_CUSTOM, env_cfg=cfg, play_env_cfg=cfg,
         rl_cfg=g1_residual._rl_cfg(), runner_cls=MultitaskRunner)
-    return TASK_UMA
+    return TASK_CUSTOM
 
 
 def main() -> None:
@@ -72,6 +75,11 @@ def main() -> None:
     p.add_argument("--tarefa", choices=sorted(NOMES), default=None,
                    help="força uma das 7 no viewer (default: o currículo sorteia)")
     p.add_argument("--envs", type=int, default=1)
+    p.add_argument("--escala", type=float, default=None,
+                   help="troca a `escala_delta` do residual. **`--escala 0` desliga o "
+                        "residual**, e aí o que você vê é o BFM PURO na mesma cena — "
+                        "é o A/B que diz se o tremor é do residual ou não. O padrão "
+                        "do treino é 0.15.")
     p.add_argument("--video", action="store_true", help="grava mp4, sem janela")
     p.add_argument("--video-length", type=int, default=500)
     args = p.parse_args()
@@ -80,9 +88,14 @@ def main() -> None:
     assert ckpt.is_file(), f"não achei {ckpt}"
 
     task_id = g1_residual.TASK_ID
-    if args.tarefa:
-        task_id = _forca_tarefa(NOMES[args.tarefa])
-        print(f"[PLAY] tarefa forçada: {args.tarefa}")
+    if args.tarefa or args.escala is not None:
+        task_id = _registra(NOMES.get(args.tarefa), args.escala)
+        if args.tarefa:
+            print(f"[PLAY] tarefa forçada: {args.tarefa}")
+        if args.escala is not None:
+            print(f"[PLAY] escala do residual: {args.escala}"
+                  + ("   <== BFM PURO, o residual está desligado"
+                     if args.escala == 0.0 else ""))
 
     run_play(task_id, PlayConfig(
         agent="trained", checkpoint_file=str(ckpt), num_envs=args.envs,
