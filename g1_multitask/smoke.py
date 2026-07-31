@@ -719,6 +719,16 @@ fonte_sucesso = inspect.getsource(__import__("g1_multitask.metrics",
                                              fromlist=["Sucesso"]).Sucesso)
 check("sucesso NÃO lê reward_manager (senão peso viraria Categoria C)",
       "reward_manager" not in fonte_sucesso)
+# O `pegar` exige PREENSÃO. Sem ela o critério passa ENCOSTANDO o peito na caixa parada
+# na prateleira: na fronteira do `de_pe` (pelve 0.65, tilt 20°) o alvo do peito desce
+# para z=0.723 e a caixa está em 0.65 — 0.073 m, dentro dos 0.10 da tolerância. Medido
+# em 31/07: 98,6% de sucesso com `grasp = 0` e a caixa subindo 3,8 cm.
+_cond_pegar = fonte_sucesso.split("T.PEGAR")[1].split("cond)")[0]
+check("o critério do `pegar` exige preensão", "preensao" in _cond_pegar,
+      "sem isso ele pontua ENCOSTANDO na caixa, sem nunca pegá-la")
+check("as 4 tarefas com caixa na mão citam preensão",
+      all(f"T.{n}" in fonte_sucesso for n in
+          ("PEGAR", "BOTAR", "PARADO_CAIXA", "ANDAR_CAIXA")))
 
 sucesso = env_t.metrics_manager._term_cfgs[
     list(cfg.metrics).index("sucesso")].func
