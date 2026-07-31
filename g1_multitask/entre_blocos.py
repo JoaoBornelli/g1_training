@@ -1,7 +1,18 @@
 """Relatório entre um bloco de 2k-3k iterações e o próximo:
 
-    python g1_multitask/entre_blocos.py                 # pega a run mais recente
-    python g1_multitask/entre_blocos.py logs/g1_lifting_box/2026-07-31_multitask
+    python g1_multitask/entre_blocos.py                 # texto + gráfico
+    python g1_multitask/entre_blocos.py --grafico       # SÓ o gráfico (8 painéis)
+    python g1_multitask/entre_blocos.py logs/g1_residual/<run> --grafico
+
+**No Kaggle, uma célula só:**
+
+    !python g1_multitask/entre_blocos.py --grafico
+    from IPython.display import Image; Image('painel_<run>.png')
+
+O `--grafico` existe porque a saída em texto tem ~200 linhas, e entre blocos ninguém lê
+200 linhas. Os 8 painéis respondem, em ordem: está vivo · aprende · o currículo andou ·
+o que trava o push · de quem é o gargalo · **o sucesso é real** · alguma tarefa no vale ·
+o movimento faz sentido.
 
 Este arquivo é a razão pela qual a `observability.py` existe. O log default do mjlab
 (`Episode_Reward/<termo>`) é média sobre TODOS os envs, e com 7 tarefas intercaladas um
@@ -185,13 +196,210 @@ def relatorio(alvo: pathlib.Path) -> None:
 """)
 
 
+# ============================================================ GRÁFICO (--grafico)
+# Existe porque a saída em texto tem ~200 linhas e ninguém lê 200 linhas entre blocos.
+# Cada painel responde UMA pergunta, e o título diz qual. A ordem é a ordem em que se
+# olha: primeiro "está vivo", por último "quem domina a reward".
+TAREFAS = ("parado", "andar", "pegar", "botar", "reorientar",
+           "parado_caixa", "andar_caixa")
+CORES = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+         "#9467bd", "#8c564b", "#17becf")
+
+
+def acha(series: dict, *padroes: str) -> list[tuple[int, float]] | None:
+    """Primeira série cujo tag casa um dos padrões, em ordem de preferência.
+
+    Os nomes de tag do rsl_rl e do mjlab mudam entre versões (`Train/mean_reward`,
+    `Train/mean_reward/time`, ...), então buscar por substring é mais robusto que
+    hardcodar — e um painel sem dado avisa em vez de quebrar."""
+    import re
+    for pad in padroes:
+        for tag in series:
+            if re.search(pad, tag):
+                return series[tag]
+    return None
+
+
+def _plot(ax, serie, **kw):
+    if not serie:
+        return False
+    xs = [p[0] for p in serie]
+    ys = [p[1] for p in serie]
+    ax.plot(xs, ys, **kw)
+    return True
+
+
+def _vazio(ax, msg="sem dado neste log"):
+    ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=9,
+            color="#888", transform=ax.transAxes)
+
+
+def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Path:
+    import matplotlib
+    matplotlib.use("Agg")               # sem display: Kaggle e headless
+    import matplotlib.pyplot as plt
+
+    dir_run = resolve(alvo)
+    s = carrega(dir_run)
+    fig, axes = plt.subplots(4, 2, figsize=(15, 17))
+    fig.suptitle(f"{dir_run.name}   —   {len(s)} séries", fontsize=13, y=0.995)
+    A = axes.flatten()
+
+    # 1. ESTÁ VIVO? comprimento do episódio contra quem mata o episódio
+    ax = A[0]
+    ok = _plot(ax, acha(s, r"episode_length"), color="k", lw=2, label="passos/episódio")
+    ax.set_ylabel("passos"); ax.set_title("1. Está vivo? (episódio e quem o mata)")
+    ax2 = ax.twinx()
+    for nome, cor in (("time_out", "#2ca02c"), ("fell_over", "#d62728"),
+                      ("largou", "#ff7f0e"), ("fora_da_area", "#9467bd")):
+        _plot(ax2, acha(s, rf"Termination/{nome}$"), color=cor, lw=1, alpha=.8,
+              label=nome)
+    ax2.set_ylabel("terminações")
+    if not ok:
+        _vazio(ax)
+    ax.legend(loc="upper left", fontsize=8); ax2.legend(loc="upper right", fontsize=8)
+
+    # 2. ESTÁ APRENDENDO? reward e sucesso JUNTOS — reward caindo com sucesso subindo
+    #    é DILUIÇÃO (tarefa nova abriu), não regressão. Foi exatamente a confusão de
+    #    31/07 na iteração 1499: reward 18,75 -> 6,73 com 3 tarefas novas abrindo.
+    ax = A[1]
+    _plot(ax, acha(s, r"mean_reward$", r"mean_reward"), color="#1f77b4", lw=2,
+          label="reward")
+    ax.set_ylabel("reward", color="#1f77b4")
+    ax.set_title("2. Aprende? (reward caindo + sucesso subindo = diluição)")
+    ax2 = ax.twinx()
+    _plot(ax2, acha(s, r"Metrics/sucesso"), color="#d62728", lw=2, label="sucesso")
+    ax2.set_ylabel("sucesso", color="#d62728"); ax2.set_ylim(-0.02, 1.02)
+    ax.legend(loc="upper left", fontsize=8); ax2.legend(loc="lower right", fontsize=8)
+
+    # 3. O CURRÍCULO ANDOU? eventos é a única medida de progresso REAL
+    ax = A[2]
+    for tag, cor, rot in ((r"orquestrador/eventos", "k", "eventos (de 60)"),
+                          (r"tarefas_abertas", "#2ca02c", "tarefas abertas"),
+                          (r"push_nivel", "#ff7f0e", "nível do push")):
+        _plot(ax, acha(s, tag), color=cor, lw=2, drawstyle="steps-post", label=rot)
+    ax.set_title("3. O currículo andou?"); ax.legend(fontsize=8)
+
+    # 4. O QUE TRAVA O PUSH? o portão é o mínimo sobre os níveis abertos
+    ax = A[3]
+    algum = False
+    for k in range(5):
+        algum |= _plot(ax, acha(s, rf"parado_push/perf_n{k}$"), lw=1.6,
+                       color=CORES[k], label=f"n{k}")
+    _plot(ax, acha(s, r"parado_push/min$"), color="k", lw=2.4, label="min (o portão)")
+    ax.axhline(0.90, color="r", ls="--", lw=1, label="portão 0,90")
+    ax.set_ylim(-0.02, 1.05)
+    # ⚠️ n0..n3 são HISTÓRICOS e ficam planos de propósito: o push é eixo GLOBAL com UM
+    # nível corrente, então só o nível atual recebe medição (`curriculum.py:229`). Sem
+    # esta nota o gráfico engana — quatro retas planas parecem bug.
+    ax.set_title("4. O que trava o push? (n0-n3 são histórico; só o corrente mede)")
+    if not algum:
+        _vazio(ax)
+    ax.legend(fontsize=8, ncol=3)
+
+    # 5. DE QUEM É O GARGALO? o `min` de cada tarefa contra o portão
+    ax = A[4]
+    algum = False
+    for t, cor in zip(TAREFAS, CORES):
+        # ⚠️ casar `/{t}_` cru pegaria `parado_caixa_peso` dentro de `parado`. O nome
+        # da célula é `<tarefa>_<eixo>`, então descasco pelo EIXO e comparo exato.
+        alvos = []
+        for tag in s:
+            if not tag.endswith("/min"):
+                continue
+            cel = tag.split("/")[-2]
+            for eixo in ("altura", "peso", "distancia", "heading", "giro", "push"):
+                if cel.endswith("_" + eixo) and cel[: -len(eixo) - 1] == t:
+                    alvos.append(tag)
+                    break
+        if not alvos:
+            continue
+        # a tarefa trava pelo PIOR eixo dela: mínimo sobre os eixos, por iteração
+        passos = sorted({p[0] for tag in alvos for p in s[tag]})
+        curva = []
+        for x in passos:
+            vs = [v for tag in alvos for (px, v) in s[tag] if px == x]
+            if vs:
+                curva.append((x, min(vs)))
+        algum |= _plot(ax, curva, color=cor, lw=1.8, label=t)
+    ax.axhline(0.90, color="r", ls="--", lw=1)
+    ax.set_ylim(-0.02, 1.05)
+    # `parado` não aparece: ele não tem eixo próprio, quem manda nele é o painel 4.
+    ax.set_title("5. De quem é o gargalo? (min por tarefa; `parado` está no painel 4)")
+    if not algum:
+        _vazio(ax)
+    ax.legend(fontsize=8, ncol=2)
+
+    # 6. O SUCESSO É REAL? o tripwire de 31/07. Se a competência sobe e a condição
+    #    FÍSICA da tarefa fica em zero, o crédito é falso — foi o caso do `pegar`
+    #    marcando 0,98 com `grasp = 0`.
+    ax = A[5]
+    algum = False
+    for t, cor in zip(TAREFAS, CORES):
+        algum |= _plot(ax, acha(s, rf"contrib/{t}/cond_fisica$"), color=cor, lw=1.8,
+                       label=f"{t} cond")
+        algum |= _plot(ax, acha(s, rf"contrib/{t}/atribuicao_divergente$"), color=cor,
+                       lw=1.2, ls=":", label=f"{t} DIVERG")
+    ax.set_ylim(-0.02, 1.05)
+    ax.set_title("6. O sucesso é real? (cheia=condição física · pontilhada=crédito falso)")
+    if not algum:
+        _vazio(ax, "sem `cond_fisica` — log anterior ao conserto de 31/07")
+    ax.legend(fontsize=7, ncol=2)
+
+    # 7. ALGUMA TAREFA ESTÁ NO VALE? total negativo => morrer cedo rende mais
+    ax = A[6]
+    algum = False
+    for t, cor in zip(TAREFAS, CORES):
+        algum |= _plot(ax, acha(s, rf"contrib/{t}/_total$"), color=cor, lw=1.8, label=t)
+    ax.axhline(0.0, color="k", lw=1)
+    ax.set_title("7. Alguma tarefa no vale? (total < 0 = morrer cedo rende)")
+    ax.set_xlabel("iteração")
+    if not algum:
+        _vazio(ax)
+    ax.legend(fontsize=8, ncol=2)
+
+    # 8. O MOVIMENTO FAZ SENTIDO? `taxa_alvo` é o alvo COMPOSTO (BFM + residual), que
+    #    o `action_rate_l2` não vê. É o número do braço sacudindo.
+    ax = A[7]
+    ok = _plot(ax, acha(s, r"Metrics/taxa_alvo"), color="#8c564b", lw=2,
+               label="taxa do alvo composto")
+    _plot(ax, acha(s, r"Metrics/deriva_parado"), color="#1f77b4", lw=1.5,
+          label="deriva do parado (m)")
+    ax.set_title("8. O movimento faz sentido? (tremor e deriva)")
+    ax.set_xlabel("iteração")
+    ax2 = ax.twinx()
+    _plot(ax2, acha(s, r"mean_noise_std", r"action_std", r"noise_std"), color="#7f7f7f",
+          lw=1, ls="--", label="std da ação")
+    ax2.set_ylabel("std", color="#7f7f7f")
+    if not ok:
+        _vazio(ax)
+    ax.legend(loc="upper left", fontsize=8); ax2.legend(loc="upper right", fontsize=8)
+
+    for a in A:
+        a.grid(alpha=.25)
+    fig.tight_layout(rect=(0, 0, 1, 0.985), h_pad=2.2, w_pad=3.0)
+    saida = saida or (pathlib.Path.cwd() / f"painel_{dir_run.name}.png")
+    fig.savefig(saida, dpi=110)
+    plt.close(fig)
+    print(f"\n[GRÁFICO] {saida}")
+    print("  no Kaggle, mostre inline com:")
+    print(f"  from IPython.display import Image; Image('{saida}')")
+    return saida
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        alvo = pathlib.Path(sys.argv[1])
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    so_grafico = "--grafico" in sys.argv
+    if args:
+        alvo = pathlib.Path(args[0])
     else:
         raiz = pathlib.Path(__file__).resolve().parent.parent / "logs"
         alvo = ultima_run(raiz) if raiz.exists() else None
         if alvo is None:
             print("nenhuma run encontrada em ./logs — passe o diretório como argumento")
             sys.exit(1)
-    relatorio(alvo)
+    if so_grafico:
+        grafico(alvo)
+    else:
+        relatorio(alvo)
+        grafico(alvo)      # o texto continua, o gráfico vem de brinde
