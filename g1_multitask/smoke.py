@@ -545,9 +545,15 @@ for tarefa in range(T.NUM_TASKS):
         check(f"{nome}: pré-gatilho é `parado c/ caixa`",
               bool((pre_gatilho(tarefa) == T.PARADO_CAIXA).all()),
               f"ativa={T.NAMES[int(env_a.active_task[0])]}")
-    else:
+    elif tarefa in T.MANIPULA:
         check(f"{nome}: caixa nasce na prateleira, NÃO na mão",
               rel_z < 0.0, f"rel_z={rel_z:+.3f}")
+    else:
+        # `parado` e `andar` não usam a caixa: o `afasta_cena` a estaciona 5 m acima,
+        # junto com a prateleira. Então ela NÃO nasce "na prateleira ao alcance" nem
+        # "na mão" — ela nasce fora do episódio, e é isso que o check tem que dizer.
+        check(f"{nome}: caixa estacionada fora do alcance",
+              rel_z > 2.0, f"rel_z={rel_z:+.3f}")
 
     # --- afasta_cena: a prateleira NÃO pode ficar no caminho de quem anda ---
     # Ela ocupa x de 0.20 a 0.80 com topo em 0.55 m (altura de joelho), e o destino do
