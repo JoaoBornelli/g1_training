@@ -94,7 +94,6 @@ def afasta_cena(
     env_ids: torch.Tensor,
     tarefas_com_prateleira: tuple[int, ...],
     tarefas_com_caixa: tuple[int, ...],
-    table_xy: tuple[float, float],
     shelf_half_z: float,
     box_half_z: float,
     distancia: float = 5.0,
@@ -178,8 +177,16 @@ def afasta_cena(
 
     ids_mesa = _fora(tarefas_com_prateleira)
     if len(ids_mesa) > 0:
-        pos = torch.stack([origem[ids_mesa, 0] + table_xy[0],
-                           origem[ids_mesa, 1] + table_xy[1],
+        # XY da prateleira = XY da CAIXA, não o nominal. O `reset_table` sorteia jitter
+        # no xy dela, e o `reset_box` põe a caixa relativa a esse xy jitterado — os dois
+        # jitters são CORRELACIONADOS. Forçando o nominal eu quebrava a correlação e os
+        # desvios somavam: medido `desvio_xy = 0.392` contra 0.197 do `pegar`, ou seja
+        # 0.20 da caixa mais 0.19 da prateleira.
+        #
+        # Pondo a prateleira embaixo da caixa o desvio vira zero, e nestas tarefas o xy
+        # exato não importa — só importa que a caixa esteja apoiada.
+        pos = torch.stack([caixa.data.root_link_pos_w[ids_mesa, 0],
+                           caixa.data.root_link_pos_w[ids_mesa, 1],
                            z_mesa[ids_mesa]], dim=-1)
         quat = torch.zeros(len(ids_mesa), 4, device=env.device)
         quat[:, 0] = 1.0        # a prateleira nasce sem rotação (`env.py` passa só pos)

@@ -807,13 +807,15 @@ for _ in range(CURTO):
 check("acumulador conta todos os (env, passo)",
       abs(float(env_o.contrib_cont.sum()) - CURTO * env_o.num_envs) < 1e-3,
       f"{float(env_o.contrib_cont.sum()):.0f} de {CURTO * env_o.num_envs}")
+# Este também vive na janela curta, pelo mesmo motivo: depois do primeiro relatório a
+# matriz zera, e no fim dos 30 passos ela pode estar recém-zerada. Aqui ela nunca foi.
+check("as 7 tarefas foram amostradas",
+      bool((env_o.contrib_cont > 0).all()),
+      str([int(x) for x in env_o.contrib_cont]))
 
 PASSOS = 30
 for _ in range(PASSOS - CURTO):
     env_o.step(acao_o)
-check("as 7 tarefas foram amostradas",
-      bool((env_o.contrib_cont > 0).all()),
-      str([int(x) for x in env_o.contrib_cont]))
 check("um nome de termo por coluna",
       len(env_o.contrib_nomes) == env_o.contrib_soma.shape[1] == len(cfg.rewards),
       f"{len(env_o.contrib_nomes)} nomes, {env_o.contrib_soma.shape[1]} colunas")
