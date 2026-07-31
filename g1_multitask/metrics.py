@@ -65,17 +65,32 @@ class Sucesso:
         self._nunca_caiu = torch.ones(n, dtype=torch.bool, device=dev)
 
         self._palmas = SceneEntityCfg("robot", site_names=[])
+        # --- item 4: diagnóstico por tarefa, emitido pelo `observability.Relatorio` ---
+        # coluna 0 = `cond_fisica`: a condição da tarefa SORTEADA vale agora?
+        # coluna 1 = `atribuicao_divergente`: houve sucesso com a condição dela FALSA?
+        # Existe porque o log de 31/07 mostrou `perf[pegar] = 0,98` com `grasp = 0`, e
+        # levaram 7 simulações locais pra estreitar isso. Com estas duas linhas o log
+        # responde na iteração 1: se `perf` sobe e `cond_fisica` fica em zero, o crédito
+        # é falso.
+        env.diag_soma = torch.zeros(T.NUM_TASKS, 2, device=dev)
+        env.diag_cont = torch.zeros(T.NUM_TASKS, device=dev)
         # buffer criado ANTES do 1º reset: o currículo e o orquestrador leem daqui
         env.success_buf = torch.zeros(n, device=dev)
 
     # ------------------------------------------------------------- primitivas
-    def _condicao(self, env: "ManagerBasedRlEnv") -> torch.Tensor:
-        """[B] bool — a condição da tarefa ATIVA de cada env vale AGORA."""
+    def _condicao(self, env: "ManagerBasedRlEnv",
+                  tarefa: torch.Tensor | None = None) -> torch.Tensor:
+        """[B] bool — a condição de uma tarefa vale AGORA, por env.
+
+        `tarefa=None` usa `env.active_task`, que é o que PONTUA. Passando
+        `env.tarefa_sorteada` sai a condição da tarefa que o CURRÍCULO credita — as duas
+        divergem na janela de pré-gatilho, e é dessa diferença que sai o
+        `atribuicao_divergente` do log."""
         tol = self.tol
         robo: Entity = env.scene["robot"]
         caixa: Entity = env.scene["box"]
         meta = env.command_manager.get_term("lift_target")
-        tarefa = env.active_task
+        tarefa = env.active_task if tarefa is None else tarefa
 
         # --- primitivas compartilhadas, computadas uma vez ---
         parado_de_pe = de_pe(env, tol.de_pe_z, tol.de_pe_tilt_rad)
@@ -166,11 +181,28 @@ class Sucesso:
         # 2. quem foi terminado por falha nunca mais "sobreviveu" neste episódio
         self._nunca_caiu &= ~env.termination_manager.terminated
 
-        # 3. sustentação: soma enquanto vale, ZERA quando quebra
-        cond = self._condicao(env)
+        # 3. sustentação: soma enquanto vale, ZERA quando quebra.
+        #
+        # ⚠️ **O pré-gatilho não pontua.** Nos até 2 s antes do comando chegar a tarefa
+        # ATIVA é `parado` (ou `parado c/ caixa`), e o critério do `parado` é
+        # `time_out & de pé` com sustentação **0 s** — fecha num passo só. Sem este
+        # `& disparou`, uma tarefa registra sucesso por um critério que não é o dela.
+        # Apontado pelo user em 31/07: "os 2 s parado não devem pontuar, a tarefa é pegar
+        # a caixa". Também impede o contador de sustentação de acumular na espera.
+        meta = env.command_manager.get_term("lift_target")
+        cond = self._condicao(env) & meta.disparou
         self._contador = torch.where(cond, self._contador + self.dt,
                                      torch.zeros_like(self._contador))
+        antes = self._conquistado.clone()
         self._conquistado |= cond & (self._contador >= self._exigencia_s(env))
+
+        # 4. diagnóstico: a condição da tarefa que o CURRÍCULO vai creditar
+        srt = getattr(env, "tarefa_sorteada", env.active_task)
+        cond_srt = self._condicao(env, srt)
+        sem_condicao = (self._conquistado & ~antes) & ~cond_srt
+        env.diag_soma.index_add_(
+            0, srt, torch.stack([cond_srt.float(), sem_condicao.float()], dim=-1))
+        env.diag_cont.index_add_(0, srt, torch.ones_like(cond_srt, dtype=torch.float))
 
         env.success_buf.copy_(self._conquistado.float())
         return env.success_buf

@@ -91,6 +91,25 @@ class Relatorio:
                 out[f"{T.NAMES[t]}/{env.contrib_nomes[i]}"] = linha[i]
         soma.zero_()
         cont.zero_()
+
+        # --- item 4: as duas linhas que respondem "o sucesso é real?" ---
+        # Mascaradas por `tarefa_sorteada`, a MESMA chave que o `_medir` do currículo
+        # usa pra creditar — é essa a comparação que importa. `contrib` acima usa
+        # `active_task`, e as duas divergem na janela de pré-gatilho.
+        dsoma, dcont = getattr(env, "diag_soma", None), getattr(env, "diag_cont", None)
+        if dsoma is not None:
+            dm = dsoma / dcont.clamp(min=1.0).unsqueeze(-1)
+            for t in range(T.NUM_TASKS):
+                if float(dcont[t]) < self.min_amostras / T.NUM_TASKS:
+                    continue
+                # fração do tempo em que a condição FÍSICA da tarefa vale
+                out[f"{T.NAMES[t]}/cond_fisica"] = dm[t, 0]
+                # fração dos sucessos registrados com a condição dela FALSA. Tem que
+                # ser ZERO. Diferente de zero = crédito falso, e o log denuncia na hora
+                # em vez de exigir uma caçada de horas como a de 31/07.
+                out[f"{T.NAMES[t]}/atribuicao_divergente"] = dm[t, 1]
+            dsoma.zero_()
+            dcont.zero_()
         return out
 
     def reset(self, env_ids=None):
