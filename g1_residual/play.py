@@ -84,6 +84,10 @@ def main() -> None:
                         "residual**, e aí o que você vê é o BFM PURO na mesma cena — "
                         "é o A/B que diz se o tremor é do residual ou não. O padrão "
                         "do treino é 0.15.")
+    p.add_argument("--sem-quedas", action="store_true",
+                   help="não encerra o episódio quando o robô cai. Ele fica no chão e "
+                        "você vê se ele LEVANTA — que é o teste direto da resiliência "
+                        "do BFM, e o repertório dele tem recuperação.")
     p.add_argument("--video", action="store_true", help="grava mp4, sem janela")
     p.add_argument("--video-length", type=int, default=500)
     args = p.parse_args()
@@ -101,9 +105,12 @@ def main() -> None:
                   + ("   <== BFM PURO, o residual está desligado"
                      if args.escala == 0.0 else ""))
 
+    if args.sem_quedas:
+        print("[PLAY] terminações DESLIGADAS — o episódio não acaba quando ele cai")
     run_play(task_id, PlayConfig(
         agent="trained", checkpoint_file=str(ckpt), num_envs=args.envs,
         viewer="native", video=args.video, video_length=args.video_length,
+        no_terminations=args.sem_quedas,
     ))
 
 

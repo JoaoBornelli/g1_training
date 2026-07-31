@@ -116,6 +116,46 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
         orq.abertas = orq_abertas_salvo
 
 
+def levanta(env, termo, z: torch.Tensor, passos: int, tilt_deg: float = 80.0,
+            z_pelve: float = 0.32) -> dict:
+    """Nasce o robô CAÍDO e devolve se ele levanta, com o residual em zero.
+
+    A pergunta que isto responde: o BFM sabe levantar (verificado pelo dono do repo),
+    mas o `z` que faz isso está dentro do span das **20 direções** da `base_z`? Ela é a
+    PCA dos 41 comportamentos do `reward_locomotion.pkl`, e se o `z` de levantar mora
+    fora desse span a política não alcança ele por mais que procure.
+
+    Motivo para achar que está dentro: o `sitonground` é um dos 41 e é o único que lida
+    com o chão, então a direção "para o chão" existe no span — e "sair do chão" pode ser
+    ela ao contrário. Hipótese, não medição. Este teste mede."""
+    env.reset()
+    robot = env.scene["robot"]
+    n = env.num_envs
+    # tomba para trás em pitch e baixa a pelve
+    a = torch.deg2rad(torch.tensor(tilt_deg, device=env.device)) / 2
+    quat = torch.zeros(n, 4, device=env.device)
+    quat[:, 0] = torch.cos(a)
+    quat[:, 2] = torch.sin(a)          # eixo y = pitch
+    pose = torch.cat([robot.data.root_link_pos_w[:, :2],
+                      torch.full((n, 1), z_pelve, device=env.device)
+                      + env.scene.env_origins[:, 2:3], quat], dim=-1)
+    robot.write_root_link_pose_to_sim(pose)
+    robot.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=env.device))
+    env.sim.forward()
+
+    acao = torch.zeros(n, env.action_manager.total_action_dim, device=env.device)
+    termo._base.prior[T.PARADO] = z            # o `z` sob teste
+    env.tarefa_sorteada[:] = T.PARADO
+    pico = torch.zeros(n, device=env.device)
+    for _ in range(passos):
+        env.step(acao)
+        pico = torch.maximum(pico, robot.data.root_link_pos_w[:, 2]
+                             - env.scene.env_origins[:, 2])
+    fim = (robot.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2])
+    return {"pico": float(pico.mean()), "fim": float(fim.mean()),
+            "levantou": float((fim >= Z_DE_PE).float().mean())}
+
+
 def main() -> None:
     dev = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"{N} envs, {PASSOS} passos ({PASSOS * 0.02:.1f} s), {dev}\n")
@@ -175,6 +215,39 @@ def main() -> None:
     print("\n  Escolha a maior escala que ainda deixa o robô de pé quase sempre.")
     print("  Ela vira `escala_delta` no `acao.py`. Ela NÃO limita a política")
     print("  treinada: a média dela cresce sem teto e satura o clamp quando quiser.")
+
+    # ------------------------------------------------------------------ teste 3
+    print("\n== TESTE 3: LEVANTAR está dentro do span das 20 direções? ==")
+    print("   O BFM sabe levantar. A pergunta é se o `z` que faz isso é alcançável")
+    print("   pela base da `base_z`, que é a PCA dos 41 comportamentos prontos.")
+    print("   Se não for, a política não acha por mais que procure — e aí tirar o")
+    print("   `fell_over` do treino gasta amostra numa habilidade fora de alcance.")
+    base = termo._base
+    idx_sit = base.nomes.index("sitonground")
+    idx_pe = base.nomes.index("move-ego-0-0")
+    proj = lambda v: base._projeta(v.unsqueeze(0))[0]          # noqa: E731
+    # candidatos: os dois comportamentos relevantes, a direção "anti-chão", e a
+    # projeção do `de pé` DENTRO do span de 20 (é o que a política de fato alcança)
+    dentro = base.M[idx_pe] @ base.B.T @ base.B / (base.B.norm(dim=-1) ** 2).mean()
+    cands = {
+        "move-ego-0-0": base.M[idx_pe],
+        "sitonground": base.M[idx_sit],
+        "anti-sitonground": proj(base.M[idx_pe] - base.M[idx_sit]),
+        "de-pe projetado no span": proj(base.prior[T.PARADO] + dentro),
+    }
+    print(f"\n{'z':28s} {'levantou':>10s} {'pico':>8s} {'fim':>8s}")
+    salvo_prior = base.prior[T.PARADO].clone()
+    try:
+        for nome, z in cands.items():
+            r3 = levanta(env, termo, z, passos=PASSOS)
+            print(f"{nome:28s} {r3['levantou']:9.0%} {r3['pico']:7.3f}m"
+                  f" {r3['fim']:7.3f}m")
+    finally:
+        base.prior[T.PARADO] = salvo_prior
+    print("\n  Se ALGUM deles levanta, a habilidade está no span e vale tirar o")
+    print("  `fell_over` do treino — a política tem como descobrir.")
+    print("  Se NENHUM levanta, a base de 20 é estreita demais para isso, e a saída")
+    print("  é ampliar a base (outras fontes de `z`) antes de mexer na terminação.")
 
 
 if __name__ == "__main__":
