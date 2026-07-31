@@ -86,6 +86,13 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
         vivo_ate = torch.zeros(env.num_envs, device=env.device)
         xy0 = robot.data.root_link_pos_w[:, :2].clone()
         deriva = torch.zeros(env.num_envs, device=env.device)
+        # excursão pico-a-pico por junta: é o que diz se o braço está SACUDINDO.
+        # O teste antigo só media se o robô CAI — e ele não cai, porque o BFM compensa
+        # nas pernas. "Não cai" não é "faz sentido", e a diferença é esta tabela.
+        q_min = robot.data.joint_pos.clone()
+        q_max = robot.data.joint_pos.clone()
+        taxa = torch.zeros_like(robot.data.joint_pos)
+        q_ant = robot.data.joint_pos.clone()
         z_min = torch.full((env.num_envs,), 9.9, device=env.device)
         caixa_min = torch.full((env.num_envs,), 9.9, device=env.device)
         for i in range(passos):
@@ -99,6 +106,11 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
             de_pe = pelve >= Z_DE_PE
             # deriva horizontal ENQUANTO de pé: é o que separa "parado" de "dançando",
             # e o teste antigo não media isso — ele só via se o robô caía.
+            q = robot.data.joint_pos
+            q_min = torch.minimum(q_min, q)
+            q_max = torch.maximum(q_max, q)
+            taxa = torch.maximum(taxa, (q - q_ant).abs())
+            q_ant = q.clone()
             d = (robot.data.root_link_pos_w[:, :2] - xy0).norm(dim=-1)
             deriva = torch.where(de_pe, torch.maximum(deriva, d), deriva)
             vivo_ate = torch.where(de_pe, torch.full_like(vivo_ate, i + 1), vivo_ate)
@@ -109,6 +121,10 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
             "passos_de_pe": float(vivo_ate.mean()),
             "pelve_min": float(z_min.mean()),
             "deriva": float(deriva.mean()),
+            # `_limite` vale 2.0 no braço e 0.35 na cadeia de equilíbrio -> separa os dois
+            "braco_pp": float(torch.rad2deg((q_max - q_min)[:, termo._limite[0] > 1.0]).mean()),
+            "perna_pp": float(torch.rad2deg((q_max - q_min)[:, termo._limite[0] <= 1.0]).mean()),
+            "braco_taxa": float(torch.rad2deg(taxa[:, termo._limite[0] > 1.0]).mean()),
             "caixa_min": float(caixa_min.mean()),
         }
     finally:
@@ -200,8 +216,8 @@ def main() -> None:
     print("   No início do treino a política é aleatória, e a ação dela entra")
     print("   inteira no residual. Se isso derruba o robô, o treino nunca sai do")
     print("   chão — o BFM não tem o que estabilizar.")
-    print(f"\n{'escala do residual':>20s} {'de pé no fim':>13s} {'passos de pé':>13s}"
-          f" {'braço':>8s} {'perna':>8s}")
+    print(f"\n{'escala':>8s} {'de pé':>7s} {'passos':>7s} {'clamp braço':>12s}"
+          f" {'braço p-a-p':>12s} {'perna p-a-p':>12s} {'braço °/passo':>14s}")
     lim = termo._limite[0]
     braco = float(lim.max())      # 2,0 rad no padrão
     perna = float(lim.min())      # 0,35 rad no padrão
@@ -210,11 +226,16 @@ def main() -> None:
         r2 = roda(env, termo, T.PEGAR, "move-ego-0-0", None, ruido=esc)
         # o clamp é em ±1, então a amplitude efetiva é min(esc, 1) x limite
         ef = min(esc, 1.0)
-        print(f"{esc:20.2f} {r2['de_pe_no_fim']:12.1%} {r2['passos_de_pe']:13.0f}"
-              f" {math.degrees(ef * braco):7.0f}° {math.degrees(ef * perna):7.0f}°")
-    print("\n  Escolha a maior escala que ainda deixa o robô de pé quase sempre.")
-    print("  Ela vira `escala_delta` no `acao.py`. Ela NÃO limita a política")
-    print("  treinada: a média dela cresce sem teto e satura o clamp quando quiser.")
+        print(f"{esc:8.2f} {r2['de_pe_no_fim']:6.0%} {r2['passos_de_pe']:7.0f}"
+              f" {math.degrees(ef * braco):11.0f}° {r2['braco_pp']:11.1f}°"
+              f" {r2['perna_pp']:11.1f}° {r2['braco_taxa']:13.1f}°")
+    print("\n  `p-a-p` = excursão pico-a-pico da junta em todo o episódio.")
+    print("  `°/passo` = maior salto de UM passo (20 ms) — é este que se vê como")
+    print("  sacudida. Acima de ~5°/passo o braço parece descontrolado, e não é")
+    print("  queda: o BFM compensa nas pernas e o robô fica de pé sacudindo.")
+    print("\n  Escolha a escala pelo `°/passo`, não pelo `de pé`. O teste antigo só")
+    print("  olhava queda e por isso aprovou 0.95 — o robô ficava de pé, mas jogando")
+    print("  os braços para todo lado.")
 
     # ------------------------------------------------------------------ teste 3
     print("\n== TESTE 3: LEVANTAR está dentro do span das 20 direções? ==")
