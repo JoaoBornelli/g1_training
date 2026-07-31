@@ -34,7 +34,11 @@ class Scene:
     table_xy: tuple[float, float] = (0.50, 0.0)
 
     afasta_distancia: float = 5.0
-    """Quanto a prateleira (e a caixa) se afastam nas tarefas que não as usam.
+    """Quanto a prateleira (e a caixa) sobem nas tarefas que não as usam.
+
+    ⚠️ **PARA CIMA, não para o lado.** Os envs ficam lado a lado em x e y com
+    espaçamento menor que 5 m: deslocar em x punha a prateleira de cada env DENTRO do
+    robô de um env vizinho e derrubava ele. Em z não há vizinho.
 
     Achado no `play` em 30/07: a prateleira ocupa **x de 0.20 a 0.80** com topo em
     0.55 m, que é altura de joelho. O destino do `andar` é

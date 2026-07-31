@@ -144,7 +144,18 @@ def afasta_cena(
         q = torch.tensor(quais, device=env.device)
         return env_ids[~(tarefa.unsqueeze(-1) == q).any(dim=-1)]
 
-    desloca = torch.tensor([distancia, 0.0, 0.0], device=env.device)
+    # ⚠️ PARA CIMA, não para o lado. Os envs do mjlab ficam lado a lado em x e y, com
+    # espaçamento menor que 5 m — deslocar em x fazia a prateleira de cada env
+    # MATERIALIZAR DENTRO DO ROBÔ de um env vizinho e derrubar ele. Medido no smoke em
+    # 30/07: os checks de posição passavam (a prateleira estava no lugar pedido) e o
+    # `rel_z` da caixa dava +0.145 — que era a PELVE caindo, não a caixa subindo. O
+    # acumulador de contribuição contava 960 de 1920 pares, exatamente metade, porque
+    # os envs morriam no meio da coleta.
+    #
+    # Em z não há vizinho: as origens dos envs diferem em x e y, nunca em z. E a
+    # prateleira é mocap (corpo cinemático que flutua sem tocar o chão), então ela
+    # sustenta a caixa lá em cima igual sustenta aqui embaixo.
+    desloca = torch.tensor([0.0, 0.0, distancia], device=env.device)
     nominal = torch.tensor(pos_prateleira, device=env.device)
 
     ids_mesa = _fora(tarefas_com_prateleira)

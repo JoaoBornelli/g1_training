@@ -553,25 +553,24 @@ for tarefa in range(T.NUM_TASKS):
     # Ela ocupa x de 0.20 a 0.80 com topo em 0.55 m (altura de joelho), e o destino do
     # `andar` fica a até 2.0 m na direção do heading — com heading perto de zero o robô
     # anda direto contra ela. Achado no `play` em 30/07.
-    mesa_x = (env_t.scene["table"].data.root_link_pos_w[:, 0]
-              - env_t.scene.env_origins[:, 0])
-    caixa_x = cx[:, 0] - env_t.scene.env_origins[:, 0]
-    perto = float(ACTIVE.scene.table_xy[0])
-    longe = perto + float(ACTIVE.scene.afasta_distancia)
+    # Em Z, não em X: deslocar em x punha a prateleira dentro do robô de um env
+    # vizinho (as origens ficam lado a lado em x/y) e derrubava ele — medido, e era a
+    # causa dos 3 checks que falharam na primeira versão.
+    mesa_z = (env_t.scene["table"].data.root_link_pos_w[:, 2]
+              - env_t.scene.env_origins[:, 2])
+    caixa_z = cx[:, 2] - env_t.scene.env_origins[:, 2]
+    sobe = float(ACTIVE.scene.afasta_distancia)
     if tarefa in T.MANIPULA:
-        check(f"{nome}: prateleira FICA (x≈{perto:.2f})",
-              bool((mesa_x - perto).abs().max() < 0.05),
-              f"x={float(mesa_x.mean()):.2f}")
+        check(f"{nome}: prateleira FICA embaixo (z<1)",
+              bool((mesa_z < 1.0).all()), f"z={float(mesa_z.mean()):.2f}")
     else:
-        check(f"{nome}: prateleira AFASTADA (x≈{longe:.2f})",
-              bool((mesa_x - longe).abs().max() < 0.05),
-              f"x={float(mesa_x.mean()):.2f}")
+        check(f"{nome}: prateleira SUBIU (z>{sobe - 1:.0f})",
+              bool((mesa_z > sobe - 1.0).all()), f"z={float(mesa_z.mean()):.2f}")
     if tarefa in (T.PARADO, T.ANDAR):
         # a caixa vai JUNTO: se só a prateleira sai, ela despenca — e o `box_shake`
         # não é gateado no `andar`, então ele puniria a queda.
         check(f"{nome}: caixa vai JUNTO com a prateleira",
-              bool((caixa_x > perto + 2.0).all()),
-              f"x={float(caixa_x.mean()):.2f}")
+              bool((caixa_z > sobe - 1.0).all()), f"z={float(caixa_z.mean()):.2f}")
 
 # O achado que motivou a T8b: antes dela, TODOS os termos de tarefa davam 0.0 no
 # reset das 3 tarefas c/ caixa -> nenhum caminho de aquisição.
