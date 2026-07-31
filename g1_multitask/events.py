@@ -161,15 +161,36 @@ def afasta_cena(
     # sustenta a caixa lá em cima igual sustenta aqui embaixo.
     desloca = torch.tensor([0.0, 0.0, distancia], device=env.device)
 
+    # ⚠️ IDEMPOTENTE. O evento roda mais de uma vez por reset, e a versão que só somava
+    # `+ desloca` acumulava — medido em 30/07: `folga = +9.74 m` com deslocamento de
+    # 5 m, ou seja a caixa subiu DUAS vezes e a prateleira uma.
+    #
+    # A assimetria tem causa: `write_mocap_pose_to_sim` NÃO reflete no
+    # `root_link_pos_w` sem um `forward()`, então na segunda passada a prateleira lê a
+    # posição velha e reescreve o MESMO alvo (fica em +5), enquanto a caixa lê a nova e
+    # soma outra vez (vai a +10). Depois ela cai os 5 m de diferença e desliza — era de
+    # lá que vinha o `desvio_xy = 0.387`.
+    #
+    # A guarda é a altura da prateleira: quem já subiu não sobe de novo. E a caixa segue
+    # exatamente quem a sustenta, então ela só se move junto com a prateleira dela.
+    alto = mesa.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    ja_subiu = alto > distancia * 0.5
+
     ids_mesa = _fora(tarefas_com_prateleira)
+    ids_mesa = ids_mesa[~ja_subiu[ids_mesa]]
     if len(ids_mesa) > 0:
         pose = torch.cat([mesa.data.root_link_pos_w[ids_mesa] + desloca,
                           mesa.data.root_link_quat_w[ids_mesa]], dim=-1)
         mesa.write_mocap_pose_to_sim(pose, env_ids=ids_mesa)
 
-    ids_caixa = _fora(tarefas_com_caixa)
-    if len(ids_caixa) > 0:
-        estado = torch.cat([caixa.data.root_link_pos_w[ids_caixa] + desloca,
-                            caixa.data.root_link_quat_w[ids_caixa],
-                            torch.zeros(len(ids_caixa), 6, device=env.device)], dim=-1)
-        caixa.write_root_state_to_sim(estado, env_ids=ids_caixa)
+        # A caixa só acompanha a prateleira que ACABOU de subir, e só onde ela não é
+        # usada. `torch.isin` porque `ids_caixa` é subconjunto de `ids_mesa` por
+        # construção (tarefas 0,1 contra 0,1,5,6), mas depender disso seria frágil.
+        ids_caixa = _fora(tarefas_com_caixa)
+        ids_caixa = ids_caixa[torch.isin(ids_caixa, ids_mesa)]
+        if len(ids_caixa) > 0:
+            estado = torch.cat(
+                [caixa.data.root_link_pos_w[ids_caixa] + desloca,
+                 caixa.data.root_link_quat_w[ids_caixa],
+                 torch.zeros(len(ids_caixa), 6, device=env.device)], dim=-1)
+            caixa.write_root_state_to_sim(estado, env_ids=ids_caixa)
