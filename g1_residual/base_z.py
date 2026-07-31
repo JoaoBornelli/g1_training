@@ -45,23 +45,93 @@ DIM_C = 20
 NORMA_Z = 16.0
 """sqrt(256). O `norm_z=true` do config exige isto."""
 
-ESCALA_C = 0.3
-"""Multiplica o coeficiente que a política emite.
+ESCALA_C = 1.0
+"""Multiplica o coeficiente que a política emite. É a TAXA da busca de comportamento:
+define quantos graus o `z` anda por unidade de `|c|`.
 
-Com o desvio padrão inicial de ~0,9 por dimensão, isto põe a base a ~12-14° do
-prior no começo — partida mansa. A MÉDIA da política não tem teto, então depois ela
-vai aonde quiser: 40° com |c|~1, 59° com |c|~2."""
+⚠️ **Era 0.3, e nesse valor a busca não existe.** O docstring antigo afirmava
+"|c| ~ 1,0 -> 40°, |c| ~ 2,0 -> 59°, o prior é partida não cerca". Isso estava errado
+por ~12×. Medido em 31/07/2026 por mínimos quadrados — não por amostragem aleatória,
+que subestima muito em 20 dimensões:
 
-PRIOR = {
-    T.PARADO:       "move-ego-0-0",
-    T.ANDAR:        "move-ego-0-0.3",
-    T.PEGAR:        "move-ego-0-0",
-    T.BOTAR:        "raisearms-m-m",
-    T.REORIENTAR:   "raisearms-m-m",
-    T.PARADO_CAIXA: "raisearms-m-m",
-    T.ANDAR_CAIXA:  "move-arms-0-0.7-m-m",
+    |c| necessário para trocar de comportamento, com escala 0.3
+    andar  -> parado        75,5°      |c| = 27,7   (12,3 por dimensão)
+    parado -> andar         75,5°      |c| = 46,3   (28,2 por dimensão)
+    pegar  -> agachar       89,8°      |c| = 37,5   (30,3 por dimensão)
+
+E a política de fato emite `|c| ≈ 10` (medido no checkpoint `model_1950`, que move o
+`z` só **24,6°**). Faltavam 3 a 4×.
+
+**A causa não é a multa do `action_rate_l2`** — ele pune a DIFERENÇA entre passos, então
+um `c` grande e constante custaria zero. A causa é gradiente que desaparece: com escala
+0.3, mexer `c` de 1 muda o `z` em ~0,8°, o efeito no reward fica abaixo do ruído, e os 20
+canais nunca aprendem a crescer. Assinatura no log: `action_rate_l2` marcava
+−3,07/−3,10/−3,10/−3,14 em quatro tarefas de física completamente diferente (variação de
+2,4%), ou seja era dominado por ruído idêntico em toda tarefa.
+
+**Sintomas que isso explicava:** `parado` funcionava (o prior dele JÁ é o comportamento
+certo); `andar` andava mas não parava no alvo (travado em `move-ego-0-0.3` = frente a
+0,3 m/s, e o BFM **não vê o nosso twist**, só o `z`); `pegar` nunca agachava; `grasp`,
+`lift`, `box_at_peito`, `box_at_prateleira`, `orienta_face` e `hold_still` todos em zero.
+
+**O compromisso de escolher 1.0:**
+
+    escala   excursão no início (|c|~4)   |c| para 75°
+    0.3               13°                    28      <- não alcançável
+    0.5               21°                    17
+    1.0               38°                     8      <- 2× o init, PPO aprende
+    2.1               75°                     4      <- o prior deixa de valer
+
+Em 38° o prior ainda importa: a média entre dois comportamentos DISTINTOS é 83°. E o
+gradiente é **constante** em todo o espaço, sem região plana onde a busca morre — foi por
+isso que preferi subir a escala em vez de trocar para simplex sobre os 41 (que chega
+exato, mas satura perto do prior: `dw/dc = 0,0023` com k=6).
+
+⚠️ **Vigiar:** a 1.0 a excursão aleatória inicial vira ~38°, contra 13° antes. O TESTE 2
+do `fumaca.py` mostra o BFM de pé 100% com o residual aleatório INTEIRO, então não deve
+derrubar — mas é o único número desta mudança que não foi medido nesta escala."""
+
+PRIOR: dict[int, tuple[str, int | None]] = {
+    #                nome                    semente (None = média das 10)
+    T.PARADO:       ("move-ego-0-0",         0),
+    T.ANDAR:        ("move-ego-0-0.3",    None),
+    T.PEGAR:        ("move-ego-0-0",         0),
+    T.BOTAR:        ("raisearms-m-m",        0),
+    T.REORIENTAR:   ("raisearms-m-m",        0),
+    T.PARADO_CAIXA: ("raisearms-m-m",        0),
+    T.ANDAR_CAIXA:  ("move-arms-0-0.7-m-m", None),
 }
 """Onde cada tarefa COMEÇA. Não onde ela termina.
+
+⚠️ **A coluna de SEMENTE não é capricho.** A tabela do BFM guarda **10 vetores `z` por
+nome**, não um: cada um é uma execução da inferência de reward com semente diferente, e
+as 10 deveriam descrever o mesmo comportamento. A média das 10 só faz sentido se elas
+concordarem. Medido em 31/07/2026:
+
+    comportamento          ângulo médio entre as 10   cos(média, sementes)
+    move-ego-0-0.3                 4,5°                     0,999    média OK
+    move-ego-0-0.7                 3,0°                     0,999    média OK
+    move-ego-90-0.3                6,3°                     0,997    média OK
+    move-arms-0-0.7-m-m            9,6°                     0,994    média OK
+    move-ego-0-0                  60,0°                     0,742    média INVÁLIDA
+    raisearms-m-m                 74,2°                     0,587    média INVÁLIDA
+
+O número que fecha o argumento: **entre dois comportamentos DIFERENTES o ângulo médio é
+83°.** Duas sementes de `raisearms-m-m` a 74° uma da outra estão quase tão longe quanto
+dois comportamentos distintos — a média delas cai num ponto que não é nenhuma das duas.
+
+**Por que essas duas discordam:** a recompensa é indeterminada. `move-ego-0-0` quer dizer
+"não se mexa", e existem infinitas posturas paradas; `raisearms-m-m` também tem muitas
+soluções. Já `move-ego-0-0.3` ("ande para frente a 0,3 m/s") restringe, e as 10 concordam.
+
+**Consequência medida**, prior do `pegar` (`move-ego-0-0`) com a MÉDIA e residual em zero:
+a distância caixa→peito cresce de 0,539 m para **2,631 m** em 1000 passos — o robô anda
+2,6 m para longe da caixa tentando "não se mexer". Com a semente 0 a deriva cai de
+0,993 m para 0,194 m em 300 passos, 5× menos. Por isso as duas linhas inválidas levam
+semente 0 e as outras continuam na média (que ainda filtra ruído de inferência).
+
+`raisearms-m-m` é prior de TRÊS tarefas (`botar`, `reorientar`, `parado c/ caixa`), então
+essa era a média inválida mais cara.
 
 ⚠️ **O prior do `pegar` era `crouch-0` e ele DESABA.** Medido no `fumaca.py`, 16 envs,
 150 passos, residual em zero:
@@ -122,15 +192,27 @@ class BaseZ:
         self.dim = dim
         self.energia = float((S[:dim] ** 2).sum() / (S ** 2).sum())
 
-        alvo = {t: PRIOR_UNICO for t in PRIOR} if prior_unico else PRIOR
+        alvo = ({t: (PRIOR_UNICO, 0) for t in PRIOR} if prior_unico else PRIOR)
         self.prior = torch.stack([
-            self.M[self.nomes.index(alvo[t])] for t in range(T.NUM_TASKS)
+            self._de(z_tabela, *alvo[t]) for t in range(T.NUM_TASKS)
         ]).to(device)                                # [7, 256]
         self.prior_unico = prior_unico
 
     @staticmethod
     def _projeta(v: torch.Tensor) -> torch.Tensor:
         return NORMA_Z * F.normalize(v, dim=-1)
+
+    @classmethod
+    def _de(cls, tabela: dict[str, torch.Tensor], nome: str,
+            semente: int | None) -> torch.Tensor:
+        """`z` de um comportamento, por SEMENTE ou pela média das 10.
+
+        A projeção vem depois da escolha, então a norma sai 16 nos dois casos. Ver a
+        tabela de concordância de sementes no docstring de `PRIOR` — a média só vale
+        onde as 10 concordam."""
+        v = tabela[nome]
+        return cls._projeta(
+            (v.mean(0) if semente is None else v[semente]).unsqueeze(0))[0]
 
     def z(self, tarefa: torch.Tensor, c: torch.Tensor,
           escala: float = ESCALA_C) -> torch.Tensor:
