@@ -56,7 +56,7 @@ def _registra(tarefa: int | None, escala: float | None) -> str:
     # Renomeá-lo para não colidir com a variável de fora dá
     # `TypeError: got an unexpected keyword argument 'cfg'`.
     env_cfg = g1_residual.build_env_residual(
-        play=True, escala_delta=1.0 if escala is None else escala)
+        play=True, escala_delta=0.15 if escala is None else escala)
 
     if tarefa is not None:
         class _Uma(OrquestradorPegar):
@@ -83,7 +83,7 @@ def main() -> None:
                    help="troca a `escala_delta` do residual. **`--escala 0` desliga o "
                         "residual**, e aí o que você vê é o BFM PURO na mesma cena — "
                         "é o A/B que diz se o tremor é do residual ou não. O padrão "
-                        "do treino é 1.0.")
+                        "do treino é 0.15.")
     p.add_argument("--sem-quedas", action="store_true",
                    help="não encerra o episódio quando o robô cai. Ele fica no chão e "
                         "você vê se ele LEVANTA — que é o teste direto da resiliência "

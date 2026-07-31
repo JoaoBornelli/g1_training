@@ -20,7 +20,6 @@ num `MultitaskKnobs`, e cada treino salvo é uma instância congelada em `config
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 
@@ -345,60 +344,6 @@ class Push:
 class Tolerancia:
     """Limiares de terminação e de sucesso (§14). Mudar um de SUCESSO é Categoria C —
     recomeçar do zero — porque a régua do currículo se move junto."""
-
-    termina_ao_cair: bool = True
-    """Se a queda encerra o episódio. **LIGADO de volta em 31/07, por medição.**
-
-    Eu desliguei para matar o vale de retorno negativo, e o vale morreu de fato — o
-    `reward/passo` foi de −0,60 (iter 48) a −0,029 (450) monotonicamente, sem dip, e a
-    cascata chegou a 13 eventos. Mas o user parou a run: a anterior, COM a terminação,
-    respondia melhor. E o `play` mostrou por quê.
-
-    **SENTAR é quase ótimo sob a reward atual.** Sentado com o tronco vertical o robô
-    coleta o orçamento inteiro de positivos e quase nenhuma penalidade:
-
-        upright                  +0,82   verticalidade do TRONCO, que sentar satisfaz
-        track_linear_velocity    +1,86   rastreia v=0, e sentado v=0
-        track_angular_velocity   +1,49
-        action_rate_l2            ~0     não precisa se mexer
-        feet_slip / foot_clearance / com_balance  ~0
-
-    Daí a run parecer boa nos números (sucesso 0,95, upright 0,82) com o robô no chão.
-
-    **A terminação não era só andaime anti-suicídio — ela era o que impedia "senta e
-    coleta".** Desligá-la abriu um hack de reward que ela mascarava.
-
-    Para desligar de novo não basta esta flag: os positivos precisariam ser gateados em
-    ALTURA (`de_pe`), senão sentar continua pagando. Isso é cirurgia de reward que a §6b
-    não previu, e não está validada.
-
-    O vale continua existindo com ela ligada, e continua atravessável — as duas runs
-    anteriores atravessaram (monolítica 57→11→164→851 passos; residual
-    300→150→82→39→935). Custa algumas centenas de iterações, não a run."""
-
-    limite_queda_z: float = 0.40
-    """Altura da pelve abaixo da qual conta como QUEDA, junto com a inclinação.
-
-    ⚠️ **Sem este piso, SENTAR não conta como cair.** O `fell_over` do fabricante é
-    inclinação pura (70°), e um robô que senta com o tronco VERTICAL tem inclinação ~0°.
-    O sucesso do `parado` é `time_out & nunca_caiu`, então **sentar quieto por 20 s
-    pontuava**. Visto no `play` em 31/07: o robô cai sentado e o `sucesso` marcava 0,95.
-
-    O `upright` também é cego para isso — ele mede verticalidade do TRONCO, que sentar
-    satisfaz. Daí `upright = 0,82` com o robô no chão.
-
-    **Por que 0,40 e não `de_pe_z` (0,65).** O `pegar` precisa agachar de verdade nos
-    níveis baixos do eixo de altura, e 0,65 marcaria agachamento legítimo como queda.
-    Sentado a pelve fica em ~0,30, então 0,40 separa os dois casos. Altura sozinha seria
-    ambígua com agachar — é por isso que o fabricante usa só inclinação; o piso é
-    COMPLEMENTO, não substituto."""
-
-    limite_queda_rad: float = math.radians(70.0)
-    """Inclinação do torso que conta como queda. 70° = o `limit_angle` do fabricante.
-
-    Com `termina_ao_cair = False` este número deixa de ser terminação e passa a ser SÓ o
-    critério da flag `_nunca_caiu`, que o sucesso do `parado` lê. Mantido idêntico ao do
-    fabricante para o sucesso significar a mesma coisa que antes."""
 
     # --- terminação ---
     largou_z: float = 0.30              # §14 — só `parado c/ caixa` e `andar c/ caixa`

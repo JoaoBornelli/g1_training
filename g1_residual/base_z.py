@@ -52,15 +52,14 @@ Com o desvio padrão inicial de ~0,9 por dimensão, isto põe a base a ~12-14° 
 prior no começo — partida mansa. A MÉDIA da política não tem teto, então depois ela
 vai aonde quiser: 40° com |c|~1, 59° com |c|~2."""
 
-PRIOR: dict[int, tuple[str, int | None]] = {
-    #                nome                    semente (None = média das 10)
-    T.PARADO:       ("move-ego-0-0",         0),
-    T.ANDAR:        ("move-ego-0-0.3",       0),
-    T.PEGAR:        ("move-ego-0-0",         0),
-    T.BOTAR:        ("raisearms-m-m",     None),
-    T.REORIENTAR:   ("raisearms-m-m",     None),
-    T.PARADO_CAIXA: ("raisearms-m-m",     None),
-    T.ANDAR_CAIXA:  ("move-arms-0-0.7-m-m", 0),
+PRIOR = {
+    T.PARADO:       "move-ego-0-0",
+    T.ANDAR:        "move-ego-0-0.3",
+    T.PEGAR:        "move-ego-0-0",
+    T.BOTAR:        "raisearms-m-m",
+    T.REORIENTAR:   "raisearms-m-m",
+    T.PARADO_CAIXA: "raisearms-m-m",
+    T.ANDAR_CAIXA:  "move-arms-0-0.7-m-m",
 }
 """Onde cada tarefa COMEÇA. Não onde ela termina.
 
@@ -95,23 +94,8 @@ Consequência a vigiar: o residual tem trabalho real na perna, então o clamp de
 0,35 rad pode ser pouco. Se o `pegar` não sair do lugar, alargue a perna antes de
 mexer em qualquer outra coisa.
 
-⚠️ **A SEMENTE importa, e a média é pior onde o `z` é difuso.** Medido em 300 passos
-(6 s), residual em zero, olhando a DERIVA horizontal:
-
-    move-ego-0-0[média]    deriva 0,993 m   <- quase 1 m em 6 s
-    move-ego-0-0[0]        deriva 0,194 m   <- 5x menos
-    raisearms-m-m[média]   deriva 0,324 m
-
-É essa deriva que se vê como "o robô fica dançando". Ela casa com o achado do cosseno:
-as 10 sementes de `move-ego-0-0` estão a ~60° umas das outras (cos médio 0,500), porque
-"não se mexa" tem muitas soluções e a inferência de reward fica indeterminada. A média
-de vetores tão espalhados cai num ponto que não é nenhum deles.
-
-Onde as sementes CONCORDAM a média é boa: `move-arms-0-0.7-m-m` tem cos 0,986, e
-`raisearms-m-m` deriva só 0,324 m. Daí a coluna de semente ser por tarefa.
-
-`move-ego-0-0.3` e `move-arms-0-0.7-m-m` levam semente 0 por analogia, não por medição
-— a varredura de deriva só cobriu o que o `parado` e o `pegar` usam."""
+`move-arms-0-0.7-m-m` (`andar c/ caixa`) ainda NÃO foi medido — a varredura só cobriu
+o que o experimento do `pegar` usa."""
 
 PRIOR_UNICO = "move-ego-0-0"
 """Alternativa sem suposição nenhuma: as 7 tarefas partem de ficar de pé.
@@ -138,22 +122,15 @@ class BaseZ:
         self.dim = dim
         self.energia = float((S[:dim] ** 2).sum() / (S ** 2).sum())
 
-        alvo = ({t: (PRIOR_UNICO, 0) for t in PRIOR} if prior_unico else PRIOR)
+        alvo = {t: PRIOR_UNICO for t in PRIOR} if prior_unico else PRIOR
         self.prior = torch.stack([
-            self._de(z_tabela, *alvo[t]) for t in range(T.NUM_TASKS)
+            self.M[self.nomes.index(alvo[t])] for t in range(T.NUM_TASKS)
         ]).to(device)                                # [7, 256]
         self.prior_unico = prior_unico
 
     @staticmethod
     def _projeta(v: torch.Tensor) -> torch.Tensor:
         return NORMA_Z * F.normalize(v, dim=-1)
-
-    @classmethod
-    def _de(cls, tabela: dict[str, torch.Tensor], nome: str,
-            semente: int | None) -> torch.Tensor:
-        """`z` de um comportamento, por semente ou pela média das 10."""
-        v = tabela[nome]
-        return cls._projeta((v.mean(0) if semente is None else v[semente]).unsqueeze(0))[0]
 
     def z(self, tarefa: torch.Tensor, c: torch.Tensor,
           escala: float = ESCALA_C) -> torch.Tensor:

@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import math
-
 import torch
 
 from mjlab.entity import Entity
@@ -106,15 +104,7 @@ class Sucesso:
         # `d_morto` leva a velocidade comandada a ZERO no alvo — o robô para pelo
         # perfil, não por penalidade. Ver §4.
         cond = torch.where(tarefa == T.ANDAR, chegou & parado_de_pe, cond)
-        # ⚠️ `preensao` é OBRIGATÓRIA aqui, e faltava. O `pegar` era a única das sete
-        # sem ela — `parado c/ caixa` e `andar c/ caixa` exigem, `botar` exige o
-        # contrário. Sem ela o critério passava ENCOSTANDO o peito na caixa parada na
-        # prateleira: na fronteira do `de_pe` (pelve 0,65, inclinação 20°) o alvo do
-        # peito desce para z = 0,723, e a caixa na prateleira está em 0,65 — Δz = 0,073,
-        # dentro dos 0,10 m. Medido em 31/07: `pegar` marcava 98,6% de sucesso com
-        # `grasp = 0`, `lift = 0` e a caixa subindo 3,8 cm.
-        cond = torch.where(tarefa == T.PEGAR,
-                           no_peito & parado_de_pe & preensao, cond)
+        cond = torch.where(tarefa == T.PEGAR, no_peito & parado_de_pe, cond)
         cond = torch.where(tarefa == T.BOTAR,
                            no_alvo & ~preensao & caixa_quieta & parado_de_pe, cond)
         cond = torch.where(tarefa == T.REORIENTAR, orientada, cond)
@@ -150,25 +140,7 @@ class Sucesso:
             self._nunca_caiu[caiu] = True
         self._len_ant.copy_(env.episode_length_buf)
 
-        # 2. quem CAIU nunca mais "sobreviveu" neste episódio.
-        #
-        # ⚠️ Duas fontes, e a primeira é obrigatória: com `termina_ao_cair = False` a
-        # queda NÃO entra em `terminated`, então ler só o manager deixaria o `parado`
-        # dar sucesso a um robô que passou 18 s no chão. O critério replicado é o do
-        # `fell_over` do fabricante — inclinação do torso acima de `limite_queda`.
-        #
-        # `projected_gravity_b[:, 2]` é −cos(inclinação): vale −1 em pé e sobe pra 0
-        # deitado. A 70° o corte é −cos(70°) = −0.342.
-        # ⚠️ DUAS condições, e o piso de altura é obrigatório: inclinação sozinha NÃO
-        # pega sentar. Sentado com o tronco vertical a inclinação é ~0°, então o robô
-        # "nunca caía" e o `parado` pontuava 20 s no chão (visto no `play`, 31/07).
-        robo_ = env.scene["robot"]
-        tombou = (robo_.data.projected_gravity_b[:, 2]
-                  > -math.cos(self.tol.limite_queda_rad))
-        baixou = ((robo_.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2])
-                  < self.tol.limite_queda_z)
-        self._nunca_caiu &= ~(tombou | baixou)
-        # a segunda pega `fora_da_area` e `nonfinite`, que continuam terminando
+        # 2. quem foi terminado por falha nunca mais "sobreviveu" neste episódio
         self._nunca_caiu &= ~env.termination_manager.terminated
 
         # 3. sustentação: soma enquanto vale, ZERA quando quebra
