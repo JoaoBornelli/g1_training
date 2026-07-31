@@ -17,6 +17,7 @@ O substituto é uma lista ESCRITA de checks, rodada antes de submeter. A lista d
 
 Cresce junto com o plano: cada tarefa implementada acrescenta uma seção aqui.
 """
+import math
 import pathlib
 import sys
 
@@ -930,6 +931,80 @@ check("alarme conta transições reais, não episódios cheios",
       abs(_orq_c.transicoes_sem_evento - _esperado) < 1e-6,
       f"deu {_orq_c.transicoes_sem_evento:.3e}, esperado {_esperado:.3e} "
       f"(a versão antiga daria {_chamadas * _n * 1000:.3e}, ou seja 91x)")
+
+# ------------------------------- consertos de 31/07: itens 1 a 5 da fila
+print("\n-- consertos de 31/07 (escala_c, pré-gatilho, frame do reorientar, log) --")
+from g1_residual.base_z import ESCALA_C as _ESC, PRIOR as _PRIOR  # noqa: E402
+
+# item 1 — a escala da busca de comportamento. Com 0.3 a política precisava de
+# |c| ~ 28 pra trocar de comportamento e emitia ~10; a busca não existia.
+check("item 1: escala_c subiu de 0.3", _ESC >= 1.0, f"ESCALA_C = {_ESC}")
+
+# item 5 — prior por SEMENTE onde as 10 sementes discordam (60° e 74°). Média só vale
+# onde elas concordam (<10°).
+check("item 5: PRIOR carrega semente", all(isinstance(v, tuple) and len(v) == 2
+                                           for v in _PRIOR.values()))
+_por_nome = {nome: sem for nome, sem in _PRIOR.values()}
+check("item 5: move-ego-0-0 usa semente, não média",
+      _por_nome.get("move-ego-0-0") is not None,
+      "as 10 sementes estão a 60° uma da outra; a média não é comportamento nenhum")
+check("item 5: raisearms-m-m usa semente, não média",
+      _por_nome.get("raisearms-m-m") is not None,
+      "74° entre sementes, e é prior de 3 tarefas")
+check("item 5: onde as sementes concordam, mantém a média",
+      _por_nome.get("move-ego-0-0.3") is None, "4,5° entre sementes: média é fiel")
+
+# item 2 — o pré-gatilho não pode fechar sucesso
+_fonte_call = inspect.getsource(
+    __import__("g1_multitask.metrics", fromlist=["Sucesso"]).Sucesso.__call__)
+check("item 2: sucesso gateado pelo gatilho", "disparou" in _fonte_call,
+      "sem isso o critério do `parado` (sustentação 0 s) pontua por outra tarefa")
+_meta_t = env_t.command_manager.get_term("lift_target")
+check("item 2: o comando expõe `disparou`",
+      hasattr(_meta_t, "disparou") and tuple(_meta_t.disparou.shape) == (env_t.num_envs,))
+
+# item 3 — o erro de ângulo do `reorientar` NÃO pode depender da pose do robô.
+# Check comportamental: gira o ROBÔ 40° em torno de z, com a caixa intacta.
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.REORIENTAR] = 1.0
+env_t.reset()
+_acao_t = torch.zeros(env_t.num_envs, env_t.action_manager.total_action_dim,
+                      device=DEVICE)
+env_t.step(_acao_t)
+_ang_antes = _meta_t.erro_angulo_deg().clone()
+_rb = env_t.scene["robot"]
+_q = _rb.data.root_link_quat_w.clone()
+_meio = math.radians(40.0) / 2.0
+_giro = torch.zeros_like(_q)
+_giro[:, 0] = math.cos(_meio)
+_giro[:, 3] = math.sin(_meio)          # rotação de 40° em torno de z (w,x,y,z)
+_w0, _x0, _y0, _z0 = _q[:, 0], _q[:, 1], _q[:, 2], _q[:, 3]
+_w1, _x1, _y1, _z1 = _giro[:, 0], _giro[:, 1], _giro[:, 2], _giro[:, 3]
+_qn = torch.stack([
+    _w1 * _w0 - _x1 * _x0 - _y1 * _y0 - _z1 * _z0,
+    _w1 * _x0 + _x1 * _w0 + _y1 * _z0 - _z1 * _y0,
+    _w1 * _y0 - _x1 * _z0 + _y1 * _w0 + _z1 * _x0,
+    _w1 * _z0 + _x1 * _y0 - _y1 * _x0 + _z1 * _w0], dim=-1)
+_estado = torch.cat([_rb.data.root_link_pos_w, _qn,
+                     torch.zeros(env_t.num_envs, 6, device=DEVICE)], dim=-1)
+_rb.write_root_state_to_sim(_estado)
+env_t.sim.forward()
+_ang_depois = _meta_t.erro_angulo_deg()
+_delta = float((_ang_depois - _ang_antes).abs().max())
+check("item 3: girar o ROBÔ não muda o erro de ângulo da caixa",
+      _delta < 1.0,
+      f"variação máx {_delta:.3f}° com o robô girado 40° e a caixa intacta "
+      f"(antes do conserto ela acompanhava o robô 1:1)")
+
+# item 4 — as duas linhas de log existem e vêm mascaradas por `tarefa_sorteada`
+check("item 4: buffers de diagnóstico criados",
+      hasattr(env_t, "diag_soma") and hasattr(env_t, "diag_cont")
+      and tuple(env_t.diag_soma.shape) == (T.NUM_TASKS, 2))
+_fonte_rel = inspect.getsource(
+    __import__("g1_multitask.observability", fromlist=["Relatorio"]).Relatorio.__call__)
+check("item 4: relatório emite cond_fisica e atribuicao_divergente",
+      "cond_fisica" in _fonte_rel and "atribuicao_divergente" in _fonte_rel,
+      "se `perf` sobe e `cond_fisica` fica em zero, o crédito é falso")
 
 # T15 (treinar, salvar, retomar) mora em `smoke_resume.py`: ele instancia PPO de
 # verdade e leva minutos, o que quebraria a promessa deste arquivo de rodar em
