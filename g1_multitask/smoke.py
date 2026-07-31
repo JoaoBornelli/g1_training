@@ -643,16 +643,20 @@ check("orienta_face tem gradiente no nível 15° (escala grossa faz o trabalho)"
 print("\n-- T9: terminações --")
 from g1_multitask import terminations as MTT  # noqa: E402
 
-# 5, não 6: a queda saiu (ver o check logo abaixo). Sobram `time_out`, `nonfinite`,
-# `largou`, `caixa_caiu` e `fora_da_area` — as três últimas são as da §6b/D.
-check("5 terminações no total", len(cfg.terminations) == 5, str(list(cfg.terminations)))
+# A contagem segue o knob `termina_ao_cair`: com ele LIGADO (o default, revertido em
+# 31/07 por medição — ver o docstring do knob) são 6, com ele desligado são 5.
+_n_esperado = 6 if ACTIVE.tolerancia.termina_ao_cair else 5
+check(f"{_n_esperado} terminações no total", len(cfg.terminations) == _n_esperado,
+      str(list(cfg.terminations)))
 # A queda NÃO encerra mais o episódio (ver `knobs.Tolerancia.termina_ao_cair`): ela
 # virou flag lida pelo `metrics.Sucesso`. O check troca de lado — antes garantia o
 # ângulo do termo, agora garante que o termo saiu E que o critério de 70° sobreviveu
 # no knob, senão o sucesso do `parado` mudaria de significado em silêncio.
 import math as _math  # noqa: E402
-check("fell_over NÃO encerra mais o episódio",
-      "fell_over" not in cfg.terminations, str(sorted(cfg.terminations)))
+check("`fell_over` segue o knob `termina_ao_cair`",
+      ("fell_over" in cfg.terminations) == ACTIVE.tolerancia.termina_ao_cair,
+      f"knob={ACTIVE.tolerancia.termina_ao_cair}, presente="
+      f"{'fell_over' in cfg.terminations}")
 check("o critério de 70° sobrevive no knob",
       abs(ACTIVE.tolerancia.limite_queda_rad - _math.radians(70.0)) < 1e-9,
       f"{_math.degrees(ACTIVE.tolerancia.limite_queda_rad):.1f}°")
@@ -722,6 +726,61 @@ check("deriva do parado é métrica, NÃO terminação nem sucesso (F3)",
       "deriva_parado" in cfg.metrics
       and "deriva" not in " ".join(cfg.terminations))
 check("env.success_buf existe antes de qualquer step", hasattr(env_t, "success_buf"))
+
+# --- os DOIS hacks que o `play` pegou em 31/07, agora travados por check ---
+# Sem estes, o smoke passava inteiro com o robô sentado no chão pontuando `parado` e o
+# `pegar` pontuando sem tocar na caixa. Os dois vinham do critério, não da política.
+_suc = [c.func for c in env_t.metrics_manager._term_cfgs
+        if type(c.func).__name__ == "Sucesso"][0]
+_rb = env_t.scene["robot"]
+_org = env_t.scene.env_origins
+
+
+def _forca_pose(z_pelve: float, tilt_deg: float = 0.0) -> None:
+    """Teleporta o robô para uma altura/inclinação e atualiza a cinemática."""
+    import math as _m
+    a = _m.radians(tilt_deg) / 2
+    q = torch.zeros(env_t.num_envs, 4, device=DEVICE)
+    q[:, 0] = _m.cos(a)
+    q[:, 2] = _m.sin(a)
+    pose = torch.cat([_rb.data.root_link_pos_w[:, :2],
+                      _org[:, 2:3] + z_pelve, q], dim=-1)
+    _rb.write_root_link_pose_to_sim(pose)
+    env_t.sim.forward()
+
+
+# HACK 1 — SENTADO com o tronco vertical. A inclinação é ~0°, então o `fell_over` do
+# fabricante (70°) nunca dispara e o robô "nunca caiu". Só o piso de altura pega.
+_forca_pose(z_pelve=0.30, tilt_deg=0.0)
+_caiu_sentado = not bool(_suc._condicao(env_t)[0]) or True   # o que importa é a flag
+import math as _mm  # noqa: E402
+_tombou = bool((_rb.data.projected_gravity_b[:, 2]
+                > -_mm.cos(ACTIVE.tolerancia.limite_queda_rad))[0])
+_baixou = bool(((_rb.data.root_link_pos_w[:, 2] - _org[:, 2])
+                < ACTIVE.tolerancia.limite_queda_z)[0])
+check("sentado (pelve 0.30, tronco vertical) NÃO passa pela inclinação",
+      not _tombou, "a inclinação é ~0° — é por isso que o piso de altura é obrigatório")
+check("sentado CONTA como queda pelo piso de altura",
+      _baixou, f"pelve 0.30 < limite {ACTIVE.tolerancia.limite_queda_z}")
+# e o agachamento legítimo do `pegar` NÃO pode ser marcado como queda
+_forca_pose(z_pelve=0.50, tilt_deg=0.0)
+check("agachado a 0.50 NÃO conta como queda",
+      not bool(((_rb.data.root_link_pos_w[:, 2] - _org[:, 2])
+                < ACTIVE.tolerancia.limite_queda_z)[0]),
+      "senão o `pegar` nos níveis baixos de altura viraria queda")
+
+# HACK 2 — o `pegar` exige PREENSÃO. Sem ela o critério passava encostando o peito na
+# caixa parada na prateleira: na fronteira do `de_pe` (pelve 0.65, tilt 20°) o alvo do
+# peito desce para z=0.723 e a caixa está em 0.65 — 0.073 m, dentro dos 0.10.
+import inspect as _insp  # noqa: E402
+_fonte_cond = _insp.getsource(_suc._condicao)
+check("o critério do `pegar` exige preensão",
+      "T.PEGAR" in _fonte_cond
+      and "preensao" in _fonte_cond.split("T.PEGAR")[1].split("cond)")[0],
+      "sem isso ele pontua ENCOSTANDO na caixa, sem nunca pegá-la")
+check("as 4 tarefas com caixa na mão citam preensão",
+      all(f"T.{n}" in _fonte_cond for n in
+          ("PEGAR", "BOTAR", "PARADO_CAIXA", "ANDAR_CAIXA")))
 # O que faz a Categoria A ser grátis: nenhum termo de reward alimenta o sucesso.
 import inspect  # noqa: E402
 

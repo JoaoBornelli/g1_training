@@ -346,38 +346,52 @@ class Tolerancia:
     """Limiares de terminação e de sucesso (§14). Mudar um de SUCESSO é Categoria C —
     recomeçar do zero — porque a régua do currículo se move junto."""
 
-    termina_ao_cair: bool = False
-    """Se a queda encerra o episódio. **Desligado**, e isso é mudança de desenho.
+    termina_ao_cair: bool = True
+    """Se a queda encerra o episódio. **LIGADO de volta em 31/07, por medição.**
 
-    Ligado (o default do fabricante, e o que a §6b assumia) a queda encerra. Duas
-    consequências ruins, as duas medidas:
+    Eu desliguei para matar o vale de retorno negativo, e o vale morreu de fato — o
+    `reward/passo` foi de −0,60 (iter 48) a −0,029 (450) monotonicamente, sem dip, e a
+    cascata chegou a 13 eventos. Mas o user parou a run: a anterior, COM a terminação,
+    respondia melhor. E o `play` mostrou por quê.
 
-    1. **A política nunca vê o estado caído**, então não pode aprender a levantar.
-    2. **É a origem do vale de retorno negativo.** Terminação zera o valor futuro, então
-       com reward por passo negativa MORRER CEDO RENDE MAIS. Visto nas duas runs de
-       30/07: monolítica 57 -> 11 -> 164 -> 851 passos; residual 300 -> 150 -> 82 -> 39
-       -> 935. As duas atravessaram, mas gastaram centenas de iterações no fundo.
+    **SENTAR é quase ótimo sob a reward atual.** Sentado com o tronco vertical o robô
+    coleta o orçamento inteiro de positivos e quase nenhuma penalidade:
 
-    Desligado, o vale morre por construção: sem saída antecipada, "mais curto é melhor"
-    deixa de existir. E ficar no chão custa o orçamento INTEIRO de positivos (~+3,5 de
-    contrib de pé contra ~0 caído), então o retorno pune deitar com força.
+        upright                  +0,82   verticalidade do TRONCO, que sentar satisfaz
+        track_linear_velocity    +1,86   rastreia v=0, e sentado v=0
+        track_angular_velocity   +1,49
+        action_rate_l2            ~0     não precisa se mexer
+        feet_slip / foot_clearance / com_balance  ~0
 
-    **O que autoriza desligar é medição, não teoria.** Com o BFM como base, levantar é
-    alcançável: o `fumaca.py` nasce o robô caído (pitch 80°, pelve 0,32 m) e mede, com
-    residual em ZERO —
+    Daí a run parecer boa nos números (sucesso 0,95, upright 0,82) com o robô no chão.
 
-        de-pe projetado no span    100% levantou    fim 0,780 m
-        anti-sitonground           100%             fim 0,782 m
-        move-ego-0-0               100%             fim 0,771 m
+    **A terminação não era só andaime anti-suicídio — ela era o que impedia "senta e
+    coleta".** Desligá-la abriu um hack de reward que ela mascarava.
 
-    O primeiro é o que a política de fato alcança pelos 20 coeficientes da `base_z`. Ela
-    tem como descobrir. Numa política monolítica, sem o BFM, desligar isto seria caro —
-    é a arquitetura residual que torna a mudança barata.
+    Para desligar de novo não basta esta flag: os positivos precisariam ser gateados em
+    ALTURA (`de_pe`), senão sentar continua pagando. Isso é cirurgia de reward que a §6b
+    não previu, e não está validada.
 
-    Custo aceito: um env caído que não recupera roda até ~900 passos rendendo quase
-    nada. O sinal de que isso está pesando é `upright` médio baixo com episódio cheio;
-    se aparecer, a saída é terminação ATRASADA (encerra após ~3 s caído) em vez de
-    nenhuma."""
+    O vale continua existindo com ela ligada, e continua atravessável — as duas runs
+    anteriores atravessaram (monolítica 57→11→164→851 passos; residual
+    300→150→82→39→935). Custa algumas centenas de iterações, não a run."""
+
+    limite_queda_z: float = 0.40
+    """Altura da pelve abaixo da qual conta como QUEDA, junto com a inclinação.
+
+    ⚠️ **Sem este piso, SENTAR não conta como cair.** O `fell_over` do fabricante é
+    inclinação pura (70°), e um robô que senta com o tronco VERTICAL tem inclinação ~0°.
+    O sucesso do `parado` é `time_out & nunca_caiu`, então **sentar quieto por 20 s
+    pontuava**. Visto no `play` em 31/07: o robô cai sentado e o `sucesso` marcava 0,95.
+
+    O `upright` também é cego para isso — ele mede verticalidade do TRONCO, que sentar
+    satisfaz. Daí `upright = 0,82` com o robô no chão.
+
+    **Por que 0,40 e não `de_pe_z` (0,65).** O `pegar` precisa agachar de verdade nos
+    níveis baixos do eixo de altura, e 0,65 marcaria agachamento legítimo como queda.
+    Sentado a pelve fica em ~0,30, então 0,40 separa os dois casos. Altura sozinha seria
+    ambígua com agachar — é por isso que o fabricante usa só inclinação; o piso é
+    COMPLEMENTO, não substituto."""
 
     limite_queda_rad: float = math.radians(70.0)
     """Inclinação do torso que conta como queda. 70° = o `limit_angle` do fabricante.
