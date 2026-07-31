@@ -39,8 +39,14 @@ NOMES = {
 }
 
 
-def _forca_tarefa(tarefa: int) -> None:
-    """Re-registra a task com o orquestrador abrindo só a tarefa pedida.
+TASK_UMA = g1_residual.TASK_ID + "-Uma"
+"""Id SEPARADO. O `register_mjlab_task` NÃO sobrescreve: com o mesmo id ele levanta
+`ValueError: Task ... is already registered`. É o mesmo padrão do `play.py` da raiz,
+que registra `...-LiftPlay` em vez de mexer na entrada da Lift."""
+
+
+def _forca_tarefa(tarefa: int) -> str:
+    """Registra uma task de play com o orquestrador abrindo só a tarefa pedida.
 
     O `OrquestradorPegar` já é a subclasse que fixa a lista `abertas`; aqui só troco
     QUAL tarefa ele fixa. O `super()` explícito pula o `__init__` dele e vai direto no
@@ -54,11 +60,10 @@ def _forca_tarefa(tarefa: int) -> None:
 
     cfg = g1_residual.build_env_residual(play=True)
     cfg.curriculum["orquestrador"].func = _Uma
-    # `register_mjlab_task` sobrescreve a entrada do dict, então re-registrar com o
-    # MESMO id é o jeito de trocar o cfg sem tocar em nada do mjlab.
     register_mjlab_task(
-        task_id=g1_residual.TASK_ID, env_cfg=cfg, play_env_cfg=cfg,
+        task_id=TASK_UMA, env_cfg=cfg, play_env_cfg=cfg,
         rl_cfg=g1_residual._rl_cfg(), runner_cls=MultitaskRunner)
+    return TASK_UMA
 
 
 def main() -> None:
@@ -74,11 +79,12 @@ def main() -> None:
     ckpt = pathlib.Path(args.checkpoint).expanduser()
     assert ckpt.is_file(), f"não achei {ckpt}"
 
+    task_id = g1_residual.TASK_ID
     if args.tarefa:
-        _forca_tarefa(NOMES[args.tarefa])
+        task_id = _forca_tarefa(NOMES[args.tarefa])
         print(f"[PLAY] tarefa forçada: {args.tarefa}")
 
-    run_play(g1_residual.TASK_ID, PlayConfig(
+    run_play(task_id, PlayConfig(
         agent="trained", checkpoint_file=str(ckpt), num_envs=args.envs,
         viewer="native", video=args.video, video_length=args.video_length,
     ))
