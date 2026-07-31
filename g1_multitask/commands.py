@@ -111,6 +111,21 @@ class LiftTargetCommand(CommandTerm):
         self._destino_w = torch.zeros(self.num_envs, 3, device=self.device)
         self._face_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._spawn_xy = torch.zeros(self.num_envs, 2, device=self.device)
+        self._disparou = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device)
+        """O gatilho da tarefa já disparou? Lido pelo `metrics.Sucesso`.
+
+        Existe porque o pré-gatilho não pode fechar sucesso: nos até 2 s de espera a
+        tarefa ATIVA é `parado` (ou `parado c/ caixa`), e o critério do `parado` é
+        `time_out & de pé` com sustentação **0 s** — fecha num passo só. Sem este gate,
+        uma tarefa pode pontuar por um critério que não é o dela."""
+        self._dir_w = torch.zeros(self.num_envs, 3, device=self.device)
+        """Direção alvo da face, em MUNDO. 🔧 Conserto de 31/07: era guardada no frame
+        da BASE e comparada contra a normal recomputada na base a cada passo — então
+        **girar o ROBÔ mudava o erro com a caixa imóvel**. Medido, 64 envs, ação zero: a
+        caixa não sai do lugar (`desvio_xy = 0,0009 m`) e a fração dentro da tolerância
+        de 10° sobe de 0/64 no spawn para 19/64 (30%) no passo 200 — o `reorientar` era
+        aprovado pelo robô virar. Em mundo, só a rotação da CAIXA move o erro."""
 
         # INTENÇÃO sorteada, resolvida contra a pose só depois (ver `_resolver`).
         self._ang = torch.zeros(self.num_envs, device=self.device)
@@ -226,22 +241,32 @@ class LiftTargetCommand(CommandTerm):
         self._spawn_xy[ids] = self.box.data.root_link_pos_w[ids, :2]
 
         face_b = torch.tensor(FACE_AXES, device=self.device)[self._face_idx[ids]]
-        normal_b = quat_apply_inverse(
-            self.robot.data.root_link_quat_w[ids],
-            quat_apply(self.box.data.root_link_quat_w[ids], face_b))
-        alvo_lateral = _rot_z(normal_b, self._ang[ids])
-        # topo/fundo: a face tem que apontar PRA MIM, que é −x no frame da base
+        # ⚠️ TUDO em MUNDO daqui pra baixo. A normal da face vive no frame da CAIXA
+        # (`face_b` é constante), então levá-la a mundo é uma rotação só. O alvo é a
+        # normal do SPAWN girada em torno do z do mundo pelo ângulo do nível.
+        normal_w = quat_apply(self.box.data.root_link_quat_w[ids], face_b)
+        alvo_lateral = _rot_z(normal_w, self._ang[ids])
+        # topo/fundo: a face tem que apontar PRA MIM. Resolvido no SPAWN e congelado —
+        # é alvo relativo ao robô por natureza, e congelar mantém o critério medindo
+        # rotação da caixa, igual ao `_spawn_xy`.
+        para_mim = (self.robot.data.root_link_pos_w[ids, :2]
+                    - self.box.data.root_link_pos_w[ids, :2])
         alvo_tf = torch.zeros_like(alvo_lateral)
-        alvo_tf[:, 0] = -1.0
+        alvo_tf[:, :2] = para_mim / para_mim.norm(dim=-1, keepdim=True).clamp(min=1e-6)
         dir_alvo = torch.where(self._topo[ids].unsqueeze(-1), alvo_tf, alvo_lateral)
-        dir_alvo = dir_alvo / dir_alvo.norm(dim=-1, keepdim=True)
+        dir_alvo = dir_alvo / dir_alvo.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        self._dir_w[ids] = dir_alvo
 
         # zera face/dir de quem não é `reorientar` (§9: tabela de preenchimento)
         so_reorienta = (tarefa == T.REORIENTAR).unsqueeze(-1)
         self._command[ids, FACE] = torch.where(
             so_reorienta, face_b, torch.zeros_like(face_b))
-        self._command[ids, DIR] = torch.where(
+        self._dir_w[ids] = torch.where(
             so_reorienta, dir_alvo, torch.zeros_like(dir_alvo))
+        # ⚠️ `DIR` da OBS não é escrito aqui: o `_update_command` o reescreve a CADA
+        # passo, convertendo `_dir_w` para o frame da base atual. Antes ele era gravado
+        # uma vez e ficava obsoleto — a política via um vetor que já não significava o
+        # que significava no spawn.
         self._pendente[ids] = False
 
     def _distancia_nivel(self, tarefa: torch.Tensor, env_ids: torch.Tensor):
@@ -267,6 +292,7 @@ class LiftTargetCommand(CommandTerm):
         self._resolver()
         self._t += self._env.step_dt
         disparou = self._t >= self._atraso
+        self._disparou.copy_(disparou)
         # in-place: `env.active_task` guarda a REFERÊNCIA a este tensor
         self._ativa.copy_(torch.where(disparou, self._sorteada, self._pre_gatilho))
         tarefa = self._ativa
@@ -289,6 +315,17 @@ class LiftTargetCommand(CommandTerm):
         alvo = torch.where((tarefa == T.BOTAR).unsqueeze(-1), prateleira, alvo)
         self._command[:, ALVO] = alvo
 
+        # `dir_alvo` da OBS: o alvo vive em MUNDO (`_dir_w`) e a obs é egocêntrica, então
+        # a conversão é por passo. Sem isso a política veria o vetor do spawn, que deixa
+        # de apontar pro lugar certo assim que o robô gira.
+        self._command[:, DIR] = quat_apply_inverse(
+            self.robot.data.root_link_quat_w, self._dir_w)
+
+    @property
+    def disparou(self) -> torch.Tensor:
+        """[B] bool — a tarefa sorteada já está ativa (o atraso de gatilho acabou)."""
+        return self._disparou
+
     def _update_metrics(self) -> None:
         self._resolver()
         passos = self.cfg.resampling_time_range[1] / self._env.step_dt
@@ -298,19 +335,23 @@ class LiftTargetCommand(CommandTerm):
 
     # ------------------------------------------------------------------ leitores
     def erro_angulo_deg(self) -> torch.Tensor:
-        """Ângulo entre a normal da face alvo (frame da base) e `dir_alvo`, em graus.
+        """Ângulo entre a normal da face alvo e `dir_alvo`, **em MUNDO**, em graus.
 
         UM escalar, e a simetria do cubo se resolve sozinha: girar em torno da
         normal da face não muda o vetor, então o erro não se move — e como essa
         rotação é irrelevante pro objetivo, a métrica CONCORDA com o objetivo.
-        Sem grupo de simetria, sem quaternion."""
+        Sem grupo de simetria, sem quaternion.
+
+        🔧 **Conserto de 31/07: era comparado no frame da BASE, e girar o ROBÔ mudava o
+        erro com a caixa parada.** Medido: caixa imóvel (`desvio_xy = 0,0009 m`) e 30% dos
+        envs entrando na tolerância de 10° até o passo 200 — o `reorientar` marcava
+        0,94-1,00 de competência sem tocar na caixa. Em mundo, só a rotação da CAIXA move
+        o erro, e chegar aos 10° a partir dos 15° do nível 0 EXIGE girar ≥5° de verdade.
+        Por isso não precisa de termo extra "girou": o gate já é a rotação."""
         self._resolver()
         face_b = self._command[:, FACE]
-        dir_b = self._command[:, DIR]
-        normal_b = quat_apply_inverse(
-            self.robot.data.root_link_quat_w,
-            quat_apply(self.box.data.root_link_quat_w, face_b))
-        cos = (normal_b * dir_b).sum(dim=-1).clamp(-1.0, 1.0)
+        normal_w = quat_apply(self.box.data.root_link_quat_w, face_b)
+        cos = (normal_w * self._dir_w).sum(dim=-1).clamp(-1.0, 1.0)
         ang = torch.rad2deg(torch.acos(cos))
         # sem comando de orientação (face zerada) o erro não existe -> 0
         return torch.where(face_b.abs().sum(dim=-1) > 0.0, ang, torch.zeros_like(ang))
