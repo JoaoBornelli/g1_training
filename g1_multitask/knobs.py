@@ -33,6 +33,20 @@ class Scene:
     box_xy: tuple[float, float] = (0.50, 0.0)
     table_xy: tuple[float, float] = (0.50, 0.0)
 
+    afasta_distancia: float = 5.0
+    """Quanto a prateleira (e a caixa) se afastam nas tarefas que não as usam.
+
+    Achado no `play` em 30/07: a prateleira ocupa **x de 0.20 a 0.80** com topo em
+    0.55 m, que é altura de joelho. O destino do `andar` é
+    `pos_robô + (d·cos(head), d·sin(head), 0)` com `d` até 2.0 m ⇒ com heading perto de
+    zero **o robô anda direto contra ela**. Ela não faz parte da tarefa `andar`.
+
+    **Por que 5 m e não 30.** O `object_pos_b` entra na obs e o normalizador dele
+    APRENDE — 30 m envenena a estatística, que é a mesma classe de estrago do bug de
+    índice do normalizador (§9b). O maior valor que a obs já vê é o destino do `andar`
+    a 2.0 m, então 5 m é 2,5× isso: fora do alcance de um episódio e dentro da faixa
+    que o normalizador aguenta."""
+
     box_jitter_x: tuple[float, float] = (0.0, 0.20)              # herdado do config ativo da Lift
     box_jitter_y: tuple[float, float] = (-0.18, 0.18)            # herdado do config ativo da Lift
     box_jitter_yaw_deg: float = 15.0

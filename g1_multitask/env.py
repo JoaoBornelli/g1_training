@@ -391,7 +391,28 @@ def build_multitask_env(
         params={"curriculum": knobs.curriculum, "min_amostras_evento": 200},
     )
 
-    # --- 12. SPAWN SEGURANDO das 3 tarefas c/ caixa ---
+    # --- 12a. AFASTA a prateleira de quem não a usa ---
+    # Ela mora em x=0.50 com meia-extensão 0.30, ou seja x de 0.20 a 0.80 com topo em
+    # 0.55 m — altura de joelho. E o destino do `andar` é
+    # `pos_robô + (d·cos(head), d·sin(head), 0)` com d até 2.0 m: com heading perto de
+    # zero o robô anda DIRETO CONTRA ela. Ela não é parte da tarefa `andar`.
+    # Descoberto no `play` em 30/07; a run monolítica tem o mesmo bug e só não mostrou
+    # porque nunca abriu o `andar`.
+    #
+    # ANTES do `reset_segurando`: as tarefas de `SPAWN_SEGURANDO` têm a caixa afastada
+    # aqui e o evento seguinte a traz de volta para as palmas. Invertido, ela sairia
+    # das mãos.
+    cfg.events["afasta_cena"] = EventTermCfg(
+        func=MT_events.afasta_cena, mode="reset",
+        params={"tarefas_com_prateleira": T.MANIPULA,
+                # a caixa só fica onde ela é usada de fato: quem manipula, e quem
+                # nasce segurando (esses o `reset_segurando` reposiciona logo depois)
+                "tarefas_com_caixa": tuple(set(T.MANIPULA) | set(T.SPAWN_SEGURANDO)),
+                "pos_prateleira": (s.table_xy[0], s.table_xy[1], shelf_center_z),
+                "distancia": s.afasta_distancia},
+    )
+
+    # --- 12b. SPAWN SEGURANDO das 3 tarefas c/ caixa ---
     # POR ÚLTIMO no dict de eventos, de propósito: ele sobrescreve o que o
     # `reset_robot_joints` e o `reset_box` da base acabaram de escrever, e o
     # event manager percorre na ordem de inserção.
