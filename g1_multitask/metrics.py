@@ -96,10 +96,25 @@ class Sucesso:
 
         # --- combinação por tarefa (§6b/E) ---
         cond = torch.zeros_like(parado_de_pe)
-        # `parado`: sobreviveu os 20 s. F3 — a deriva de 0.20 m é LOG, não portão:
-        # como portão ela comprimia a taxa de sucesso a ~0 sob push nível 4.
+        # `parado`: sobreviveu os 20 s E está DE PÉ no fim. F3 — a deriva de 0.20 m é
+        # LOG, não portão: como portão ela comprimia a taxa de sucesso a ~0 sob push
+        # nível 4.
+        #
+        # ⚠️ O `de_pe` é obrigatório, e ele faltava. "Sobreviveu" sozinho aprova SENTAR:
+        # o `_nunca_caiu` depende de `terminated`, e a única terminação de queda é o
+        # `fell_over`, que mede só INCLINAÇÃO do tronco (70°). Sentado com o tronco
+        # vertical a inclinação é ~0°, então o robô nunca "cai" e o `parado` pontuava
+        # 20 s no chão — visto no `play` em 31/07, com `sucesso = 0,9553`.
+        #
+        # O `de_pe` fecha isso pela ALTURA: pelve >= 0,65 m, e sentado ela fica ~0,30 m.
+        #
+        # Ressalva registrada, não consertada: o teste é INSTANTÂNEO no passo 1000,
+        # porque a exigência de sustentação do `parado` é 0 s. Um robô que passa o
+        # episódio sentado e levanta no último passo ainda aprova. Fechar isso exige
+        # fração do episódio, que é mudança de definição de sucesso (Categoria C).
         cond = torch.where(tarefa == T.PARADO,
-                           env.termination_manager.time_outs & self._nunca_caiu, cond)
+                           env.termination_manager.time_outs & self._nunca_caiu
+                           & parado_de_pe, cond)
         # `andar`: chegou no raio e ficou de pé. Não há limiar de "quieto" porque o
         # `d_morto` leva a velocidade comandada a ZERO no alvo — o robô para pelo
         # perfil, não por penalidade. Ver §4.

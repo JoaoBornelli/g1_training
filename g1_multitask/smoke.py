@@ -729,6 +729,21 @@ check("o critério do `pegar` exige preensão", "preensao" in _cond_pegar,
 check("as 4 tarefas com caixa na mão citam preensão",
       all(f"T.{n}" in fonte_sucesso for n in
           ("PEGAR", "BOTAR", "PARADO_CAIXA", "ANDAR_CAIXA")))
+# O `parado` exige DE PÉ. "Sobreviveu" sozinho aprova SENTAR: o `fell_over` mede só
+# inclinação (70°) e sentado com o tronco vertical ela é ~0°, então o robô nunca "cai".
+# Medido no `play` em 31/07: `sucesso = 0,9553` com o robô no chão.
+_cond_parado = fonte_sucesso.split("T.PARADO,")[1].split("cond)")[0]
+check("o critério do `parado` exige de pé", "parado_de_pe" in _cond_parado,
+      "sem isso ele pontua SENTADO — o fell_over não pega sentar")
+_fonte_de_pe = inspect.getsource(
+    __import__("g1_multitask.terminations", fromlist=["de_pe"]).de_pe)
+check("`de_pe` mede ALTURA e inclinação, não só inclinação",
+      "root_link_pos_w" in _fonte_de_pe and "projected_gravity_b" in _fonte_de_pe,
+      "é a altura que separa sentado de em pé — a inclinação sentada é ~0°")
+# o limiar tem que ficar ENTRE a pelve sentada e a pelve agachada, senão ele não separa
+check("limiar de `de_pe` separa sentado (0.30) de agachado (0.70)",
+      0.30 < ACTIVE.tolerancia.de_pe_z < 0.70,
+      f"de_pe_z = {ACTIVE.tolerancia.de_pe_z}; pelve no KNEES_BENT é 0.76")
 
 sucesso = env_t.metrics_manager._term_cfgs[
     list(cfg.metrics).index("sucesso")].func
