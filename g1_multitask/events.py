@@ -94,6 +94,9 @@ def afasta_cena(
     env_ids: torch.Tensor,
     tarefas_com_prateleira: tuple[int, ...],
     tarefas_com_caixa: tuple[int, ...],
+    table_xy: tuple[float, float],
+    shelf_half_z: float,
+    box_half_z: float,
     distancia: float = 5.0,
     table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
     box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
@@ -129,15 +132,9 @@ def afasta_cena(
     cinemático, posicionável por-env, e **flutua em qualquer z sem tocar o chão**.
     Daí `write_mocap_pose_to_sim` em vez de `write_root_state_to_sim`.
 
-    ⚠️ **As duas se movem pelo MESMO delta, lidas da pose REAL.** A primeira versão
-    escrevia a prateleira na altura NOMINAL mais o deslocamento, e a caixa na posição
-    ATUAL mais o deslocamento. O `reset_table` sorteia `level_jitter_z` de ±2 cm, então
-    as duas somas davam alturas diferentes: a caixa ficava pendurada acima ou enterrada
-    na prateleira, e caía. Lendo `root_link_pos_w` das duas, a geometria relativa
-    sobrevive exata.
-
-    O `mocap_pose` não é legível (o `EntityData` só expõe a escrita), mas o
-    `root_link_pos_w` é — inclusive para corpo mocap. É de lá que sai a pose atual."""
+    ⚠️ **A altura é ALVO ABSOLUTO, não deslocamento relativo.** Duas versões relativas
+    falharam, e pelo mesmo motivo de fundo: **`root_link_pos_w` de corpo mocap não
+    reflete a escrita sem um `forward()`.** Ver o comentário no corpo da função."""
     if env_ids is None or len(env_ids) == 0:
         return
     mesa: Entity = env.scene[table_cfg.name]
@@ -159,38 +156,43 @@ def afasta_cena(
     # Em z não há vizinho: as origens dos envs diferem em x e y, nunca em z. E a
     # prateleira é mocap (corpo cinemático que flutua sem tocar o chão), então ela
     # sustenta a caixa lá em cima igual sustenta aqui embaixo.
-    desloca = torch.tensor([0.0, 0.0, distancia], device=env.device)
-
-    # ⚠️ IDEMPOTENTE. O evento roda mais de uma vez por reset, e a versão que só somava
-    # `+ desloca` acumulava — medido em 30/07: `folga = +9.74 m` com deslocamento de
-    # 5 m, ou seja a caixa subiu DUAS vezes e a prateleira uma.
+    # ⚠️ ALVO ABSOLUTO, não deslocamento relativo. Idempotente por construção, e não lê
+    # nada que possa estar velho.
     #
-    # A assimetria tem causa: `write_mocap_pose_to_sim` NÃO reflete no
-    # `root_link_pos_w` sem um `forward()`, então na segunda passada a prateleira lê a
-    # posição velha e reescreve o MESMO alvo (fica em +5), enquanto a caixa lê a nova e
-    # soma outra vez (vai a +10). Depois ela cai os 5 m de diferença e desliza — era de
-    # lá que vinha o `desvio_xy = 0.387`.
+    # As duas tentativas relativas falharam, e pelo MESMO motivo de fundo:
+    # **`root_link_pos_w` de corpo mocap não reflete a escrita sem um `forward()`.**
     #
-    # A guarda é a altura da prateleira: quem já subiu não sobe de novo. E a caixa segue
-    # exatamente quem a sustenta, então ela só se move junto com a prateleira dela.
-    alto = mesa.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
-    ja_subiu = alto > distancia * 0.5
+    #   1ª: prateleira na nominal + 5, caixa na atual + 5. O `level_jitter_z` de ±2 cm
+    #       fazia as duas somas darem alturas diferentes -> caixa pendurada, e caía.
+    #   2ª: as duas na atual + 5, com guarda "quem já subiu não sobe". A guarda LIA a
+    #       prateleira, que estava velha, então ela errava: `folga = +9.74 m` com
+    #       deslocamento de 5 m (caixa somou duas vezes, prateleira uma) e o check
+    #       lendo `z = 0.53` numa prateleira que no sim estava a 5.53.
+    #
+    # Escrevendo alvo absoluto os dois problemas desaparecem: rodar o evento dez vezes
+    # dá o mesmo resultado que rodar uma, e o jitter da nominal deixa de participar.
+    origem = env.scene.env_origins
+    z_mesa = origem[:, 2] + distancia
+    # o pé da caixa encosta no topo da prateleira: topo = centro + shelf_half_z
+    z_caixa = z_mesa + shelf_half_z + box_half_z
 
     ids_mesa = _fora(tarefas_com_prateleira)
-    ids_mesa = ids_mesa[~ja_subiu[ids_mesa]]
     if len(ids_mesa) > 0:
-        pose = torch.cat([mesa.data.root_link_pos_w[ids_mesa] + desloca,
-                          mesa.data.root_link_quat_w[ids_mesa]], dim=-1)
-        mesa.write_mocap_pose_to_sim(pose, env_ids=ids_mesa)
+        pos = torch.stack([origem[ids_mesa, 0] + table_xy[0],
+                           origem[ids_mesa, 1] + table_xy[1],
+                           z_mesa[ids_mesa]], dim=-1)
+        quat = torch.zeros(len(ids_mesa), 4, device=env.device)
+        quat[:, 0] = 1.0        # a prateleira nasce sem rotação (`env.py` passa só pos)
+        mesa.write_mocap_pose_to_sim(torch.cat([pos, quat], dim=-1), env_ids=ids_mesa)
 
-        # A caixa só acompanha a prateleira que ACABOU de subir, e só onde ela não é
-        # usada. `torch.isin` porque `ids_caixa` é subconjunto de `ids_mesa` por
-        # construção (tarefas 0,1 contra 0,1,5,6), mas depender disso seria frágil.
-        ids_caixa = _fora(tarefas_com_caixa)
-        ids_caixa = ids_caixa[torch.isin(ids_caixa, ids_mesa)]
-        if len(ids_caixa) > 0:
-            estado = torch.cat(
-                [caixa.data.root_link_pos_w[ids_caixa] + desloca,
-                 caixa.data.root_link_quat_w[ids_caixa],
-                 torch.zeros(len(ids_caixa), 6, device=env.device)], dim=-1)
-            caixa.write_root_state_to_sim(estado, env_ids=ids_caixa)
+    ids_caixa = _fora(tarefas_com_caixa)
+    if len(ids_caixa) > 0:
+        # o XY da caixa é lido, e isso é seguro: nada aqui escreve XY dela, então a
+        # leitura é idempotente e o jitter de spawn (±0.20 em x, ±0.18 em y, dentro da
+        # pegada de 0.30) sobrevive.
+        pos = torch.stack([caixa.data.root_link_pos_w[ids_caixa, 0],
+                           caixa.data.root_link_pos_w[ids_caixa, 1],
+                           z_caixa[ids_caixa]], dim=-1)
+        estado = torch.cat([pos, caixa.data.root_link_quat_w[ids_caixa],
+                            torch.zeros(len(ids_caixa), 6, device=env.device)], dim=-1)
+        caixa.write_root_state_to_sim(estado, env_ids=ids_caixa)

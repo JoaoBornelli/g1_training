@@ -533,6 +533,13 @@ for tarefa in range(T.NUM_TASKS):
     env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
     env_t.task_dist[tarefa] = 1.0
     env_t.reset()
+    # ⚠️ UM STEP antes de ler. `root_link_pos_w` de corpo mocap NÃO reflete a escrita
+    # do reset sem um `forward()`, então ler direto depois do `reset()` traz a
+    # prateleira na posição VELHA — foi o que fez o check acusar `z = 0.53` numa
+    # prateleira que no sim estava a 5.53. Um step custa 0.02 s de queda livre, bem
+    # dentro da tolerância de 2 cm da `folga`.
+    env_t.step(torch.zeros(env_t.num_envs, env_t.action_manager.total_action_dim,
+                           device=env_t.device))
     cx = env_t.scene["box"].data.root_link_pos_w
     pelve = env_t.scene["robot"].data.root_link_pos_w
     rel_z = (cx[:, 2] - pelve[:, 2]).mean().item()
