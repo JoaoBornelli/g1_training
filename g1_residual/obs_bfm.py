@@ -15,12 +15,23 @@ As cinco coisas que o caminho original faz e são fáceis de perder:
 3. **`last_action` é guardado multiplicado por 5,0** — o `action_rescale`, não o
    `action_scales` (`env.py:288`). O histórico de ação carrega essa escala também.
 4. **O histórico tem o mais recente no índice 0** e é inicializado com ZEROS.
-5. **O caminho que funciona rola o histórico DUAS vezes por passo de controle.**
-   O `step()` chama `_create_observation()` antes e depois do sim, e o
-   `teste_sim.py` usa só o segundo (`obs = next_obs`) — mas o primeiro já rolou.
-   Então os slots 1 e 2 ficam quase duplicados. Provavelmente não é o que o
-   treino do BFM fez, mas É o que anda na prática, então é o padrão aqui.
-   `rolagens_por_passo=1` testa a outra hipótese com uma linha.
+5. **O cronograma dos 4 slots NÃO é `[t, t-1, t-2, t-3]`.** Ele é:
+
+       slot0 = x_t      slot1 = x_{t-1}      slot2 = x_{t-1}      slot3 = x_{t-2}
+
+   A duplicata nos slots 1 e 2 é real e vale para os CINCO componentes. Ela vem do
+   `step()` do BFM chamar `_create_observation()` duas vezes — antes e depois da
+   física — e o `teste_sim.py` usar só o segundo. O estado "antes da física" no
+   passo `t` é igual ao "depois" do passo `t-1`, porque nada acontece entre os dois,
+   então a segunda rolagem duplica em vez de trazer informação nova.
+
+   Isso foi **medido**, não deduzido: o `dump_referencia.py` grava os dois obs e o
+   `referencia.py` identifica cada slot contra a sequência de estados.
+
+   ⚠️ Minhas DUAS primeiras tentativas estavam erradas. Rolar duas vezes no mesmo
+   instante dá `[x_t, x_t, x_{t-1}, x_{t-1}]` (a duplicata no lugar errado, e sem
+   `x_{t-2}`); rolar uma vez dá `[x_t, x_{t-1}, x_{t-2}, x_{t-3}]` (sem duplicata).
+   O primeiro apaga a informação de movimento e faz o robô se debater.
 """
 import pathlib
 import sys
@@ -50,21 +61,26 @@ class ObsBFM:
         obs.guarda_acao(a_bfm)
     """
 
-    def __init__(self, env, padrao_bfm: torch.Tensor,
-                 rolagens_por_passo: int = 2):
+    PROFUNDIDADE = 3
+    """Os buffers guardam 3 passos, não 4. O 4º slot é uma DUPLICATA do 2º."""
+
+    ORDEM = (0, 1, 1, 2)
+    """`[x_t, x_{t-1}, x_{t-1}, x_{t-2}]` — o cronograma medido do BFM."""
+
+    def __init__(self, env, padrao_bfm: torch.Tensor):
         self._robot = env.scene["robot"]
         self._n = env.num_envs
         self._dev = env.device
         self._padrao = padrao_bfm.to(self._dev).view(1, -1)   # [1, 29]
-        self._rolagens = int(rolagens_por_passo)
 
         z = lambda *s: torch.zeros(*s, device=self._dev)      # noqa: E731
         self.ultima_acao = z(self._n, 29)                     # já x RESCALE
-        self.h_acao = z(self._n, PASSOS_HISTORICO, 29)
-        self.h_ang_vel = z(self._n, PASSOS_HISTORICO, 3)
-        self.h_dof_pos = z(self._n, PASSOS_HISTORICO, 29)
-        self.h_dof_vel = z(self._n, PASSOS_HISTORICO, 29)
-        self.h_grav = z(self._n, PASSOS_HISTORICO, 3)
+        P = self.PROFUNDIDADE
+        self.h_acao = z(self._n, P, 29)
+        self.h_ang_vel = z(self._n, P, 3)
+        self.h_dof_pos = z(self._n, P, 29)
+        self.h_dof_vel = z(self._n, P, 29)
+        self.h_grav = z(self._n, P, 3)
 
     # ------------------------------------------------------------------ leitura
     def _agora(self):
@@ -82,24 +98,25 @@ class ObsBFM:
 
     def monta(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Devolve `(estado[N,64], ultima_acao[N,29], historico[N,372])`."""
-        for _ in range(self._rolagens):
-            dof_pos, dof_vel, grav, ang_vel = self._agora()
-            for buf, val in ((self.h_acao, self.ultima_acao),
-                             (self.h_ang_vel, ang_vel),
-                             (self.h_dof_pos, dof_pos),
-                             (self.h_dof_vel, dof_vel),
-                             (self.h_grav, grav)):
-                buf.copy_(buf.roll(1, dims=1))
-                buf[:, 0] = val
+        dof_pos, dof_vel, grav, ang_vel = self._agora()
+        for buf, val in ((self.h_acao, self.ultima_acao),
+                         (self.h_ang_vel, ang_vel),
+                         (self.h_dof_pos, dof_pos),
+                         (self.h_dof_vel, dof_vel),
+                         (self.h_grav, grav)):
+            buf.copy_(buf.roll(1, dims=1))
+            buf[:, 0] = val
 
         estado = torch.cat([dof_pos, dof_vel, grav, ang_vel], dim=-1)
         # A ordem do concat é a do YAML do fabricante (`env.py:421`) e não é
-        # alfabética: ação, ang_vel, dof_pos, dof_vel, gravidade.
-        historico = torch.cat([self.h_acao.reshape(self._n, -1),
-                               self.h_ang_vel.reshape(self._n, -1),
-                               self.h_dof_pos.reshape(self._n, -1),
-                               self.h_dof_vel.reshape(self._n, -1),
-                               self.h_grav.reshape(self._n, -1)], dim=-1)
+        # alfabética: ação, ang_vel, dof_pos, dof_vel, gravidade. E cada buffer sai
+        # reindexado por `ORDEM = (0, 1, 1, 2)`, que é o cronograma medido.
+        o = list(self.ORDEM)
+        historico = torch.cat([self.h_acao[:, o].reshape(self._n, -1),
+                               self.h_ang_vel[:, o].reshape(self._n, -1),
+                               self.h_dof_pos[:, o].reshape(self._n, -1),
+                               self.h_dof_vel[:, o].reshape(self._n, -1),
+                               self.h_grav[:, o].reshape(self._n, -1)], dim=-1)
         assert estado.shape[-1] == DIM_ESTADO, estado.shape
         assert historico.shape[-1] == DIM_HISTORICO, historico.shape
         return estado, self.ultima_acao, historico

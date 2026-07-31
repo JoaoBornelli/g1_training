@@ -135,7 +135,7 @@ def main() -> None:
     plant = torch.load(pathlib.Path(__file__).resolve().parent / "peso"
                        / "bfm_ator.pt", map_location="cpu",
                        weights_only=True)["plant"]
-    obs = ObsBFM(env, plant["default_joint_pos"], rolagens_por_passo=1)
+    obs = ObsBFM(env, plant["default_joint_pos"])
     estado_meu, _, _ = obs.monta()
     estado_ref = torch.as_tensor(r["state"]).float()
     e = (estado_meu - estado_ref).abs()
@@ -167,6 +167,44 @@ def main() -> None:
     check("slot 0 do histórico de ação == last_action",
           float((ha - la).abs().max()) < 1e-4,
           f"máx {float((ha - la).abs().max()):.2e}")
+
+    # ------------------------------------------------------------------ E
+    print("\n-- E: a EVOLUÇÃO do histórico, passo a passo --")
+    # Esta é a checagem que faltava, e é a que pegou o bug de verdade. As A-D olham
+    # UM passo; o histórico é o único estado que se acumula ao longo do tempo, e o
+    # cronograma dos 4 slots não é `[t, t-1, t-2, t-3]`. Medido:
+    #
+    #     slot0 = x_t     slot1 = x_{t-1}     slot2 = x_{t-1}     slot3 = x_{t-2}
+    #
+    # A duplicata em 1 e 2 vem do `step()` do BFM montar a obs duas vezes por passo
+    # de controle, e o "antes da física" no passo t ser igual ao "depois" em t-1.
+    cfg1 = load_env_cfg(g1_multitask.TASK_ID)
+    cfg1.scene.num_envs = 1
+    env1 = ManagerBasedRlEnv(cfg=cfg1, device="cpu")
+    env1.reset()
+    rb = env1.scene["robot"]
+    obs1 = ObsBFM(env1, plant["default_joint_pos"])
+    acoes = torch.as_tensor(r["acao"]).float()
+    h_ref = torch.as_tensor(r["history_actor"]).float()
+    la_ref = torch.as_tensor(r["last_action"]).float()
+    pior_h = pior_la = 0.0
+    for t in range(K):
+        p = torch.cat([qpos[t:t + 1, 0:3] + env1.scene.env_origins,
+                       qpos[t:t + 1, 3:7]], dim=-1)
+        rb.write_root_link_pose_to_sim(p)
+        aw = quat_apply(qpos[t:t + 1, 3:7], qvel[t:t + 1, 3:6])
+        rb.write_root_link_velocity_to_sim(
+            torch.cat([qvel[t:t + 1, 0:3], aw], dim=-1))
+        rb.write_joint_state_to_sim(qpos[t:t + 1, 7:36], qvel[t:t + 1, 6:35])
+        env1.sim.forward()
+        _, ultima, hist = obs1.monta()
+        pior_h = max(pior_h, float((hist[0] - h_ref[t]).abs().max()))
+        pior_la = max(pior_la, float((ultima[0] - la_ref[t]).abs().max()))
+        obs1.guarda_acao(acoes[t:t + 1])
+    check("history_actor[372] bate nos 40 passos", pior_h < 1e-4,
+          f"pior erro {pior_h:.2e}")
+    check("last_action[29] bate nos 40 passos", pior_la < 1e-4,
+          f"pior erro {pior_la:.2e}")
 
     print("\n" + "=" * 64)
     if falhas:

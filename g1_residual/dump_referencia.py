@@ -61,7 +61,7 @@ def main() -> None:
     obs = env.reset()
     rastro: dict[str, list] = {k: [] for k in (
         "qpos", "qvel", "state", "last_action", "history_actor",
-        "privileged_state", "acao")}
+        "privileged_state", "acao", "state_pre", "history_pre")}
 
     for i in range(PASSOS):
         # a obs que a política de fato consome, e o estado cru que a gerou
@@ -77,7 +77,14 @@ def main() -> None:
         acao = acao.reshape(-1).numpy()
         rastro["acao"].append(acao.copy())
 
-        obs, prox, _, _ = env.step(acao)
+        # ⚠️ O `step()` devolve DOIS obs. O primeiro (`pre`) é montado ANTES da
+        # física e o `teste_sim.py` o descarta — mas ele já ROLOU o histórico. É esse
+        # descarte que faz o histórico rolar duas vezes por passo de controle, e sem
+        # gravá-lo não dá para conferir a evolução dos 4 slots.
+        pre, prox, _, _ = env.step(acao)
+        rastro["state_pre"].append(np.asarray(pre["state"]).reshape(-1).copy())
+        rastro["history_pre"].append(
+            np.asarray(pre["history_actor"]).reshape(-1).copy())
         obs = prox
 
     SAIDA.parent.mkdir(parents=True, exist_ok=True)

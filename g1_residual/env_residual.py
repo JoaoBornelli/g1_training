@@ -78,8 +78,7 @@ def build_env_residual(knobs=ACTIVE, play: bool = False,
                        so_pegar: bool = False,
                        prior_unico: bool = False,
                        escala_delta: float = 0.15,
-                       limite_rad: dict[str, float] | None = None,
-                       rolagens_por_passo: int = 2):
+                       limite_rad: dict[str, float] | None = None):
     cfg = build_multitask_env(knobs, play)
 
     # --- 1. a ação --------------------------------------------------------
@@ -93,8 +92,7 @@ def build_env_residual(knobs=ACTIVE, play: bool = False,
         preserve_order=v.preserve_order, use_default_offset=v.use_default_offset,
         clip=v.clip,
         limite_rad=limite_rad, prior_unico=prior_unico,
-        escala_delta=escala_delta,
-        rolagens_por_passo=rolagens_por_passo)
+        escala_delta=escala_delta)
 
     # --- 2. o currículo ---------------------------------------------------
     # Por padrão NÃO troca nada: o orquestrador do desenho começa no `parado` e

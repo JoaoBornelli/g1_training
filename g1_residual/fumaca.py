@@ -84,6 +84,8 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
         robot = env.scene["robot"]
         caixa = env.scene["box"]
         vivo_ate = torch.zeros(env.num_envs, device=env.device)
+        xy0 = robot.data.root_link_pos_w[:, :2].clone()
+        deriva = torch.zeros(env.num_envs, device=env.device)
         z_min = torch.full((env.num_envs,), 9.9, device=env.device)
         caixa_min = torch.full((env.num_envs,), 9.9, device=env.device)
         for i in range(passos):
@@ -95,6 +97,10 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
             cx = caixa.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
             caixa_min = torch.minimum(caixa_min, cx)
             de_pe = pelve >= Z_DE_PE
+            # deriva horizontal ENQUANTO de pé: é o que separa "parado" de "dançando",
+            # e o teste antigo não media isso — ele só via se o robô caía.
+            d = (robot.data.root_link_pos_w[:, :2] - xy0).norm(dim=-1)
+            deriva = torch.where(de_pe, torch.maximum(deriva, d), deriva)
             vivo_ate = torch.where(de_pe, torch.full_like(vivo_ate, i + 1), vivo_ate)
         return {
             "z": f"{z_nome}[{'média' if semente is None else semente}]",
@@ -102,6 +108,7 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
                 (robot.data.root_link_pos_w[:, 2] >= Z_DE_PE).float().mean()),
             "passos_de_pe": float(vivo_ate.mean()),
             "pelve_min": float(z_min.mean()),
+            "deriva": float(deriva.mean()),
             "caixa_min": float(caixa_min.mean()),
         }
     finally:
@@ -115,7 +122,8 @@ def main() -> None:
     env, termo = monta(dev)
 
     print("== TESTE 0: o BFM fica de pé no nosso env? (tarefa `pegar`) ==")
-    print(f"{'z':28s} {'de pé no fim':>13s} {'passos de pé':>13s} {'pelve mín':>10s}")
+    print(f"{'z':28s} {'de pé no fim':>13s} {'passos de pé':>13s} {'pelve mín':>10s}"
+          f" {'deriva':>8s}")
     linhas = []
     # ⚠️ O nome `crouch-N` é a ALTURA ALVO, não a intensidade. Medido: `crouch-0`
     # significa "vai ao chão" e desaba em 10 passos (pelve 0,125 m). Por isso a
@@ -127,7 +135,8 @@ def main() -> None:
         r = roda(env, termo, T.PEGAR, nome, sem)
         linhas.append(r)
         print(f"{r['z']:28s} {r['de_pe_no_fim']:12.1%} "
-              f"{r['passos_de_pe']:13.0f} {r['pelve_min']:10.3f}")
+              f"{r['passos_de_pe']:13.0f} {r['pelve_min']:10.3f}"
+              f" {r['deriva']:7.3f}m")
     melhor = max(linhas, key=lambda r: r["passos_de_pe"])
     print(f"\n  melhor: {melhor['z']}  ({melhor['passos_de_pe']:.0f} de {PASSOS} passos)")
     if melhor["passos_de_pe"] < 0.5 * PASSOS:

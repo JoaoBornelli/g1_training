@@ -71,7 +71,6 @@ class ResidualBFMActionCfg(JointPositionActionCfg):
     escala_c: float = ESCALA_C
     dim_c: int = DIM_C
     prior_unico: bool = False
-    rolagens_por_passo: int = 2
     caminho_peso: str = str(PESO)
     semente_z: int | None = None
 
@@ -111,8 +110,7 @@ class ResidualBFMAction(JointPositionAction):
                            * plant["action_rescale"].to(dev)).view(1, -1)
         self._padrao_bfm = plant["default_joint_pos"].to(dev).view(1, -1)
 
-        self._obs = ObsBFM(env, plant["default_joint_pos"],
-                           rolagens_por_passo=cfg.rolagens_por_passo)
+        self._obs = ObsBFM(env, plant["default_joint_pos"])
         self._base = BaseZ(self._ator.z_tabela, device=dev, dim=cfg.dim_c,
                            prior_unico=cfg.prior_unico)
 
