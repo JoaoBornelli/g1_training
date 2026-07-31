@@ -20,6 +20,7 @@ num `MultitaskKnobs`, e cada treino salvo é uma instância congelada em `config
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -344,6 +345,46 @@ class Push:
 class Tolerancia:
     """Limiares de terminação e de sucesso (§14). Mudar um de SUCESSO é Categoria C —
     recomeçar do zero — porque a régua do currículo se move junto."""
+
+    termina_ao_cair: bool = False
+    """Se a queda encerra o episódio. **Desligado**, e isso é mudança de desenho.
+
+    Ligado (o default do fabricante, e o que a §6b assumia) a queda encerra. Duas
+    consequências ruins, as duas medidas:
+
+    1. **A política nunca vê o estado caído**, então não pode aprender a levantar.
+    2. **É a origem do vale de retorno negativo.** Terminação zera o valor futuro, então
+       com reward por passo negativa MORRER CEDO RENDE MAIS. Visto nas duas runs de
+       30/07: monolítica 57 -> 11 -> 164 -> 851 passos; residual 300 -> 150 -> 82 -> 39
+       -> 935. As duas atravessaram, mas gastaram centenas de iterações no fundo.
+
+    Desligado, o vale morre por construção: sem saída antecipada, "mais curto é melhor"
+    deixa de existir. E ficar no chão custa o orçamento INTEIRO de positivos (~+3,5 de
+    contrib de pé contra ~0 caído), então o retorno pune deitar com força.
+
+    **O que autoriza desligar é medição, não teoria.** Com o BFM como base, levantar é
+    alcançável: o `fumaca.py` nasce o robô caído (pitch 80°, pelve 0,32 m) e mede, com
+    residual em ZERO —
+
+        de-pe projetado no span    100% levantou    fim 0,780 m
+        anti-sitonground           100%             fim 0,782 m
+        move-ego-0-0               100%             fim 0,771 m
+
+    O primeiro é o que a política de fato alcança pelos 20 coeficientes da `base_z`. Ela
+    tem como descobrir. Numa política monolítica, sem o BFM, desligar isto seria caro —
+    é a arquitetura residual que torna a mudança barata.
+
+    Custo aceito: um env caído que não recupera roda até ~900 passos rendendo quase
+    nada. O sinal de que isso está pesando é `upright` médio baixo com episódio cheio;
+    se aparecer, a saída é terminação ATRASADA (encerra após ~3 s caído) em vez de
+    nenhuma."""
+
+    limite_queda_rad: float = math.radians(70.0)
+    """Inclinação do torso que conta como queda. 70° = o `limit_angle` do fabricante.
+
+    Com `termina_ao_cair = False` este número deixa de ser terminação e passa a ser SÓ o
+    critério da flag `_nunca_caiu`, que o sucesso do `parado` lê. Mantido idêntico ao do
+    fabricante para o sucesso significar a mesma coisa que antes."""
 
     # --- terminação ---
     largou_z: float = 0.30              # §14 — só `parado c/ caixa` e `andar c/ caixa`

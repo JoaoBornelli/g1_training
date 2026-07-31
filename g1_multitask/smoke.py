@@ -643,9 +643,19 @@ check("orienta_face tem gradiente no nível 15° (escala grossa faz o trabalho)"
 print("\n-- T9: terminações --")
 from g1_multitask import terminations as MTT  # noqa: E402
 
-check("6 terminações no total", len(cfg.terminations) == 6, str(list(cfg.terminations)))
-check("fell_over em 70° exatos (do fabricante)",
-      abs(cfg.terminations["fell_over"].params["limit_angle"] - 1.2217304763960306) < 1e-9)
+# 5, não 6: a queda saiu (ver o check logo abaixo). Sobram `time_out`, `nonfinite`,
+# `largou`, `caixa_caiu` e `fora_da_area` — as três últimas são as da §6b/D.
+check("5 terminações no total", len(cfg.terminations) == 5, str(list(cfg.terminations)))
+# A queda NÃO encerra mais o episódio (ver `knobs.Tolerancia.termina_ao_cair`): ela
+# virou flag lida pelo `metrics.Sucesso`. O check troca de lado — antes garantia o
+# ângulo do termo, agora garante que o termo saiu E que o critério de 70° sobreviveu
+# no knob, senão o sucesso do `parado` mudaria de significado em silêncio.
+import math as _math  # noqa: E402
+check("fell_over NÃO encerra mais o episódio",
+      "fell_over" not in cfg.terminations, str(sorted(cfg.terminations)))
+check("o critério de 70° sobrevive no knob",
+      abs(ACTIVE.tolerancia.limite_queda_rad - _math.radians(70.0)) < 1e-9,
+      f"{_math.degrees(ACTIVE.tolerancia.limite_queda_rad):.1f}°")
 check("largou gateada só em `c/ caixa`",
       set(cfg.terminations["largou"].params["tasks"]) == set(T.COM_CAIXA),
       str([T.NAMES[x] for x in cfg.terminations["largou"].params["tasks"]]))
@@ -699,9 +709,9 @@ check("robô em pé no reset passa em `de_pe`",
       bool(MTT.de_pe(env_t, ACTIVE.tolerancia.de_pe_z,
                      ACTIVE.tolerancia.de_pe_tilt_rad).all()),
       f"z_pelve={z:.3f} m (limite {ACTIVE.tolerancia.de_pe_z})")
-check("`de_pe` é mais exigente que `fell_over`",
-      ACTIVE.tolerancia.de_pe_tilt_rad < cfg.terminations["fell_over"].params["limit_angle"],
-      f"20° contra 70° — o fell_over daria `de pé` pra um robô dobrado a 65°")
+check("`de_pe` é mais exigente que o critério de queda",
+      ACTIVE.tolerancia.de_pe_tilt_rad < ACTIVE.tolerancia.limite_queda_rad,
+      "20° contra 70° — o critério de queda daria `de pé` pra um robô dobrado a 65°")
 
 # ----------------------------------------- T10: sucesso em env.success_buf
 print("\n-- T10: sucesso é FÍSICO e fora do reward manager --")
@@ -823,9 +833,19 @@ check("um nome de termo por coluna",
 # RECONCILIAÇÃO: a soma das contribuições de uma tarefa tem que dar o total dela.
 # Se não fechar, a máscara do acumulador está errada — e aí o relatório entre blocos
 # apontaria o termo errado como dominante.
+rel = env_o.curriculum_manager.get_term_cfg("contrib").func
+# ⚠️ Garante amostra ACIMA do limiar antes de pedir a emissão. O `Relatorio` devolve
+# `{}` quando `cont.sum() < min_amostras`, e a matriz pode ter sido zerada por um reset
+# a qualquer momento — depender do acaso deixa este check intermitente. Ficou mais
+# provável desde que a queda parou de encerrar episódio: com menos reset, a emissão
+# acontece em instantes menos previsíveis.
+_alvo = rel.min_amostras * 1.5
+for _ in range(200):
+    if float(env_o.contrib_cont.sum()) >= _alvo:
+        break
+    env_o.step(acao_o)
 soma_antes = env_o.contrib_soma.clone()
 cont_antes = env_o.contrib_cont.clone()
-rel = env_o.curriculum_manager.get_term_cfg("contrib").func
 log = rel(env_o, torch.arange(env_o.num_envs, device=DEVICE))
 check("relatório emitiu chaves", len(log) > 0, f"{len(log)} chaves")
 erros = []

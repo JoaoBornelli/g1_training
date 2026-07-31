@@ -77,7 +77,7 @@ def taxa_alvo(env, nome_termo: str = "joint_pos") -> torch.Tensor:
 def build_env_residual(knobs=ACTIVE, play: bool = False,
                        so_pegar: bool = False,
                        prior_unico: bool = False,
-                       escala_delta: float = 0.15,
+                       escala_delta: float = 1.0,
                        limite_rad: dict[str, float] | None = None):
     cfg = build_multitask_env(knobs, play)
 

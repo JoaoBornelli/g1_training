@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import math
+
 import torch
 
 from mjlab.entity import Entity
@@ -140,7 +142,19 @@ class Sucesso:
             self._nunca_caiu[caiu] = True
         self._len_ant.copy_(env.episode_length_buf)
 
-        # 2. quem foi terminado por falha nunca mais "sobreviveu" neste episódio
+        # 2. quem CAIU nunca mais "sobreviveu" neste episódio.
+        #
+        # ⚠️ Duas fontes, e a primeira é obrigatória: com `termina_ao_cair = False` a
+        # queda NÃO entra em `terminated`, então ler só o manager deixaria o `parado`
+        # dar sucesso a um robô que passou 18 s no chão. O critério replicado é o do
+        # `fell_over` do fabricante — inclinação do torso acima de `limite_queda`.
+        #
+        # `projected_gravity_b[:, 2]` é −cos(inclinação): vale −1 em pé e sobe pra 0
+        # deitado. A 70° o corte é −cos(70°) = −0.342.
+        caiu_agora = (env.scene["robot"].data.projected_gravity_b[:, 2]
+                      > -math.cos(self.tol.limite_queda_rad))
+        self._nunca_caiu &= ~caiu_agora
+        # a segunda pega `fora_da_area` e `nonfinite`, que continuam terminando
         self._nunca_caiu &= ~env.termination_manager.terminated
 
         # 3. sustentação: soma enquanto vale, ZERA quando quebra

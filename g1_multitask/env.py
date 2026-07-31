@@ -422,6 +422,16 @@ def build_multitask_env(
         params={"pose_bracos": POSE_PRE_GRASP, "tarefas": T.SPAWN_SEGURANDO},
     )
 
+    # --- 12c. a QUEDA deixa de encerrar o episódio ---
+    # Ver `knobs.Tolerancia.termina_ao_cair` para o porquê e para a medição que autoriza.
+    # Em resumo: terminar zera o valor futuro, e com reward por passo negativa isso faz
+    # morrer cedo RENDER MAIS — foi o vale que as duas runs de 30/07 atravessaram. E a
+    # política nunca via o estado caído, então não podia aprender a levantar.
+    # O `metrics.Sucesso` não depende desta terminação: ele replica o critério de 70° numa
+    # flag própria, então o sucesso do `parado` continua significando "não caiu".
+    if not knobs.tolerancia.termina_ao_cair:
+        cfg.terminations.pop("fell_over", None)
+
     # --- 13. TERMINAÇÕES (item 21) ---
     # `time_out`, `fell_over` (70°) e `nonfinite` já vêm herdados. As 3 daqui são as
     # que faltam da §6b/D, e as duas primeiras são GATEADAS: a distinção `pegar` ×

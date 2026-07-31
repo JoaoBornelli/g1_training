@@ -67,7 +67,7 @@ class ResidualBFMActionCfg(JointPositionActionCfg):
     BFM, gravadas no `.pt` pelo `extrai_ator.py`."""
 
     limite_rad: dict[str, float] | None = None
-    escala_delta: float = 0.15
+    escala_delta: float = 1.0
     escala_c: float = ESCALA_C
     dim_c: int = DIM_C
     prior_unico: bool = False
