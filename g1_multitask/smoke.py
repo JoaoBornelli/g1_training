@@ -578,6 +578,26 @@ for tarefa in range(T.NUM_TASKS):
         check(f"{nome}: caixa vai JUNTO com a prateleira",
               bool((caixa_z > sobe - 1.0).all()), f"z={float(caixa_z.mean()):.2f}")
 
+    # --- a caixa está SOBRE a prateleira, e na altura certa? ---
+    # Vale em TODAS as tarefas que não nascem segurando, perto ou a 5 m: o
+    # `afasta_cena` move as duas pelo mesmo delta, então a relação tem que sobreviver.
+    # Sem este check, a caixa podia estar pendurada no ar ou fora da mesa e nada
+    # denunciava — foi o que aconteceu duas vezes em 30/07.
+    if not segura:
+        mesa_xy = env_t.scene["table"].data.root_link_pos_w[:, :2]
+        mesa_z_w = env_t.scene["table"].data.root_link_pos_w[:, 2]
+        desvio_xy = (cx[:, :2] - mesa_xy).abs().max().item()
+        # o pé da caixa tem que encostar no topo da prateleira
+        topo = mesa_z_w + float(ACTIVE.scene.shelf_half_z)
+        pe = cx[:, 2] - float(ACTIVE.scene.box_half[2])
+        folga = (pe - topo).abs().max().item()
+        check(f"{nome}: caixa SOBRE a prateleira (xy dentro de "
+              f"{ACTIVE.scene.shelf_half_xy:.2f})",
+              desvio_xy <= float(ACTIVE.scene.shelf_half_xy) + 1e-3,
+              f"desvio_xy={desvio_xy:.3f}")
+        check(f"{nome}: caixa APOIADA (pé no topo da prateleira)",
+              folga < 0.02, f"folga={folga:+.4f} m")
+
 # O achado que motivou a T8b: antes dela, TODOS os termos de tarefa davam 0.0 no
 # reset das 3 tarefas c/ caixa -> nenhum caminho de aquisição.
 #
@@ -754,29 +774,36 @@ print("\n-- T11: contribuição por tarefa × termo --")
 cfg_obs = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_obs.scene.num_envs = 64
 cfg_obs.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)
-# ⚠️ `min_amostras` alto de propósito: o `Relatorio` ZERA o acumulador quando emite,
-# e ele emite no reset assim que `cont.sum()` passa do limiar — 500 é atingido no
-# passo 8 de 30. Com isso o check de contagem mediria "passos desde o último reset",
-# não "todo par (env, passo)", e falharia sempre que um env terminasse no meio.
-#
-# Foi o que aconteceu em 30/07: deu 960 de 1920, ou seja um reset no passo 15. A causa
-# é boa — antes a prateleira ficava embaixo do robô nas tarefas c/ caixa e SEGURAVA a
-# caixa que escorregava, então a terminação `largou` (caixa_z < 0.30) nunca disparava.
-# Com a prateleira afastada a caixa cai até o chão e o `largou` passa a funcionar como
-# projetado. O comportamento melhorou; o check é que media a coisa errada.
-cfg_obs.curriculum["contrib"].params["min_amostras"] = 10**9
 env_o = ManagerBasedRlEnv(cfg=cfg_obs, device=DEVICE)
 acao_o = torch.zeros(env_o.num_envs, env_o.action_manager.total_action_dim,
                      device=env_o.device)
 env_o.task_dist = torch.ones(T.NUM_TASKS, device=DEVICE)     # as 7 sorteadas
 env_o.reset()
-PASSOS = 30
-for _ in range(PASSOS):
-    env_o.step(acao_o)
 
+# ⚠️ A contagem é conferida ANTES do limiar do relatório, não no fim dos 30 passos.
+# O `Relatorio` ZERA a matriz quando emite, e ele emite no primeiro reset em que
+# `cont.sum()` passa de `min_amostras` (500) — o que acontece no passo 8 de 30. Depois
+# disso a contagem mede "passos desde o último reset", não "todo par (env, passo)".
+#
+# Medido em 30/07: dava 960 de 1920, ou seja um reset no passo 15. E a causa do reset é
+# BOA: antes a prateleira ficava embaixo do robô nas tarefas c/ caixa e SEGURAVA a
+# caixa que escorregava, então a terminação `largou` (caixa_z < 0.30) nunca disparava.
+# Com a prateleira afastada ela cai até o chão e o `largou` funciona como projetado.
+#
+# Mexer no `min_amostras` para contornar isso quebra os TRÊS checks de emissão logo
+# abaixo, que é exatamente o que eles existem para testar. A janela curta resolve sem
+# tocar no config.
+CURTO = 7
+assert CURTO * cfg_obs.scene.num_envs < 500, "a janela tem que caber sob o min_amostras"
+for _ in range(CURTO):
+    env_o.step(acao_o)
 check("acumulador conta todos os (env, passo)",
-      abs(float(env_o.contrib_cont.sum()) - PASSOS * env_o.num_envs) < 1e-3,
-      f"{float(env_o.contrib_cont.sum()):.0f} de {PASSOS * env_o.num_envs}")
+      abs(float(env_o.contrib_cont.sum()) - CURTO * env_o.num_envs) < 1e-3,
+      f"{float(env_o.contrib_cont.sum()):.0f} de {CURTO * env_o.num_envs}")
+
+PASSOS = 30
+for _ in range(PASSOS - CURTO):
+    env_o.step(acao_o)
 check("as 7 tarefas foram amostradas",
       bool((env_o.contrib_cont > 0).all()),
       str([int(x) for x in env_o.contrib_cont]))
