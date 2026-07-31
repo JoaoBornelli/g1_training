@@ -62,7 +62,11 @@ class AtorBFM(torch.nn.Module):
         # tensores, dicionários de JSON e primitivos. Nada de objeto Python.
         d = torch.load(caminho, map_location="cpu", weights_only=True)
 
-        cfg = FBcprAuxModelConfig(**{**d["config"], "device": device})
+        # O `device` do config do BFM é um literal do pydantic: aceita só 'cpu' ou
+        # 'cuda'. O mjlab usa 'cuda:0', e passar isso levanta ValidationError. O
+        # config só precisa do TIPO; o índice fica no `to()` lá embaixo.
+        tipo = "cuda" if str(device).startswith("cuda") else "cpu"
+        cfg = FBcprAuxModelConfig(**{**d["config"], "device": tipo})
         espaco = json_to_space(d["init_kwargs"]["obs_space"])
         dim_acao = int(d["init_kwargs"]["action_dim"])
 

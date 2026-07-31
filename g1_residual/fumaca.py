@@ -49,40 +49,56 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
          passos: int = PASSOS) -> dict:
     """Força tarefa e `z`, roda com ação zerada, devolve o resumo."""
     base = termo._base
+    # ⚠️ RESTAURA o prior no fim. A varredura escreve em `base.prior[tarefa]`, que é
+    # estado COMPARTILHADO — sem restaurar, o último `z` da varredura vaza para o
+    # teste seguinte. Foi assim que o teste 1 rodou o `pegar` com o prior do
+    # `sitonground` e acusou "a carga derruba o BFM": 76 de 150 passos, que era o
+    # número do `sitonground`, não o da caixa.
+    prior_salvo = base.prior[tarefa].clone()
     base.prior[tarefa] = base.M[base.nomes.index(z_nome)] if semente is None else \
         base._projeta(termo._ator.z_tabela[z_nome][semente].unsqueeze(0))[0]
 
-    env.reset()
-    env.tarefa_sorteada[:] = tarefa
-    if hasattr(env, "task_dist"):
-        env.task_dist = torch.zeros(T.NUM_TASKS, device=env.device)
-        env.task_dist[tarefa] = 1.0
-    env.reset()                      # 2º reset: já com a tarefa fixada
 
-    acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim,
-                       device=env.device)
-    robot = env.scene["robot"]
-    caixa = env.scene["box"]
-    vivo_ate = torch.zeros(env.num_envs, device=env.device)
-    z_min = torch.full((env.num_envs,), 9.9, device=env.device)
-    caixa_min = torch.full((env.num_envs,), 9.9, device=env.device)
-    quedas = 0
-    for i in range(passos):
-        env.step(acao)
-        pelve = robot.data.root_link_pos_w[:, 2]
-        z_min = torch.minimum(z_min, pelve)
-        cx = caixa.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
-        caixa_min = torch.minimum(caixa_min, cx)
-        de_pe = pelve >= Z_DE_PE
-        vivo_ate = torch.where(de_pe, torch.full_like(vivo_ate, i + 1), vivo_ate)
-        quedas += int((~de_pe).sum() == env.num_envs)
-    return {
-        "z": f"{z_nome}[{'média' if semente is None else semente}]",
-        "de_pe_no_fim": float((robot.data.root_link_pos_w[:, 2] >= Z_DE_PE).float().mean()),
-        "passos_de_pe": float(vivo_ate.mean()),
-        "pelve_min": float(z_min.mean()),
-        "caixa_min": float(caixa_min.mean()),
-    }
+    # ⚠️ Não dá para forçar só o `env.tarefa_sorteada`: o `reset` chama o currículo,
+    # e o `_amostrar` dele SOBRESCREVE o campo com um sorteio de `abertas`. Escrever
+    # no buffer antes do reset não tem efeito nenhum — e foi assim que a primeira
+    # versão deste teste mediu o `pegar` acreditando medir o `parado c/ caixa`.
+    # A única forma que o currículo respeita é mexer no `abertas`.
+    orq = env.curriculum_manager.get_term_cfg("orquestrador").func
+    orq_abertas_salvo = list(orq.abertas)
+    orq.abertas = [tarefa]
+    try:
+        env.reset()
+        assert bool((env.tarefa_sorteada == tarefa).all()), (
+            f"o currículo não fixou a tarefa: achei "
+            f"{env.tarefa_sorteada.unique().tolist()}, esperava [{tarefa}]")
+
+        acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim,
+                           device=env.device)
+        robot = env.scene["robot"]
+        caixa = env.scene["box"]
+        vivo_ate = torch.zeros(env.num_envs, device=env.device)
+        z_min = torch.full((env.num_envs,), 9.9, device=env.device)
+        caixa_min = torch.full((env.num_envs,), 9.9, device=env.device)
+        for i in range(passos):
+            env.step(acao)
+            pelve = robot.data.root_link_pos_w[:, 2]
+            z_min = torch.minimum(z_min, pelve)
+            cx = caixa.data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
+            caixa_min = torch.minimum(caixa_min, cx)
+            de_pe = pelve >= Z_DE_PE
+            vivo_ate = torch.where(de_pe, torch.full_like(vivo_ate, i + 1), vivo_ate)
+        return {
+            "z": f"{z_nome}[{'média' if semente is None else semente}]",
+            "de_pe_no_fim": float(
+                (robot.data.root_link_pos_w[:, 2] >= Z_DE_PE).float().mean()),
+            "passos_de_pe": float(vivo_ate.mean()),
+            "pelve_min": float(z_min.mean()),
+            "caixa_min": float(caixa_min.mean()),
+        }
+    finally:
+        base.prior[tarefa] = prior_salvo
+        orq.abertas = orq_abertas_salvo
 
 
 def main() -> None:

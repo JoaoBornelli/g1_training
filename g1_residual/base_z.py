@@ -74,6 +74,13 @@ PRIOR = {
     raisearms-m-m           100% de pé  150 passos   pelve mín 0,762 m
     sitonground            18,8% de pé   83 passos   pelve mín 0,101 m
 
+E a CARGA não derruba o BFM: no  com `raisearms-m-m` ele fica
+150 de 150 passos de pé, pelve mín 0,763 m — igual ao caso sem carga (0,766). A caixa
+escorrega para 0,647 m, porque com ação nula as palmas só tocam; mas o robô não cai.
+Isso mata o maior risco que eu tinha levantado (o BFM treinou em LaFAN, sem peso nas
+mãos). Ressalva: a caixa sai rápido das mãos, então ele não carrega peso por muito
+tempo — o teste limpo exige o residual já segurando.
+
 **Nenhum comportamento de agachar do BFM sobrevive sozinho no nosso env.** O
 `crouch-N` é ALTURA ALVO, não intensidade — `crouch-0` quer dizer "vai ao chão", e
 sem residual para estabilizar a descida ele não segura. O `sitonground` de fato
