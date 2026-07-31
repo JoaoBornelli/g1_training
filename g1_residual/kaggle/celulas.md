@@ -131,8 +131,11 @@ O que vigiar, na ordem:
 
 1. **`[RESIDUAL] ação 49 = 29 residual + 20 comportamento`** na primeira linha. Se
    disser 29, o termo de ação velho foi construído e o BFM não está no laço.
-2. **`Mean episode length`** — começa alto (o BFM já fica de pé) em vez de subir do
-   zero. É a hipótese sendo medida: a monolítica levou ~250 iterações para chegar lá.
+2. **`Mean episode length`** — tem que começar ALTO, em centenas. O BFM sozinho fica
+   150 de 150 passos de pé no teste de fumaça, e o sucesso do `parado` é sobreviver
+   20 s. Se começar perto de 30-60 passos, o RESIDUAL está derrubando o BFM: olhe
+   `arm_vel` (a run que falhou dava −5,49 contra −0,24 da monolítica) e baixe a
+   `escala_delta`.
 3. **`retorno ÷ episódio`** — se ficar negativo, o episódio encurta, porque
    terminação zera o valor futuro. É transitório e se resolve sozinho quando cruza o
    zero; **não mexa em peso por causa disso**.
@@ -146,7 +149,7 @@ O que vigiar, na ordem:
 ## Célula 7 — o que a rede escolheu de comportamento
 
 ```python
-!cd /kaggle/working/g1 && ls -t logs/g1_residual_pegar/ | head -3
+!cd /kaggle/working/g1 && ls -t logs/g1_residual/ | head -3
 ```
 
 No TensorBoard procure `z_graus/2` (quantos graus o `pegar` andou desde o prior) e as
@@ -164,7 +167,7 @@ O `play` precisa de janela, então ele roda no seu PC, não aqui.
 
 ```python
 import pathlib, shutil
-raiz = pathlib.Path('/kaggle/working/g1/logs/g1_residual_pegar')
+raiz = pathlib.Path('/kaggle/working/g1/logs/g1_residual')
 run = sorted(raiz.iterdir(), key=lambda p: p.stat().st_mtime)[-1]
 ckpts = sorted(run.glob('model_*.pt'), key=lambda p: int(p.stem.split('_')[1]))
 print('run:', run.name)
@@ -178,7 +181,7 @@ No seu PC:
 
 ```bash
 cd ~/Documents/g1_training
-python play.py --task Mjlab-Residual-Pegar-Unitree-G1 \
+python play.py --task Mjlab-Residual-Unitree-G1 \
                --checkpoint ~/Downloads/model_XXXX.pt
 ```
 
@@ -190,8 +193,8 @@ Os três knobs, em ordem do que eu mexeria primeiro:
 
 | knob | onde | quando |
 |---|---|---|
-| clamp da perna 0,35 → 0,6 | `acao.py::LIMITE_PADRAO` | o `pegar` não sai do lugar; nenhum agachamento do BFM sobrevive sozinho, então o residual tem trabalho real ali |
-| `prior_unico=True` | `env_pegar.py::build_env_pegar` | tirar meu palpite de prior do caminho |
+| `escala_delta` 0,15 → 0,25 | `acao.py::ResidualBFMActionCfg` | o `pegar` não sai do lugar; nenhum agachamento do BFM sobrevive sozinho, então o residual tem trabalho real ali |
+| `prior_unico=True` | `env_residual.py::build_env_residual` | tirar meu palpite de prior do caminho |
 | `escala_c` 0,3 → 0,6 | `base_z.py::ESCALA_C` | `z_graus` fica preso perto de zero |
 
 Todos são mudança de config. Mas o espaço de ação **não** pode mudar — isso é

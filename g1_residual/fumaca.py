@@ -46,8 +46,13 @@ def monta(dev: str):
 
 
 def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
-         passos: int = PASSOS) -> dict:
-    """Força tarefa e `z`, roda com ação zerada, devolve o resumo."""
+         passos: int = PASSOS, ruido: float = 0.0) -> dict:
+    """Força tarefa e `z`, roda, devolve o resumo.
+
+    `ruido` é o desvio padrão da ação ALEATÓRIA nos 29 canais de residual. Com 0.0 o
+    BFM roda puro. Com 0.95 é o que a política emite no INÍCIO do treino, antes de
+    aprender qualquer coisa — e é esse o caso que derrubou a primeira tentativa de
+    treino (episódio de 30 passos contra 150 do BFM puro)."""
     base = termo._base
     # ⚠️ RESTAURA o prior no fim. A varredura escreve em `base.prior[tarefa]`, que é
     # estado COMPARTILHADO — sem restaurar, o último `z` da varredura vaza para o
@@ -75,12 +80,15 @@ def roda(env, termo, tarefa: int, z_nome: str, semente: int | None,
 
         acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim,
                            device=env.device)
+        n_j = termo._n_juntas
         robot = env.scene["robot"]
         caixa = env.scene["box"]
         vivo_ate = torch.zeros(env.num_envs, device=env.device)
         z_min = torch.full((env.num_envs,), 9.9, device=env.device)
         caixa_min = torch.full((env.num_envs,), 9.9, device=env.device)
         for i in range(passos):
+            if ruido > 0.0:
+                acao[:, :n_j].normal_(0.0, ruido)
             env.step(acao)
             pelve = robot.data.root_link_pos_w[:, 2]
             z_min = torch.minimum(z_min, pelve)
@@ -137,6 +145,27 @@ def main() -> None:
     print("\n  Leitura: se `passos de pé` aqui for MUITO menor que no teste 0, a")
     print("  carga derruba o BFM e o clamp de 0,35 rad na perna é pouco. Se for")
     print("  parecido, o equilíbrio dele aguenta peso e o residual só faz tarefa.")
+
+    # ------------------------------------------------------------------ teste 2
+    print("\n== TESTE 2: quanto de residual ALEATÓRIO o BFM aguenta? ==")
+    print("   No início do treino a política é aleatória, e a ação dela entra")
+    print("   inteira no residual. Se isso derruba o robô, o treino nunca sai do")
+    print("   chão — o BFM não tem o que estabilizar.")
+    print(f"\n{'escala do residual':>20s} {'de pé no fim':>13s} {'passos de pé':>13s}"
+          f" {'braço':>8s} {'perna':>8s}")
+    lim = termo._limite[0]
+    braco = float(lim.max())      # 2,0 rad no padrão
+    perna = float(lim.min())      # 0,35 rad no padrão
+    import math
+    for esc in (0.0, 0.05, 0.10, 0.25, 0.50, 0.95):
+        r2 = roda(env, termo, T.PEGAR, "move-ego-0-0", None, ruido=esc)
+        # o clamp é em ±1, então a amplitude efetiva é min(esc, 1) x limite
+        ef = min(esc, 1.0)
+        print(f"{esc:20.2f} {r2['de_pe_no_fim']:12.1%} {r2['passos_de_pe']:13.0f}"
+              f" {math.degrees(ef * braco):7.0f}° {math.degrees(ef * perna):7.0f}°")
+    print("\n  Escolha a maior escala que ainda deixa o robô de pé quase sempre.")
+    print("  Ela vira `escala_delta` no `acao.py`. Ela NÃO limita a política")
+    print("  treinada: a média dela cresce sem teto e satura o clamp quando quiser.")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
     import g1_residual        # o import é o que registra
 
-`experiment_name` PRÓPRIO (`g1_residual_pegar`). Motivo igual ao do
+`experiment_name` PRÓPRIO (`g1_residual`). Motivo igual ao do
 `g1_multitask/__init__.py`: o `load_run` default é o regex `.*`, e a ação aqui tem
 **49** números contra 29 do multi-tarefa. Nome compartilhado deixaria um
 `--agent.resume True` casar com a run errada e tentar carregar uma cabeça de 29 numa
@@ -17,22 +17,22 @@ from mjlab.tasks.registry import register_mjlab_task
 from g1_multitask.runner import MultitaskRunner
 from g1_training.rl_cfg import lift_box_ppo_runner_cfg
 
-from .env_pegar import build_env_pegar
+from .env_residual import build_env_residual
 
-TASK_ID = "Mjlab-Residual-Pegar-Unitree-G1"
-EXPERIMENT = "g1_residual_pegar"
+TASK_ID = "Mjlab-Residual-Unitree-G1"
+EXPERIMENT = "g1_residual"
 
 
 def _rl_cfg():
-    cfg = lift_box_ppo_runner_cfg(run_name="residual_pegar")
+    cfg = lift_box_ppo_runner_cfg(run_name="residual")
     cfg.experiment_name = EXPERIMENT
     return cfg
 
 
 register_mjlab_task(
     task_id=TASK_ID,
-    env_cfg=build_env_pegar(play=False),
-    play_env_cfg=build_env_pegar(play=True),
+    env_cfg=build_env_residual(play=False),
+    play_env_cfg=build_env_residual(play=True),
     rl_cfg=_rl_cfg(),
     # O `MultitaskRunner` continua servindo, e por dois motivos que não mudaram: ele
     # congela o normalizador nos 17 canais de comando, e ele faz o round-trip do

@@ -1,4 +1,4 @@
-"""O env do experimento: `pegar` a caixa, com o BFM dando equilíbrio.
+"""O env do experimento: o CURRÍCULO INTEIRO, com o BFM dando equilíbrio.
 
 Ele NÃO reimplementa nada. Chama o `build_multitask_env` e troca três coisas:
 
@@ -11,15 +11,22 @@ o comando de 17 números, a obs de 151, as rewards e os gates da §6b, as três
 terminações, o sucesso físico em `env.success_buf`, a observabilidade por tarefa ×
 termo, o congelamento do normalizador, o round-trip do currículo no checkpoint.
 
-**Por que o `pegar` e não o `parado`.** O `parado` já foi resolvido pela política
-monolítica em 35 min de T4, com 83% de sucesso — medir de novo não informa nada. O
-`pegar` é onde vive a pergunta "qual é a melhor maneira", e é onde vive a carga na
-mão, que é a parte NÃO TESTADA da premissa do BFM (ele foi treinado em LaFAN, sem
-peso nenhum nas mãos).
+**Por que o currículo INTEIRO e não só o `pegar` (decisão do user, 30/07).** Porque
+com o BFM o `parado` deveria ser quase de graça, e aí a cascata anda: `parado` a 0,90
+libera o eixo de push (4 destravamentos), o push completo abre o `andar`, e o BFM já
+sabe andar (`move-ego-0-0.3`). O orçamento da run vai para as partes difíceis em vez
+de reaprender equilíbrio.
 
-E o experimento fica mais afiado do que o currículo original permite: aqui o `pegar`
-abre no passo 1, **sem treinar o `parado` antes**. Se funcionar, a hipótese "o BFM
-entrega equilíbrio de graça" está medida direto.
+E tem um ganho de DIAGNÓSTICO que a versão só-`pegar` não dava: o `fumaca.py` mostra
+que o BFM fica 150 de 150 passos de pé sozinho. Então, com o `parado` aberto, **se
+ele não der sucesso a culpa é 100% do residual** — não existe outra explicação. No
+`pegar` as duas causas ficavam misturadas.
+
+⚠️ **Calibração honesta sobre "rápido":** a EMA usa `alpha = 0,03`, então ela precisa
+de ~75 atualizações para subir de 0 a 0,90 mesmo com 100% de sucesso. Cada
+destravamento leva algumas centenas de iterações, não uma.
+
+`so_pegar=True` volta ao recorte anterior, se você quiser isolar.
 """
 import pathlib
 import sys
@@ -67,10 +74,12 @@ def taxa_alvo(env, nome_termo: str = "joint_pos") -> torch.Tensor:
     return env.action_manager.get_term(nome_termo).taxa_alvo
 
 
-def build_env_pegar(knobs=ACTIVE, play: bool = False,
-                    prior_unico: bool = False,
-                    limite_rad: dict[str, float] | None = None,
-                    rolagens_por_passo: int = 2):
+def build_env_residual(knobs=ACTIVE, play: bool = False,
+                       so_pegar: bool = False,
+                       prior_unico: bool = False,
+                       escala_delta: float = 0.15,
+                       limite_rad: dict[str, float] | None = None,
+                       rolagens_por_passo: int = 2):
     cfg = build_multitask_env(knobs, play)
 
     # --- 1. a ação --------------------------------------------------------
@@ -84,10 +93,14 @@ def build_env_pegar(knobs=ACTIVE, play: bool = False,
         preserve_order=v.preserve_order, use_default_offset=v.use_default_offset,
         clip=v.clip,
         limite_rad=limite_rad, prior_unico=prior_unico,
+        escala_delta=escala_delta,
         rolagens_por_passo=rolagens_por_passo)
 
     # --- 2. o currículo ---------------------------------------------------
-    cfg.curriculum["orquestrador"].func = OrquestradorPegar
+    # Por padrão NÃO troca nada: o orquestrador do desenho começa no `parado` e
+    # abre as 7 tarefas em cascata, que é o ponto do experimento.
+    if so_pegar:
+        cfg.curriculum["orquestrador"].func = OrquestradorPegar
 
     # --- 3. a métrica de oscilação ---------------------------------------
     cfg.metrics["taxa_alvo"] = MetricsTermCfg(func=taxa_alvo)

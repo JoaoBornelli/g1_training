@@ -1,15 +1,19 @@
 """Launcher do experimento residual na Kaggle.
 
+CURRÍCULO INTEIRO: começa no `parado`, e as 7 tarefas abrem em cascata. Com o BFM
+dando equilíbrio o `parado` é quase de graça, então a cascata anda rápido e o
+orçamento da run vai para as partes difíceis.
+
     # treino curto — é experimento, não a run de produção
     python g1_residual/train.py --env.scene.num-envs 2048 \
                                 --agent.max-iterations 3000
 
     # depois, para olhar
-    python play.py --task Mjlab-Residual-Pegar-Unitree-G1 \
-                   --checkpoint logs/g1_residual_pegar/<run>/model_<n>.pt
+    python play.py --task Mjlab-Residual-Unitree-G1 \
+                   --checkpoint logs/g1_residual/<run>/model_<n>.pt
 
 ⚠️ **`num_envs` é POR RANK.** E aqui cada passo roda o ator do BFM (31,9 M de
-parâmetros, congelado) além da política, então o custo por passo sobe ~17%. Comece
+parâmetros, congelado) além da política, e medido na Kaggle isso caiu de 22 171 para 13 056 steps/s, ou seja ~40% mais caro. Comece
 com 2048 e olhe o `steps per second` antes de subir.
 
 **Pré-requisito que não dá para pular:** `g1_residual/peso/bfm_ator.pt` (122 MB). Ele

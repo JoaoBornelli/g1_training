@@ -67,6 +67,7 @@ class ResidualBFMActionCfg(JointPositionActionCfg):
     BFM, gravadas no `.pt` pelo `extrai_ator.py`."""
 
     limite_rad: dict[str, float] | None = None
+    escala_delta: float = 0.15
     escala_c: float = ESCALA_C
     dim_c: int = DIM_C
     prior_unico: bool = False
@@ -151,11 +152,28 @@ class ResidualBFMAction(JointPositionAction):
         # 3. alvo absoluto do BFM, na pose padrão DELE
         alvo = a_bfm * self._ganho_bfm + self._padrao_bfm
 
-        # 4. residual em radianos. `clamp(d, -1, 1) * limite` em vez de
-        #    `clamp(d * escala, -limite, limite)`: assim `d = ±1` é exatamente o
-        #    limite e a política não precisa descobrir a escala.
+        # 4. residual em radianos.
+        #
+        # ⚠️ A `escala_delta` existe porque a versão sem ela DERRUBOU O BFM. Medido
+        # em 30/07, iteração 61: episódio de 30 passos, contra 150 do BFM puro no
+        # `fumaca.py`. A causa é de projeto, não bug: no início a política é
+        # aleatória com desvio ~0,95, o `clamp(d, -1, 1)` satura quase sempre, e o
+        # braço recebia **±115° aleatórios a cada 20 ms**. Nenhum controlador de
+        # equilíbrio aguenta isso. Assinaturas: `arm_vel` −5,49 contra −0,24 da run
+        # monolítica (23x), `action_rate_l2` −19,90 contra −10,47, `taxa_alvo` 48,3.
+        #
+        # O valor 0,15 vem de uma âncora, não de palpite: a run monolítica explorava
+        # com `std 0,91` numa escala de junta de ~0,35 rad, ou seja **±18° por
+        # junta** — e ela aprendeu a ficar de pé em ~250 iterações, então ±18° é
+        # comprovadamente aprendível. Aqui `0,15 x 2,0 rad x 0,95 = 0,29 rad = 16°`
+        # no braço e 2,9° na perna.
+        #
+        # E ela NÃO limita a política treinada: o clamp continua em ±1 depois da
+        # escala, e a MÉDIA da política cresce sem teto. Quando ela souber para onde
+        # ir, satura o clamp e usa o limite inteiro.
         self._alvo_anterior = self._processed_actions
-        self._processed_actions = alvo + delta_bruto.clamp(-1.0, 1.0) * self._limite
+        delta = (delta_bruto * self.cfg.escala_delta).clamp(-1.0, 1.0) * self._limite
+        self._processed_actions = alvo + delta
 
     @property
     def taxa_alvo(self) -> torch.Tensor:
