@@ -87,6 +87,28 @@ class gated:
             interno(env_ids=env_ids)
 
 
+def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
+                          ) -> torch.Tensor:
+    """`action_rate_l2` do fabricante, mas só nos canais de JUNTA (item 6).
+
+    A ação tem 49 números: 29 de residual de junta e 20 de comportamento (`c`). O
+    termo do fabricante soma a diferença passo-a-passo dos **49**
+    (`mjlab/envs/mdp/rewards.py:63`), então ele cobra jitter nos 20 canais de `c`.
+
+    Com `ESCALA_C = 0` esses 20 canais **não fazem nada**, e cobrá-los é pura
+    distorção: a política paga por ruído em dimensões sem efeito. E a saída dela para
+    esse custo é encolher o `std` de TODOS os canais, inclusive dos 29 que importam —
+    medido na run de 31/07, `std` caindo de 0,96 para 0,70 enquanto o episódio
+    encurtava de 765 para 18 passos.
+
+    O sinal de que o custo era ruído: `action_rate_l2` marcava −3,07 / −3,10 / −3,10 /
+    −3,14 em quatro tarefas de física completamente diferente. Termo que não distingue
+    andar de agachar não está medindo comportamento."""
+    a = env.action_manager.action[:, :n_juntas]
+    p = env.action_manager.prev_action[:, :n_juntas]
+    return torch.sum(torch.square(a - p), dim=-1)
+
+
 # -------------------------------------------------------------- locomoção (T6)
 def track_linear_velocity_freio_z(
     env: "ManagerBasedRlEnv",

@@ -63,6 +63,12 @@ class Sucesso:
         self._conquistado = torch.zeros(n, dtype=torch.bool, device=dev)
         self._len_ant = torch.zeros(n, dtype=torch.long, device=dev)
         self._nunca_caiu = torch.ones(n, dtype=torch.bool, device=dev)
+        # --- `parado`: acumulador CUMULATIVO de "de pé e devagar" ---
+        # Cumulativo e não consecutivo: o user pediu 80% dos passos, e um empurrão no
+        # meio do episódio não deve zerar o que já valeu. O `_contador` acima é
+        # consecutivo (zera quando quebra) e serve às outras tarefas.
+        self._quieto_passos = torch.zeros(n, device=dev)
+        self._frac_quieto = torch.zeros(n, device=dev)
 
         self._palmas = SceneEntityCfg("robot", site_names=[])
         # --- item 4: diagnóstico por tarefa, emitido pelo `observability.Relatorio` ---
@@ -127,9 +133,21 @@ class Sucesso:
         # porque a exigência de sustentação do `parado` é 0 s. Um robô que passa o
         # episódio sentado e levanta no último passo ainda aprova. Fechar isso exige
         # fração do episódio, que é mudança de definição de sucesso (Categoria C).
+        # 🔧 03/08/2026 — o portão é VELOCIDADE, não posição. Pedido do user: "Ele não
+        # precisa ficar no mesmo lugar, mas sim não se mover." A deriva continua só
+        # logada (`deriva_parado`), e agora entra a fração do episódio em que ele
+        # esteve de pé E devagar. O `_frac_quieto` é acumulado no `__call__`, não aqui:
+        # este método roda DUAS vezes por passo (uma pela tarefa ativa, uma pela
+        # sorteada, para o diagnóstico), e acumular aqui contaria em dobro.
+        #
+        # A fração também fecha o furo do teste instantâneo. A exigência de sustentação
+        # do `parado` é 0 s, então o critério vale num passo só — o do `time_out`. Sem
+        # a fração, andar 20 s e parar no último passo aprovaria, e o mesmo para passar
+        # o episódio sentado e levantar no fim (o `de_pe` entra na mesma fração).
         cond = torch.where(tarefa == T.PARADO,
                            env.termination_manager.time_outs & self._nunca_caiu
-                           & parado_de_pe, cond)
+                           & parado_de_pe
+                           & (self._frac_quieto >= tol.parado_fracao), cond)
         # `andar`: chegou no raio e ficou de pé. Não há limiar de "quieto" porque o
         # `d_morto` leva a velocidade comandada a ZERO no alvo — o robô para pelo
         # perfil, não por penalidade. Ver §4.
@@ -176,10 +194,22 @@ class Sucesso:
             self._contador[caiu] = 0.0
             self._conquistado[caiu] = False
             self._nunca_caiu[caiu] = True
+            self._quieto_passos[caiu] = 0.0
         self._len_ant.copy_(env.episode_length_buf)
 
         # 2. quem foi terminado por falha nunca mais "sobreviveu" neste episódio
         self._nunca_caiu &= ~env.termination_manager.terminated
+
+        # 2b. `parado`: acumula os passos em que ele está DE PÉ e DEVAGAR, e converte
+        # em fração do episódio corrido. Fica aqui, e não no `_condicao`, porque aquele
+        # roda duas vezes por passo (tarefa ativa e tarefa sorteada) e contaria dobrado.
+        robo: Entity = env.scene["robot"]
+        devagar = (robo.data.root_link_lin_vel_w[:, :2].norm(dim=-1)
+                   < self.tol.parado_v_max)
+        quieto = devagar & de_pe(env, self.tol.de_pe_z, self.tol.de_pe_tilt_rad)
+        self._quieto_passos += quieto.float()
+        self._frac_quieto = (self._quieto_passos
+                             / env.episode_length_buf.clamp(min=1).float())
 
         # 3. sustentação: soma enquanto vale, ZERA quando quebra.
         #

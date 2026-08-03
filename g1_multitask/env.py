@@ -255,6 +255,13 @@ def build_multitask_env(
         if nome in cfg.rewards:
             cfg.rewards[nome].weight = peso
 
+    # item 6 — o `action_rate_l2` do fabricante soma os 49 canais, incluindo os 20 de
+    # comportamento. Com `ESCALA_C = 0` esses 20 não fazem nada, então cobrá-los faz a
+    # política encolher o `std` de TODOS os canais pra pagar menos. Ver o docstring de
+    # `R.action_rate_l2_juntas` pra assinatura medida disso na run de 31/07.
+    if "action_rate_l2" in cfg.rewards:
+        cfg.rewards["action_rate_l2"].func = R.action_rate_l2_juntas
+
     # --- 8. POSTURA EM 3 ESCOPOS (item 12, resolvido por REUSO) ---
     # O `base_env` instala UM `posture`. Ele sai e entram três, todos com a MESMA
     # função do fabricante (`base_rewards.posture`) — nenhuma função nova.
@@ -287,7 +294,14 @@ def build_multitask_env(
         ("posture_parado", (PARADO,), {".*": r.postura_std_parado}, corpo_todo),
         ("posture_anda", (ANDAR,), std_walking, corpo_todo),
         # mão ocupada (ou ocupando): braço LIVRE, escopo perna+cintura.
-        ("posture_manip", (PEGAR, BOTAR, REORIENTAR, PARADO_CAIXA),
+        # ⚠️ `PEGAR` SAIU do gate em 03/08. O termo vale 0,5 com a perna perto da pose
+        # padrão e vai a ZERO no agachamento (std 0,5 rad contra um joelho que precisa
+        # de mais de 1 rad), então ele cobrava 0,5 de quem agacha — 12% do orçamento de
+        # tarefa. Com o clamp de pitch em 1,05 a perna PRECISA sair da pose padrão no
+        # `pegar`, e o único jeito de descer é justamente o que este termo punia.
+        # Sobram restrições esparsas (`fell_over` e o `de_pe` do critério), de
+        # propósito: a perna fica livre pra achar o agachamento.
+        ("posture_manip", (BOTAR, REORIENTAR, PARADO_CAIXA),
          {".*": r.postura_std_manipula}, pernas),
         ("posture_carrega", (ANDAR_CAIXA,), _so_pernas(std_walking), pernas),
     ):

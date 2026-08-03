@@ -105,7 +105,17 @@ class Reward:
     foot_swing_height: float = -0.25
     soft_landing_feet: float = -1e-5
     self_collisions: float = -1.0
-    dof_pos_limits: float = -1.0
+    dof_pos_limits: float = -0.5
+    """§14 dizia −1.0. **Reduzido para −0.5 em 03/08/2026.**
+
+    Com o clamp de pitch em 1,05 rad (`acao.py`), o joelho e o quadril encostam no
+    batente **de propósito** durante o agachamento — é o que descer exige. O termo
+    então cobra o comportamento certo. Na run antiga ele já chegava a −1,19 logado,
+    que é mais que o peso inteiro do `reaching`.
+
+    Não vai a zero: sem ele a política estaciona a junta no limite, e aí o alvo de
+    junta perde autoridade (o PD satura). Metade é o começo; o `contrib` por
+    tarefa × termo decide o valor final."""
     action_rate_l2: float = -0.25
     body_ang_vel: float = -0.05
     angular_momentum: float = -0.02
@@ -137,7 +147,24 @@ class Reward:
     hold_still: float = 0.5
 
     # --- bloco 3: anti-hacks ---
-    com_balance: float = -3.0           # OFF no `andar` (gate explícito)
+    com_balance: float = -2.0           # OFF no `andar` (gate explícito)
+    """§14 dizia −3.0. **Reduzido para −2.0 em 03/08/2026.**
+
+    A fórmula é `peso × clamp(fwd)²`, com `com_margin = 0.08`. Alcançar uma caixa no
+    chão joga o centro de massa para frente por definição, então este termo se opõe
+    diretamente à tarefa. Com −3.0:
+
+        excursão   custo      contra o orçamento de tarefa (+4.0 no `pegar`)
+        0,1 m      −0,03      irrelevante
+        0,5 m      −0,75      19%, incômodo
+        1,0 m      −3,00      cancela a tarefa inteira
+
+    Não sei qual excursão um alcance ao chão produz — é o número que falta. Com −2.0 o
+    caso de 1,0 m cai para −2,0, que ainda dói mas não zera o sinal.
+
+    Não vai a zero: centro de massa sobre os pés é o que impede tombar para frente, e
+    é justamente no agachamento que isso fica difícil. O `contrib` por tarefa × termo
+    decide o valor final."""
     table_contact: float = -1.5
     """§14. ✅ **CONFERIDO E MANTIDO** (T12, 30/07).
 
@@ -369,7 +396,39 @@ class Tolerancia:
     deriva_parado_log: float = 0.20
     """§14 — 🔧 F3: **logada, NÃO é portão.** O critério antigo era deriva < 0.20 m no
     episódio, e ele comprime a taxa de sucesso pra perto de zero sob push nível 4. O
-    sucesso do `parado` é sobreviver os 20 s sem `fell_over`."""
+    sucesso do `parado` mede agora VELOCIDADE, não posição — ver `parado_v_max`."""
+
+    parado_v_max: float = 0.30
+    """Velocidade horizontal máxima que ainda conta como "parado", em m/s.
+
+    **Novo em 03/08/2026.** Pedido do user: *"Ele não precisa ficar no mesmo lugar,
+    mas sim não se mover."* Estar deslocado é grátis; **se mover** é que reprova.
+
+    Por que 0,30 separa bem:
+
+        andar          `v_max` = 1,0 m/s          persistente  -> reprova
+        empurrão n4    ±50 N em ~35 kg = 1,43 m/s²
+                       pico ~0,4 m/s em 0,3 s     transitório  -> cabe na folga
+        balanço em pé  bem abaixo de 0,1 m/s      -> passa
+
+    O empurrão fura o limiar, mas dura 0,3 a 3,0 s de um episódio de 20 s, ou seja
+    1,5% a 15% — dentro dos 20% de folga da `parado_fracao`."""
+
+    parado_fracao: float = 0.80
+    """Fração dos passos do episódio em que `de pé E devagar` tem que valer.
+
+    **É a fração que implementa a intenção, não o instante.** A exigência de
+    sustentação do `parado` é 0 s, então o critério é testado NUM passo só — o do
+    `time_out`. Num passo só, dois furos medidos:
+
+    - anda os 20 s e para no último passo -> aprovaria
+    - fica sentado 19 s e levanta no último -> aprovaria (o `de_pe` entra na mesma
+      fração, então isto fecha de graça)
+
+    "Não se mover" é propriedade do episódio, não de um instante. Daí a fração.
+
+    ⚠️ Mudar isto é **Categoria C** — a régua do currículo se move, e as EMA de
+    `perf` acumuladas sob a régua antiga passam a significar outra coisa."""
 
 
 @dataclass
