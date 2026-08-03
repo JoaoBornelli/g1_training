@@ -9,11 +9,18 @@ BFM fica congelado aqui. A conta por grupo de tensores:
     518,3 MB  _target_forward_map   treino
     514,3 MB  _critic               treino  (x4 grupos: critic/aux/target)
      11,1 MB  _discriminator        treino
-      0,8 MB  _backward_map         só reward inference, e o `z` já vem pronto
+      0,8 MB  _backward_map         PRECISA  (ver abaixo)
     121,7 MB  _actor                PRECISA
       0,0 MB  _obs_normalizer       PRECISA
 
 Sobram ~122 MB. São 26 vezes menos dados para subir no Kaggle.
+
+O `_backward_map` entrou em 31/07. Ele ficava de fora porque "o `z` já vem pronto"
+nos 41 comportamentos — verdade enquanto o `z` era ESCOLHIDO entre eles. Mas os 41
+saem do `reward_locomotion.pkl`, ocupam ~14 dimensões efetivas, e nenhum deles é
+agachamento em pé com as mãos perto do chão. Com o backward map o `z` passa a ser
+DERIVADO de uma pose alvo (`goal_inference`/`tracking_inference` em
+`bfm_code/fb/model.py:140`), o que alcança pose fora do span dos 41.
 
 ⚠️ O `_obs_normalizer` é fácil de esquecer e o erro é SILENCIOSO. O BFM ajusta a
 escala da entrada com estatísticas próprias, guardadas dentro do checkpoint
@@ -43,12 +50,21 @@ CKPT = BFM / "model" / "checkpoint" / "model"
 PKL = BFM / "model" / "reward_inference" / "reward_locomotion.pkl"
 SAIDA = pathlib.Path(__file__).resolve().parent / "peso" / "bfm_ator.pt"
 
-GRUPOS = ("_actor.", "_obs_normalizer.")
-"""Os dois únicos prefixos de chave que a inferência usa.
+GRUPOS = ("_actor.", "_obs_normalizer.", "_backward_map.")
+"""Os três prefixos de chave que a inferência usa.
 
 O `_actor` filtra a obs pelas chaves `state`, `last_action` e `history_actor` —
 o `privileged_state` (463 números) entra no espaço de obs mas o ator NÃO o lê, e
-o próprio código de inferência do BFM passa zeros ali."""
+o próprio código de inferência do BFM passa zeros ali.
+
+O `_backward_map` filtra por `["state", "privileged_state"]`, ou seja 64 + 463 =
+527. Parece exigir estado privilegiado, mas NÃO exige: medido em 31/07 no rastro
+do próprio fabricante (`peso/referencia.npz`, 40 passos), as 463 colunas são zero
+em todos os passos — 0 de 18520 valores não-nulos. Então o alvo de uma pose são
+os 29 ângulos de junta dentro do `state`, e o resto é zero.
+
+⚠️ `state` é `dof_pos - default` com o default DO BFM, que difere do nosso em até
+0,600 rad. Use `plant["default_joint_pos"]`, não o do mjlab."""
 
 
 def main() -> None:
