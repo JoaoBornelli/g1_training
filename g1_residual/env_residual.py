@@ -78,7 +78,24 @@ def build_env_residual(knobs=ACTIVE, play: bool = False,
                        so_pegar: bool = False,
                        prior_unico: bool = False,
                        escala_delta: float = 0.15,
-                       limite_rad: dict[str, float] | None = None):
+                       limite_rad: dict[str, float] | None = None,
+                       dim_c: int = 0):
+    """`dim_c = 0` desde 03/08: a política emite **29** números, não 49.
+
+    Os 20 canais de comportamento saíram porque `ESCALA_C = 0` já os tinha tornado
+    inertes, e canal inerte não é neutro — é **poço de entropia grátis**. O bônus de
+    entropia do PPO é soma sobre as dimensões e o `log_std` é parâmetro livre, então
+    20 dimensões sem efeito e sem custo (o `action_rate_l2` também deixou de cobrá-las)
+    deixam a política inflar o desvio delas sem limite e colher bônus de graça. Duas
+    consequências: a entropia para de regular a exploração nos 29 canais que importam
+    (41% do orçamento vinha grátis) e o `Loss/entropy` do log fica ilegível.
+
+    O `BaseZ` aguenta `dim=0`: `c @ B` com `c` de forma `[N, 0]` dá `[N, 256]` de
+    zeros, e o `z` sai exatamente igual ao prior. Verificado antes de commitar —
+    `action_space (N, 29)`, `z == prior`, norma 16,0, sem NaN.
+
+    ⚠️ Mudar isto é Categoria C: o `action_dim` define a camada de saída do ator, e
+    nenhum checkpoint de 49 carrega num de 29."""
     cfg = build_multitask_env(knobs, play)
 
     # --- 1. a ação --------------------------------------------------------
@@ -92,7 +109,7 @@ def build_env_residual(knobs=ACTIVE, play: bool = False,
         preserve_order=v.preserve_order, use_default_offset=v.use_default_offset,
         clip=v.clip,
         limite_rad=limite_rad, prior_unico=prior_unico,
-        escala_delta=escala_delta)
+        escala_delta=escala_delta, dim_c=dim_c)
 
     # --- 2. o currículo ---------------------------------------------------
     # Por padrão NÃO troca nada: o orquestrador do desenho começa no `parado` e

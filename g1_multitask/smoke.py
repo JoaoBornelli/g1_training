@@ -978,6 +978,18 @@ if _ESC == 0.0:
           f"priors distintos: {sorted(_nomes_prior)} — com ESCALA_C=0 a política não "
           f"pode sair de nenhum deles, então prior por tarefa vira escolha fixa minha")
 
+    # Canal inerte não é neutro: é POÇO DE ENTROPIA GRÁTIS. O bônus de entropia é soma
+    # sobre as dimensões e o `log_std` é livre, então canal sem efeito (`ESCALA_C = 0`)
+    # e sem custo (o `action_rate_l2` só cobra os 29) deixa a política inflar o desvio
+    # dele sem limite. A entropia para de regular a exploração nos canais reais, e o
+    # `Loss/entropy` do log fica ilegível.
+    from g1_residual.env_residual import build_env_residual as _bld  # noqa: E402
+    _dim_c_default = inspect.signature(_bld).parameters["dim_c"].default
+    check("busca desligada => os canais de comportamento SAEM da ação",
+          _dim_c_default == 0,
+          f"dim_c = {_dim_c_default} com ESCALA_C = 0: {_dim_c_default} canais sem "
+          f"efeito e sem custo viram entropia de graça")
+
 # item 2 — o pré-gatilho não pode fechar sucesso
 _fonte_call = inspect.getsource(
     __import__("g1_multitask.metrics", fromlist=["Sucesso"]).Sucesso.__call__)
