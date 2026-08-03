@@ -45,9 +45,28 @@ DIM_C = 20
 NORMA_Z = 16.0
 """sqrt(256). O `norm_z=true` do config exige isto."""
 
-ESCALA_C = 1.0
+ESCALA_C = 0.0
 """Multiplica o coeficiente que a política emite. É a TAXA da busca de comportamento:
 define quantos graus o `z` anda por unidade de `|c|`.
+
+⚠️ **É ZERO desde 03/08/2026: a busca de comportamento está DESLIGADA.** `z = prior`
+sempre, e o prior é `move-ego-0-0` nas 7 tarefas. Os 20 canais de `c` continuam no
+espaço de ação mas não têm efeito nenhum — e o `action_rate_l2` deixou de cobrá-los
+(ver `rewards.action_rate_l2_juntas`), então eles são ruído sem custo.
+
+Por que desligar em vez de apagar: apagar muda a largura do espaço de ação, o que
+mexe no `_raw_actions`, no normalizador e no checkpoint. Zerar a escala é uma linha e
+é reversível. Apagar de verdade é a limpeza depois de o experimento decidir.
+
+**O motivo é medição, não economia.** Com a busca ligada em 1.0 a run desmontou
+(episódio 765 -> 17,9 passos, `fell_over` 0,58 -> 114). Duas explicações, e as duas
+levam ao mesmo lugar: (a) o ruído de exploração nos 20 canais sacode o `z` a cada
+20 ms, e o BFM tem histórico interno, então o comportamento nunca assenta; (b) a
+busca FUNCIONOU e achou locomoção — o robô começou a andar tentando pegar. A
+hipótese (b) é do user e é mais simples que a minha (a).
+
+Histórico do valor, para não repetir a conta: ele era **0,3**, e nesse valor a busca
+não existia. A tabela abaixo é a medição que mostrou isso.
 
 ⚠️ **Era 0.3, e nesse valor a busca não existe.** O docstring antigo afirmava
 "|c| ~ 1,0 -> 40°, |c| ~ 2,0 -> 59°, o prior é partida não cerca". Isso estava errado
@@ -93,15 +112,37 @@ derrubar — mas é o único número desta mudança que não foi medido nesta es
 
 PRIOR: dict[int, tuple[str, int | None]] = {
     #                nome                    semente (None = média das 10)
-    T.PARADO:       ("move-ego-0-0",         0),
-    T.ANDAR:        ("move-ego-0-0.3",    None),
-    T.PEGAR:        ("move-ego-0-0",         0),
-    T.BOTAR:        ("raisearms-m-m",        0),
-    T.REORIENTAR:   ("raisearms-m-m",        0),
-    T.PARADO_CAIXA: ("raisearms-m-m",        0),
-    T.ANDAR_CAIXA:  ("move-arms-0-0.7-m-m", None),
+    T.PARADO:       ("move-ego-0-0", 0),
+    T.ANDAR:        ("move-ego-0-0", 0),
+    T.PEGAR:        ("move-ego-0-0", 0),
+    T.BOTAR:        ("move-ego-0-0", 0),
+    T.REORIENTAR:   ("move-ego-0-0", 0),
+    T.PARADO_CAIXA: ("move-ego-0-0", 0),
+    T.ANDAR_CAIXA:  ("move-ego-0-0", 0),
 }
 """Onde cada tarefa COMEÇA. Não onde ela termina.
+
+⚠️ **As 7 apontam para o MESMO `z` desde 03/08/2026, e com `ESCALA_C = 0` esse `z`
+nunca muda.** O BFM deixou de escolher comportamento: ele é só controlador de
+equilíbrio em pé, e TODO o resto — andar, agachar, alcançar, segurar — sai do
+residual de junta.
+
+Antes a tabela era `move-ego-0-0.3` no `andar`, `raisearms-m-m` em três tarefas e
+`move-arms-0-0.7-m-m` no `andar c/ caixa`. Saíram depois de o user navegar os 41 no
+`poses.py` (visor com ação zero, o BFM puro) e concluir: *"somente a pose
+`move-ego-0-0` que é parado quieto, é válida. todas as outras são movimentações que
+vão perturbar ou dificultar a movimentação do robo"*. Coerente com a origem — os 41
+vêm de `reward_locomotion.pkl`, é biblioteca de LOCOMOÇÃO, e comandar movimento briga
+com manipulação.
+
+Medido em 03/08 no `autoridade.py`: `move-ego-0-0` semente 0 fica **ereto 100%** dos
+300 passos, pelve 0,770 a 0,788. É a única das candidatas que se sustenta sozinha —
+`crouch-0.25` fica ereto **9%** e termina com a pelve em 0,128.
+
+**Consequência a vigiar:** o `andar` perdeu o prior de marcha. O residual tem que
+produzir locomoção em cima de um controlador que resiste a sair do lugar. É de
+propósito — é o experimento que o user pediu ("ver se o robo aprende a se mover") — e
+é o motivo de o clamp de pitch ter subido de 0,35 para 1,05 rad no `acao.py`.
 
 ⚠️ **A coluna de SEMENTE não é capricho.** A tabela do BFM guarda **10 vetores `z` por
 nome**, não um: cada um é uma execução da inferência de reward com semente diferente, e
