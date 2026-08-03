@@ -452,9 +452,14 @@ cobertura: dict[int, int] = {t: 0 for t in range(T.NUM_TASKS)}
 for nome in ("posture_parado", "posture_anda", "posture_manip", "posture_carrega"):
     for t in cfg.rewards[nome].params["tasks"]:
         cobertura[t] += 1
-check("as 4 posturas cobrem cada tarefa exatamente 1x",
-      all(v == 1 for v in cobertura.values()),
-      str({T.NAMES[t]: v for t, v in cobertura.items() if v != 1}))
+# ⚠️ `PEGAR` é a ÚNICA exceção, e é deliberada (03/08): o termo de postura vale 0,5
+# com a perna perto da pose padrão e vai a zero no agachamento, então ele cobrava
+# 0,5 de quem agacha. Com o clamp de pitch em 1,05 rad a perna PRECISA sair da pose
+# padrão no `pegar`. Nenhuma outra tarefa pode ficar descoberta nem coberta 2x.
+_esperado = {t: (0 if t == T.PEGAR else 1) for t in range(T.NUM_TASKS)}
+check("as 4 posturas cobrem cada tarefa 1x, menos `pegar` que é 0 de propósito",
+      cobertura == _esperado,
+      str({T.NAMES[t]: v for t, v in cobertura.items() if v != _esperado[t]}))
 check("std_walking colhido do fabricante (dict por junta)",
       len(cfg.rewards["posture_anda"].params["std"]) > 5,
       f"{len(cfg.rewards['posture_anda'].params['std'])} entradas por junta")
@@ -936,9 +941,15 @@ check("alarme conta transições reais, não episódios cheios",
 print("\n-- consertos de 31/07 (escala_c, pré-gatilho, frame do reorientar, log) --")
 from g1_residual.base_z import ESCALA_C as _ESC, PRIOR as _PRIOR  # noqa: E402
 
-# item 1 — a escala da busca de comportamento. Com 0.3 a política precisava de
-# |c| ~ 28 pra trocar de comportamento e emitia ~10; a busca não existia.
-check("item 1: escala_c subiu de 0.3", _ESC >= 1.0, f"ESCALA_C = {_ESC}")
+# item 1 — a escala da busca de comportamento. Histórico: era 0.3, e nesse valor a
+# política precisava de |c| ~ 28 pra trocar de comportamento e emitia ~10 — a busca não
+# existia. Subiu pra 1.0, a busca passou a funcionar, e a run desmontou (episódio 765 ->
+# 17,9). Desde 03/08 é **0.0**: a busca está DESLIGADA e `z` fica no prior.
+# O que o teste protege agora é o valor 0.3, que é o pior dos três: busca que existe no
+# papel e não no gradiente.
+check("item 1: escala_c não está no limbo de 0.3",
+      _ESC == 0.0 or _ESC >= 1.0,
+      f"ESCALA_C = {_ESC} — nem desligada nem efetiva")
 
 # item 5 — prior por SEMENTE onde as 10 sementes discordam (60° e 74°). Média só vale
 # onde elas concordam (<10°).
@@ -948,11 +959,24 @@ _por_nome = {nome: sem for nome, sem in _PRIOR.values()}
 check("item 5: move-ego-0-0 usa semente, não média",
       _por_nome.get("move-ego-0-0") is not None,
       "as 10 sementes estão a 60° uma da outra; a média não é comportamento nenhum")
-check("item 5: raisearms-m-m usa semente, não média",
-      _por_nome.get("raisearms-m-m") is not None,
-      "74° entre sementes, e é prior de 3 tarefas")
-check("item 5: onde as sementes concordam, mantém a média",
-      _por_nome.get("move-ego-0-0.3") is None, "4,5° entre sementes: média é fiel")
+# Forma durável do item 5: comportamento cujas 10 sementes DISCORDAM nunca pode entrar
+# como média, seja ele prior de quantas tarefas for. Medido em 31/07: `move-ego-0-0` a
+# 60° entre sementes, `raisearms-m-m` a 74° — e entre dois comportamentos DIFERENTES o
+# ângulo médio é 83°, então duas sementes dessas estão quase tão longe quanto dois
+# comportamentos distintos. A média cai num ponto que não é nenhum dos dois.
+_DISCORDAM = ("move-ego-0-0", "raisearms-m-m")
+_com_media = [n for n, s in _PRIOR.values() if s is None and n in _DISCORDAM]
+check("item 5: nenhum prior usa a média de comportamento difuso",
+      not _com_media, f"usam média: {_com_media}")
+
+# Desenho de 03/08: com `ESCALA_C = 0` o `z` nunca sai do prior, então os 7 priors
+# apontando para o mesmo comportamento é o que faz o BFM ser só equilíbrio.
+_nomes_prior = {n for n, _ in _PRIOR.values()}
+if _ESC == 0.0:
+    check("busca desligada => os 7 priors são o MESMO comportamento",
+          len(_nomes_prior) == 1 and "move-ego-0-0" in _nomes_prior,
+          f"priors distintos: {sorted(_nomes_prior)} — com ESCALA_C=0 a política não "
+          f"pode sair de nenhum deles, então prior por tarefa vira escolha fixa minha")
 
 # item 2 — o pré-gatilho não pode fechar sucesso
 _fonte_call = inspect.getsource(
@@ -960,6 +984,52 @@ _fonte_call = inspect.getsource(
 check("item 2: sucesso gateado pelo gatilho", "disparou" in _fonte_call,
       "sem isso o critério do `parado` (sustentação 0 s) pontua por outra tarefa")
 _meta_t = env_t.command_manager.get_term("lift_target")
+# ---- clamp do residual (03/08): curso no plano sagital, correção no resto ----
+from g1_residual.acao import LIMITE_PADRAO as _LIM  # noqa: E402
+from g1_residual.acao import ResidualBFMActionCfg as _ACfg  # noqa: E402
+
+_SAGITAL = (r".*_hip_pitch_joint", r".*_knee_joint",
+            r".*_ankle_pitch_joint", r"waist_pitch_joint")
+check("clamp sagital tem curso pra agachar/andar",
+      all(_LIM.get(k, 0.0) >= 1.0 for k in _SAGITAL),
+      str({k: _LIM.get(k) for k in _SAGITAL if _LIM.get(k, 0.0) < 1.0}))
+_rot = {k: v for k, v in _LIM.items()
+        if ("roll" in k or "yaw" in k) and "shoulder" not in k and "wrist" not in k}
+check("roll e yaw de perna/cintura ficam só em correção",
+      all(v <= 0.35 for v in _rot.values()),
+      str({k: v for k, v in _rot.items() if v > 0.35}))
+
+# O INVARIANTE que importa, e é o que se perde ao subir um limite sem pensar: o
+# `_limite` também escala a exploração INICIAL, porque `delta = clamp(bruto*escala,
+# ±1)*limite` e no começo `bruto ~ 0,95`. A âncora medida é a run monolítica, que
+# explorava a ±0,32 rad (18,3°) por junta e aprendeu a ficar de pé em ~250 iterações.
+# Passar disso é sair do território provado.
+_ANCORA_RAD = 0.32
+_expl = {k: 0.95 * _ACfg.escala_delta * v for k, v in _LIM.items()}
+check(f"exploração inicial fica dentro da âncora de {_ANCORA_RAD} rad (18,3°)",
+      all(v <= _ANCORA_RAD + 1e-9 for v in _expl.values()),
+      str({k: round(v, 3) for k, v in _expl.items() if v > _ANCORA_RAD})
+      + f" | com escala_delta={_ACfg.escala_delta}, o limite máximo é "
+        f"{_ANCORA_RAD / (0.95 * _ACfg.escala_delta):.2f} rad")
+
+# ---- critério do `parado` (03/08): velocidade, não posição ----
+# `_cond_parado` já foi extraído acima (a fatia do `torch.where` da tarefa `parado`).
+check("critério do `parado` mede VELOCIDADE por fração do episódio",
+      "_frac_quieto" in _cond_parado and "parado_fracao" in _cond_parado,
+      "sem isto o `parado` volta a aprovar quem anda 20 s e para no último passo")
+check("a deriva de POSIÇÃO continua só logada, não é portão",
+      "deriva_parado" not in _cond_parado,
+      "posição como portão comprime o sucesso a zero sob push nível 4 (F3)")
+_Suc = __import__("g1_multitask.metrics", fromlist=["Sucesso"]).Sucesso
+_cond_src = inspect.getsource(_Suc._condicao)
+_call_src = inspect.getsource(_Suc.__call__)
+check("o acumulador de `quieto` vive no __call__, não no _condicao",
+      "_quieto_passos +=" in _call_src and "_quieto_passos +=" not in _cond_src,
+      "o `_condicao` roda 2x por passo (tarefa ativa e sorteada) — contaria dobrado")
+check("o acumulador zera no reset do episódio",
+      "_quieto_passos[caiu]" in _call_src,
+      "sem zerar, a fração do episódio anterior vaza para o próximo")
+
 check("item 2: o comando expõe `disparou`",
       hasattr(_meta_t, "disparou") and tuple(_meta_t.disparou.shape) == (env_t.num_envs,))
 
