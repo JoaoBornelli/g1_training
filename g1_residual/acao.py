@@ -41,11 +41,15 @@ from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg  
 from mjlab.utils.lab_api.string import resolve_matching_names_values  # noqa: E402
 
 LIMITE_PADRAO: dict[str, float] = {
-    # cadeia de equilíbrio — o BFM manda, a RL só corrige
-    r".*_hip_.*": 0.35,
-    r".*_knee_joint": 0.35,
-    r".*_ankle_.*": 0.35,
-    r"waist_.*": 0.35,
+    # PLANO SAGITAL — é onde agachar e andar acontecem. A RL precisa de curso aqui.
+    r".*_hip_pitch_joint": 1.05,
+    r".*_knee_joint": 1.05,
+    r".*_ankle_pitch_joint": 1.05,
+    r"waist_pitch_joint": 1.05,
+    # ROLL e YAW — só correção. Curso aqui não ajuda e desestabiliza.
+    r".*_hip_(roll|yaw)_joint": 0.35,
+    r".*_ankle_roll_joint": 0.35,
+    r"waist_(roll|yaw)_joint": 0.35,
     # efetuador — a RL manda
     r".*_shoulder_.*": 2.0,
     r".*_elbow_joint": 2.0,
@@ -55,7 +59,45 @@ LIMITE_PADRAO: dict[str, float] = {
 
 Em radianos de propósito. Em unidade de ação o mesmo número vale coisas diferentes:
 a escala varia 7,4x entre juntas (0,0596 no punho contra 0,438 no quadril), e ainda
-difere 6,25x entre a nossa convenção e a do BFM."""
+difere 6,25x entre a nossa convenção e a do BFM.
+
+⚠️ **O pitch subiu de 0,35 para 1,05 rad em 03/08/2026.** Antes a cadeia inteira de
+perna e cintura era 0,35 (20°), e isso era o teto do projeto: com `z` fixo em
+`move-ego-0-0` o BFM só segura equilíbrio, então descer e andar passaram a ser
+trabalho exclusivo do residual.
+
+Medido no `autoridade.py` (malha aberta, 300 passos, `z = move-ego-0-0`):
+
+    fração pedida   pelve_min   palma_min   ereto
+    0,00              0,770       0,647     100%
+    0,25              0,567       0,470      96%   <- 0,35 rad de joelho
+    0,50              0,068       0,037      19%   <- CAIU
+
+Dois achados que fixam o número:
+
+1. **O BFM não resiste ao residual.** `q_atingido` (obtido/pedido, projetado) deu
+   **2,5 a 3,25** — o residual consegue 2,5-3x MAIS deslocamento do que pede. A
+   suposição de que "o BFM corrige de volta" estava errada.
+2. **0,35 rad de joelho já valeu 17,7 cm de palma** (0,647 -> 0,470) com o robô
+   estável. 3x disso é a aposta para cobrir vários níveis de altura.
+
+**Por que 1,05 e não mais.** O `_limite` também escala a exploração INICIAL, porque
+`delta = clamp(bruto*escala_delta, ±1) * limite` e no começo `bruto ~ 0,95`:
+
+    limite   teto treinado   exploração inicial
+    0,35          20°              2,9°
+    1,05          60°              8,6°       <- escolhido
+    2,10         120°             17,1°
+
+A âncora é a run monolítica: ela explorava a **±18,3° por junta** e aprendeu a ficar
+de pé em ~250 iterações (ver `escala_delta` abaixo). 8,6° fica com folga dentro do
+provado. **Só o pitch** porque o colapso da tabela acima veio em parte das juntas
+pequenas — 8,6° de ruído em roll e yaw é pedir para cair, e elas precisavam de no
+máximo 0,26 rad para agachar.
+
+**O currículo de altura mede se 1,05 basta.** Ele está livre, começa em 0,55 (que a
+palma alcança em pé, 0,647) e desce. O nível em que o `pegar` empacar É a resposta —
+não precisa adivinhar o valor final agora."""
 
 
 @dataclass(kw_only=True)
