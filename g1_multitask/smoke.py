@@ -17,6 +17,7 @@ O substituto é uma lista ESCRITA de checks, rodada antes de submeter. A lista d
 
 Cresce junto com o plano: cada tarefa implementada acrescenta uma seção aqui.
 """
+import inspect
 import math
 import pathlib
 import sys
@@ -26,6 +27,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import torch
 
 import g1_multitask  # noqa: F401  (o import dispara o register_mjlab_task)
+from g1_multitask import observations as obs
 from g1_multitask import tasks as T
 from g1_multitask.configs import ACTIVE
 from mjlab.envs import ManagerBasedRlEnv
@@ -34,10 +36,11 @@ from mjlab.tasks.registry import list_tasks, load_env_cfg
 DEVICE = "cpu"
 NUM_ENVS = 4
 
-# Largura da observação do ATOR (§14). 132 herdada do `g1_training`, menos o bit
-# `phase` (F10), mais 20 canais novos: box_rot_b 6 + face_alvo 3 + dir_alvo 3 +
-# task_onehot 8. Mudar esta largura é Categoria C — recomeçar do zero.
-OBS_ESPERADA = 151
+# Largura da observação do ATOR. 132 herdada do `g1_training`, menos o bit `phase`
+# (F10), mais 23 canais novos: box_rot_b 6 + face_alvo 3 + dir_alvo 3 +
+# task_onehot 8 + twist_cmd 3. Mudar esta largura é Categoria C — recomeçar do zero.
+# 151 -> 154 na S10, e a rodada de validação é a janela em que isso sai de graça.
+OBS_ESPERADA = 154
 
 PRIVILEGIO_CRITICO = 12
 """Quanto o crítico é MAIOR que o ator, e tem que continuar sendo.
@@ -72,29 +75,41 @@ check(
 )
 
 # ---------------------------------------------------- T1: a conta dos 60 eventos
-print("\n-- conta dos destravamentos (§14: 60) --")
+print("\n-- conta dos destravamentos (S11: 54) --")
 por_fonte = T.unlock_count()
 for fonte, n in por_fonte.items():
     print(f"        {fonte:<14} {n}")
-check("total = 60", T.total_unlocks() == 60, f"deu {T.total_unlocks()}")
+check("total = 54", T.total_unlocks() == 54, f"deu {T.total_unlocks()}")
 # Cada linha é derivada dos níveis e do índice inicial. Os valores esperados vêm
 # da contagem fechada em 29/07 — se uma linha mudar sozinha, um nível foi mexido.
 for fonte, esperado in (
-    ("parado", 0), ("andar", 4), ("reorientar", 13), ("pegar", 13),
+    ("parado", 0), ("andar", 4), ("reorientar", 10), ("pegar", 10),
     ("botar", 10), ("parado_caixa", 4), ("andar_caixa", 6),
     ("push", 4), ("aberturas", 6),
 ):
     check(f"{fonte} = {esperado}", por_fonte[fonte] == esperado, f"deu {por_fonte[fonte]}")
 
 # ------------------------------------------------- T1: eixos e índices iniciais
-print("\n-- escopo do eixo de distância (regra fechada 29/07) --")
-# Quem ANDA começa em 0.3; quem MANIPULA começa em 0.0; três tarefas não têm o eixo.
-check("andar começa em 0.3", T.axis_levels(T.ANDAR, "distancia")[0] == 0.3)
-check("andar c/ caixa começa em 0.3", T.axis_levels(T.ANDAR_CAIXA, "distancia")[0] == 0.3)
-check("pegar começa em 0.0", T.axis_levels(T.PEGAR, "distancia")[0] == 0.0)
-check("reorientar começa em 0.0", T.axis_levels(T.REORIENTAR, "distancia")[0] == 0.0)
-for t in (T.PARADO, T.PARADO_CAIXA, T.BOTAR):
-    check(f"{T.NAMES[t]} não tem eixo de distância", "distancia" not in T.AXES[t])
+print("\n-- S11: escopo do eixo de distância --")
+# O eixo `distancia` virou `distancia_andar` e SÓ quem anda o possui. Antes ele
+# servia também ao `pegar` e ao `reorientar`, o que fazia manipulação exigir
+# locomoção antes de encostar na caixa — duas competências numa medição só.
+check("o eixo `distancia` não existe mais", "distancia" not in T.LEVELS)
+check("o eixo `heading` virou `rumo`",
+      "heading" not in T.LEVELS and "rumo" in T.LEVELS,
+      "`heading` significava orientação final; agora é a MARCAÇÃO do alvo")
+check("`distancia_andar` começa em 1.0 m",
+      T.LEVELS["distancia_andar"][0] == 1.0,
+      "o primeiro degrau antigo era 0.3 m, e com `andar_raio` em 0.25 o robô "
+      "andava 5 cm e o nível media `parado` com sustentação")
+for t in (T.ANDAR, T.ANDAR_CAIXA):
+    check(f"{T.NAMES[t]} tem `distancia_andar` no índice 0",
+          T.AXES[t].get("distancia_andar") == 0)
+for t in (T.PARADO, T.PARADO_CAIXA, T.BOTAR, T.PEGAR, T.REORIENTAR):
+    check(f"{T.NAMES[t]} não tem eixo de distância",
+          "distancia_andar" not in T.AXES[t])
+check("os níveis de `rumo` são ±30°, ±90° e ±180°",
+      T.LEVELS["rumo"] == (60.0, 180.0, 360.0), str(T.LEVELS["rumo"]))
 check("giro tem 5 níveis (o 5º é topo/fundo)", len(T.LEVELS["giro"]) == 5)
 
 # ------------------------------------------------------- T1: env monta e roda
@@ -143,19 +158,21 @@ check("shape do twist", tuple(twist.command.shape) == (NUM_ENVS, 3),
       str(tuple(twist.command.shape)))
 check("env.active_task existe antes do 1º reward", hasattr(env, "active_task"))
 
-print("\n-- atraso de gatilho: episódio começa em `parado` --")
-# Sem passar do atraso, a tarefa ATIVA tem que ser PARADO mesmo que a sorteada não
-# seja. É isto que ensina a política a ficar estável antes de receber ordem.
+print("\n-- S8: o gatilho é imediato, sem janela de pré-gatilho --")
+# O atraso de U(0, 2 s) SAIU. A tarefa sorteada entra ativa no passo 0.
+#
+# O que se perde, e fica registrado: o desenho não treina transiente de comando nesta
+# rodada. O substituto correto é a troca de tarefa no meio do episódio, adiada de
+# propósito. O que se ganha: até 2 s dos 20 s voltam para as células duras.
 cfg_atraso = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_atraso.scene.num_envs = 32
-cfg_atraso.commands["lift_target"].atraso_gatilho_s = (1.9, 2.0)
 env_a = ManagerBasedRlEnv(cfg=cfg_atraso, device=DEVICE)
 acao_a = torch.zeros(env_a.num_envs, env_a.action_manager.total_action_dim,
                      device=env_a.device)
 
 
-def pre_gatilho(tarefa: int) -> torch.Tensor:
-    """A tarefa ATIVA de `env_a` (atraso 1.9-2.0 s) logo depois do reset."""
+def ativa_no_spawn(tarefa: int) -> torch.Tensor:
+    """A tarefa ATIVA logo depois do reset. Desde a S8 é a própria sorteada."""
     env_a.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
     env_a.task_dist[tarefa] = 1.0
     env_a.reset()
@@ -163,19 +180,21 @@ def pre_gatilho(tarefa: int) -> torch.Tensor:
     return env_a.active_task
 
 
-# Quem NÃO nasce segurando espera em `parado`. Quem nasce segurando espera em
-# `parado c/ caixa` (§4) — senão a caixa escorregaria durante os 2 s de atraso.
-check("antes do gatilho, `andar` espera em `parado`",
-      bool((pre_gatilho(T.ANDAR) == T.PARADO).all()),
-      f"ativa={T.NAMES[int(env_a.active_task[0])]}")
-check("antes do gatilho, `botar` espera em `parado c/ caixa`",
-      bool((pre_gatilho(T.BOTAR) == T.PARADO_CAIXA).all()),
-      f"ativa={T.NAMES[int(env_a.active_task[0])]}")
+for _t8 in (T.ANDAR, T.BOTAR, T.PEGAR, T.PARADO_CAIXA):
+    check(f"`{T.NAMES[_t8]}` está ativa já no passo 0",
+          bool((ativa_no_spawn(_t8) == _t8).all()),
+          f"ativa={T.NAMES[int(env_a.active_task[0])]}")
+check("o knob `atraso_gatilho_s` não existe mais",
+      not hasattr(ACTIVE.command, "atraso_gatilho_s"),
+      "deixar o campo criaria um número que não governa nada")
+check("`disparou` é constante em True",
+      bool(env_a.command_manager.get_term("lift_target").disparou.all()),
+      "o gate continua no `metrics.Sucesso` porque ele volta a ter conteúdo quando "
+      "a troca de tarefa no meio do episódio entrar")
 
 print("\n-- preenchimento por tarefa (§9) --")
 cfg_t = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_t.scene.num_envs = 32
-cfg_t.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)   # dispara já
 env_t = ManagerBasedRlEnv(cfg=cfg_t, device=DEVICE)
 acao_t = torch.zeros(env_t.num_envs, env_t.action_manager.total_action_dim,
                      device=env_t.device)
@@ -207,7 +226,7 @@ for tarefa in range(T.NUM_TASKS):
         check(f"{nome}: alvo_pos = a caixa", dist_caixa < 1e-5,
               f"|alvo−caixa|={dist_caixa:.2e}")
     elif tarefa in T.ANDA:
-        esperado = T.LEVELS["distancia"][T.AXES[tarefa]["distancia"]]
+        esperado = T.LEVELS["distancia_andar"][T.AXES[tarefa]["distancia_andar"]]
         check(f"{nome}: alvo_pos a {esperado} m do spawn",
               abs(dist_robo - esperado) < 0.05, f"deu {dist_robo:.3f} m")
     elif tarefa == T.BOTAR:
@@ -266,7 +285,10 @@ for tarefa, espera_movimento in ((T.PARADO, False), (T.ANDAR, True)):
     v = env_t.command_manager.get_term("twist").command[:, :2].norm(dim=-1).mean().item()
     nome = T.NAMES[tarefa]
     if espera_movimento:
-        # 0.3 m de destino com d_morto 0.25 -> dentro da rampa, v pequena mas > 0
+        # Desde a S5: d_morto 0.05 e banda de frenagem 0.125, portanto d_freio = 0.175.
+        # O destino do `andar` nasce a 0.3 m, ou seja FORA da banda — o perfil pede
+        # `v_max`. O valor lido no 1º passo é pequeno mesmo assim, porque o limitador
+        # de taxa sobe `a_max · dt` por passo a partir de zero.
         check(f"{nome}: twist manda andar", v > 0.0, f"|v|={v:.3f} m/s")
     else:
         check(f"{nome}: twist manda parar", v < 1e-5, f"|v|={v:.2e} m/s")
@@ -302,7 +324,7 @@ runner = MultitaskRunner(env_wrap, asdict(rl_cfg), None, DEVICE)
 check("runner monta com log_dir=None (requisito do play)", True)
 
 idx_ator = runner.idx_congelados["actor"]
-check("17 canais congelados no ator", idx_ator.numel() == 17,
+check("20 canais congelados no ator", idx_ator.numel() == 20,
       f"deu {idx_ator.numel()} — {list(CANAIS_CONGELADOS)}")
 # os índices são DERIVADOS: têm que casar com a posição real dos termos
 am = env.observation_manager
@@ -407,8 +429,103 @@ erradas = [n for n in MARCHA
            if cfg.rewards[n].params.get("command_name", "twist") != "twist"]
 check("todo reward de marcha aponta pro `twist`", not erradas, str(erradas))
 
+# Desde a S9 os dois de rastreio são GATEADOS, então a função de fora é a `gated` e a
+# variante real fica em `params["inner"]`.
 check("track_linear_velocity é a variante com freio de z",
-      cfg.rewards["track_linear_velocity"].func is R.track_linear_velocity_freio_z)
+      cfg.rewards["track_linear_velocity"].params["inner"]
+      is R.track_linear_velocity_freio_z)
+print("\n-- S9: o piso de sobrevivência sai da manipulação --")
+# Sem isto, um robô em pé com comando zero recebia 5.5/passo (track 2+2, upright 1,
+# posture 0.5), contra 5.0 de TODOS os termos de tarefa do `pegar` somados: ficar
+# parado pagava mais que resolver a tarefa.
+for _n9 in ("track_linear_velocity", "track_angular_velocity"):
+    _g9 = cfg.rewards[_n9].params.get("tasks", ())
+    check(f"`{_n9}` só vale onde locomoção é a tarefa",
+          set(_g9) == {T.PARADO, T.ANDAR, T.ANDAR_CAIXA, T.PARADO_CAIXA},
+          str(sorted(T.NAMES[t] for t in _g9)))
+check("os dois de rastreio continuam LIGADOS no `parado`",
+      T.PARADO in cfg.rewards["track_linear_velocity"].params["tasks"],
+      "o sucesso do `parado` é sobreviver com comando zero; sem eles ele fica sem "
+      "sinal nenhum")
+check("existe penalidade de terminação",
+      "terminacao" in cfg.rewards and cfg.rewards["terminacao"].weight < 0,
+      f"peso={cfg.rewards.get('terminacao') and cfg.rewards['terminacao'].weight}")
+check("a penalidade usa `is_terminated`, não `time_out`",
+      cfg.rewards["terminacao"].func.__name__ == "is_terminated",
+      "punir o fim natural do episódio ensina o robô a morrer")
+# ⚠️ O peso passa pelo `scale_by_dt`: −200 vira −4,0 de custo real por queda.
+_custo_real = cfg.rewards["terminacao"].weight * 0.02
+print(f"        custo REAL de uma queda: {_custo_real:.2f} "
+      f"(peso {cfg.rewards['terminacao'].weight} x dt 0.02) — a aceitação da S9 "
+      "mede se isto basta")
+
+print("\n-- S10: twist na obs do ator, alvo de posição gateado --")
+check("`twist_cmd` está nos DOIS grupos",
+      "twist_cmd" in cfg.observations["actor"].terms
+      and "twist_cmd" in cfg.observations["critic"].terms)
+check("`twist_cmd` está em CANAIS_CONGELADOS",
+      "twist_cmd" in CANAIS_CONGELADOS,
+      "na Fase 0 só o `parado` roda e o twist fica constante em zero -> _std=0 -> "
+      "quando o `andar` abre o valor entra ~100x amplificado")
+check("`target_pos_b` continua em CANAIS_CONGELADOS",
+      "target_pos_b" in CANAIS_CONGELADOS,
+      "depois da S10 o ator o vê preenchido em 2 de 7 tarefas; congelar deixou de "
+      "ser precaução e virou necessidade")
+check("o ATOR usa o `target_pos_b` gateado",
+      cfg.observations["actor"].terms["target_pos_b"].func is obs.target_pos_b_gateado)
+check("o CRÍTICO mantém o alvo cheio, inclusive no `andar`",
+      cfg.observations["critic"].terms["target_pos_b"].func
+      is not obs.target_pos_b_gateado,
+      "o retorno depende de `chegou`; sem o alvo o crítico não distingue 5 cm de 2 m")
+_zeradas = set(cfg.observations["actor"].terms["target_pos_b"].params["tarefas_zeradas"])
+check("o alvo é zerado nas 5 tarefas sem waypoint",
+      _zeradas == {T.PARADO, T.ANDAR, T.PARADO_CAIXA, T.ANDAR_CAIXA, T.PEGAR},
+      str(sorted(T.NAMES[t] for t in _zeradas)))
+
+print("\n-- S12/S13/S14/S15: cena, DR e diagnóstico --")
+check("a prateleira tem jitter de xy",
+      ACTIVE.scene.table_jitter_xy > 0.0, f"{ACTIVE.scene.table_jitter_xy} m")
+check("o jitter de yaw da mesa é o mesmo da caixa (derivado)",
+      ACTIVE.scene.table_jitter_yaw_deg == ACTIVE.scene.box_jitter_yaw_deg,
+      "a spec pede 'um pouco de yaw' sem número; reusar a amplitude já calibrada "
+      "evita inventar uma segunda escala angular para a mesma cena")
+check("o alvo do `botar` sai da pose REAL da mesa",
+      "self.table.data.root_link_pos_w" in inspect.getsource(C.LiftTargetCommand),
+      "derivar de `table_xy` constante faria o robô soltar no lugar errado; derivar "
+      "da CAIXA faria o alvo perseguir as mãos e o erro ser sempre zero")
+check("o atrito da caixa é randomizado",
+      "box_friction" in cfg.events, str(sorted(cfg.events)))
+check("a faixa de atrito é ESTREITA em torno do nominal (1.0)",
+      0.5 < ACTIVE.dr.box_friction_range[0] < 1.0 < ACTIVE.dr.box_friction_range[1] < 2.0,
+      f"{ACTIVE.dr.box_friction_range} — faixa larga acrescenta variância ao "
+      "success_buf, e mais variância significa mais congelamento espúrio")
+check("não há `dr.body_mass` nem `dr.body_com_offset` na caixa",
+      not any("body_mass" in str(getattr(e, 'func', '')) for e in cfg.events.values()),
+      "os dois corrompem a heap (CUDA illegal access)")
+_tw14 = env_t.command_manager.get_term("twist")
+check("`v_max` cai com a carga, e a inclinação é derivada",
+      abs(_tw14._inclinacao_carga - 0.0625) < 1e-6,
+      f"{_tw14._inclinacao_carga:.4f} m/s por kg = (0.50-0.25)/(5-1)")
+check("a banda de frenagem acompanha o `v_max` efetivo",
+      "v_max ** 2 / (2.0 * self.cfg.a_max)" in inspect.getsource(
+          C.DesiredTwistCommand._update_command),
+      "derivada do nominal, a carga pesada começaria a frear meio metro cedo")
+_orq15 = env_t.curriculum_manager.get_term_cfg("orquestrador").func
+check("o currículo loga iterações desde o destravamento",
+      hasattr(_orq15, "iteracoes_desde_evento"),
+      "é o número mais valioso da rodada: sem ele, `54 destravamentos em 30 000 "
+      "iterações` é aposta, não plano")
+check("o currículo loga `amostras` no momento do destravamento",
+      hasattr(_orq15, "amostras_no_evento"),
+      "diz se o portão `min` decidiu por competência ou por sorte")
+check("existe métrica de agachamento no `pegar`",
+      "agachamento_pegar" in cfg.metrics)
+_fonte_std = inspect.getsource(MultitaskRunner._std_vantagem_por_tarefa)
+check("o diagnóstico de vantagem só LÊ, não escreve",
+      "storage" in _fonte_std and "=" not in _fonte_std.split("adv =")[1].split("\n")[0]
+      .replace("getattr(st, \"advantages\", None)", ""),
+      "a S15 manda só logar; a normalização por tarefa está em FORA DE ESCOPO")
+
 check("os dois soft_landing usam sensores DIFERENTES",
       cfg.rewards["soft_landing_feet"].params["sensor_name"]
       != cfg.rewards["soft_landing_table"].params["sensor_name"],
@@ -555,8 +672,8 @@ for tarefa in range(T.NUM_TASKS):
         # a caixa nasce no alvo do peito: +0.15 m acima da pelve (§14)
         check(f"{nome}: caixa nasce no peito (+0.15 da pelve)",
               abs(rel_z - 0.15) < 0.03, f"rel_z={rel_z:+.3f}")
-        check(f"{nome}: pré-gatilho é `parado c/ caixa`",
-              bool((pre_gatilho(tarefa) == T.PARADO_CAIXA).all()),
+        check(f"{nome}: a tarefa sorteada já está ativa no spawn (S8)",
+              bool((ativa_no_spawn(tarefa) == tarefa).all()),
               f"ativa={T.NAMES[int(env_a.active_task[0])]}")
     elif tarefa in T.MANIPULA:
         check(f"{nome}: caixa nasce na prateleira, NÃO na mão",
@@ -614,16 +731,28 @@ for tarefa in range(T.NUM_TASKS):
 # O achado que motivou a T8b: antes dela, TODOS os termos de tarefa davam 0.0 no
 # reset das 3 tarefas c/ caixa -> nenhum caminho de aquisição.
 #
-# Medido em `env_a` (atraso de ~2 s), porque é a fase PRÉ-GATILHO que interessa: as
-# 3 esperam em `parado c/ caixa`, e o `box_at_peito` é gateado nela. No `botar`, ao
-# disparar o gatilho ele gateia OFF e o `box_at_prateleira` gateia ON — o
-# encadeamento sai do próprio one-hot, sem máquina de fases.
-for tarefa in T.SPAWN_SEGURANDO:
-    pre_gatilho(tarefa)
+# ⚠️ Reescrito com a S8. Antes, o teste rodava na fase de pré-gatilho, em que as três
+# tarefas esperavam em `parado c/ caixa` e o `box_at_peito` valia para todas. Sem essa
+# janela, o gate do `box_at_peito` — `(PEGAR, PARADO_CAIXA, ANDAR_CAIXA)` — decide
+# direto, e o `botar` fica FORA dele.
+#
+# Consequência declarada da S8: o `botar` perdeu o gradiente inicial que vinha do
+# pré-gatilho. Ele não fica sem caminho, porque `reaching` é gateado nele e
+# `box_at_prateleira` é kernel contínuo do erro — mas o sinal do primeiro passo é
+# mais fraco do que era. Registrado para o `Contrib/botar/*` da rodada confirmar.
+for tarefa in (T.PARADO_CAIXA, T.ANDAR_CAIXA):
+    ativa_no_spawn(tarefa)
     t = env_a.reward_manager.get_term_cfg("box_at_peito")
     v = t.func(env_a, **t.params).mean().item()
-    check(f"{T.NAMES[tarefa]}: box_at_peito > 0 antes do gatilho (há gradiente)",
+    check(f"{T.NAMES[tarefa]}: box_at_peito > 0 no spawn (há gradiente)",
           v > 0.1, f"deu {v:.3f}")
+ativa_no_spawn(T.BOTAR)
+_t_reach = env_a.reward_manager.get_term_cfg("reaching")
+_v_reach = _t_reach.func(env_a, **_t_reach.params).mean().item()
+check("botar: `reaching` dá gradiente no spawn, no lugar do `box_at_peito`",
+      _v_reach > 0.0,
+      f"reaching={_v_reach:.3f} — o `box_at_peito` não gateia no `botar`, e sem o "
+      "pré-gatilho ele deixou de segurar o primeiro passo")
 
 # `botar`: a caixa nasce na MÃO, longe da prateleira -> termo baixo. É isso que
 # tira o vale sem precisar de fator de preensão (§4).
@@ -634,6 +763,310 @@ t = env_t.reward_manager.get_term_cfg("box_at_prateleira")
 v = t.func(env_t, **t.params).mean().item()
 check("botar: caixa longe da prateleira no spawn (sem vale)", v < 0.05,
       f"box_at_prateleira={v:.4f} — sobe conforme aproxima e baixa")
+
+print("\n-- S1: os eixos `altura` e `peso` chegam à cena e à física --")
+# Antes da S1, `env.nivel` tinha um leitor só (`commands.py`), então `altura` e `peso`
+# mediam competência num eixo CONSTANTE — 20 dos 54 destravamentos sobre nada.
+
+check("`reset_box` e `reset_table` saíram de cfg.events",
+      "reset_box" not in cfg.events and "reset_table" not in cfg.events,
+      str([n for n in ("reset_box", "reset_table") if n in cfg.events]))
+check("`reset_cena`, `jitter_cena` e `payload` entraram",
+      all(n in cfg.events for n in ("reset_cena", "jitter_cena", "payload")),
+      str([n for n in ("reset_cena", "jitter_cena", "payload")
+           if n not in cfg.events]))
+check("`lift` lê o zero de progresso POR-ENV",
+      cfg.rewards["lift"].params.get("rest_z_attr") == "plr_rest_z",
+      f"rest_z_attr={cfg.rewards['lift'].params.get('rest_z_attr')!r} "
+      "— com `None` as alturas baixas ficam sem gradiente nenhum")
+
+# --- a altura do nível vira POSIÇÃO da prateleira, e o zero do lift acompanha ---
+_ids = torch.arange(env_t.num_envs, device=DEVICE)
+_alturas = torch.tensor(T.LEVELS["altura"], device=DEVICE)
+_termo_cena = env_t.event_manager.get_term_cfg("reset_cena")
+_metade = env_t.num_envs // 2
+env_t.nivel["altura"][:_metade] = 0                       # 0.55 m, o nível fácil
+env_t.nivel["altura"][_metade:] = len(T.LEVELS["altura"]) - 1      # 0.00 m, o difícil
+env_t.plr_shelf_top[:] = _alturas[env_t.nivel["altura"]]
+_termo_cena.func(env_t, _ids, **_termo_cena.params)
+env_t.sim.forward()
+
+_jit = float(ACTIVE.scene.level_jitter_z)
+_topo = (env_t.scene["table"].data.root_link_pos_w[:, 2]
+         + float(ACTIVE.scene.shelf_half_z))
+check(f"nível 6 põe o topo da prateleira em 0.00 ± {_jit:.2f}",
+      bool((_topo[_metade:].abs() <= _jit + 1e-3).all()),
+      f"topo={float(_topo[_metade:].mean()):+.3f}")
+check("nível 0 põe o topo em 0.55 (a prateleira não é mais fixa)",
+      bool((_topo[:_metade] - 0.55).abs().max() <= _jit + 1e-3),
+      f"topo={float(_topo[:_metade].mean()):+.3f}")
+check("`plr_rest_z` difere entre envs de níveis diferentes",
+      float(env_t.plr_rest_z[:_metade].mean() - env_t.plr_rest_z[_metade:].mean())
+      > 0.5, f"fácil={float(env_t.plr_rest_z[:_metade].mean()):.3f} "
+             f"difícil={float(env_t.plr_rest_z[_metade:].mean()):.3f}")
+
+# --- o sorteio escreve TODOS os eixos, sempre (passo 8 da S1) ---
+# Sentinela: se algum eixo sair do reset com 99, o `_amostrar` não o escreveu e o env
+# está com o nível do episódio ANTERIOR dele — que era o bug.
+for _eixo in env_t.nivel:
+    env_t.nivel[_eixo][:] = 99
+env_t.task_dist = torch.ones(T.NUM_TASKS, device=DEVICE)
+env_t.reset()
+# `push` fica de fora: ele é o eixo GLOBAL (um `self.push_nivel` escalar, não um por
+# env), e o `_amostrar` o pula de propósito. `env.nivel["push"]` é buffer morto — existe
+# porque o `__init__` cria um por chave de `T.LEVELS`, e ninguém lê.
+_sobrou = [e for e in env_t.nivel
+           if e != "push" and int(env_t.nivel[e].max()) >= len(T.LEVELS[e])]
+check("todo eixo por-env é escrito para todo env em cada reset",
+      not _sobrou, str(_sobrou))
+
+# --- eixo que a tarefa não possui = nível MAIS FÁCIL, não o corrente ---
+for _t in (T.PARADO, T.ANDAR, T.PARADO_CAIXA, T.ANDAR_CAIXA):
+    env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+    env_t.task_dist[_t] = 1.0
+    env_t.nivel["altura"][:] = len(T.LEVELS["altura"]) - 1     # suja com o difícil
+    env_t.reset()
+    check(f"{T.NAMES[_t]} não tem eixo `altura` -> nível 0",
+          int(env_t.nivel["altura"].max()) == 0,
+          f"ficou em {int(env_t.nivel['altura'].max())} — o corrente daria ao "
+          "`andar c/ caixa` giros de ±180° que o currículo nunca mediu")
+
+print("\n-- S2: o eixo `push` chega à física --")
+# Antes da S2 o eixo avançava de 0 a 4 e a perturbação não mudava: rodava o
+# `push_robot` do fabricante, com o range dele, constante. A Fase 0 media a mesma
+# dificuldade cinco vezes — e ela é o portão de `parado` para `andar`.
+from g1_multitask import push as P  # noqa: E402
+
+check("`push_robot` é o nosso, não o do fabricante",
+      cfg.events["push_robot"].func is P.empurrao,
+      f"func={getattr(cfg.events['push_robot'].func, '__name__', '?')} — somar em vez "
+      "de substituir faria o segundo evento apagar o primeiro, sem erro e sem log")
+check("`push_force` existe no treino",
+      "push_force" in cfg.events, str(sorted(cfg.events)))
+_cfg_play = load_env_cfg(g1_multitask.TASK_ID, play=True)
+check("nenhum dos dois existe no `play`",
+      "push_robot" not in _cfg_play.events and "push_force" not in _cfg_play.events,
+      str([n for n in ("push_robot", "push_force") if n in _cfg_play.events]))
+
+# --- o fator é zero no nível 0, e o chute some junto ---
+env_t.task_dist = torch.ones(T.NUM_TASKS, device=DEVICE)
+env_t.reset()
+check("`push_fator` é zero enquanto `push_nivel == 0`",
+      int(env_t.push_nivel_t.max()) == 0 and float(env_t.push_fator.abs().max()) == 0.0,
+      f"nível={int(env_t.push_nivel_t.max())} "
+      f"fator_max={float(env_t.push_fator.abs().max()):.3f}")
+
+# --- a janela livre silencia o empurrão no começo do episódio ---
+# ⚠️ `forward()` antes de reler: `root_link_vel_w` não reflete a escrita sem ele, e
+# sem o forward este teste dá delta zero nos DOIS casos e passa por engano.
+_robo = env_t.scene["robot"]
+_ids_t = torch.arange(env_t.num_envs, device=DEVICE)
+env_t.push_fator[:] = 1.0
+_delta = {}
+for _rotulo, _buf in (("dentro", 0), ("fora", 100)):
+    env_t.episode_length_buf[:] = _buf
+    env_t.sim.forward()
+    _v0 = _robo.data.root_link_vel_w.clone()
+    P.empurrao(env_t, _ids_t, push=ACTIVE.push)
+    env_t.sim.forward()
+    _delta[_rotulo] = (_robo.data.root_link_vel_w - _v0).abs().max().item()
+check(f"nenhum empurrão nos primeiros {P.JANELA_LIVRE_S:.1f} s do episódio",
+      _delta["dentro"] == 0.0 and _delta["fora"] > 0.0,
+      f"dentro={_delta['dentro']:.4f} fora={_delta['fora']:.4f} — a caixa das 3 "
+      "tarefas de spawn-segurando cai 22 cm em 0.5 s com ação nula")
+
+# --- o `and hold` só existe nos níveis 3 e 4 ---
+_hold = env_t.event_manager.get_term_cfg("push_force").func
+env_t.episode_length_buf[:] = 100
+_ativos = {}
+for _nivel in (0, 2, 4):
+    _hold._inner._active[:] = False
+    env_t.push_nivel_t[:] = _nivel
+    for _ in range(300):
+        _hold(env_t, _ids_t, push=ACTIVE.push)
+    _ativos[_nivel] = int(_hold._inner._active.sum())
+check("força sustentada só a partir do nível 3",
+      _ativos[0] == 0 and _ativos[2] == 0 and _ativos[4] > 0,
+      f"impulsos ativos por nível: {_ativos} (de {env_t.num_envs} envs)")
+
+# ⚠️ HIGIENE: os checks acima deixaram `env_t` com fator 1.0, nível 4 e impulsos
+# ATIVOS na pelve. `env_t` é reusado pelas seções seguintes, e um robô sob 50 N
+# segurados falharia checks que nada têm a ver com push. Zera a força na mão (o
+# `_active` do inner não expira sozinho sem mais chamadas) e re-sorteia pelo reset.
+_zeros = torch.zeros(env_t.num_envs, _hold._n_bodies, 3, device=DEVICE)
+_hold._asset.write_external_wrench_to_sim(
+    _zeros, _zeros, env_ids=_ids_t, body_ids=_hold._body_ids)
+_hold._inner._active[:] = False
+env_t.reset()
+
+print("\n-- S3: congelamento por média lenta, não por pico --")
+from g1_multitask.curriculum import PUSH as PUSH_EIXO  # noqa: E402
+
+_orq3 = env_t.curriculum_manager.get_term_cfg("orquestrador").func
+_cel3 = (T.PEGAR, "altura")
+_abertas_antes = list(_orq3.abertas)
+
+check("a referência se chama `ref`, e `pico` não existe mais",
+      hasattr(_orq3, "ref") and not hasattr(_orq3, "pico"))
+check("`ema_alpha_lenta` é um décimo de `ema_alpha`",
+      abs(_orq3.alpha_lenta - _orq3.alpha / 10.0) < 1e-9,
+      f"alpha={_orq3.alpha} lenta={_orq3.alpha_lenta}")
+check("`congela_queda` continua em 0.10",
+      abs(_orq3.congela_queda - 0.10) < 1e-9, f"{_orq3.congela_queda}")
+
+# A referência PERSEGUE a performance, em vez de guardar o máximo. É a diferença que
+# faz o 0.10 voltar a significar 3σ: com o máximo, um pico de sorte vira o alvo para
+# sempre e a queda típica passa do limiar sem nenhuma regressão.
+_orq3.ref[_cel3][0] = 0.0
+_orq3.perf[_cel3][0] = 0.90
+for _ in range(400):
+    _orq3._congelamento(_cel3, 0)
+_subiu = float(_orq3.ref[_cel3][0])
+_orq3.perf[_cel3][0] = 0.50                       # queda real de 0.40
+for _ in range(5):
+    _orq3._congelamento(_cel3, 0)
+_congelou_real = bool(_orq3.congelado[_cel3][0])
+_orq3.perf[_cel3][0] = 0.90                       # recupera
+for _ in range(400):
+    _orq3._congelamento(_cel3, 0)
+_soltou = not bool(_orq3.congelado[_cel3][0])
+
+check("a referência sobe até a performance (não fica em zero)",
+      _subiu > 0.5, f"ref={_subiu:.3f} depois de 400 medições em perf=0.90")
+check("queda REAL de 0.40 ainda congela", _congelou_real)
+check("recuperar descongela", _soltou)
+
+# Um pico isolado NÃO vira a referência. Com o máximo corrido, um único 1.0 fixava o
+# alvo em 1.0 e toda medição seguinte em 0.90 acusava queda de 0.10.
+_orq3.ref[_cel3][0] = 0.0
+_orq3.perf[_cel3][0] = 0.90
+for _ in range(400):
+    _orq3._congelamento(_cel3, 0)
+_base = float(_orq3.ref[_cel3][0])
+_orq3.perf[_cel3][0] = 1.0                        # o pico de sorte
+_orq3._congelamento(_cel3, 0)
+_orq3.perf[_cel3][0] = 0.90                       # e volta ao normal
+_orq3._congelamento(_cel3, 0)
+check("um pico isolado não fixa a referência",
+      abs(float(_orq3.ref[_cel3][0]) - _base) < 0.01
+      and not bool(_orq3.congelado[_cel3][0]),
+      f"ref {_base:.4f} -> {float(_orq3.ref[_cel3][0]):.4f}")
+
+# --- a célula de push mede só os envs do `parado` ---
+# Antes, ela media `sucesso.mean()` sobre TODAS as tarefas: abrir o `andar` derrubava
+# a perf de 0.900 para 0.696 sem nenhuma regressão de robustez a push.
+_cel_push = (T.PARADO, PUSH_EIXO)
+_orq3.perf[_cel_push][0] = 0.0
+_orq3.abertas = [T.PARADO, T.ANDAR]
+env_t.tarefa_sorteada[:] = T.ANDAR
+env_t.tarefa_sorteada[: env_t.num_envs // 2] = T.PARADO
+env_t.success_buf[:] = 0.0
+env_t.success_buf[: env_t.num_envs // 2] = 1.0     # `parado` vence, `andar` falha
+_orq3._visitou[:] = True
+_amostras_antes = float(_orq3.amostras[_cel_push][0])
+for _ in range(300):
+    _orq3._medir(env_t, torch.arange(env_t.num_envs, device=DEVICE))
+check("a perf do push segue o `parado`, e não a média das tarefas",
+      float(_orq3.perf[_cel_push][0]) > 0.95,
+      f"perf={float(_orq3.perf[_cel_push][0]):.3f} — a média global daria ~0.50, e o "
+      "limiar absoluto de 0.90 do `_push_competente` seria inatingível")
+check("só os envs do `parado` contam como amostra",
+      abs((float(_orq3.amostras[_cel_push][0]) - _amostras_antes)
+          - 300 * (env_t.num_envs // 2)) < 1.0,
+      f"{float(_orq3.amostras[_cel_push][0]) - _amostras_antes:.0f} de "
+      f"{300 * (env_t.num_envs // 2)}")
+
+# ⚠️ HIGIENE: os checks acima mexeram no estado do orquestrador (abriram o `andar`,
+# escreveram perf, ref, amostras e congelado) e no `success_buf`. `env_t` é reusado
+# pelas seções seguintes. Sem restaurar, o currículo destravaria por dado fabricado.
+_orq3.abertas = _abertas_antes
+for _c in (_cel3, _cel_push):
+    _orq3.perf[_c].zero_()
+    _orq3.ref[_c].zero_()
+    _orq3.amostras[_c].zero_()
+    _orq3.congelado[_c][:] = False
+_orq3.desde_evento = {_t: 0.0 for _t in T.AXES}
+env_t.success_buf[:] = 0.0
+env_t.reset()
+
+print("\n-- S5: perfil de comando gira, depois anda --")
+_tw = env_t.command_manager.get_term("twist")
+_lt = env_t.command_manager.get_term("lift_target")
+_cmd_cfg = cfg.commands["twist"]
+
+check("banda de frenagem = v_max²/2·a_max",
+      abs(_cmd_cfg.d_freio_extra
+          - _cmd_cfg.v_max ** 2 / (2.0 * _cmd_cfg.a_max)) < 1e-6,
+      f"{_cmd_cfg.d_freio_extra} vs {_cmd_cfg.v_max ** 2 / (2.0 * _cmd_cfg.a_max):.4f} "
+      "— o número era órfão antes da S5 e voltaria a ser sem esta amarra")
+check("banda angular = w_max²/2·alpha_max",
+      abs(_tw._banda_ang - _cmd_cfg.w_max ** 2 / (2.0 * _cmd_cfg.alpha_max)) < 1e-9,
+      f"{_tw._banda_ang:.4f} rad")
+check("o morto angular cabe na tolerância de `alinhado` (10°)",
+      _cmd_cfg.morto_angular_rad < math.radians(10.0),
+      f"{math.degrees(_cmd_cfg.morto_angular_rad):.1f}° — se fosse maior, o comando "
+      "pararia de girar antes de o critério considerar alinhado")
+
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.ANDAR] = 1.0
+env_t.reset()
+
+
+def _perfil(offset_x: float, passos: int):
+    """Roda o perfil com o destino fixado a `offset_x` metros à frente do robô.
+
+    ⚠️ Chama `_update_command` DIRETO, sem `env.step`. Com ação nula o robô cai, o
+    episódio termina dentro do `step`, e o reset re-sorteia `_destino_w` — o alvo
+    forçado some e o teste mede outra coisa. Deu 1 falha em 2 execuções antes desta
+    mudança. Sem física o perfil é determinístico, que é o que estes checks querem:
+    eles testam a lei de controle, não o equilíbrio do robô.
+    """
+    _p = env_t.scene["robot"].data.root_link_pos_w
+    _alvo = torch.zeros_like(_p)
+    _alvo[:, 0] = offset_x
+    serie = []
+    for _ in range(passos):
+        _lt._destino_w.copy_(_p + _alvo)
+        _lt._update_command()
+        _tw._update_command()
+        c = _tw.command
+        serie.append((float(c[:, 0].abs().max()), float(c[:, 1].abs().max()),
+                      float(c[:, 2].abs().max())))
+    return serie
+
+
+# --- alvo ATRÁS do robô: gira sem andar ---
+_s = _perfil(-2.0, 50)
+_v180 = max(x[0] for x in _s)
+_w180 = max(x[2] for x in _s)
+check("rumo 180°: v fica em zero e só w trabalha",
+      _v180 < 1e-6 and _w180 > 0.5 * _cmd_cfg.w_max,
+      f"max|v|={_v180:.2e} max|w|={_w180:.3f} — trava por cos(erro), contínua; "
+      "um limiar duro devolveria o degrau que a rampa remove")
+
+# --- limitador de taxa: nenhum degrau acima do teto ---
+env_t.reset()
+_s = _perfil(2.0, 60)
+_mdv = max(abs(b[0] - a[0]) for a, b in zip(_s, _s[1:]))
+_mdw = max(abs(b[2] - a[2]) for a, b in zip(_s, _s[1:]))
+_teto_v = _cmd_cfg.a_max * env_t.step_dt
+_teto_w = _cmd_cfg.alpha_max * env_t.step_dt
+check("nenhum degrau de v acima de a_max·dt",
+      _mdv <= _teto_v + 1e-6, f"max|dv|={_mdv:.4f} teto={_teto_v:.4f}")
+check("nenhum degrau de w acima de alpha_max·dt",
+      _mdw <= _teto_w + 1e-6, f"max|dw|={_mdw:.4f} teto={_teto_w:.4f}")
+check("o perfil nunca comanda `vy`",
+      max(x[1] for x in _s) == 0.0,
+      "o robô gira para apontar e anda para frente; marcha lateral fica fora "
+      "desta rodada, por decisão da S5")
+
+# --- dentro do morto o zero é EXATO ---
+env_t.reset()
+_s = _perfil(0.02, 10)               # 0.02 m, dentro do d_morto_andar de 0.05
+check("dentro do `d_morto` o comando é exatamente zero",
+      _s[-1][0] == 0.0 and _s[-1][2] == 0.0 and bool(_tw.dentro_do_morto().all()),
+      f"v={_s[-1][0]:.2e} w={_s[-1][2]:.2e}")
+env_t.reset()
 
 print("\n-- o kernel de 2 escalas do reorientar --")
 env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
@@ -719,7 +1152,6 @@ check("deriva do parado é métrica, NÃO terminação nem sucesso (F3)",
       and "deriva" not in " ".join(cfg.terminations))
 check("env.success_buf existe antes de qualquer step", hasattr(env_t, "success_buf"))
 # O que faz a Categoria A ser grátis: nenhum termo de reward alimenta o sucesso.
-import inspect  # noqa: E402
 
 fonte_sucesso = inspect.getsource(__import__("g1_multitask.metrics",
                                              fromlist=["Sucesso"]).Sucesso)
@@ -767,6 +1199,101 @@ for tarefa, esperado in EXIGENCIA.items():
     check(f"{T.NAMES[tarefa]}: exige {esperado} s seguidos (§14)",
           abs(s - esperado) < 1e-6, f"deu {s}")
 
+print("\n-- S6: sucesso do `andar` com histerese --")
+check("`sustenta_andar_s` baixou de 5 para 3 s",
+      abs(tol.sustenta_andar_s - 3.0) < 1e-9, f"{tol.sustenta_andar_s} s")
+check("o raio de disparo é menor que o de manutenção",
+      tol.andar_raio_chega < tol.andar_raio_mantem,
+      f"chega={tol.andar_raio_chega} mantem={tol.andar_raio_mantem}")
+check("o raio de disparo é maior que o `d_morto_andar`",
+      tol.andar_raio_chega > ACTIVE.command.d_morto_andar,
+      f"raio={tol.andar_raio_chega} morto={ACTIVE.command.d_morto_andar} — se o morto "
+      "fosse maior, o comando zeraria antes de o robô entrar no círculo da régua")
+check("o ângulo de disparo é menor que o de manutenção",
+      tol.alinhado_chega_deg < tol.alinhado_mantem_deg,
+      f"chega={tol.alinhado_chega_deg}° mantem={tol.alinhado_mantem_deg}°")
+
+# --- a histerese muda o veredito no MESMO estado físico ---
+# Robô no mesmo lugar, a 0.20 m do alvo: entre o raio de disparo (0.10) e o de
+# manutenção (0.25). Sem disparo prévio o critério é falso; com disparo, verdadeiro.
+# É esse par que prova que a histerese existe — um raio único daria o mesmo nos dois.
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.ANDAR] = 1.0
+env_t.reset()
+_lt6 = env_t.command_manager.get_term("lift_target")
+_p6 = env_t.scene["robot"].data.root_link_pos_w
+_off6 = torch.zeros_like(_p6)
+_off6[:, 0] = 0.20
+_lt6._destino_w.copy_(_p6 + _off6)
+# ⚠️ O rumo tem de ser isolado, senão este teste mede o eixo errado. O `_head` é
+# sorteado em ±30° no nível 0 e o `reset_base` gira o robô em ±11.5°, então o erro
+# pode chegar a ~41° — acima dos 25° de manutenção — e o `alinhado` derrubaria o
+# critério por um motivo que nada tem a ver com o raio.
+_lt6._head.copy_(env_t.scene["robot"].data.heading_w)
+_lt6._update_command()
+sucesso._alinhado_ok[:] = True
+sucesso._chegou_ok[:] = False
+_sem = bool(sucesso._condicao(env_t).any())
+sucesso._chegou_ok[:] = True
+_com = bool(sucesso._condicao(env_t).all())
+check("a 0.20 m: sem disparo é falso, com disparo é verdadeiro",
+      (not _sem) and _com, f"sem_disparo={_sem} com_disparo={_com}")
+
+# --- o disparo exige o raio apertado ---
+sucesso._chegou_ok[:] = False
+_off6[:, 0] = 1.0
+_lt6._destino_w.copy_(_p6 + _off6)
+_lt6._update_command()
+sucesso(env_t)
+_longe = bool(sucesso._chegou_ok.any())
+_off6[:, 0] = 0.05
+_lt6._destino_w.copy_(_p6 + _off6)
+_lt6._update_command()
+sucesso(env_t)
+_perto6 = bool(sucesso._chegou_ok.all())
+check("o disparo só ocorre dentro do raio apertado",
+      (not _longe) and _perto6, f"a 1.0 m disparou={_longe}  a 0.05 m disparou={_perto6}")
+
+# --- cair continua zerando: `parado_de_pe` fica FORA da histerese ---
+_fonte_cond = inspect.getsource(type(sucesso)._condicao)
+check("`parado_de_pe` não entra na histerese",
+      "_chegou_ok & " in _fonte_cond and "parado_de_pe" not in
+      _fonte_cond.split("chegou_andar = ")[1].split("\n")[0],
+      "se travasse junto, cair deixaria de zerar o contador")
+env_t.reset()
+
+print("\n-- S7: sucesso do `parado` exige ficar de pé --")
+check("o critério do `parado` limita o tempo fora de `de pé`",
+      "_fora_de_pe_s" in _fonte_cond and "limite_fora_de_pe_s" in _fonte_cond,
+      "sem isso um robô permanentemente agachado passa: o `fell_over` mede só "
+      "inclinação (70°), e agachado com o tronco vertical ela é ~0°")
+check("o limite cabe entre passo protetivo e agachamento permanente",
+      1.0 < tol.limite_fora_de_pe_s < 20.0,
+      f"{tol.limite_fora_de_pe_s} s — passo protetivo custa 1-2 s e passa; "
+      "agachado consome os 20 s e não passa")
+check("o acumulador é de TEMPO, não de passos",
+      "* self.dt" in inspect.getsource(type(sucesso).__call__),
+      "em passos o limite dependeria do `decimation`")
+
+# o acumulador anda quando o robô sai de `de pé`. Com ação nula ele cai, então basta
+# rodar passos e comparar — não é preciso forçar pose nenhuma.
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.PARADO] = 1.0
+env_t.reset()
+# ⚠️ O pico tem de ser lido A CADA passo. Com ação nula o robô cai, o `fell_over`
+# termina o episódio, e o reset ZERA o acumulador — ler só no fim dá 0,00 s sempre.
+_pico_fora = 0.0
+for _ in range(120):
+    env_t.step(acao_t)
+    _pico_fora = max(_pico_fora, float(sucesso._fora_de_pe_s.max()))
+check("o tempo fora de `de pé` acumula com o robô caído",
+      _pico_fora > 0.0, f"pico de {_pico_fora:.2f} s com ação nula")
+env_t.reset()
+check("o reset zera o acumulador",
+      float(sucesso._fora_de_pe_s.max()) == 0.0,
+      f"{float(sucesso._fora_de_pe_s.max()):.2f} s — se vazasse, o episódio novo "
+      "nasceria reprovado")
+
 # A cadeia inteira do `parado c/ caixa` (caixa no peito E preensão E de pé) tem que
 # ser SATISFAZÍVEL: nasce segurando, então o passo 1 já cumpre. E tem que ZERAR
 # quando quebra — a caixa escorrega com ação nula, e é isso que o robô vai aprender.
@@ -787,7 +1314,6 @@ check("contador ZERA quando a condição quebra", c2 == 0.0,
 cfg_curto = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_curto.scene.num_envs = 8
 cfg_curto.episode_length_s = 1.0
-cfg_curto.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)
 env_c = ManagerBasedRlEnv(cfg=cfg_curto, device=DEVICE)
 env_c.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
 env_c.task_dist[T.PARADO] = 1.0
@@ -811,7 +1337,6 @@ check("parado: sucesso só onde NÃO houve terminação por falha",
 print("\n-- T11: contribuição por tarefa × termo --")
 cfg_obs = sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID))
 cfg_obs.scene.num_envs = 64
-cfg_obs.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)
 env_o = ManagerBasedRlEnv(cfg=cfg_obs, device=DEVICE)
 acao_o = torch.zeros(env_o.num_envs, env_o.action_manager.total_action_dim,
                      device=env_o.device)
@@ -850,6 +1375,25 @@ for _ in range(PASSOS - CURTO):
 check("um nome de termo por coluna",
       len(env_o.contrib_nomes) == env_o.contrib_soma.shape[1] == len(cfg.rewards),
       f"{len(env_o.contrib_nomes)} nomes, {env_o.contrib_soma.shape[1]} colunas")
+
+# ⚠️ CORRIDA, consertada em 05/08. Os checks abaixo exigem que o relatório EMITA, e
+# emitir exige `cont.sum() >= min_amostras` (500). Mas o `Relatorio` roda no reset e
+# ZERA quando emite, então a contagem no passo 30 mede "passos desde o último reset" —
+# e onde esse reset cai depende da física.
+#
+# Com reset no passo 15 sobram 960 e o check passa; com reset no passo 23 sobram 448 e
+# ele falha. Medido: 2 falhas em 3 execuções depois que a S1 ligou o `level_jitter_z`
+# de ±2 cm e o jitter de yaw, que mudam quando a caixa escorrega e portanto quando o
+# `largou` dispara.
+#
+# O conserto é tornar a PRÉ-CONDIÇÃO explícita, e não afrouxar o limiar: mexer no
+# `min_amostras` quebraria os três checks de emissão, que é o que eles testam.
+LIMITE = 200
+while (float(env_o.contrib_cont.sum()) < 500.0
+       and PASSOS < LIMITE):
+    env_o.step(acao_o)
+    PASSOS += 1
+assert PASSOS < LIMITE, "a matriz nunca acumulou 500 amostras — não é corrida, é bug"
 
 # RECONCILIAÇÃO: a soma das contribuições de uma tarefa tem que dar o total dela.
 # Se não fechar, a máscara do acumulador está errada — e aí o relatório entre blocos
@@ -900,7 +1444,7 @@ print("\n-- T13/T14: orquestrador --")
 from g1_multitask.sim_curriculo import simula  # noqa: E402
 
 orq_sim, info_sim = simula(num_envs=64)
-check("simulação: 60 destravamentos", orq_sim.eventos == 60, f"deu {orq_sim.eventos}")
+check("simulação: 54 destravamentos", orq_sim.eventos == 54, f"deu {orq_sim.eventos}")
 check("simulação: 7 tarefas abriram", len(orq_sim.abertas) == T.NUM_TASKS)
 check("simulação: push completo antes do `andar`",
       info_sim["push_completo_em"] == 4
@@ -911,7 +1455,10 @@ orq_env = env_t.curriculum_manager.get_term_cfg("orquestrador").func
 check("orquestrador tem state_dict e load_state_dict",
       hasattr(orq_env, "state_dict") and hasattr(orq_env, "load_state_dict"),
       "sem isto o currículo volta ao nível 0 a cada um dos 10-15 resumes")
-check("14 células (13 tarefa×eixo + push)", len(orq_env.celulas) == 14,
+# S11: eram 14. O eixo de distância saiu do `pegar` e do `reorientar`, então caem
+# duas células tarefa×eixo. 11 = andar 2, pegar 2, botar 2, reorientar 2,
+# parado c/ caixa 1, andar c/ caixa 2.
+check("12 células (11 tarefa×eixo + push)", len(orq_env.celulas) == 12,
       f"deu {len(orq_env.celulas)}")
 
 # ALARME DE ESTAGNAÇÃO: o contador tem que ser transições DE VERDADE.
@@ -1087,6 +1634,50 @@ _fonte_rel = inspect.getsource(
 check("item 4: relatório emite cond_fisica e atribuicao_divergente",
       "cond_fisica" in _fonte_rel and "atribuicao_divergente" in _fonte_rel,
       "se `perf` sobe e `cond_fisica` fica em zero, o crédito é falso")
+
+# ------------------- etiqueta de espaço de ação (o cross-load silencioso de 04/08)
+# A decisão é lógica pura sobre um dict, então testa-se com um duplo — instanciar o
+# `MultitaskRunner` de verdade exige PPO e mora no `smoke_resume.py`.
+print("\n-- etiqueta de espaço de ação --")
+from g1_multitask.runner import MultitaskRunner  # noqa: E402
+
+
+class _RunnerFalso:
+    """Só o par de métodos da guarda, com a assinatura vindo de um atributo."""
+    _confere_assinatura = MultitaskRunner._confere_assinatura
+
+    def __init__(self, assinatura):
+        self._a = assinatura
+
+    def _assinatura(self):
+        return self._a
+
+
+_MT = {"termos": {"joint_pos": "JointPositionAction"}, "dim": 29}
+_RES = {"termos": {"joint_pos": "ResidualBFMAction"}, "dim": 29}
+
+check("etiqueta: mesma task carrega",
+      _RunnerFalso(_MT)._confere_assinatura({"assinatura": _MT}) is None)
+
+_recusou = False
+try:
+    _RunnerFalso(_RES)._confere_assinatura({"assinatura": _MT})
+except SystemExit:
+    _recusou = True
+check("etiqueta: checkpoint do multi-tarefa RECUSADO no env residual", _recusou,
+      "as duas têm ação 29 e obs 151 desde `dim_c=0` — sem esta guarda o load é "
+      "silencioso e o BFM aparece de pé fingindo ser a política")
+
+check("etiqueta: checkpoint SEM etiqueta ainda carrega (só avisa)",
+      _RunnerFalso(_MT)._confere_assinatura({"curriculum": {}}) is None,
+      "travar aqui quebraria o resume das runs anteriores a 04/08")
+
+_fonte_save = inspect.getsource(MultitaskRunner.save)
+check("etiqueta: o `save` grava a assinatura", "assinatura" in _fonte_save)
+check("etiqueta: a guarda roda ANTES do bloco de currículo no `load`",
+      inspect.getsource(MultitaskRunner.load).index("_confere_assinatura")
+      < inspect.getsource(MultitaskRunner.load).index("curriculum"),
+      "o `play` passa load_cfg={'actor': True} e sai fora do bloco de currículo")
 
 # T15 (treinar, salvar, retomar) mora em `smoke_resume.py`: ele instancia PPO de
 # verdade e leva minutos, o que quebraria a promessa deste arquivo de rodar em
