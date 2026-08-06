@@ -63,16 +63,39 @@ class gated:
         self._inner = alvo(cfg=cfg, env=env) if isinstance(alvo, type) else alvo
         self._tasks = torch.tensor(
             list(cfg.params["tasks"]), dtype=torch.long, device=env.device)
+        self._exige_grasp = torch.tensor(
+            list(cfg.params.get("exige_grasp", ())), dtype=torch.long,
+            device=env.device)
 
     def __call__(self, env: "ManagerBasedRlEnv", inner, tasks,
-                 gate_command: str = "lift_target", **kw) -> torch.Tensor:
+                 gate_command: str = "lift_target",
+                 exige_grasp: tuple[int, ...] = (),
+                 grasp_palm=None, grasp_back=None, **kw) -> torch.Tensor:
         """`gate_command` e NÃO `command_name`: vários termos internos (`lift_reward`,
         `hold_still_bonus`, `orienta_face`) têm um `command_name` PRÓPRIO, e usar a
         mesma chave fazia o gate engolir o parâmetro do termo de dentro —
-        `TypeError: lift_reward() missing 1 required positional argument`."""
+        `TypeError: lift_reward() missing 1 required positional argument`.
+
+        `exige_grasp` (06/08) multiplica o termo pela PREENSÃO, mas só nas tarefas
+        listadas ali. Nas outras o fator é 1.
+
+        ⚠️ Ele existe por causa de um hack medido: em `parado c/ caixa` e
+        `andar c/ caixa`, `track_linear_velocity` e `track_angular_velocity` valem
+        2.0 + 2.0 com o robô imóvel e o comando em zero. São 4.0 de um teto de 7.0 —
+        **79% do orçamento pago por ficar em pé**. O robô podia aninhar a caixa no vão
+        dos antebraços contra o tronco, ficar parado, e receber 5.5 de 7.0 com
+        `_grasp = 0`, sem manipular nada e sem risco. A caixa fica acima do
+        `largou_z`, então nem o `largou` terminava.
+
+        Com o fator, o piso só existe se ele estiver de fato segurando."""
         del inner, tasks                      # já resolvidos no __init__
         onehot = env.command_manager.get_term(gate_command).command[:, ONEHOT]
-        return self._inner(env, **kw) * onehot[:, self._tasks].sum(dim=-1)
+        mascara = onehot[:, self._tasks].sum(dim=-1)
+        if len(self._exige_grasp):
+            g = _grasp(env, grasp_palm, grasp_back)
+            m_g = onehot[:, self._exige_grasp].sum(dim=-1)
+            mascara = mascara * (1.0 - m_g + m_g * g)
+        return self._inner(env, **kw) * mascara
 
     def reset(self, env_ids=None):
         """Repassa o reset pro termo de dentro, se ele tiver estado.
@@ -151,6 +174,51 @@ def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
     return robot.data.root_link_pos_w + quat_apply(robot.data.root_link_quat_w, alvo_b)
 
 
+def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
+                  rest_z_attr: str, palm_sensors, back_sensors,
+                  upright_std: float = 0.1) -> torch.Tensor:
+    """Progresso de altura da caixa, do repouso ATÉ O PEITO. [B]
+
+    ⚠️ **Existe porque o `lift_reward` da Lift estava medindo nada aqui.** Ele lê a
+    altura-alvo de `command[:, 2]`, e no `pegar` o `alvo_pos` do comando É A PRÓPRIA
+    CAIXA (`commands.py`, `alvo = caixa` para PEGAR e REORIENTAR). Numerador e
+    denominador viravam o mesmo número:
+
+        progress = (box_z − rz) / (target_z − rz)      com target_z ≡ box_z
+
+    Medido em 06/08 movendo a caixa à mão: `progress = 1.0000` a +0.10 m, +0.30 m e
+    +0.60 m, e `nan` quando `box_z == rz` exatamente. Ou seja o termo de peso 2.0 — o
+    maior sinal de tarefa do `pegar` — era `2.0 × grasp × upright`: pagava por encostar
+    as palmas e manter a caixa nivelada, nunca por erguer.
+
+    ⚠️ E o NaN não era teórico. A S1 ligou `rest_z_attr="plr_rest_z"`, e o
+    `reset_scene_plr` grava ali a posição EXATA de repouso — então `box_z == rz` no
+    primeiro passo de todo episódio. `_grasp = 0` não protege: `0.0 * nan = nan` em
+    IEEE, e a terminação `nonfinite` checa o ESTADO, não a recompensa.
+
+    **A correção é separar alvo de NAVEGAÇÃO de alvo de TAREFA.** O comando continua
+    apontando para a caixa, porque é isso que o twist precisa para o robô se aproximar.
+    A altura-alvo do progresso passa a ser o peito, que é onde a caixa tem de chegar.
+
+    O denominador ganha um piso: erguer 1 mm não pode valer progresso 1.0.
+
+    O resto é idêntico ao `lift_reward` — preensão × orientação × progresso, com o
+    mesmo kernel suave de `upright` que fecha o hack de tombar."""
+    obj: Entity = env.scene[object_name]
+    box_z = obj.data.root_link_pos_w[:, 2]
+    rz = getattr(env, rest_z_attr)
+    alvo_z = alvo_peito_w(env, alvo_peito_b)[:, 2]
+    # piso no denominador: sem ele, uma caixa que nasce à altura do peito daria 0/0
+    span = (alvo_z - rz).clamp(min=0.05)
+    progress = torch.clamp((box_z - rz) / span, 0.0, 1.0)
+
+    world_up = torch.zeros(box_z.shape[0], 3, device=box_z.device)
+    world_up[:, 2] = 1.0
+    box_up = quat_apply(obj.data.root_link_quat_w, world_up)
+    upright = torch.exp(-(1.0 - box_up[:, 2]) / upright_std)
+    return _grasp(env, palm_sensors, back_sensors) * upright * progress
+
+
 def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,
                  alvo_peito_b, palm_sensors, back_sensors) -> torch.Tensor:
     """Preensão × gaussiana do erro caixa->alvo do peito (§6b, +1).
@@ -171,7 +239,8 @@ def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,
 # ---------------------------------------------------------- tarefa: botar (T8)
 def box_at_prateleira(env: "ManagerBasedRlEnv", std: float, object_name: str,
                       command_name: str, palm_sensors, back_sensors,
-                      fracao_solta: float = 0.0) -> torch.Tensor:
+                      fracao_solta: float = 0.0,
+                      std_grosso: float = 0.0) -> torch.Tensor:
     """Gaussiana do erro caixa->alvo, SEM fator de preensão (§4, §6b).
 
         (1 − f) × kernel  +  f × kernel × (1 − preensão)        f = fracao_solta
@@ -187,14 +256,34 @@ def box_at_prateleira(env: "ManagerBasedRlEnv", std: float, object_name: str,
     nascendo em cima da prateleira, o `botar` começaria perto do alvo e o termo não
     ensinaria nada.
 
-    `f > 0` existe como lever pra a Tarefa 12: o kernel puro deixa a política
-    INDIFERENTE entre segurar no alvo e soltar no alvo (as duas pontuam igual), e o
-    sucesso exige soltar. Indiferença não é incentivo contrário, mas se o robô ficar
-    segurando, `f` é o botão."""
+    `f > 0` existe como lever: o kernel puro deixa a política INDIFERENTE entre
+    segurar no alvo e soltar no alvo (as duas pontuam igual), e o sucesso exige soltar.
+
+    ⚠️ **A afirmação de que isso era só indiferença estava ERRADA, e foi corrigida em
+    06/08.** Ela foi escrita contando este termo sozinho. Com o `reaching` ligado no
+    `botar` — como estava até agora — soltar custava de 0.54 a 0.85 por passo, porque
+    as palmas se afastam da caixa. Contra um orçamento de 3.5, eram 15% a 24% cobrados
+    por OBEDECER ao critério de sucesso, que exige `~preensao`. O argmax da recompensa
+    era o estado que o critério reprova. O conserto foi tirar o `reaching` do gate do
+    `botar`, não mexer em `f`.
+
+    ⚠️ **DUAS ESCALAS desde 06/08, e sem elas a tarefa não tinha shaping.** Com o
+    `std` único de 0.05 — herdado da Lift, onde ele serve à PRECISÃO FINAL — o termo
+    valia `exp(−0.397²/0.05²) = 4e−28` no spawn do `botar`. A caixa nasce na mão a
+    ~0.40 m da prateleira, e o gradiente era indistinguível de zero em float32 nos
+    primeiros 33 cm dos 40. O `knobs.py` já previa este caso por escrito: "se algum
+    dia uma tarefa tiver que ATINGIR o alvo partindo de longe sem `lift`/`reaching`
+    ligados, este número volta pra mesa". O `botar` é essa tarefa.
+
+    A escala grossa mantém sinal de longe; a fina premia a colocação. Mesmo desenho
+    do `orienta_face` e do `reaching_reward`, pelo mesmo motivo.
+    """
     obj: Entity = env.scene[object_name]
     alvo = env.command_manager.get_term(command_name).command[:, ALVO]
     err_sq = torch.sum(torch.square(alvo - obj.data.root_link_pos_w), dim=-1)
     k = height_kernel(err_sq, std)
+    if std_grosso > 0.0:
+        k = 0.5 * height_kernel(err_sq, std_grosso) + 0.5 * k
     soltou = 1.0 - _grasp(env, palm_sensors, back_sensors)
     return (1.0 - fracao_solta) * k + fracao_solta * k * soltou
 

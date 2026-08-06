@@ -248,10 +248,38 @@ class Orquestrador:
             self.desde_evento[t] += float(m.sum())
             for eixo in T.AXES[t]:
                 cel = (t, eixo)
+                # ⚠️ **CONDICIONAMENTO (06/08). Sem ele o currículo trava para sempre.**
+                #
+                # Antes, o sucesso de cada episódio era creditado a TODAS as células da
+                # tarefa, e o `_amostrar` sorteia os eixos INDEPENDENTEMENTE. Então
+                # `perf[(PEGAR,'altura')][0]` era a taxa na altura 0.55 m
+                # MARGINALIZADA sobre a distribuição de peso — que dá ~30% de massa ao
+                # nível mais difícil por causa do piso `rho`.
+                #
+                # A aritmética que mata: com 0.95 a 1 kg e 0.30 a 5 kg, a célula de
+                # altura mede 0.7·0.95 + 0.3·0.30 = 0.755. O `_min_tarefa` fica abaixo
+                # de 0.90, o portão nunca abre, e como `FILHOS` encadeia
+                # `pegar -> parado c/ caixa -> andar c/ caixa -> botar`, a árvore
+                # inteira morre atrás de uma célula. Não há timeout nem recuo.
+                #
+                # A correção: cada eixo é medido com os OUTROS eixos no nível mais
+                # fácil. Aí `perf[(t,eixo)][k]` volta a significar "competência no
+                # nível k DESTE eixo", que é o que o portão supõe.
+                #
+                # Custo: menos amostras por atualização (só os envs que casam a
+                # condição). O `min_amostras_evento` regula isso, e o
+                # `amostras_no_evento` da S15 mede se ficou apertado demais.
+                cond = m.clone()
+                for outro in T.AXES[t]:
+                    if outro == eixo:
+                        continue
+                    cond &= env.nivel[outro][ids] == self._base(t, outro)
+                if not bool(cond.any()):
+                    continue
                 # `env.nivel` guarda índice ABSOLUTO em `T.LEVELS[eixo]`; a célula
                 # indexa a partir do início DELA. Ver `_base`.
-                lv = env.nivel[eixo][ids][m] - self._base(t, eixo)
-                s = sucesso[m]
+                lv = env.nivel[eixo][ids][cond] - self._base(t, eixo)
+                s = sucesso[cond]
                 for nivel in torch.unique(lv).tolist():
                     if nivel < 0 or nivel >= self.abertos[cel]:
                         continue

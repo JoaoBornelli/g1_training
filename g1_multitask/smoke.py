@@ -638,7 +638,11 @@ for tarefa in range(T.NUM_TASKS):
 print("\n-- T8: os 7 termos de tarefa, com os gates da §6b --")
 GATES_ESPERADOS = {
     "lift": (T.PEGAR,),
-    "reaching": (T.REORIENTAR, T.PEGAR, T.BOTAR),
+    # ⚠️ `BOTAR` saiu em 06/08. No `botar` a caixa nasce NA MÃO, exatamente nos alvos
+    # por-mão do `reaching` — o termo valia ~0.99 no spawn e cobrava de 0.54 a 0.85
+    # por passo de quem soltasse. O critério de sucesso exige `~preensao`, então o
+    # argmax da recompensa era o estado que o critério reprova.
+    "reaching": (T.REORIENTAR, T.PEGAR),
     "grasp": (T.PEGAR,),
     "box_at_peito": (T.PEGAR, T.PARADO_CAIXA, T.ANDAR_CAIXA),
     "box_at_prateleira": (T.BOTAR,),
@@ -755,23 +759,44 @@ for tarefa in (T.PARADO_CAIXA, T.ANDAR_CAIXA):
     v = t.func(env_a, **t.params).mean().item()
     check(f"{T.NAMES[tarefa]}: box_at_peito > 0 no spawn (há gradiente)",
           v > 0.1, f"deu {v:.3f}")
+# ⚠️ O `reaching` SAIU do gate do `botar` em 06/08. Ele valia ~0.99 no spawn (a caixa
+# nasce exatamente nos alvos por-mão) e cobrava de 0.54 a 0.85 por passo de quem
+# soltasse — contra um orçamento de 3.5, e o critério de sucesso EXIGE soltar. O
+# argmax da recompensa era o estado que o critério reprova.
 ativa_no_spawn(T.BOTAR)
 _t_reach = env_a.reward_manager.get_term_cfg("reaching")
-_v_reach = _t_reach.func(env_a, **_t_reach.params).mean().item()
-check("botar: `reaching` dá gradiente no spawn, no lugar do `box_at_peito`",
-      _v_reach > 0.0,
-      f"reaching={_v_reach:.3f} — o `box_at_peito` não gateia no `botar`, e sem o "
-      "pré-gatilho ele deixou de segurar o primeiro passo")
+check("botar: `reaching` NÃO pontua mais (ele pagava para não soltar)",
+      float(_t_reach.func(env_a, **_t_reach.params).abs().max()) == 0.0,
+      "com ele ligado, soltar custava 15-24% do orçamento da tarefa")
 
-# `botar`: a caixa nasce na MÃO, longe da prateleira -> termo baixo. É isso que
-# tira o vale sem precisar de fator de preensão (§4).
+# `botar`: o que importa NÃO é o valor absoluto no spawn — é a MONOTONICIDADE.
+#
+# ⚠️ O check antigo exigia `< 0.05` no spawn e passava com o termo valendo 4e-28, que
+# é zero em float32. Ele confirmava "termo baixo longe" sem nunca verificar que ele
+# SOBE ao aproximar — e o `botar` ficou sem shaping de transporte por causa disso: nos
+# primeiros 33 cm de um percurso de 40 o gradiente era indistinguível de zero.
+# Com as duas escalas (0.30 grossa + 0.05 fina) ele vale ~0.06 no spawn e cresce.
 env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
 env_t.task_dist[T.BOTAR] = 1.0
 env_t.reset(); env_t.step(acao_t)
 t = env_t.reward_manager.get_term_cfg("box_at_prateleira")
-v = t.func(env_t, **t.params).mean().item()
-check("botar: caixa longe da prateleira no spawn (sem vale)", v < 0.05,
-      f"box_at_prateleira={v:.4f} — sobe conforme aproxima e baixa")
+_alvo_b = env_t.command_manager.get_term("lift_target").command[:, 0:3]
+_caixa = env_t.scene["box"]
+_serie = []
+for _frac in (1.0, 0.6, 0.3, 0.05):        # fração do caminho que FALTA até o alvo
+    _pos = _alvo_b + (_caixa.data.root_link_pos_w - _alvo_b) * _frac
+    _est = torch.cat([_pos, _caixa.data.root_link_quat_w,
+                      torch.zeros(env_t.num_envs, 6, device=DEVICE)], dim=-1)
+    _caixa.write_root_state_to_sim(_est)
+    env_t.sim.forward()
+    _serie.append(float(t.func(env_t, **t.params).mean()))
+check("botar: `box_at_prateleira` cresce monotonicamente ao aproximar",
+      all(b > a for a, b in zip(_serie, _serie[1:])),
+      " -> ".join(f"{v:.4f}" for v in _serie))
+check("botar: há gradiente utilizável já no spawn",
+      _serie[0] > 1e-3,
+      f"{_serie[0]:.5f} — com o `std` único de 0.05 isto valia 4e-28, zero em float32")
+env_t.reset()
 
 print("\n-- S1: os eixos `altura` e `peso` chegam à cena e à física --")
 # Antes da S1, `env.nivel` tinha um leitor só (`commands.py`), então `altura` e `peso`

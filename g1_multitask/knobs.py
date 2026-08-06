@@ -360,6 +360,16 @@ class Reward:
     passo: 10 cm de deriva derrubam o termo a `exp(−0.10²/0.05²) = 0.018`, o que mata
     a pontuação sem castigar a manobra enquanto ela acontece."""
 
+    botar_std_grosso: float = 0.30
+    """S/C2 (06/08) — escala GROSSA do `box_at_prateleira`, em metros.
+
+    DERIVADA da razão que o repo já usa entre grosso e fino: o `orienta_face` usa
+    30°/5° e o `reaching` usa 1.0/0.25 — razão 6:1 e 4:1. Com o fino em
+    `sustain_std = 0.05`, a razão 6:1 dá 0.30.
+
+    Ela cobre a distância real de transporte: a caixa nasce na mão a ~0.40 m da
+    prateleira, e com o `std` único de 0.05 o termo valia 4e-28 ali — zero em float32.
+    Com 0.30 ele vale 0.17 no spawn e cresce monotonicamente."""
     botar_fracao_solta: float = 0.0
     """Quanto do termo do `botar` exige ter SOLTADO a caixa. **0.0 = kernel puro.**
 

@@ -256,10 +256,25 @@ def build_multitask_env(
     # fixo a política calibra num valor só, e papelão contra plástico quebra a preensão.
     # ⚠️ `dr.geom_friction`, a mesma primitiva do `foot_friction`. NUNCA `dr.body_mass`
     # nem `dr.body_com_offset` — os dois corrompem a heap (CUDA illegal access).
+    #
+    # ⚠️ **`priority` no pad, e o sorteio no PAD e não na caixa (06/08).** Sem isto a
+    # metade escorregadia da faixa não existia. Medido no modelo compilado: pad e caixa
+    # tinham `priority=0` e `friction=1.0` os dois. Com prioridades IGUAIS o MuJoCo usa
+    # o MÁXIMO elemento a elemento, então sortear a caixa em (0.8, 1.2) dava
+    # `max(1.0, mu)` — todo o intervalo abaixo de 1.0 colapsava em 1.0, e o lado que
+    # estressa o abraço sumia. A DR efetiva era (1.0, 1.2).
+    #
+    # `priority=1` no pad faz a prioridade MAIOR vencer inteira, portanto o valor
+    # sorteado é o efetivo. É o mesmo padrão do YAM, o robô de manipulação do
+    # fabricante (`yam_constants.py`: `priority=1` nas pontas de dedo, e a DR de
+    # atrito aplicada AO DEDO, não ao objeto).
+    _col = cfg.scene.entities["robot"].collisions[0]
+    _col.priority = {**(_col.priority or {}), r".*_palm_pad$": 1}
     if not play and knobs.dr.box_friction:
         cfg.events["box_friction"] = EventTermCfg(
             mode="startup", func=dr.geom_friction,
-            params={"asset_cfg": SceneEntityCfg("box", geom_names=(BOX_GEOM,)),
+            params={"asset_cfg": SceneEntityCfg(
+                        "robot", geom_names=(r".*_palm_pad$",)),
                     "operation": "abs",
                     "ranges": tuple(knobs.dr.box_friction_range)},
         )
@@ -332,12 +347,21 @@ def build_multitask_env(
     # ⚠️ Isto só é seguro depois da S11. Com o eixo de distância ainda no `pegar`,
     # estes dois seriam o ÚNICO termo a dirigir a aproximação da caixa — `lift` precisa
     # da caixa se mover, `grasp` precisa de contato, `box_at_peito` precisa de preensão.
+    #
+    # ⚠️ **`exige_grasp` nas duas tarefas com caixa (06/08).** Sem ele a S9 não
+    # terminava o serviço: em `parado c/ caixa` o alvo é a própria posição do robô,
+    # logo o twist é zero e os dois kernels valem 1.0 EXATO com o robô imóvel. São
+    # 4.0 de um teto de 7.0 — 79% do orçamento pago por ficar em pé. O hack medido:
+    # aninhar a caixa no vão dos antebraços contra o tronco e não fazer mais nada
+    # rende 5.5 de 7.0 com `_grasp = 0`, sem manipulação e sem risco.
     for nome in ("track_linear_velocity", "track_angular_velocity"):
         base = cfg.rewards[nome]
         cfg.rewards[nome] = RewardTermCfg(
             func=R.gated, weight=base.weight,
             params={"inner": base.func,
                     "tasks": (PARADO, ANDAR, ANDAR_CAIXA, PARADO_CAIXA),
+                    "exige_grasp": (PARADO_CAIXA, ANDAR_CAIXA),
+                    "grasp_palm": PALM_SENSORS, "grasp_back": BACK_SENSORS,
                     **base.params},
         )
 
@@ -482,19 +506,23 @@ def build_multitask_env(
     # fixa em 0.55 m o `rest_z` constante estava certo; com o eixo `altura` ativo ele
     # passaria a mentir em 6 dos 7 níveis. O `rest_z` fixo fica como fallback do
     # `lift_reward` para quando o atributo não existir.
+    # ⚠️ `R.lift_ao_peito`, e NÃO o `LR.lift_reward` da Lift. Aquele lê a altura-alvo
+    # de `command[:, 2]`, e aqui o `alvo_pos` do `pegar` É A PRÓPRIA CAIXA — numerador
+    # e denominador do progresso viravam o mesmo número. Medido em 06/08: `progress`
+    # ficava em 1.0000 a qualquer altura, e em `nan` quando a caixa estava no repouso.
+    # O termo de peso 2.0 pagava por encostar as palmas, nunca por erguer.
     cfg.rewards["lift"] = RewardTermCfg(
         func=R.gated, weight=r.lift,
-        params={"inner": LR.lift_reward, "tasks": (PEGAR,),
-                "object_name": "box", "command_name": "lift_target",
-                "rest_z": box_z, "upright_std": r.upright_std,
-                "rest_z_attr": "plr_rest_z", **pega},
+        params={"inner": R.lift_ao_peito, "tasks": (PEGAR,),
+                "object_name": "box", "alvo_peito_b": c.alvo_peito_b,
+                "rest_z_attr": "plr_rest_z", "upright_std": r.upright_std, **pega},
     )
     # `reaching` — shaping. ANELA com catraca (item 22): o currículo baixa este peso
     # conforme a competência sobe, e ele nunca volta a subir. Para em 0.01, não em 0,
     # porque `weight == 0.0` faz o RewardManager PULAR o termo e ele sai do log.
     cfg.rewards["reaching"] = RewardTermCfg(
         func=R.gated, weight=r.reaching,
-        params={"inner": LR.reaching_reward, "tasks": (REORIENTAR, PEGAR, BOTAR),
+        params={"inner": LR.reaching_reward, "tasks": (REORIENTAR, PEGAR),
                 "std_coarse": r.std_coarse, "std_fine": r.std_fine,
                 "object_name": "box", "asset_cfg": palmas,
                 "lateral_offset": s.box_half[1]},
@@ -515,7 +543,8 @@ def build_multitask_env(
         params={"inner": R.box_at_prateleira, "tasks": (BOTAR,),
                 "std": r.sustain_std, "object_name": "box",
                 "command_name": "lift_target",
-                "fracao_solta": r.botar_fracao_solta, **pega},
+                "fracao_solta": r.botar_fracao_solta,
+                "std_grosso": r.botar_std_grosso, **pega},
     )
     cfg.rewards["orienta_face"] = RewardTermCfg(
         func=R.gated, weight=r.kernel_angulo,
