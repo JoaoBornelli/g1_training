@@ -71,16 +71,25 @@ Todos os termos de tarefa dão 0.0 no reset, porque a caixa nasce na prateleira 
 `reaching`/`grasp`/`lift` são gateados só no `pegar`.
 
 ⚠️ Nascer segurando é nascer TOCANDO, com força normal zero. Segurar é o que a
-tarefa ensina — ver `pregrasp.py`. Consequência: para estes envs o comando
-pré-gatilho é `parado c/ caixa`, não `parado`, senão a caixa escorrega antes de a
-política receber objetivo."""
+tarefa ensina — ver `pregrasp.py`.
+
+⚠️ **A máquina de pré-gatilho SAIU na S8.** Antes, estes envs esperavam em
+`parado c/ caixa` por até 2 s antes de a tarefa real acender, justamente porque a
+caixa escorrega 22 cm em 0.5 s com ação nula e o episódio nasceria perdido. Agora a
+tarefa sorteada entra ativa no passo 0.
+
+O que muda em consequência, e fica registrado: o `botar` perdeu o gradiente inicial
+que o `box_at_peito` dava durante a espera — ele não gateia no `botar`. Sobram o
+`reaching` e o `box_at_prateleira`, que são contínuos. O desenho também fica sem
+treino de transiente de comando nesta rodada; o substituto é a troca de tarefa no
+meio do episódio, adiada de propósito."""
 
 # ------------------------------------------------------------- eixos e níveis
 LEVELS: dict[str, tuple[float, ...]] = {
     "altura": (0.55, 0.45, 0.35, 0.25, 0.15, 0.05, 0.00),
     "peso": (1.0, 2.0, 3.0, 4.0, 5.0),
-    "distancia": (0.0, 0.3, 0.8, 2.0),
-    "heading": (60.0, 120.0, 360.0),
+    "distancia_andar": (1.0, 1.5, 2.0),
+    "rumo": (60.0, 180.0, 360.0),
     "giro": (15.0, 45.0, 90.0, 180.0, 360.0),
     "push": (0.0, 0.35, 0.70, 1.00, 1.00),
 }
@@ -90,6 +99,13 @@ LEVELS: dict[str, tuple[float, ...]] = {
   caixa), não o quanto ela nasce torta. O último nível (360) é o salto
   qualitativo "a face alvo pode ser o topo ou o fundo" — exige erguer e rolar
   a caixa entre as palmas, e só ele precisa da mão.
+- `distancia_andar` (S11) substitui o eixo `distancia`, que servia a quem anda E a
+  quem manipula. ⚠️ O primeiro degrau antigo era 0.3 m, com `d_morto_andar` e
+  `andar_raio` em 0.25: o robô andava 5 cm e o nível media `parado` com sustentação.
+  Agora o eixo começa em 1.0 m e só quem ANDA o possui.
+- `rumo` (S11) era `heading`. ⚠️ O nome mudou porque o significado mudou: ele era
+  a orientação FINAL, e agora é a MARCAÇÃO do alvo sorteado. Nome errado é onde a
+  confusão volta. Os níveis são a abertura total, portanto ±30°, ±90° e ±180°.
 - `push` é o único eixo GLOBAL (vale pra todas as tarefas ao mesmo tempo), o
   único aninhado por construção (sem piso `ρ/L`) e o único com RECUO de nível.
   Os valores são o fator sobre os 6 componentes de perturbação; força fica em
@@ -98,20 +114,22 @@ LEVELS: dict[str, tuple[float, ...]] = {
 
 AXES: dict[int, dict[str, int]] = {
     PARADO: {},
-    ANDAR: {"distancia": 1, "heading": 0},
-    PEGAR: {"altura": 0, "peso": 0, "distancia": 0},
+    ANDAR: {"distancia_andar": 0, "rumo": 0},
+    PEGAR: {"altura": 0, "peso": 0},
     BOTAR: {"altura": 0, "peso": 0},
-    REORIENTAR: {"giro": 0, "altura": 0, "distancia": 0},
+    REORIENTAR: {"giro": 0, "altura": 0},
     PARADO_CAIXA: {"peso": 0},
-    ANDAR_CAIXA: {"peso": 0, "distancia": 1},
+    ANDAR_CAIXA: {"peso": 0, "distancia_andar": 0},
 }
 """Eixos de cada tarefa e o índice INICIAL de cada um.
 
-O índice inicial da distância vem da NATUREZA da tarefa (fechado 29/07): quem
-ANDA começa em 0.3, porque distância 0.0 não faz sentido pra uma tarefa de
-locomoção; quem MANIPULA começa em 0.0, porque a caixa ao alcance é o caso
-fácil. `parado`, `parado c/ caixa` e `botar` não têm o eixo — no `parado` o
-destino é a própria posição, e no `botar` o robô já está com a caixa na mão.
+⚠️ **O eixo de distância saiu do `pegar` e do `reorientar` (S11).** Ele fazia as duas
+tarefas de manipulação exigirem locomoção antes de encostar na caixa, e isso
+misturava duas competências numa medição só. Quem manipula agora nasce ao alcance.
+
+Todos os índices iniciais são 0 desde a S11: `distancia_andar` já começa em 1.0 m,
+então não há mais o caso "quem anda começa mais adiante no eixo" que o `_base` do
+orquestrador existia para tratar.
 
 O `parado` não tem eixo nenhum: a robustez dele vem do `push`, que é global.
 """
@@ -119,7 +137,7 @@ O `parado` não tem eixo nenhum: a robustez dele vem do `push`, que é global.
 # Ordem do desempate round-robin dentro de cada tarefa. Necessária porque, com um
 # nível por eixo, toda célula recebe fluxo de episódios IDÊNTICO -> EMAs idênticas
 # -> empate triplo por construção. A medição segue primária; isto só desempata.
-AXIS_ORDER = ("giro", "altura", "peso", "distancia", "heading")
+AXIS_ORDER = ("giro", "altura", "peso", "distancia_andar", "rumo")
 
 
 def exceto(*excluidas: int) -> tuple[int, ...]:

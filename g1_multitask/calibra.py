@@ -156,7 +156,6 @@ gastar bloco de GPU.
 cfg = load_env_cfg(g1_multitask.TASK_ID)
 cfg.events.pop("base_com", None)      # corrompe heap em CPU; ver knobs.DR.base_com
 cfg.scene.num_envs = 128
-cfg.commands["lift_target"].atraso_gatilho_s = (0.0, 0.0)
 env = ManagerBasedRlEnv(cfg=cfg, device=DEVICE)
 acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
 env.task_dist = torch.ones(T.NUM_TASKS, device=DEVICE)

@@ -163,7 +163,7 @@ def relatorio(alvo: pathlib.Path) -> None:
         if v and v > 0:
             nome = tag.replace("Curriculum/orquestrador/", "").replace("/congeladas", "")
             print(f"  🟡 CONGELADA: {nome} tem {v:.0f} nível(is) congelado(s) "
-                  f"(queda > 0.10 do pico)")
+                  f"(queda > 0.10 da média lenta)")
             achou = True
     platôs = [t for t in s if "/plato_n" in t and _ultimo(s, t)]
     if platôs:
@@ -308,7 +308,7 @@ def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Pa
             if not tag.endswith("/min"):
                 continue
             cel = tag.split("/")[-2]
-            for eixo in ("altura", "peso", "distancia", "heading", "giro", "push"):
+            for eixo in ("altura", "peso", "distancia_andar", "rumo", "giro", "push"):
                 if cel.endswith("_" + eixo) and cel[: -len(eixo) - 1] == t:
                     alvos.append(tag)
                     break
