@@ -561,9 +561,18 @@ def build_multitask_env(
                 "object_name": "box", "alvo_peito_b": c.alvo_peito_b,
                 "rest_z_attr": "plr_rest_z", "upright_std": r.upright_std, **pega},
     )
-    # `reaching` — shaping. ANELA com catraca (item 22): o currículo baixa este peso
-    # conforme a competência sobe, e ele nunca volta a subir. Para em 0.01, não em 0,
-    # porque `weight == 0.0` faz o RewardManager PULAR o termo e ele sai do log.
+    # `reaching` — aproximação das palmas à caixa. **PERMANENTE, não anela** (06/08).
+    #
+    # ⚠️ O item 22 do doc previa anelamento com catraca até 0.01, e três lugares do
+    # código descreviam isso como se estivesse ligado. **Nunca foi implementado** —
+    # nada em `curriculum.py` muta peso de reward — e a decisão de 06/08 é NÃO
+    # implementar: sem este termo o robô não tem sinal nenhum que diga "ponha as mãos
+    # na caixa", e ele é o pré-requisito físico do `pegar` e do `reorientar`.
+    #
+    # O `botar` saiu do gate no bloco 1 por motivo oposto e específico: lá a caixa
+    # nasce NA MÃO e o critério de sucesso exige soltar, então o termo cobrava por
+    # obedecer. Nas duas tarefas que restam a caixa começa LONGE, e aproximar é a
+    # tarefa. Ver `T.TERMOS_DE_TAREFA` para o efeito disso no orçamento.
     cfg.rewards["reaching"] = RewardTermCfg(
         func=R.gated, weight=r.reaching,
         params={"inner": LR.reaching_reward, "tasks": (REORIENTAR, PEGAR),

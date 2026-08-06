@@ -214,7 +214,16 @@ class Reward:
 
     # --- bloco 2: termos de tarefa, gateados pelo one-hot ---
     lift: float = 2.0                   # só no `pegar` — progresso de altura
-    reaching: float = 1.0               # shaping; ANELA com catraca
+    reaching: float = 1.0
+    """Aproximação das palmas à caixa, no `pegar` e no `reorientar`. **PERMANENTE.**
+
+    O item 22 do doc previa anelamento com catraca até 0.01. **Nunca foi implementado**
+    (nada em `curriculum.py` muta peso de reward) e a decisão de 06/08 é não
+    implementar: ele é o único termo que diz "ponha as mãos na caixa", e isso é
+    pré-requisito físico das duas tarefas, não muleta de início de treino.
+
+    Ele mantém 20% do orçamento no `pegar` e 50% no `reorientar` depois da
+    equalização — a escala é uniforme dentro da tarefa, então a fatia não mudou."""
     box_at_peito: float = 1.0           # grasp × kernel(caixa → peito)
     box_at_prateleira: float = 1.0      # kernel(caixa → prateleira), SEM grasp
     kernel_angulo: float = 1.0          # só no `reorientar`
@@ -407,19 +416,38 @@ class Reward:
     Ela cobre a distância real de transporte: a caixa nasce na mão a ~0.40 m da
     prateleira, e com o `std` único de 0.05 o termo valia 4e-28 ali — zero em float32.
     Com 0.30 ele vale 0.17 no spawn e cresce monotonicamente."""
-    botar_fracao_solta: float = 0.0
-    """Quanto do termo do `botar` exige ter SOLTADO a caixa. **0.0 = kernel puro.**
+    botar_fracao_solta: float = 0.5
+    """Quanto do termo do `botar` exige ter SOLTADO a caixa.
 
-    0.0 é o que a §4 do doc especifica, e o raciocínio dela fecha: "transportando, a
-    caixa está longe da prateleira → reward baixa; aproximando e baixando → sobe;
-    soltando → **continua alta**, porque não há fator de preensão". Não há vale
-    porque a caixa **começa na mão, longe do alvo** — a condição de spawn
-    "segurando" é que faz isso valer.
+        termo = (1 − f) × kernel  +  f × kernel × (1 − preensão)
 
-    Eu tinha posto 0.5 achando que o kernel puro criaria descasamento entre reward e
-    sucesso (segurar no alvo pontuaria igual a soltar). O descasamento existe, mas é
-    INDIFERENÇA, não incentivo contrário: segurar não paga mais que soltar. Deixo o
-    knob pra a Tarefa 12 medir se a indiferença basta; o default segue o doc."""
+    **0.5 desde 06/08.** A §4 do doc especifica 0.0 (kernel puro) e o raciocínio dela
+    fecha para o TRANSPORTE: longe → baixa, aproximando → sobe, soltando → continua
+    alta. O que ele não cobre é o fim da tarefa. Medido com f = 0.0:
+
+        estado                          kernel   termo (peso efetivo 4.0)
+        transportando (0.46 m, na mão)   0.046      0.184
+        chegando      (0.20 m, na mão)   0.321      1.282
+        NO DESTINO, ainda segurando      0.924      3.695
+        NO DESTINO, soltou               0.924      3.695   <- idêntico
+
+    O argmax é "segurar a caixa parada em cima da prateleira para sempre", e o
+    critério de sucesso exige `~preensao`. Recompensa máxima num estado que o critério
+    reprova — mesma classe de defeito que o C1 e o C2 do bloco 1. Eu tinha registrado
+    isto como "indiferença, não incentivo contrário", e a indiferença basta para o
+    argmax não ser o sucesso, que é o que importa.
+
+    **Por que 0.5 e não outro valor.** É o mesmo 50/50 que o repo já usa para combinar
+    duas parcelas que ambas têm de contar sem nenhuma dominar — `0.5 × grosso +
+    0.5 × fino` no `reaching_reward`, no `orienta_face` e neste próprio termo.
+
+    **Por que não 1.0**, que seria o incentivo mais forte: com f = 1 o termo é
+    `kernel × (1 − preensao)`, ou seja **zero durante todo o transporte**, porque o
+    robô está segurando. Some o gradiente que traz a caixa até a prateleira, que é a
+    metade da tarefa. f tem de ficar em (0, 1).
+
+    Com 0.5: transporte de 0.092 a 1.848 (20×) e soltar no destino dobra para 3.695.
+    O teto de 4.0 do orçamento passa a ser atingível SÓ com a caixa solta no alvo."""
 
     postura_std_parado: float = 0.05    # §6b — coluna `parado`
     postura_std_manipula: float = 0.5   # §6b — colunas `orientar`/`pegar`/`botar`

@@ -655,9 +655,29 @@ for nome, esperado in GATES_ESPERADOS.items():
     check(f"{nome}: gate = {[T.NAMES[x] for x in esperado]}",
           t is not None and set(t.params["tasks"]) == set(esperado),
           "AUSENTE" if t is None else str([T.NAMES[x] for x in t.params["tasks"]]))
-check("botar_fracao_solta = 0.0 (kernel puro, como a §4 especifica)",
-      ACTIVE.reward.botar_fracao_solta == 0.0,
-      f"deu {ACTIVE.reward.botar_fracao_solta}")
+# ⚠️ `botar_fracao_solta` em (0, 1), não nas pontas. Em 0.0 (a letra da §4) o termo é
+# indiferente entre segurar no destino e soltar no destino — medido: 3.695 nos dois —
+# e o critério de sucesso exige `~preensao`, então o argmax da recompensa é um estado
+# que o critério reprova. Em 1.0 o termo vale zero durante todo o transporte, porque
+# aí o robô está segurando, e some o gradiente que leva a caixa até a prateleira.
+_f = ACTIVE.reward.botar_fracao_solta
+check("botar_fracao_solta em (0,1): paga o transporte E exige soltar",
+      0.0 < _f < 1.0, f"deu {_f}")
+# As duas pontas. A da ESQUERDA é álgebra da própria fórmula e não depende do estado:
+# `(1−f)k + f·k·soltou` dá razão `1/(1−f)` entre soltar e segurar, seja qual for o k.
+check("no destino, soltar paga 2x segurar",
+      abs(1.0 / (1.0 - _f) - 2.0) < 1e-9,
+      f"razão soltar/segurar = {1.0 / (1.0 - _f):.3f}x")
+# A da DIREITA é medida no env, no termo de verdade, com o robô segurando a caixa a
+# ~0.46 m do destino — o spawn do `botar`. Se ela der zero, f matou o transporte.
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.BOTAR] = 1.0
+env_t.reset()
+env_t.step(acao_t)
+_termo_botar = env_t.reward_manager.get_term_cfg("box_at_prateleira")
+_transporte = _termo_botar.func(env_t, **_termo_botar.params).mean().item()
+check("transportando (segurando, longe) o termo NÃO é zero",
+      _transporte > 1e-3, f"termo no spawn = {_transporte:.4f}")
 
 # ---------------------------------------- 10b: orçamento igual nas 7 tarefas
 print("\n-- 10b: orçamento de tarefa igual nas 7 --")

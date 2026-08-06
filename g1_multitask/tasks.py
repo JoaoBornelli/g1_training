@@ -80,9 +80,10 @@ fabricante). Ficam de fora também todos os negativos: o objetivo é justamente
 igualar a razão entre sinal e penalidade, e para isso o denominador tem que ficar
 parado.
 
-⚠️ Se o anelamento com catraca do `reaching` for implementado, ele muda o orçamento
-do `pegar` e do `reorientar` em tempo de execução — quem mexer no peso tem que
-recalcular a escala junto, senão as duas tarefas afundam conforme a muleta sai."""
+⚠️ Todos os pesos aqui são CONSTANTES em tempo de execução, e o orçamento depende
+disso. O anelamento do `reaching` que o item 22 previa não existe em código e não vai
+existir (ver `knobs.Reward.reaching`). Quem for mutar peso de reward em runtime tem
+que recalcular a escala no mesmo passo, senão a tarefa afunda em silêncio."""
 
 SPAWN_SEGURANDO = (PARADO_CAIXA, ANDAR_CAIXA, BOTAR)
 """Tarefas que nascem com as PALMAS TOCANDO a caixa (§3, §4).
