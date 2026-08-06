@@ -554,6 +554,17 @@ check("os dois soft_landing usam sensores DIFERENTES",
       != cfg.rewards["soft_landing_table"].params["sensor_name"],
       f"{cfg.rewards['soft_landing_feet'].params['sensor_name']} vs "
       f"{cfg.rewards['soft_landing_table'].params['sensor_name']}")
+# ...e chaves de LOG diferentes. A função do fabricante escreve
+# `Metrics/landing_force_mean` com nome FIXO, e o RewardManager avalia na ordem de
+# inserção: o `soft_landing_table` rodava depois e sobrescrevia, então o número
+# publicado como força de pouso era sempre o do TRONCO. Lido do log DEPOIS de um step,
+# não do cfg — a renomeação acontece em runtime.
+env.step(acao)
+_log = env.extras["log"]
+_chaves = sorted(k for k in _log if "landing_force" in k)
+check("os dois soft_landing publicam chaves de log DIFERENTES",
+      set(_chaves) == {"Metrics/landing_force_pes", "Metrics/landing_force_mesa"},
+      str(_chaves))
 
 # Pesos da §14 nos herdados
 for nome, peso in (("upright", kr.upright), ("action_rate_l2", kr.action_rate_l2),

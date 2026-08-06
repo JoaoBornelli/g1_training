@@ -23,6 +23,7 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.utils.lab_api.math import quat_apply
 
 from g1_training.skills.lift.rewards import _grasp, height_kernel
@@ -127,6 +128,30 @@ class gated:
         interno = getattr(self._inner, "reset", None)
         if callable(interno):
             interno(env_ids=env_ids)
+
+
+def soft_landing_rotulado(env: "ManagerBasedRlEnv", rotulo: str, **kw
+                          ) -> torch.Tensor:
+    """`soft_landing` do fabricante com a chave de log ROTULADA (06/08).
+
+    ⚠️ O termo do fabricante escreve `env.extras["log"]["Metrics/landing_force_mean"]`
+    com o nome FIXO (`velocity/mdp/rewards.py:373`). Nós instalamos DOIS: um nos pés e
+    um no impacto do tronco contra a mesa. Os nomes dos TERMOS são distintos — o
+    comentário do `env.py` diz isso e está certo — mas a chave de LOG é a mesma nos
+    dois, e o `RewardManager` avalia na ordem de inserção. O `soft_landing_table` roda
+    depois, então o número publicado como "força de pouso" é sempre o do TRONCO.
+
+    Não muda recompensa nenhuma: os dois pesos são ~0 (−1e−5 e −1e−4). É observabilidade,
+    e é o que se lê entre blocos — uma métrica que mente sobre qual corpo bateu custa
+    mais que as quatro linhas daqui.
+
+    Renomeia DEPOIS da chamada em vez de reescrever a função: o cálculo é do fabricante
+    e não há motivo para copiá-lo por causa de uma string."""
+    custo = vel_mdp.soft_landing(env, **kw)
+    log = env.extras["log"]
+    if "Metrics/landing_force_mean" in log:
+        log[f"Metrics/landing_force_{rotulo}"] = log.pop("Metrics/landing_force_mean")
+    return custo
 
 
 def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29

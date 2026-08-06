@@ -447,13 +447,22 @@ def build_multitask_env(
         func=base_rewards.is_terminated, weight=r.terminacao, params={},
     )
 
-    # DOIS `soft_landing`, sensores diferentes, nomes distintos. A colisão de nome do
-    # item 13 não existe aqui porque este cfg nomeia os termos dele.
+    # DOIS `soft_landing`, sensores diferentes, nomes de TERMO distintos. A colisão de
+    # nome do item 13 não existe aqui porque este cfg nomeia os termos dele.
+    #
+    # ⚠️ Mas a chave de LOG colidia (06/08). A função do fabricante escreve
+    # `Metrics/landing_force_mean` com nome fixo, e o `RewardManager` avalia na ordem de
+    # inserção — o `soft_landing_table` roda depois e sobrescrevia, então o número
+    # publicado como "força de pouso" era sempre o do TRONCO contra a mesa. Os dois
+    # passam pelo `R.soft_landing_rotulado`, que renomeia a chave depois da chamada.
     cfg.rewards["soft_landing_feet"] = deepcopy(fab.rewards["soft_landing"])
     cfg.rewards["soft_landing_feet"].weight = r.soft_landing_feet
+    cfg.rewards["soft_landing_feet"].func = R.soft_landing_rotulado
+    cfg.rewards["soft_landing_feet"].params = {
+        **cfg.rewards["soft_landing_feet"].params, "rotulo": "pes"}
     cfg.rewards["soft_landing_table"] = RewardTermCfg(
-        func=vel_mdp.soft_landing, weight=r.soft_landing_table,
-        params={"sensor_name": BODY_IMPACT_SENSOR},
+        func=R.soft_landing_rotulado, weight=r.soft_landing_table,
+        params={"sensor_name": BODY_IMPACT_SENSOR, "rotulo": "mesa"},
     )
 
     # Anti-dinâmica que a §14 lista e o `base_env` não instala.
