@@ -371,6 +371,20 @@ check("feet_ground_contact casa qualquer contato",
 for nome in ("palm_L_box", "box_support", "body_table"):
     check(f"sensor {nome} preservado", nome in sensores)
 
+# A11: o `body_table` casa `.*_collision`, e 14 dos 31 geoms desse padrão são de PÉ.
+# Sem o exclude, pisar na prateleira paga −1.5 por passo — e o bloco de cima removeu o
+# `secondary` do `feet_ground_contact` justamente para que pisar nela conte como CHÃO.
+# Lido do sensor CONSTRUÍDO, não do cfg: o `exclude` só vira lista de nomes na compilação.
+from g1_training.base_env import BODY_TABLE_SENSOR  # noqa: E402
+
+_bt = env.scene.sensors[BODY_TABLE_SENSOR].primary_names
+_pes = [n for n in _bt if "foot" in n]
+check("table_contact não cobra o PÉ (A11)", not _pes,
+      f"{len(_bt)} geoms no sensor; de pé: {_pes if _pes else 'nenhum'}")
+check("o exclude não esvaziou o sensor: o TRONCO continua dentro",
+      any("torso" in n or "pelvis" in n or "waist" in n for n in _bt),
+      f"amostra={sorted(_bt)[:4]}")
+
 for nome, chave, faixa in (("foot_friction", "ranges", (0.3, 1.2)),
                            ("encoder_bias", "bias_range", (-0.015, 0.015))):
     ev = cfg.events.get(nome)

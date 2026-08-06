@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
+from dataclasses import replace
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -254,6 +255,29 @@ def build_multitask_env(
     for sensor in cfg.scene.sensors or ():
         if sensor.name == "feet_ground_contact":
             sensor.secondary = None
+
+    # --- 5b. o `table_contact` NÃO pode cobrar o PÉ (A11, 06/08) ---
+    # O `body_table` casa `.*_collision` no robô, e 14 dos 31 geoms desse padrão são de
+    # pé (`left_foot1_collision` … `right_foot7_collision`). O comentário dele no
+    # `base_env` diz "sem pads" — os pads de palma de fato escapam, os pés não.
+    #
+    # Isto CONTRADIZ o bloco logo acima. Lá o `feet_ground_contact` perdeu o
+    # `secondary` de propósito, para que pisar na prateleira conte como chão e o
+    # `feet_slip`/`feet_air_time` não fiquem cegos. Aqui o mesmo contato pagava −1.5 por
+    # passo, sem gate, nas 7 tarefas.
+    #
+    # E o dano cresce exatamente para onde o currículo vai: o eixo `altura` desce de
+    # 0.55 m a 0.00 m, e a prateleira ocupa x de 0.20 a 0.80. Num nível baixo ela é um
+    # degrau na frente dos pés, e alcançar a caixa exige chegar perto. O termo existe
+    # para punir ESCORAR O CORPO na mesa — é o que o docstring dele diz — e o pé não é
+    # escora.
+    #
+    # `exclude` é API do `ContactMatch` (`contact_sensor.py:79`), com `re.search` por
+    # entrada que tenha metacaractere. Não mexe em `g1_training/`, que a Lift partilha.
+    for sensor in cfg.scene.sensors or ():
+        if sensor.name == BODY_TABLE_SENSOR:
+            sensor.primary = replace(
+                sensor.primary, exclude=(r"_foot\d+_collision",))
 
     # --- 5c. OS EIXOS `altura` E `peso` CHEGAM À CENA E À FÍSICA (S1) ---
     # Antes disto, `env.nivel` tinha UM leitor (`commands.py`), então só os eixos que
