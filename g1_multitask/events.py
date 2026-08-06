@@ -1,14 +1,18 @@
 """Eventos de reset próprios do multi-tarefa.
 
-Dois: a condição de spawn "segurando" das 3 tarefas que começam com a caixa nas mãos
-(`parado c/ caixa`, `andar c/ caixa`, `botar`), e afastar a prateleira das tarefas que
-não a usam — ela fica NO CAMINHO de quem anda.
+Quatro:
 
-Por que ela existe: medido em 30/07, sem ela essas 3 tarefas não têm caminho de
-aquisição nenhum. Todos os termos de tarefa dão exatamente 0.0 no reset — a caixa
-nasce em cima da prateleira, e `reaching`/`grasp`/`lift` são gateados só no `pegar`
-pela §6b. O robô não tem gradiente pra pegar a caixa, e o único termo que pontuaria
-exige uma preensão que ele nunca vai estabelecer. O doc pede a condição na §3
+  - `reset_segurando` — a condição de spawn "segurando" das 3 tarefas que começam com
+    a caixa nas mãos (`parado c/ caixa`, `andar c/ caixa`, `botar`);
+  - `afasta_cena` — tira a prateleira do caminho de quem anda;
+  - `payload_por_nivel` — o eixo `peso` do currículo virando força na caixa (S1);
+  - `jitter_yaw_caixa` — devolve o jitter de yaw que o `reset_box` fazia (S1).
+
+Por que o `reset_segurando` existe: medido em 30/07, sem ele essas 3 tarefas não têm
+caminho de aquisição nenhum. Todos os termos de tarefa dão exatamente 0.0 no reset — a
+caixa nasce em cima da prateleira, e `reaching`/`grasp`/`lift` são gateados só no
+`pegar` pela §6b. O robô não tem gradiente pra pegar a caixa, e o único termo que
+pontuaria exige uma preensão que ele nunca vai estabelecer. O doc pede a condição na §3
 ("'andar com caixa' não é tarefa nova; é a tarefa 'andar' com condição de spawn
 'segurando'") e na §4 (linha do gatilho), mas ela não existia no código.
 """
@@ -23,10 +27,13 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g1_training.common.robot import PALM_SITES
 
+from . import tasks as T
+
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
 
 _PALMAS = SceneEntityCfg("robot", site_names=list(PALM_SITES))
+_GRAVIDADE = 9.81
 
 
 def reset_segurando(
@@ -87,6 +94,146 @@ def reset_segurando(
         dim=-1,
     )
     caixa.write_root_state_to_sim(estado, env_ids=ids)
+
+
+def payload_por_nivel(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    box_mass: float,
+    box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
+) -> None:
+    """O eixo `peso` do currículo virando força na caixa, POR ENV (S1).
+
+    É o `apply_box_payload` da Lift (`g1_training/common/events.py:190`) com uma
+    diferença só: lá a massa efetiva sai de um `weight_range` GLOBAL; aqui ela sai do
+    nível que o currículo sorteou para cada env. A física é a mesma —
+    `write_external_wrench_to_sim` com força dirigida em −z no COM da caixa.
+
+    ⚠️ **Massa sorteada em `U(peso_min, peso(nivel))`, não fixada em `peso(nivel)`.**
+    Com valor fixo por nível, o nível 4 não CONTÉM o nível 0: a carga leve desaparece
+    do treino assim que o eixo sobe. O `knobs.py` justifica a ausência do piso `ρ/L`
+    neste eixo dizendo que ele é "aninhado por construção" — o sorteio é o que torna
+    essa afirmação verdadeira. Sem ele, a afirmação é falsa e o eixo esquece.
+
+    ⚠️ **É PESO, e não INÉRCIA.** `dr.body_mass` corrompe a heap (CUDA illegal
+    access), portanto a força externa é a única saída correta. A consequência fica
+    registrada: a caixa de 5 kg tem inércia de 1 kg, e o `andar c/ caixa` treina
+    contra uma carga sem momento. A competência do eixo `peso` mede capacidade de
+    carga **estática**; ela NÃO é evidência de robustez a payload em movimento.
+
+    Grava `env.peso_amostrado` — a S14 liga o `v_max` à massa SORTEADA, e não ao
+    nível, senão um env que tirou 1.2 kg andaria à velocidade de 5 kg."""
+    if env_ids is None or len(env_ids) == 0:
+        return
+    n = len(env_ids)
+    dev = env.device
+    box: Entity = env.scene[box_cfg.name]
+
+    pesos = torch.tensor(T.LEVELS["peso"], device=dev)
+    teto = pesos[env.nivel["peso"][env_ids]]                    # [n] peso do nível
+    piso = pesos[0]                                             # nível 0 do eixo
+    m = piso + torch.rand(n, device=dev) * (teto - piso)
+    env.peso_amostrado[env_ids] = m
+
+    num_bodies = (len(box_cfg.body_ids) if isinstance(box_cfg.body_ids, list)
+                  else box.num_bodies)
+    fz = -(m - box_mass) * _GRAVIDADE       # extra pra baixo; m < box_mass => pra cima
+    forces = torch.zeros(n, num_bodies, 3, device=dev)
+    forces[:, :, 2] = fz.unsqueeze(-1)
+    box.write_external_wrench_to_sim(
+        forces, torch.zeros_like(forces), env_ids=env_ids, body_ids=box_cfg.body_ids)
+
+
+def jitter_cena(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    yaw_max_rad: float,
+    mesa_xy_max: float = 0.0,
+    mesa_yaw_max_rad: float = 0.0,
+    box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> None:
+    """Jitter de spawn da caixa e da prateleira, num evento só (S1 + S12).
+
+    Faz três coisas, e elas partilham o mesmo `forward()`:
+
+      1. **yaw da caixa** (S1) — devolve o ±15° que o `reset_box` fazia;
+      2. **xy da prateleira E da caixa** (S12) — o MESMO delta nas duas;
+      3. **yaw da prateleira** (S12).
+
+    ⚠️ **O delta xy é compartilhado, e isso não é detalhe.** O `reset_scene_plr`
+    posiciona a caixa relativa ao xy NOMINAL, não ao da mesa. Deslocar só a mesa
+    deixaria a caixa pendurada no ar fora dela, e o `box_shake` puniria a queda.
+
+    ⚠️ O yaw da mesa NÃO entra no delta compartilhado: girar em torno do centro dela
+    não move a caixa, que repousa no centro.
+
+    ⚠️ A prateleira é MOCAP (`get_shelf_spec` -> `auto_wrap_fixed_base_mocap`),
+    portanto `write_mocap_pose_to_sim`, nunca `write_root_state_to_sim`.
+
+    --- o que a parte de yaw da caixa resolve (S1) ---
+
+    ⚠️ **Existe por causa de uma perda silenciosa.** A S1 troca o `reset_box` pelo
+    `reset_scene_plr`, e os dois não são equivalentes na ORIENTAÇÃO: o
+    `reset_scene_plr` escreve o quaternion de `default_root_state`
+    (`common/events.py:170`), ou seja identidade. Sem este evento, a caixa passaria a
+    nascer sempre alinhada, e o jitter de ±15° sumiria sem erro e sem log.
+
+    Duas coisas dependem dele, e as duas estão documentadas no código:
+      - o `reset_segurando` diz que a orientação "vem do que o `reset_box` já sorteou
+        (jitter de yaw de ±15°), então o `reorientar` e o `pegar` continuam vendo a
+        mesma distribuição de spawn";
+      - o `env.py` chama o jitter de yaw de GERAL, e não de filtro de tarefa.
+
+    O ângulo não é número novo: sai de `knobs.Scene.box_jitter_yaw_deg`, o mesmo que o
+    `build_base_env` já recebia.
+
+    ⚠️ **Roda DEPOIS do `reset_cena`**, senão o `reset_scene_plr` apaga o quaternion.
+
+    ⚠️ **E precisa de `forward()` antes de ler.** A API só escreve o estado inteiro
+    (13 números), então pra trocar o quaternion é preciso reler a posição — e logo
+    depois do `reset_scene_plr` ela está STALE. Medido em 05/08 com o evento sem o
+    forward: a caixa do `pegar` ia parar em `z = 0.035` com `desvio_xy = 1.50`, ou
+    seja o evento reescrevia a pose do episódio ANTERIOR e o `reset_cena` era
+    desfeito em silêncio. Com o forward, `folga = 0.0004 m`.
+
+    É o mesmo gotcha, e a mesma solução, do `reset_segurando` logo acima. O custo é um
+    `forward()` a mais por reset; o `reset_segurando` já paga um."""
+    if env_ids is None or len(env_ids) == 0:
+        return
+    n = len(env_ids)
+    dev = env.device
+    box: Entity = env.scene[box_cfg.name]
+    mesa: Entity = env.scene[table_cfg.name]
+
+    env.sim.forward()       # sem isto, `root_link_pos_w` é a pose do episódio anterior
+
+    def _quat_yaw(ang: torch.Tensor) -> torch.Tensor:
+        q = torch.zeros(len(ang), 4, device=dev)        # mjlab usa wxyz
+        q[:, 0] = torch.cos(0.5 * ang)
+        q[:, 3] = torch.sin(0.5 * ang)
+        return q
+
+    # delta xy COMPARTILHADO: a caixa acompanha a prateleira, senão ela fica no ar
+    delta = torch.zeros(n, 3, device=dev)
+    if mesa_xy_max > 0.0:
+        delta[:, :2] = (torch.rand(n, 2, device=dev) * 2.0 - 1.0) * mesa_xy_max
+
+    # --- caixa: pose + delta, orientação nova ---
+    yaw_box = (torch.rand(n, device=dev) * 2.0 - 1.0) * yaw_max_rad
+    estado = torch.cat(
+        [box.data.root_link_pos_w[env_ids] + delta, _quat_yaw(yaw_box),
+         torch.zeros(n, 6, device=dev)],
+        dim=-1,
+    )
+    box.write_root_state_to_sim(estado, env_ids=env_ids)
+
+    # --- prateleira (mocap): mesmo delta xy, yaw próprio ---
+    yaw_mesa = (torch.rand(n, device=dev) * 2.0 - 1.0) * mesa_yaw_max_rad
+    mesa.write_mocap_pose_to_sim(
+        torch.cat([mesa.data.root_link_pos_w[env_ids] + delta, _quat_yaw(yaw_mesa)],
+                  dim=-1),
+        env_ids=env_ids)
 
 
 def afasta_cena(

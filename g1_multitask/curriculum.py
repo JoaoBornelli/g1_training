@@ -74,6 +74,7 @@ class Orquestrador:
         self.rho = float(k.rho)
         self.beta = float(k.focus_beta)
         self.alpha = float(k.ema_alpha)
+        self.alpha_lenta = float(k.ema_alpha_lenta)
         self.limiar = float(k.limiar_competencia)
         self.congela_queda = float(k.congela_queda)
         self.descongela = float(k.descongela_dist_pico)
@@ -92,22 +93,29 @@ class Orquestrador:
             (t, eixo) for t, eixos in T.AXES.items() for eixo in eixos
         ] + [(T.PARADO, PUSH)]
         self.perf: dict[tuple[int, str], torch.Tensor] = {}
-        self.pico: dict[tuple[int, str], torch.Tensor] = {}
+        self.ref: dict[tuple[int, str], torch.Tensor] = {}
+        """Referência contra a qual a queda é medida. Era `pico`, o máximo corrido;
+        virou uma EMA de `alpha_lenta` na S3. O nome mudou junto porque `pico` deixou
+        de descrever o conteúdo."""
         self.amostras: dict[tuple[int, str], torch.Tensor] = {}
         self.congelado: dict[tuple[int, str], torch.Tensor] = {}
         self.abertos: dict[tuple[int, str], int] = {}
         for cel in self.celulas:
             n = len(self._niveis(cel))
             # EMA começa em 0.0, não em 0.5. O 0.5 era um prior otimista e ele
-            # ARMAVA O CONGELAMENTO SOZINHO: o `_congelamento` põe o pico em
-            # max(pico, perf), então o 0.5 inicial virava pico; a medição real
+            # ARMAVA O CONGELAMENTO SOZINHO: o `_congelamento` punha a referência em
+            # max(ref, perf), então o 0.5 inicial virava referência; a medição real
             # levava a EMA a ~0 (o robô cai); a queda de 0.5 passava do limiar de
             # 0.10 e a célula congelava por volta da 8ª atualização. Medido na
             # sessão de 30/07: `parado_push/congeladas = 1.0` na iteração 29, sem
             # nenhuma regressão real. Zero é honesto — célula não medida vale
             # "sem competência", não "meia competência".
+            #
+            # Zero continua honesto com a referência nova: uma EMA lenta partindo de
+            # zero só sobe, então `queda = ref − perf` nasce negativa e nenhuma
+            # célula pode congelar antes de a referência subir de verdade.
             self.perf[cel] = torch.zeros(n, device=dev)
-            self.pico[cel] = torch.zeros(n, device=dev)
+            self.ref[cel] = torch.zeros(n, device=dev)
             self.amostras[cel] = torch.zeros(n, device=dev)
             self.congelado[cel] = torch.zeros(n, dtype=torch.bool, device=dev)
             self.abertos[cel] = 1
@@ -116,11 +124,42 @@ class Orquestrador:
         self.desde_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
         self.eventos = 0
         self.transicoes_sem_evento = 0.0
+        # --- S15: diagnóstico. Nenhuma destas séries muda o treino. ---
+        self.iteracoes_desde_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
+        self.amostras_no_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
+        self.chamadas_congelado: dict[tuple, float] = {}
+        self._passo_ultimo_evento: dict[int, int] = {t: 0 for t in T.AXES}
+        self._passos_por_iter = float(
+            int(getattr(env, "num_envs", 1)) * 24)
+        """Passos de ambiente por iteração de PPO. `num_steps_per_env = 24` é o valor
+        do `rl_cfg`; multiplicado pelos envs dá o incremento de `common_step_counter`
+        por iteração. Serve só para converter a série de diagnóstico de passos para
+        iterações, que é a unidade em que o orçamento de 30 000 é escrito."""
 
         # ---------------- estado POR-ENV (descartável, não vai no checkpoint) -----
         env.tarefa_sorteada = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
         env.nivel = {eixo: torch.zeros(env.num_envs, dtype=torch.long, device=dev)
                      for eixo in T.LEVELS}
+        # Os três buffers que ligam o currículo à CENA e à FÍSICA (S1). Ficam aqui,
+        # junto de `env.nivel`, porque são a mesma classe de estado: por-env,
+        # re-derivados a cada reset, e portanto FORA do `state_dict`.
+        #
+        #   plr_shelf_top   escrito por `_amostrar`, lido por `reset_scene_plr`
+        #   plr_rest_z      escrito por `reset_scene_plr`, lido pelo `lift_reward`
+        #   peso_amostrado  escrito por `payload_por_nivel`, lido pela S14 (v_max)
+        #
+        # `peso_amostrado` nasce em 1.0 e não em 0.0: é uma MASSA, e massa zero não é
+        # um estado válido pra quem lê. 1.0 é o nível 0 do eixo de peso.
+        env.plr_shelf_top = torch.zeros(env.num_envs, device=dev)
+        env.plr_rest_z = torch.zeros(env.num_envs, device=dev)
+        env.peso_amostrado = torch.ones(env.num_envs, device=dev)
+        self._alturas = torch.tensor(T.LEVELS["altura"], device=dev)
+        # Os dois do eixo `push` (S2). Mesma classe: por-env, re-derivados no reset,
+        # fora do `state_dict`. O NÍVEL de push é global (`self.push_nivel`);
+        # `push_nivel_t` é a cópia por env que os eventos leem sem precisar do
+        # objeto do currículo.
+        env.push_fator = torch.zeros(env.num_envs, device=dev)
+        env.push_nivel_t = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
         self._visitou = torch.zeros(env.num_envs, dtype=torch.bool, device=dev)
         # Marca do `common_step_counter` na última medição, pra contar transição por
         # DIFERENÇA. Fica FORA do checkpoint de propósito: o contador do env zera em
@@ -222,14 +261,34 @@ class Orquestrador:
                     self.amostras[cel][nivel] += float((lv == nivel).sum())
                     self._congelamento(cel, nivel)
 
-        # push: competência do NÍVEL ATUAL, medida sobre TODAS as tarefas juntas
+        # push: competência do NÍVEL ATUAL, medida só nos envs da tarefa `parado`.
+        #
+        # ⚠️ Era `sucesso.mean()` sobre TODAS as tarefas. Medido em 05/08 no harness
+        # ruidoso: abrir o `andar` derrubava esta perf de 0.900 para 0.696, queda de
+        # 0.206. A queda é REAL, e não desvio do máximo — a S3 não a conserta. Mas ela
+        # não mede regressão de robustez a push: ela mede a COMPOSIÇÃO da população,
+        # porque a tarefa nova é mais difícil que a antiga.
+        #
+        # Consequência de manter a média global: `perf[push]` é comparada com um
+        # limiar ABSOLUTO de 0.90 no `_destravar_push` e no `_push_competente`, e com
+        # população mista esse 0.90 é inatingível por construção.
+        #
+        # Restringir ao `parado` deixa a população estável, e aí a queda volta a
+        # significar regressão. Na Fase 0 o resultado é IDÊNTICO ao de antes, porque só
+        # o `parado` está aberto — o gate da Fase 0 não muda.
+        #
+        # A célula continua sendo `(PARADO, PUSH)`, e o `parado` é justamente a tarefa
+        # cujo critério de sucesso é sobreviver: é o que o push testa.
         cel = (T.PARADO, PUSH)
-        media = float(sucesso.mean())
-        p = self.perf[cel]
-        p[self.push_nivel] = ((1.0 - self.alpha) * p[self.push_nivel]
-                              + self.alpha * media)
-        self.amostras[cel][self.push_nivel] += float(len(ids))
-        self._congelamento(cel, self.push_nivel)
+        so_parado = tarefa == T.PARADO
+        n_parado = int(so_parado.sum())
+        if n_parado > 0:
+            media = float(sucesso[so_parado].mean())
+            p = self.perf[cel]
+            p[self.push_nivel] = ((1.0 - self.alpha) * p[self.push_nivel]
+                                  + self.alpha * media)
+            self.amostras[cel][self.push_nivel] += float(n_parado)
+            self._congelamento(cel, self.push_nivel)
         # Transições EXATAS desde a medição anterior, pelo contador do próprio env.
         # A versão de antes fazia `len(ids) * max_episode_length` e contava cada env
         # que terminou como um episódio COMPLETO de 1000 passos. Com episódio real de
@@ -243,14 +302,28 @@ class Orquestrador:
         self._visitou[env_ids] = True
 
     def _congelamento(self, cel, nivel: int) -> None:
-        """Queda > 0.10 do pico congela; volta a < 0.05 do pico descongela (§14).
+        """Queda > `congela_queda` contra a MÉDIA LENTA congela a célula (S3).
+
+        A referência é uma EMA de `alpha_lenta`, e não o máximo corrido. O máximo tem
+        desvio de +2.5σ a +3σ; com σ de 0.037 a 0.062 esse desvio SOZINHO passa do
+        limiar de 0.10, e a célula congelava sem regressão nenhuma.
+
+        Com referência sem desvio, o 0.10 volta a significar 3σ em p = 0.90. Em
+        p = 0.50 ele vale 1.6σ, e ali ainda há falso positivo em ~5% das medições.
+        Aceito: o congelamento não re-trava nível, e solta a < 0.05.
+
+        Não usar mediana em janela: ela exige buffer circular por nível, aumenta o
+        `state_dict`, e não melhora o resultado.
 
         Congelar NÃO re-trava o nível (Decisão 2): ele continua no sorteio, e ainda
         recebe massa extra, porque é ele que está travando o `min` da tarefa. O que a
         marca faz é aparecer no log e bloquear novo destravamento até recuperar."""
         p = float(self.perf[cel][nivel])
-        self.pico[cel][nivel] = max(float(self.pico[cel][nivel]), p)
-        queda = float(self.pico[cel][nivel]) - p
+        r = float(self.ref[cel][nivel])
+        a = self.alpha_lenta
+        r = (1.0 - a) * r + a * p
+        self.ref[cel][nivel] = r
+        queda = r - p
         if queda > self.congela_queda:
             self.congelado[cel][nivel] = True
         elif queda < self.descongela:
@@ -315,6 +388,20 @@ class Orquestrador:
             if eixo == PUSH:
                 continue
             alvo = env.nivel[eixo]
+            # O eixo que a tarefa sorteada NÃO possui recebe o nível MAIS FÁCIL
+            # (índice absoluto 0 — `T.LEVELS` é ordenado do fácil pro difícil).
+            #
+            # ⚠️ Sem esta linha o env mantinha o valor do episódio ANTERIOR dele, e
+            # isso era leitura obsoleta. Enquanto só o termo de comando lia `env.nivel`
+            # o estrago era limitado; desde que `plr_shelf_top` passou a sair daqui
+            # (S1), o lixo decidiria a POSIÇÃO DA PRATELEIRA em `parado`, `andar`,
+            # `parado c/ caixa` e `andar c/ caixa` — que não têm o eixo `altura`.
+            #
+            # ⚠️ Nível mais fácil, e NÃO o corrente. O corrente daria ao `andar c/
+            # caixa` giros de ±180° que o currículo dele nunca mediu, e portanto
+            # nunca controlou. Com o nível 0 a cena fica sempre bem definida e
+            # nenhuma tarefa fica mais difícil do que a lista de eixos dela declara.
+            alvo[env_ids] = 0
             for t in torch.unique(tarefa).tolist():
                 if eixo not in T.AXES[t]:
                     continue
@@ -325,6 +412,20 @@ class Orquestrador:
                 # converte pra ABSOLUTO antes de escrever: é assim que o termo de
                 # comando lê. Ver `_base`.
                 alvo[env_ids[m]] = sorteado + self._base(t, eixo)
+
+        # A altura do nível vira POSIÇÃO DA PRATELEIRA. O `reset_scene_plr` lê este
+        # buffer no evento de reset, que roda 6 linhas depois do currículo
+        # (`manager_based_rl_env.py:554` contra `:560`) — sem off-by-one.
+        env.plr_shelf_top[env_ids] = self._alturas[env.nivel["altura"][env_ids]]
+
+        # O eixo `push` vira PERTURBAÇÃO (S2). O fator é sorteado em `U(0, teto)` e não
+        # fixado no teto, pela mesma razão do peso: com valor fixo o nível 4 não contém
+        # o nível 0, e o push fraco desaparece do treino assim que o eixo sobe. É o
+        # sorteio que torna verdadeira a afirmação do `knobs.py` de que este eixo é
+        # "aninhado por construção" — ele é o único sem piso `ρ/L` justamente por isso.
+        teto = float(T.LEVELS[PUSH][self.push_nivel])
+        env.push_fator[env_ids] = torch.rand(len(env_ids), device=self.dev) * teto
+        env.push_nivel_t[env_ids] = self.push_nivel
 
     # -------------------------------------------------------------------- termo
     def __call__(self, env, env_ids, **_):
@@ -356,13 +457,29 @@ class Orquestrador:
             r = self._destravar(t)
             if r:
                 rotulos.append(r)
+                # S15 — as duas séries que a rodada precisa medir, registradas NO
+                # momento do destravamento (depois elas já mudaram).
+                #
+                # `iteracoes_desde_evento` é o número mais valioso da rodada: sem ele,
+                # "54 destravamentos em 30 000 iterações" é aposta, não plano.
+                #
+                # `amostras_no_evento` responde se o portão `min` decidiu por
+                # COMPETÊNCIA ou por SORTE — com amostra pequena, a EMA que cruzou
+                # 0.90 pode ser ruído.
+                passo = int(env.common_step_counter)
+                self.iteracoes_desde_evento[t] = (
+                    (passo - self._passo_ultimo_evento[t]) / self._passos_por_iter)
+                self._passo_ultimo_evento[t] = passo
+                self.amostras_no_evento[t] = min(
+                    (float(self.amostras[(t, e)][: self.abertos[(t, e)]].min())
+                     for e in T.AXES[t]), default=float("nan"))
                 self.desde_evento[t] = 0.0
 
         if rotulos:
             self.eventos += len(rotulos)
             self.transicoes_sem_evento = 0.0
             if self.verboso:
-                print(f"[CURRICULO] evento {self.eventos}/60: "
+                print(f"[CURRICULO] evento {self.eventos}/{T.total_unlocks()}: "
                       f"{', '.join(rotulos)}")
 
         self._amostrar(env, env_ids)
@@ -375,9 +492,22 @@ class Orquestrador:
             "tarefas_abertas": torch.tensor(float(len(self.abertas)), device=d),
             "push_nivel": torch.tensor(float(self.push_nivel), device=d),
         }
+        # --- S15: diagnóstico por tarefa. Só log; não muda nada no treino. ---
+        for t in T.AXES:
+            nome = T.NAMES[t]
+            out[f"diag/{nome}/iteracoes_desde_evento"] = torch.tensor(
+                float(self.iteracoes_desde_evento[t]), device=d)
+            out[f"diag/{nome}/amostras_no_evento"] = torch.tensor(
+                float(self.amostras_no_evento[t]), device=d)
         for cel in self.celulas:
             t, eixo = cel
             base = f"{T.NAMES[t]}_{eixo}"
+            # duração acumulada do congelamento, em chamadas de reset (S15)
+            n_cong = int(self.congelado[cel][: self.abertos[cel]].sum())
+            if n_cong:
+                self.chamadas_congelado[cel] = self.chamadas_congelado.get(cel, 0.0) + 1
+            out[f"diag/congelado_chamadas/{base}"] = torch.tensor(
+                float(self.chamadas_congelado.get(cel, 0.0)), device=d)
             out[f"{base}/abertos"] = torch.tensor(float(self.abertos[cel]), device=d)
             out[f"{base}/min"] = self.perf[cel][: self.abertos[cel]].min()
             out[f"{base}/congeladas"] = self.congelado[cel].float().sum()
@@ -404,7 +534,7 @@ class Orquestrador:
         chave = lambda cel: f"{cel[0]}|{cel[1]}"      # noqa: E731
         return {
             "perf": {chave(c): self.perf[c].cpu() for c in self.celulas},
-            "pico": {chave(c): self.pico[c].cpu() for c in self.celulas},
+            "ref": {chave(c): self.ref[c].cpu() for c in self.celulas},
             "amostras": {chave(c): self.amostras[c].cpu() for c in self.celulas},
             "congelado": {chave(c): self.congelado[c].cpu() for c in self.celulas},
             "abertos": {chave(c): self.abertos[c] for c in self.celulas},
@@ -420,7 +550,11 @@ class Orquestrador:
         chave = lambda cel: f"{cel[0]}|{cel[1]}"      # noqa: E731
         for c in self.celulas:
             k = chave(c)
-            for nome, destino in (("perf", self.perf), ("pico", self.pico),
+            # ⚠️ Checkpoint anterior à S3 tem a chave `"pico"`, não `"ref"`. Ele carrega
+            # sem erro e a referência começa em zero. Zero na referência significa
+            # "sem regressão possível", o que é seguro: a EMA lenta só sobe a partir
+            # dali. Não há código de migração de propósito.
+            for nome, destino in (("perf", self.perf), ("ref", self.ref),
                                   ("amostras", self.amostras),
                                   ("congelado", self.congelado)):
                 if k in estado.get(nome, {}):
@@ -436,7 +570,7 @@ class Orquestrador:
         self.eventos = int(estado.get("eventos", self.eventos))
         self.transicoes_sem_evento = float(
             estado.get("transicoes_sem_evento", self.transicoes_sem_evento))
-        print(f"[CURRICULO] retomado: {self.eventos}/60 eventos, "
+        print(f"[CURRICULO] retomado: {self.eventos}/{T.total_unlocks()} eventos, "
               f"{len(self.abertas)} tarefas abertas, push nível {self.push_nivel}")
 
     def reset(self, env_ids=None):
