@@ -520,11 +520,20 @@ check("o currículo loga `amostras` no momento do destravamento",
       "diz se o portão `min` decidiu por competência ou por sorte")
 check("existe métrica de agachamento no `pegar`",
       "agachamento_pegar" in cfg.metrics)
-_fonte_std = inspect.getsource(MultitaskRunner._std_vantagem_por_tarefa)
-check("o diagnóstico de vantagem só LÊ, não escreve",
-      "storage" in _fonte_std and "=" not in _fonte_std.split("adv =")[1].split("\n")[0]
-      .replace("getattr(st, \"advantages\", None)", ""),
-      "a S15 manda só logar; a normalização por tarefa está em FORA DE ESCOPO")
+# ⚠️ Este check nasceu TAUTOLÓGICO: ele lia a fonte do método e passava mesmo com o
+# método nunca sendo chamado — que era o caso. Agora verifica a CONEXÃO.
+check("o diagnóstico de vantagem está LIGADO ao laço de treino",
+      getattr(runner, "_diag_vantagem", None) is not None
+      and runner.alg.compute_returns.__name__ == "compute_returns"
+      and runner.alg.update.__name__ == "update"
+      and runner.alg.update.__qualname__.startswith("MultitaskRunner"),
+      "definir o método sem chamá-lo não loga nada — foi o gap que a validação pegou")
+_fonte_lig = inspect.getsource(MultitaskRunner._ligar_diagnostico_vantagem)
+check("a leitura acontece ANTES da normalização",
+      "compute_returns" in _fonte_lig and "_diag_vantagem = self._std_vantagem" in
+      _fonte_lig.replace("\n", " ").replace("  ", " "),
+      "o `update` normaliza a vantagem destrutivamente (ppo.py:188); ler depois "
+      "mediria desvio padrão 1.0 em todas as tarefas")
 
 check("os dois soft_landing usam sensores DIFERENTES",
       cfg.rewards["soft_landing_feet"].params["sensor_name"]

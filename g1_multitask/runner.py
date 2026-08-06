@@ -117,27 +117,72 @@ class MultitaskRunner(MjlabOnPolicyRunner):
             idx = _indices_congelados(self.env.unwrapped, modelo)
             self.idx_congelados[nome] = idx
             _congelar(modelo, idx)
+        self._ligar_diagnostico_vantagem()
+
+    def _ligar_diagnostico_vantagem(self) -> None:
+        """Faz a série de vantagem por tarefa chegar ao log. (S15)
+
+        ⚠️ **A normalização é a ÚLTIMA linha do `compute_returns`** (`ppo.py:186-188`),
+        e não a primeira do `update` como parecia. Não há ponto de gancho entre as
+        duas: quando este código roda, `st.advantages` já está normalizado.
+
+        Por isso o `_std_vantagem_por_tarefa` reconstrói a vantagem de
+        `returns − values` em vez de lê-la. O gancho aqui só decide QUANDO medir —
+        depois do `compute_returns`, com os buffers da iteração corrente cheios.
+
+        O valor entra no `loss_dict` do `update`, que é o canal que o
+        `on_policy_runner` já passa ao logger (`:115`). Sem gancho novo no laço.
+
+        Só LÊ. A S15 proíbe implementar a normalização por tarefa nesta rodada."""
+        self._diag_vantagem: dict[str, float] = {}
+        _compute_returns = self.alg.compute_returns
+        _update = self.alg.update
+
+        def compute_returns(*a, **kw):
+            saida = _compute_returns(*a, **kw)
+            self._diag_vantagem = self._std_vantagem_por_tarefa()
+            return saida
+
+        def update(*a, **kw):
+            perdas = _update(*a, **kw)
+            if isinstance(perdas, dict):
+                perdas.update(self._diag_vantagem)
+            return perdas
+
+        self.alg.compute_returns = compute_returns
+        self.alg.update = update
 
     # ------------------------------------------------------- S15: diagnóstico
     def _std_vantagem_por_tarefa(self) -> dict[str, float]:
         """Desvio padrão da vantagem POR TAREFA, antes de normalizar. Só log. (S15)
 
         Responde se a normalização de vantagem por tarefa é necessária. O rsl_rl
-        normaliza UMA VEZ sobre o rollout inteiro (`ppo.py:188`,
+        normaliza UMA VEZ sobre o rollout inteiro (`ppo.py:186-188`,
         `normalize_advantage_per_mini_batch=False` por default), e as sete tarefas
         entram no mesmo tensor. Se uma tiver dispersão muito maior, ela domina o
         gradiente das outras proporcionalmente.
+
+        ⚠️ **Reconstrói a vantagem de `returns − values`, e NÃO lê `st.advantages`.**
+        A normalização é a ÚLTIMA linha do `compute_returns`, não a primeira do
+        `update` — portanto `st.advantages` já está normalizado em qualquer ponto em
+        que este código consiga rodar, e medi-lo dá 1.0 em toda tarefa. Medido em
+        05/08: `diag/std_vantagem/parado = 1.0000`, um número que não diz nada.
+
+        `returns` e `values` são os buffers que a linha 185 usa para montar a vantagem
+        crua, e a normalização não os altera.
 
         ⚠️ **Se os sete forem parecidos, o assunto morre.** É esse o ponto de medir:
         a S15 proíbe implementar a normalização por tarefa nesta rodada. Só o
         diagnóstico.
 
-        Devolve `{}` quando o storage ainda não tem vantagem calculada — é o caso na
+        Devolve `{}` quando o storage ainda não tem retorno calculado — é o caso na
         primeira iteração e em `play`."""
         st = getattr(self.alg, "storage", None)
-        adv = getattr(st, "advantages", None)
-        if adv is None:
+        ret = getattr(st, "returns", None)
+        val = getattr(st, "values", None)
+        if ret is None or val is None:
             return {}
+        adv = ret - val
         tarefa = getattr(self.env.unwrapped, "tarefa_sorteada", None)
         if tarefa is None:
             return {}
