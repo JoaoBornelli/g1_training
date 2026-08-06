@@ -23,8 +23,11 @@ import torch
 
 from mjlab.rl.runner import MjlabOnPolicyRunner
 
-CANAIS_CONGELADOS = ("target_pos_b", "face_alvo", "dir_alvo", "task_onehot")
-"""Os canais que recebem `mean=0, var=1` fixos — 17 números.
+from . import tasks as T
+
+CANAIS_CONGELADOS = ("target_pos_b", "face_alvo", "dir_alvo", "task_onehot",
+                     "twist_cmd")
+"""Os canais que recebem `mean=0, var=1` fixos — 20 números desde a S10.
 
 Por que ESTES: são os canais cuja DISTRIBUIÇÃO muda no meio da run. Durante a
 Fase 0 só o `parado` roda, então `target_pos_b`, `face_alvo` e `dir_alvo` ficam
@@ -39,6 +42,13 @@ QUANTITATIVAMENTE, não só detectar como flag.
 Por que `box_pos_b` e `box_rot_b` NÃO entram: a caixa está sempre na cena e sempre
 tem posição e orientação. Esses canais variam desde a primeira iteração, então o
 normalizador tem estatística de verdade pra aprender.
+
+⚠️ **`twist_cmd` entrou na S10, e ele é obrigatório aqui.** Na Fase 0 só o `parado`
+roda e o comando fica constante em zero — exatamente o caso que produz `_std = 0`.
+
+⚠️ **O congelamento do `target_pos_b` deixou de ser precaução e virou necessidade.**
+Depois da S10 o ator o vê preenchido em apenas duas das sete tarefas (`botar` e
+`reorientar`), portanto ele é zero na maior parte da amostra.
 """
 
 
@@ -108,6 +118,40 @@ class MultitaskRunner(MjlabOnPolicyRunner):
             self.idx_congelados[nome] = idx
             _congelar(modelo, idx)
 
+    # ------------------------------------------------------- S15: diagnóstico
+    def _std_vantagem_por_tarefa(self) -> dict[str, float]:
+        """Desvio padrão da vantagem POR TAREFA, antes de normalizar. Só log. (S15)
+
+        Responde se a normalização de vantagem por tarefa é necessária. O rsl_rl
+        normaliza UMA VEZ sobre o rollout inteiro (`ppo.py:188`,
+        `normalize_advantage_per_mini_batch=False` por default), e as sete tarefas
+        entram no mesmo tensor. Se uma tiver dispersão muito maior, ela domina o
+        gradiente das outras proporcionalmente.
+
+        ⚠️ **Se os sete forem parecidos, o assunto morre.** É esse o ponto de medir:
+        a S15 proíbe implementar a normalização por tarefa nesta rodada. Só o
+        diagnóstico.
+
+        Devolve `{}` quando o storage ainda não tem vantagem calculada — é o caso na
+        primeira iteração e em `play`."""
+        st = getattr(self.alg, "storage", None)
+        adv = getattr(st, "advantages", None)
+        if adv is None:
+            return {}
+        tarefa = getattr(self.env.unwrapped, "tarefa_sorteada", None)
+        if tarefa is None:
+            return {}
+        # advantages: [passos, envs, 1] -> o rótulo de tarefa é por ENV, e vale para a
+        # coluna inteira daquele env no rollout.
+        a = adv.squeeze(-1)                                   # [passos, envs]
+        out: dict[str, float] = {}
+        for t in range(T.NUM_TASKS):
+            m = tarefa == t
+            if not bool(m.any()):
+                continue
+            out[f"diag/std_vantagem/{T.NAMES[t]}"] = float(a[:, m].std())
+        return out
+
     # ------------------------------------------------------------------ currículo
     def _termos_curriculo(self) -> dict:
         """Termos de currículo que sabem se serializar. Vazio é resposta válida —
@@ -122,15 +166,79 @@ class MultitaskRunner(MjlabOnPolicyRunner):
                 out[nome] = termo
         return out
 
+    # --------------------------------------------------- espaço de ação (etiqueta)
+    def _assinatura(self) -> dict:
+        """Identidade do ESPAÇO DE AÇÃO em que este checkpoint foi treinado.
+
+        Existe por causa de 04/08/2026. Desde `dim_c = 0` (`g1_residual`, commit
+        `b931c9c`) a ação do residual é **29** e a obs **151** — exatamente as do
+        multi-tarefa. Os dois checkpoints passaram a ser intercambiáveis para o
+        `load_state_dict`, então trocar um pelo outro **não dá `size mismatch`
+        nenhum**. Antes disso (49 canais) o cross-load falhava alto sozinho.
+
+        O que muda entre eles é o TERMO DE AÇÃO: no residual o alvo de junta sai do
+        ator do BFM congelado e a rede só soma um delta clampeado. Rodar um checkpoint
+        do multi-tarefa no `play` do residual mostra o BFM de pé, e isso se lê como
+        política treinada — foi o engano de 04/08, que custou uma sessão.
+
+        A CLASSE do termo é o discriminador, e ela é derivável do env nos dois lados,
+        `save` e `load`. Por isso a etiqueta não precisa carregar o `task_id` — que o
+        runner não tem — nem depender de o `play` ter registrado o id certo.
+        """
+        mgr = getattr(self.env.unwrapped, "action_manager", None)
+        if mgr is None:                       # env sem ação não existe, mas não custa
+            return {}
+        return {"termos": {n: type(mgr.get_term(n)).__name__
+                           for n in mgr.active_terms},
+                "dim": int(mgr.total_action_dim)}
+
+    def _confere_assinatura(self, infos: dict | None) -> None:
+        """Recusa checkpoint de outro espaço de ação. Sem etiqueta, só avisa.
+
+        Falha ALTO e no carregamento, não depois: o sintoma de errar é o robô se
+        comportando bem por um motivo que não é a política, e isso não tem sinal
+        próprio no log.
+
+        Checkpoint sem etiqueta é anterior a 04/08 e continua carregando de propósito
+        — travar aqui quebraria o resume das runs em voo, que é justamente o workflow
+        de 10-15 retomadas."""
+        atual = self._assinatura()
+        if not atual:
+            return
+        gravada = (infos or {}).get("assinatura")
+        if gravada is None:
+            print("[AVISO] checkpoint sem etiqueta de espaço de ação (anterior a "
+                  f"04/08). O env atual usa {atual['termos']} — confira você mesmo "
+                  f"que o checkpoint é desta task.")
+            return
+        if gravada != atual:
+            raise SystemExit(
+                "[RECUSADO] este checkpoint foi treinado em OUTRO espaço de ação.\n"
+                f"  gravado no checkpoint: {gravada}\n"
+                f"  env atual:             {atual}\n"
+                "Não dá `size mismatch` porque multi-tarefa e residual têm ação 29 e "
+                "obs 151 desde `dim_c = 0`. Se o env atual é `ResidualBFMAction` e o "
+                "checkpoint é do multi-tarefa, o que apareceria na tela é o BFM "
+                "segurando o robô, não a sua política.")
+
     def save(self, path: str, infos: dict | None = None) -> None:
+        extra: dict = {}
         estado = {n: t.state_dict() for n, t in self._termos_curriculo().items()}
         if estado:
-            infos = {**(infos or {}), "curriculum": estado}
+            extra["curriculum"] = estado
+        assinatura = self._assinatura()
+        if assinatura:
+            extra["assinatura"] = assinatura
+        if extra:
+            infos = {**(infos or {}), **extra}
         super().save(path, infos)
 
     def load(self, path: str, load_cfg: dict | None = None, strict: bool = True,
              map_location: str | None = None) -> dict:
         infos = super().load(path, load_cfg, strict, map_location)
+        # Antes de qualquer coisa, e nos DOIS caminhos (treino e `play`): o `play`
+        # passa `load_cfg={"actor": True}` e cai fora do bloco de currículo abaixo.
+        self._confere_assinatura(infos)
 
         # `load_cfg is None` = "carregue tudo", que é o caminho do TREINO. O `play`
         # passa `{"actor": True}` e cai fora daqui sozinho, preservando o pin manual.

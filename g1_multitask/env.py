@@ -20,6 +20,7 @@ from copy import deepcopy
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp import dr
 from mjlab.envs.mdp import rewards as base_rewards
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -39,7 +40,8 @@ from g1_training.base_env import (
     FOOT_SITES,
     build_base_env,
 )
-from g1_training.common.box import get_box_spec, get_shelf_spec
+from g1_training.common import events as lift_events
+from g1_training.common.box import BOX_GEOM, get_box_spec, get_shelf_spec
 from g1_training.common.robot import PALM_SITES
 from g1_training.skills.lift import rewards as LR
 
@@ -48,6 +50,7 @@ from . import events as MT_events
 from . import metrics as MT_metrics
 from . import observability as MT_obs
 from . import observations as obs
+from . import push as P
 from . import rewards as R
 from . import tasks as T
 from . import terminations as MT_terms
@@ -119,12 +122,14 @@ def build_multitask_env(
             resampling_time_range=(ep, ep),      # 1 meta por episódio
             box_half_z=s.box_half[2],
             shelf_half_z=s.shelf_half_z,
-            atraso_gatilho_s=c.atraso_gatilho_s,
         ),
         "twist": DesiredTwistCommandCfg(
             debug_vis=False,
             resampling_time_range=(ep, ep),      # derivado: nunca sorteia
             v_max=c.v_max, w_max=c.w_max, heading_gain=c.heading_gain,
+            v_max_carga_cheia=c.v_max_carga_cheia,
+            a_max=c.a_max, alpha_max=c.alpha_max,
+            morto_angular_rad=c.morto_angular_rad,
             d_morto_andar=c.d_morto_andar, d_morto_manipula=c.d_morto_manipula,
             d_freio_extra=c.d_freio_extra,
         ),
@@ -157,6 +162,11 @@ def build_multitask_env(
             func=obs.command_slice,
             params={"command_name": "lift_target", "lo": 9, "hi": 17})
 
+        # --- S10: o twist entra nos DOIS grupos, 151 -> 154 ---
+        # Ele é calculado do alvo por código determinístico que roda igual no sim e na
+        # pilha de navegação, portanto passa no contrato sim-to-real.
+        termos["twist_cmd"] = ObservationTermCfg(func=obs.twist_cmd)
+
         # ESCALA MANUAL do `target_pos_b` (§9b). O normalizador empírico normalmente
         # cuidaria disso, mas nos canais de comando ele é CONGELADO (ver runner.py),
         # e é o congelamento que cria a obrigação de escalar na mão. ÷2.0 põe a
@@ -165,6 +175,17 @@ def build_multitask_env(
         # peso na obs — a política infere carga do `joint_torque`, que é o que o
         # robô real mede. Sem canal, sem escala.
         termos["target_pos_b"].scale = 0.5
+
+    # --- S10: o ATOR perde o alvo de posição nas tarefas de locomoção ---
+    # Ele passa a rastrear velocidade, que é o que a navegação entrega no robô real.
+    # ⚠️ Só o ator. O crítico mantém o alvo cheio, inclusive no `andar`: o retorno
+    # depende de `chegou`, e sem o alvo ele não distingue "a 5 cm" de "a 2 m".
+    # Privilégio legítimo — o crítico é descartado e não vai para o robô.
+    _ator = cfg.observations["actor"].terms["target_pos_b"]
+    _ator.func = obs.target_pos_b_gateado
+    _ator.params = {"command_name": "lift_target",
+                    "tarefas_zeradas": (PARADO, ANDAR, PARADO_CAIXA,
+                                        ANDAR_CAIXA, PEGAR)}
 
     # --- 4. CENA: mobília fora do grupo 0 (item 7, metade 1) ---
     # Refaz as duas entidades com o spec regrupado. `build_base_env` as criou no
@@ -190,6 +211,59 @@ def build_multitask_env(
         if sensor.name == "feet_ground_contact":
             sensor.secondary = None
 
+    # --- 5c. OS EIXOS `altura` E `peso` CHEGAM À CENA E À FÍSICA (S1) ---
+    # Antes disto, `env.nivel` tinha UM leitor (`commands.py`), então só os eixos que
+    # vivem no vetor de comando — `distancia`, `heading`, `giro` — eram aplicados. Os
+    # outros dois mediam competência num eixo CONSTANTE: a prateleira ficava fixa em
+    # `s.shelf_top` e a caixa pesava sempre `s.box_mass`. São 20 dos 54 destravamentos.
+    #
+    # ⚠️ `reset_box` e `reset_table` SAEM. Dois eventos que escrevem a pose da mesma
+    # entidade no mesmo reset não se somam: o segundo apaga o primeiro, sem erro e sem
+    # log. O `reset_scene_plr` faz o trabalho dos dois e mais o da altura.
+    for morto in ("reset_box", "reset_table"):
+        cfg.events.pop(morto, None)
+
+    # Nenhuma função nova: as duas vêm da Lift, onde já rodaram. O `reset_scene_plr`
+    # lê `env.plr_shelf_top` (escrito pelo currículo 6 linhas antes) e grava
+    # `env.plr_rest_z`, que o `lift` usa pra ter um zero de progresso POR ALTURA.
+    cfg.events["reset_cena"] = EventTermCfg(
+        func=lift_events.reset_scene_plr, mode="reset",
+        params={"box_pose_range": {"x": tuple(s.box_jitter_x),
+                                   "y": tuple(s.box_jitter_y)},
+                "box_half_z": s.box_half[2],
+                "shelf_half_z": s.shelf_half_z,
+                "level_jitter_z": s.level_jitter_z},
+    )
+    # ⚠️ DEPOIS do `reset_cena`, e não antes. O `reset_scene_plr` escreve o quaternion
+    # de `default_root_state` (identidade), então sem este evento o jitter de yaw de
+    # ±15° que o `reset_box` fazia sumiria — e o `reset_segurando` documenta que
+    # depende dele. O ângulo é o mesmo knob de sempre, não é número novo.
+    # S12 acrescentou o jitter da prateleira a este mesmo evento. Um evento só porque
+    # os três jitters partilham o `forward()`, que é o custo real aqui.
+    cfg.events["jitter_cena"] = EventTermCfg(
+        func=MT_events.jitter_cena, mode="reset",
+        params={"yaw_max_rad": yaw,
+                "mesa_xy_max": s.table_jitter_xy,
+                "mesa_yaw_max_rad": math.radians(s.table_jitter_yaw_deg)},
+    )
+    cfg.events["payload"] = EventTermCfg(
+        func=MT_events.payload_por_nivel, mode="reset",
+        params={"box_mass": s.box_mass},
+    )
+
+    # --- 5d. ATRITO DA CAIXA (S13) ---
+    # A pega é por ABRAÇO: sem dedos, o que segura a caixa é força normal × μ. Com μ
+    # fixo a política calibra num valor só, e papelão contra plástico quebra a preensão.
+    # ⚠️ `dr.geom_friction`, a mesma primitiva do `foot_friction`. NUNCA `dr.body_mass`
+    # nem `dr.body_com_offset` — os dois corrompem a heap (CUDA illegal access).
+    if not play and knobs.dr.box_friction:
+        cfg.events["box_friction"] = EventTermCfg(
+            mode="startup", func=dr.geom_friction,
+            params={"asset_cfg": SceneEntityCfg("box", geom_names=(BOX_GEOM,)),
+                    "operation": "abs",
+                    "ranges": tuple(knobs.dr.box_friction_range)},
+        )
+
     # --- 6. DR DE STARTUP DE VOLTA (item 3e) ---
     # O `base_env` remove os 3 com `pop`. Voltam COLHIDOS de uma chamada limpa do
     # cfg do fabricante, não redigitados: os ranges e o `asset_cfg` já preenchido
@@ -204,6 +278,25 @@ def build_multitask_env(
         for nome in ("foot_friction", "encoder_bias", "base_com"):
             if getattr(knobs.dr, nome) and nome in fabricante.events:
                 cfg.events[nome] = deepcopy(fabricante.events[nome])
+
+    # --- 6b. O EIXO `push` CHEGA À FÍSICA (S2) ---
+    # Sem isto o eixo avançava de 0 a 4 e a perturbação não mudava: o `push_robot`
+    # herdado do fabricante usa o range DELE, constante. A Fase 0 media a mesma
+    # dificuldade cinco vezes — e ela é o portão de `parado` para `andar`.
+    #
+    # ⚠️ O `push_robot` do fabricante é SUBSTITUÍDO, não somado. Dois eventos que
+    # escrevem velocidade de base no mesmo passo não se compõem: o segundo apaga o
+    # primeiro, sem erro e sem log. Mesma armadilha do `reset_box` na S1.
+    if not play:
+        cfg.events["push_robot"] = EventTermCfg(
+            func=P.empurrao, mode="interval",
+            interval_range_s=knobs.push.intervalo_impulso_s,
+            params={"push": knobs.push},
+        )
+        cfg.events["push_force"] = EventTermCfg(
+            func=P.empurrao_sustentado, mode="step",
+            params={"push": knobs.push},
+        )
 
     # --- 7. LOCOMOÇÃO DE VOLTA (itens 8, 10, 11) ---
     # O `base_env` apaga tudo que não é equilíbrio, porque a Lift é uma task parada.
@@ -223,6 +316,44 @@ def build_multitask_env(
     cfg.rewards["track_linear_velocity"] = deepcopy(fab.rewards["track_linear_velocity"])
     cfg.rewards["track_linear_velocity"].func = R.track_linear_velocity_freio_z
     cfg.rewards["track_linear_velocity"].weight = r.track_linear_velocity
+
+    # --- 7b. O PISO DE SOBREVIVÊNCIA SAI DA MANIPULAÇÃO (S9) ---
+    # Não existe termo `alive`, mas existe um piso IMPLÍCITO: os kernels de rastreio
+    # são sempre positivos, e um robô em pé com comando zero recebia por passo
+    # `track_lin 2.0 + track_ang 2.0 + upright 1.0 + posture 0.5 = 5.5`. A soma de
+    # TODOS os termos de tarefa do `pegar` é 5.0 — ou seja, ficar parado pagava mais
+    # que resolver a tarefa.
+    #
+    # Os dois de rastreio passam a valer só onde locomoção É a tarefa.
+    #
+    # ⚠️ Ficam LIGADOS no `parado`. O sucesso dele é sobreviver com o comando em zero;
+    # sem estes termos ele fica sem sinal nenhum.
+    #
+    # ⚠️ Isto só é seguro depois da S11. Com o eixo de distância ainda no `pegar`,
+    # estes dois seriam o ÚNICO termo a dirigir a aproximação da caixa — `lift` precisa
+    # da caixa se mover, `grasp` precisa de contato, `box_at_peito` precisa de preensão.
+    for nome in ("track_linear_velocity", "track_angular_velocity"):
+        base = cfg.rewards[nome]
+        cfg.rewards[nome] = RewardTermCfg(
+            func=R.gated, weight=base.weight,
+            params={"inner": base.func,
+                    "tasks": (PARADO, ANDAR, ANDAR_CAIXA, PARADO_CAIXA),
+                    **base.params},
+        )
+
+    # Penalidade de terminação: o que sobra para desencorajar morrer cedo.
+    #
+    # ⚠️ `is_terminated`, e NÃO uma variante que inclua `time_out`. Punir o fim natural
+    # do episódio ensina o robô a morrer.
+    #
+    # ⚠️ **O peso passa pelo `scale_by_dt`.** O `RewardManager` multiplica tudo por
+    # `dt = 0.02` (`reward_manager.py:127`), portanto −200 vira **−4,0 de penalidade
+    # real** por queda. Se o −200 do ULC já contava o dt, está certo; se era −200 de
+    # penalidade efetiva, falta um fator 50. A aceitação da S9 mede isso: se o
+    # comprimento médio do episódio não subir, o número está fraco demais.
+    cfg.rewards["terminacao"] = RewardTermCfg(
+        func=base_rewards.is_terminated, weight=r.terminacao, params={},
+    )
 
     # DOIS `soft_landing`, sensores diferentes, nomes distintos. A colisão de nome do
     # item 13 não existe aqui porque este cfg nomeia os termos dele.
@@ -345,12 +476,18 @@ def build_multitask_env(
     # `lift` — progresso de altura, só no `pegar`. `rest_z_attr` faz o zero do
     # progresso ser POR-ENV: com currículo de altura, cada altura tem seu zero, e um
     # `rest_z` fixo deixaria as alturas baixas sem gradiente nenhum.
+    #
+    # ⚠️ Ligado em 05/08 junto com a S1, e não antes, porque só agora existe o que ler:
+    # o `reset_scene_plr` é quem grava `env.plr_rest_z`. Enquanto a prateleira estava
+    # fixa em 0.55 m o `rest_z` constante estava certo; com o eixo `altura` ativo ele
+    # passaria a mentir em 6 dos 7 níveis. O `rest_z` fixo fica como fallback do
+    # `lift_reward` para quando o atributo não existir.
     cfg.rewards["lift"] = RewardTermCfg(
         func=R.gated, weight=r.lift,
         params={"inner": LR.lift_reward, "tasks": (PEGAR,),
                 "object_name": "box", "command_name": "lift_target",
                 "rest_z": box_z, "upright_std": r.upright_std,
-                "rest_z_attr": None, **pega},
+                "rest_z_attr": "plr_rest_z", **pega},
     )
     # `reaching` — shaping. ANELA com catraca (item 22): o currículo baixa este peso
     # conforme a competência sobe, e ele nunca volta a subir. Para em 0.01, não em 0,
@@ -478,6 +615,9 @@ def build_multitask_env(
     # `_step_reward` que o RewardManager já preenche), e o de currículo emite o dict
     # no reset — que é o único canal do mjlab pra log de chave/valor arbitrário.
     cfg.metrics["reward_total"] = MetricsTermCfg(func=MT_obs.Contribuicao)
+    # S15 — só diagnóstico. Detecta agachar cedo no `pegar`.
+    cfg.metrics["agachamento_pegar"] = MetricsTermCfg(
+        func=MT_obs.agachamento_no_pegar)
     cfg.curriculum["contrib"] = CurriculumTermCfg(
         func=MT_obs.Relatorio, params={"min_amostras": 500, "top": 0},
     )

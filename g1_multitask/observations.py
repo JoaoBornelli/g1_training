@@ -60,6 +60,53 @@ def object_rot_b(env: "ManagerBasedRlEnv", object_name: str) -> torch.Tensor:
     return torch.cat(colunas, dim=-1)
 
 
+def twist_cmd(env: "ManagerBasedRlEnv") -> torch.Tensor:
+    """O twist comandado — `[vx, vy, ωz]` em frame da base. [B, 3]  (S10)
+
+    **Passa no contrato sim-to-real.** Ele não é medição: é CALCULADO a partir do
+    alvo, por código determinístico que roda igual na simulação e na pilha de
+    navegação do robô. O que o robô real recebe da navegação é exatamente isto.
+
+    **Por que vale a pena entrar na obs.** Sem ele, a política tem de aprender a
+    função de perfil por dentro — a rampa, a trava por rumo, o morto. Com ele,
+    ajustar o perfil deixa de ser re-aprendizado e vira Categoria A.
+
+    ⚠️ **Tem de estar em `CANAIS_CONGELADOS`.** Na Fase 0 só o `parado` roda e o
+    twist fica constante em zero. O `EmpiricalNormalization` calcula `_std = 0` no
+    primeiro update, e quando o `andar` abre o valor entra ~100× amplificado. É o
+    mesmo caso do `target_pos_b` que o `runner.py` já trata.
+
+    ⚠️ `vy` é sempre zero desde a S5 — o perfil gira para apontar e anda para frente.
+    O canal fica assim mesmo: tirá-lo mudaria a largura da obs de novo se a marcha
+    lateral voltar, e mudança de largura custa o zero."""
+    return env.command_manager.get_term("twist").command[:, :3]
+
+
+def target_pos_b_gateado(
+    env: "ManagerBasedRlEnv", command_name: str, tarefas_zeradas: tuple[int, ...]
+) -> torch.Tensor:
+    """`target_pos_b` zerado nas tarefas que não têm alvo de posição. [B, 3]  (S10)
+
+    Decisão de arquitetura da S5/S10: o ator **não recebe alvo de posição** nas
+    tarefas de locomoção. Ele recebe velocidade e velocidade angular para rastrear,
+    que é o que a pilha de navegação entrega no robô real. `botar` e `reorientar`
+    continuam vendo o alvo, porque ali ele é a pose de um objeto, não um waypoint.
+
+    ⚠️ **Só o ATOR usa esta função.** O crítico continua com o `target_pos_b` cheio,
+    inclusive no `andar`: o retorno depende de `chegou`, e sem o alvo o crítico não
+    distingue "a 5 cm" de "a 2 m". É privilégio legítimo — o crítico é descartado e
+    não vai para o robô.
+
+    O campo continua com 3 números em vez de sumir. Largura de observação é contrato:
+    encolher aqui e crescer depois custa o zero duas vezes."""
+    from g1_training.common import observations as base_obs
+
+    cheio = base_obs.target_pos_b(env, command_name=command_name)
+    quais = torch.tensor(tarefas_zeradas, device=cheio.device)
+    zera = (env.active_task.unsqueeze(-1) == quais).any(dim=-1)
+    return torch.where(zera.unsqueeze(-1), torch.zeros_like(cheio), cheio)
+
+
 def command_slice(
     env: "ManagerBasedRlEnv", command_name: str, lo: int, hi: int
 ) -> torch.Tensor:

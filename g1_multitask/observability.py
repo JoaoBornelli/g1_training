@@ -58,6 +58,26 @@ class Contribuicao:
         pass    # a matriz é zerada pelo `Relatorio`, não pelo reset de env
 
 
+def agachamento_no_pegar(env: "ManagerBasedRlEnv") -> torch.Tensor:
+    """Altura da pélvis MENOS a distância horizontal à caixa, nos envs do `pegar`. (S15)
+
+    Detecta **agachar cedo**: descer antes de estar sobre a caixa gasta o episódio e
+    põe o centro de massa à frente sem necessidade. O scatter que a S15 pede é
+    pélvis × distância; aqui vai a diferença, porque o canal de log do mjlab é
+    escalar e a diferença já separa os dois regimes — perto e baixo é a solução,
+    longe e baixo é o modo de falha.
+
+    Fora do `pegar` devolve NaN, e o `MetricsManager` o ignora na média.
+
+    Só log. Não entra em reward nem em critério."""
+    caixa = env.scene["box"].data.root_link_pos_w
+    pelve = env.scene["robot"].data.root_link_pos_w
+    d = (pelve[:, :2] - caixa[:, :2]).norm(dim=-1)
+    valor = pelve[:, 2] - d
+    no_pegar = env.active_task == T.PEGAR
+    return torch.where(no_pegar, valor, torch.full_like(valor, float("nan")))
+
+
 class Relatorio:
     """Emite a matriz de contribuição como dict de log e zera. Termo de currículo.
 
