@@ -624,7 +624,8 @@ for tarefa in range(T.NUM_TASKS):
     for nome_termo in GATEADOS:
         termo = env_t.reward_manager.get_term_cfg(nome_termo)
         kw = {k: v for k, v in termo.params.items()
-              if k not in ("inner", "tasks", "gate_command")}
+              if k not in ("inner", "tasks", "gate_command", "escala",
+                           "exige_grasp")}
         interno = termo.func._inner(env_t, **kw)
         v = termo.func(env_t, **termo.params)
         dentro = tarefa in termo.params["tasks"]
@@ -657,6 +658,66 @@ for nome, esperado in GATES_ESPERADOS.items():
 check("botar_fracao_solta = 0.0 (kernel puro, como a §4 especifica)",
       ACTIVE.reward.botar_fracao_solta == 0.0,
       f"deu {ACTIVE.reward.botar_fracao_solta}")
+
+# ---------------------------------------- 10b: orçamento igual nas 7 tarefas
+print("\n-- 10b: orçamento de tarefa igual nas 7 --")
+_ALVO = ACTIVE.reward.orcamento_tarefa
+_SEM_ESCALA = ("upright",)          # sem gate: vale igual em toda tarefa
+_POSTURAS = ("posture_parado", "posture_anda", "posture_manip", "posture_carrega")
+
+_orc = dict.fromkeys(range(T.NUM_TASKS), 0.0)
+for _nome in T.TERMOS_DE_TAREFA:
+    _t = cfg.rewards.get(_nome)
+    if _t is None:
+        continue
+    _esc = _t.params.get("escala") or {}
+    for _tarefa in _t.params["tasks"]:
+        _orc[_tarefa] += abs(_t.weight) * _esc.get(_tarefa, 1.0)
+check(f"as 7 tarefas somam {_ALVO} de sinal de tarefa",
+      all(abs(v - _ALVO) < 1e-6 for v in _orc.values()),
+      "  ".join(f"{T.NAMES[k]}={v:.3f}" for k, v in _orc.items()))
+
+# o teto NOMINAL, que é o número que se reporta: sinal + piso postural.
+_piso = {t: sum(cfg.rewards[n].weight for n in _SEM_ESCALA if n in cfg.rewards)
+         for t in range(T.NUM_TASKS)}
+for _nome in _POSTURAS:
+    for _tarefa in cfg.rewards[_nome].params["tasks"]:
+        _piso[_tarefa] += cfg.rewards[_nome].weight
+for _t in range(T.NUM_TASKS):
+    print(f"     TETO {T.NAMES[_t]:<14s} {_orc[_t] + _piso[_t]:.2f}"
+          f"   (tarefa {_orc[_t]:.2f} + piso {_piso[_t]:.2f})")
+
+# ⚠️ O fator tem que CHEGAR ao termo em runtime, e o MESMO termo tem que sair com
+# fatores diferentes em tarefas diferentes — que é justamente o que a máscara binária
+# não conseguia fazer. Sem este par de linhas, o `escala` poderia estar só no cfg.
+_PROVA = (("box_at_prateleira", T.BOTAR), ("box_at_peito", T.PEGAR),
+          ("box_at_peito", T.PARADO_CAIXA))
+for _nome, _tarefa in _PROVA:
+    env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+    env_t.task_dist[_tarefa] = 1.0
+    env_t.reset()
+    env_t.step(acao_t)
+    _termo = env_t.reward_manager.get_term_cfg(_nome)
+    _kw = {k: v for k, v in _termo.params.items()
+           if k not in ("inner", "tasks", "gate_command", "escala", "exige_grasp",
+                        "grasp_palm", "grasp_back")}
+    _interno = _termo.func._inner(env_t, **_kw)
+    _saida = _termo.func(env_t, **_termo.params)
+    _f = _termo.params["escala"][_tarefa]
+    check(f"{_nome} em `{T.NAMES[_tarefa]}`: saída == inner x {_f:.3f}",
+          bool(torch.allclose(_saida, _interno * _f, atol=1e-6)),
+          f"inner={_interno.mean().item():.4f} saída={_saida.mean().item():.4f}")
+
+# não-vacuidade: o check acima passaria de graça com o termo interno em zero. O
+# `box_at_prateleira` no spawn do `botar` mede 0.073 desde que ganhou a escala grossa.
+env_t.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
+env_t.task_dist[T.BOTAR] = 1.0
+env_t.reset()
+env_t.step(acao_t)
+_termo = env_t.reward_manager.get_term_cfg("box_at_prateleira")
+_saida = _termo.func(env_t, **_termo.params).mean().item()
+check("o teste do fator não é vazio: box_at_prateleira > 0 no spawn do `botar`",
+      _saida > 1e-3, f"saída={_saida:.4f}")
 
 print("\n-- T8b: spawn segurando --")
 check("reset_segurando é o ÚLTIMO evento de reset",
