@@ -27,6 +27,8 @@ from mjlab.utils.lab_api.math import quat_apply
 
 from g1_training.skills.lift.rewards import _grasp, height_kernel
 
+from .tasks import ONEHOT_DIM
+
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
@@ -47,6 +49,9 @@ class gated:
     A máscara sai do MESMO one-hot que o log por tarefa usa (`observability.py`) —
     uma fonte só, senão gate e log podem discordar sobre qual tarefa estava ativa.
 
+    Desde 06/08 ela é um vetor de PESO e não mais 0/1: fora do escopo continua zero,
+    dentro vale o fator da tarefa (`escala`). O motivo está no `__call__`.
+
     **Classe e não função** porque vários termos do mjlab (`posture`,
     `variable_posture`, `electrical_power_cost`, `feets_swing_height`) são CLASSES
     que o manager auto-instancia com `(cfg, env)` pra resolver dicionários de `std`
@@ -61,8 +66,12 @@ class gated:
         # o termo interno recebe o MESMO cfg: as classes do mjlab leem só as chaves
         # que lhes interessam de `cfg.params` e toleram as nossas (`inner`, `tasks`).
         self._inner = alvo(cfg=cfg, env=env) if isinstance(alvo, type) else alvo
-        self._tasks = torch.tensor(
-            list(cfg.params["tasks"]), dtype=torch.long, device=env.device)
+        # A máscara é um VETOR DE PESO, não um booleano: fora do escopo é 0, dentro é
+        # o fator da tarefa (`escala`, default 1.0). Ver `escala` no `__call__`.
+        escala = cfg.params.get("escala") or {}
+        self._peso = torch.zeros(ONEHOT_DIM, device=env.device)
+        for t in cfg.params["tasks"]:
+            self._peso[t] = float(escala.get(t, 1.0))
         self._exige_grasp = torch.tensor(
             list(cfg.params.get("exige_grasp", ())), dtype=torch.long,
             device=env.device)
@@ -70,6 +79,7 @@ class gated:
     def __call__(self, env: "ManagerBasedRlEnv", inner, tasks,
                  gate_command: str = "lift_target",
                  exige_grasp: tuple[int, ...] = (),
+                 escala: dict[int, float] | None = None,
                  grasp_palm=None, grasp_back=None, **kw) -> torch.Tensor:
         """`gate_command` e NÃO `command_name`: vários termos internos (`lift_reward`,
         `hold_still_bonus`, `orienta_face`) têm um `command_name` PRÓPRIO, e usar a
@@ -87,10 +97,19 @@ class gated:
         `_grasp = 0`, sem manipular nada e sem risco. A caixa fica acima do
         `largou_z`, então nem o `largou` terminava.
 
-        Com o fator, o piso só existe se ele estiver de fato segurando."""
-        del inner, tasks                      # já resolvidos no __init__
+        Com o fator, o piso só existe se ele estiver de fato segurando.
+
+        `escala` (06/08) é `{tarefa: fator}`. Ele multiplica o termo POR TAREFA, e
+        existe porque um `RewardTermCfg` tem UM peso só enquanto os termos são
+        compartilhados: `box_at_peito` vale no `pegar` e nas duas tarefas com caixa,
+        `track_*` valem em quatro. Sem fator por tarefa não há como igualar orçamento
+        — mexer no peso do termo move todas as tarefas dele juntas.
+
+        Quem preenche é o `_equaliza_orcamento` do `env.py`, por cálculo. Ausente, o
+        fator é 1.0 e o gate volta a ser a máscara binária de antes."""
+        del inner, tasks, escala              # já resolvidos no __init__
         onehot = env.command_manager.get_term(gate_command).command[:, ONEHOT]
-        mascara = onehot[:, self._tasks].sum(dim=-1)
+        mascara = onehot @ self._peso
         if len(self._exige_grasp):
             g = _grasp(env, grasp_palm, grasp_back)
             m_g = onehot[:, self._exige_grasp].sum(dim=-1)

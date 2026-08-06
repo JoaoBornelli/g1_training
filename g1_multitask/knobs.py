@@ -221,6 +221,43 @@ class Reward:
     grasp: float = 0.5                  # bônus de toque, só no `pegar`
     hold_still: float = 0.5
 
+    orcamento_tarefa: float = 4.0
+    """Teto de sinal de tarefa POR PASSO, igual nas 7 tarefas. `<= 0` desliga (06/08).
+
+    **DERIVADO, não escolhido.** É `track_linear_velocity + track_angular_velocity`
+    do `unitree_g1_flat_env_cfg` — `2.0 + 2.0` — que é o orçamento de tarefa que o
+    fabricante dá ao G1 na task de locomoção. Fora dele, o cfg do fabricante só tem
+    `upright 1.0` e `pose 1.0`, que são piso postural e não sinal de tarefa.
+
+    É o único orçamento do desenho que NÃO foi digitado por nós: os pesos do bloco 2
+    saíram todos da §14. Ancorar nele é ancorar na referência testada.
+
+    **O problema que ele resolve.** Os tetos medidos em 06/08, depois do bloco 1:
+
+        parado 5.50 · andar 5.50 · pegar 6.00 · botar 2.50 · reorientar 3.50
+        parado c/ caixa 7.00 · andar c/ caixa 7.00
+
+    Só de sinal de tarefa: `botar` tinha **1.0** e as duas com caixa **5.5** — 5,5×.
+    E as PENALIDADES não são gateadas: `table_contact −1.5`, `com_balance −2.0`,
+    `back_penalty −0.5`, `action_rate_l2 −0.25` cobram o mesmo de todas. Ou seja o
+    `botar` enfrentava a mesma pilha de custo com um quinto do sinal.
+
+    O segundo motivo é o normalizador: o rsl_rl normaliza a vantagem **uma vez sobre
+    o rollout inteiro** (`ppo.py:186-188`), com as 7 tarefas no mesmo pote. Tarefa com
+    escala de recompensa menor sai com vantagem menor e é comprimida contra zero no
+    gradiente. A escala relativa entre tarefas é, portanto, taxa de aprendizado
+    relativa entre tarefas.
+
+    Fatores que isto produz (calculados pelo `_equaliza_orcamento`, não digitados):
+
+        parado 1.000 · andar 1.000 · pegar 0.800 · botar 4.000 · reorientar 2.000
+        parado c/ caixa 0.727 · andar c/ caixa 0.727
+
+    **Aceitação:** o `_std_vantagem_por_tarefa` do `runner.py` já loga desvio de
+    vantagem por tarefa (medido antes: 0.79 / 1.11 / 1.15). Se a dispersão dessa
+    série não encolher, o teto nominal não era o proxy certo para escala efetiva —
+    e aí o lever passa a ser a vantagem medida, não o orçamento."""
+
     # --- bloco 3: anti-hacks ---
     com_balance: float = -2.0           # OFF no `andar` (gate explícito)
     """§14 dizia −3.0. **Reduzido para −2.0 em 03/08/2026.**

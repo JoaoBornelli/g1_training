@@ -83,6 +83,50 @@ def _so_pernas(std: dict) -> dict:
     return {k: v for k, v in std.items() if any(t in k for t in _TOKENS_PERNA)}
 
 
+def _equaliza_orcamento(cfg, alvo: float) -> dict[int, float]:
+    """Iguala o sinal de tarefa das 7 tarefas em `alvo` por passo. Devolve os fatores.
+
+    O que ele faz é uma conta só, em duas passadas sobre `T.TERMOS_DE_TAREFA`:
+
+        orcamento[t] = Σ peso dos termos gateados em t
+        fator[t]     = alvo / orcamento[t]
+        escala do termo = {t: fator[t] para cada t no gate dele}
+
+    **Por que a escala é por TAREFA e não por termo.** Um `RewardTermCfg` tem um peso
+    só, e os termos são compartilhados: `box_at_peito` vale em 3 tarefas, `hold_still`
+    em 3, os dois de rastreio em 4. Baixar o peso de `box_at_peito` para conter o
+    `parado c/ caixa` baixaria junto o `pegar`, que já está no alvo. O grau de
+    liberdade que falta é (termo × tarefa), e é ele que o `escala` do gate abre.
+
+    **Por que calculado e não digitado.** São 7 fatores derivados de 9 pesos e 9
+    gates. Digitados, eles ficam errados em silêncio no dia em que alguém mudar um
+    peso da §14 ou tirar uma tarefa de um gate — que foi exatamente o que o bloco 1
+    fez ao tirar o `reaching` do `botar`. Calculados, acompanham.
+
+    ⚠️ Roda DEPOIS do bloco 10 e antes do currículo: ele lê os pesos finais. Mexer em
+    peso de termo de tarefa depois desta chamada não recalcula nada.
+
+    ⚠️ Ele NÃO toca em `upright`, nas 4 posturas, nem em nenhum termo negativo. É
+    proposital: manter o denominador parado é o que faz a razão sinal/penalidade
+    ficar igual entre tarefas. Ver `T.TERMOS_DE_TAREFA` para quem entra e por quê.
+    """
+    orcamento = dict.fromkeys(range(T.NUM_TASKS), 0.0)
+    presentes = [n for n in T.TERMOS_DE_TAREFA if n in cfg.rewards]
+    for nome in presentes:
+        termo = cfg.rewards[nome]
+        for tarefa in termo.params["tasks"]:
+            orcamento[tarefa] += abs(termo.weight)
+
+    vazias = [T.NAMES[t] for t, v in orcamento.items() if v <= 0.0]
+    assert not vazias, f"tarefa sem sinal de tarefa nenhum: {vazias}"
+
+    fator = {t: alvo / v for t, v in orcamento.items()}
+    for nome in presentes:
+        termo = cfg.rewards[nome]
+        termo.params["escala"] = {t: fator[t] for t in termo.params["tasks"]}
+    return fator
+
+
 def build_multitask_env(
     knobs: MultitaskKnobs, play: bool = False
 ) -> ManagerBasedRlEnvCfg:
@@ -561,6 +605,13 @@ def build_multitask_env(
                 "object_name": "box", "command_name": "lift_target",
                 "gate_std": 0.25, "still_std": 0.5, **pega},
     )
+
+    # --- 10b. ORÇAMENTO IGUAL NAS 7 TAREFAS (06/08) ---
+    # Última coisa a mexer em peso de termo de tarefa, de propósito: a conta lê os
+    # pesos finais. Ver `knobs.Reward.orcamento_tarefa` para a derivação do alvo e
+    # `_equaliza_orcamento` para o método.
+    if r.orcamento_tarefa > 0.0:
+        _equaliza_orcamento(cfg, r.orcamento_tarefa)
 
     # --- 11. CURRÍCULO: quem sorteia a tarefa ---
     # Tem que ser curriculum term, não evento nem comando: no reset a ordem é

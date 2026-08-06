@@ -163,10 +163,13 @@ env.reset()
 for _ in range(40):
     env.step(acao)
 
-TERMOS_TAREFA = ("lift", "reaching", "grasp", "box_at_peito", "box_at_prateleira",
-                 "orienta_face", "hold_still")
+TERMOS_TAREFA = tuple(n for n in T.TERMOS_DE_TAREFA if not n.startswith("track_"))
 """Os termos do bloco 2 — os que dizem QUAL tarefa é. O resto é invariante de
-equilíbrio e marcha, que vale em todas."""
+equilíbrio e marcha, que vale em todas.
+
+DERIVADO de `T.TERMOS_DE_TAREFA` (06/08) para não haver duas listas a divergir. Os
+dois de rastreio saem porque este script mede a razão penalidade/sinal do bloco 2, e
+o `SEM_TERMO_DE_TAREFA` logo abaixo trata `parado` e `andar` à parte."""
 
 SEM_TERMO_DE_TAREFA = (T.PARADO, T.ANDAR)
 """Estas duas NÃO têm termo de bloco 2, e isso é desenho, não falta (§6b/B: as

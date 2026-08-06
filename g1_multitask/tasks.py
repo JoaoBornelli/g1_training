@@ -59,6 +59,31 @@ PARADAS = (PARADO, PARADO_CAIXA)
 MANIPULA = (PEGAR, BOTAR, REORIENTAR)
 ANDA = (ANDAR, ANDAR_CAIXA)
 
+TERMOS_DE_TAREFA = (
+    "track_linear_velocity", "track_angular_velocity",
+    "lift", "reaching", "grasp", "box_at_peito", "box_at_prateleira",
+    "orienta_face", "hold_still",
+)
+"""Os termos POSITIVOS que dizem qual tarefa é. Fonte única do orçamento (06/08).
+
+É sobre esta lista que o `_equaliza_orcamento` do `env.py` calcula quanto cada
+tarefa pode ganhar por passo. Quem entra e quem fica de fora:
+
+**Entram** os 7 termos do bloco 2 da §6b (`lift` … `hold_still`) e os DOIS de
+rastreio. Os de rastreio entram porque a S9 os gateou: eles deixaram de ser
+invariante e viraram o sinal de tarefa do `parado` e do `andar`, que não têm termo
+de bloco 2 nenhum — é o que o `SEM_TERMO_DE_TAREFA` do `calibra.py` já registrava.
+
+**Ficam de fora** o `upright` (sem gate: vale 1.0 em toda tarefa, logo não muda a
+relação entre elas) e as 4 posturas (piso postural, o análogo do `pose` do
+fabricante). Ficam de fora também todos os negativos: o objetivo é justamente
+igualar a razão entre sinal e penalidade, e para isso o denominador tem que ficar
+parado.
+
+⚠️ Se o anelamento com catraca do `reaching` for implementado, ele muda o orçamento
+do `pegar` e do `reorientar` em tempo de execução — quem mexer no peso tem que
+recalcular a escala junto, senão as duas tarefas afundam conforme a muleta sai."""
+
 SPAWN_SEGURANDO = (PARADO_CAIXA, ANDAR_CAIXA, BOTAR)
 """Tarefas que nascem com as PALMAS TOCANDO a caixa (§3, §4).
 
