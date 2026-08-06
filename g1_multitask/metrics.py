@@ -69,6 +69,16 @@ class Sucesso:
         # consecutivo (zera quando quebra) e serve às outras tarefas.
         self._quieto_passos = torch.zeros(n, device=dev)
         self._frac_quieto = torch.zeros(n, device=dev)
+        # --- `andar` (S6): flags de DISPARO da histerese, travados pelo episódio ---
+        # `chegou` e `alinhado` disparam num limiar apertado e depois passam a ser
+        # avaliados num limiar folgado. O flag guarda o disparo; a condição continua
+        # sendo reavaliada, com o raio de manutenção. Ver `_condicao`.
+        self._chegou_ok = torch.zeros(n, dtype=torch.bool, device=dev)
+        self._alinhado_ok = torch.zeros(n, dtype=torch.bool, device=dev)
+        # --- `parado` (S7): segundos ACUMULADOS fora de `de pé` ---
+        # Acumulado e não consecutivo: sob push o robô sai e volta várias vezes, e um
+        # contador consecutivo perdoaria dez quedas curtas seguidas.
+        self._fora_de_pe_s = torch.zeros(n, device=dev)
 
         self._palmas = SceneEntityCfg("robot", site_names=[])
         # --- item 4: diagnóstico por tarefa, emitido pelo `observability.Relatorio` ---
@@ -110,8 +120,25 @@ class Sucesso:
         no_peito = (caixa.data.root_link_pos_w - peito_w).norm(dim=-1) < tol.caixa_no_alvo
         no_alvo = (caixa.data.root_link_pos_w
                    - meta.command[:, ALVO]).norm(dim=-1) < tol.caixa_no_alvo
-        chegou = (robo.data.root_link_pos_w[:, :2]
-                  - meta.command[:, ALVO][:, :2]).norm(dim=-1) < tol.andar_raio
+        d_alvo = (robo.data.root_link_pos_w[:, :2]
+                  - meta.command[:, ALVO][:, :2]).norm(dim=-1)
+        chegou = d_alvo < tol.andar_raio
+        # --- `andar` (S6): histerese em `chegou` e em `alinhado` ---
+        # O flag de disparo é escrito no `__call__`; aqui só se lê. A condição CONTINUA
+        # sendo reavaliada, mas contra o raio de MANUTENÇÃO, que é mais folgado.
+        #
+        # ⚠️ Por que histerese e não um raio único: o `cond` sustentado zera o contador
+        # quando a condição quebra. Sob push nível 4 — 50 N por até 3 s — o robô sai de
+        # um círculo de 0.10 m e o contador reinicia sem parar. O `andar` nunca chegaria
+        # a 0.90, e ele é pai de `pegar` e de `reorientar`.
+        #
+        # ⚠️ Por que não travar a condição de vez: travada, o robô chega, sai andando
+        # para longe e ainda pontua se ficar 3 s de pé. A histerese fecha esse buraco e
+        # continua dando a folga que o push exige.
+        #
+        # `parado_de_pe` NÃO entra na histerese, de propósito: cair tem que zerar.
+        chegou_andar = self._chegou_ok & (d_alvo < tol.andar_raio_mantem)
+        alinhado = self._alinhado_ok & (meta.erro_rumo_deg() < tol.alinhado_mantem_deg)
         orientada = ((meta.erro_angulo_deg() < tol.reorienta_angulo_deg)
                      & (meta.desvio_xy() < tol.reorienta_xy) & apoiada)
 
@@ -144,14 +171,26 @@ class Sucesso:
         # do `parado` é 0 s, então o critério vale num passo só — o do `time_out`. Sem
         # a fração, andar 20 s e parar no último passo aprovaria, e o mesmo para passar
         # o episódio sentado e levantar no fim (o `de_pe` entra na mesma fração).
+        #
+        # 🔧 S7 — entra o TEMPO FORA DE PÉ. O `_frac_quieto` exige `devagar E de pé`
+        # junto, então um robô agachado e imóvel some do numerador mas o critério não
+        # diz POR QUE. O acumulador separa as duas falhas: quem se move perde fração,
+        # quem agacha estoura o tempo fora. Sem ele, agachar e ficar agachado ainda
+        # aprova se a fração for tolerante o bastante.
         cond = torch.where(tarefa == T.PARADO,
                            env.termination_manager.time_outs & self._nunca_caiu
                            & parado_de_pe
-                           & (self._frac_quieto >= tol.parado_fracao), cond)
-        # `andar`: chegou no raio e ficou de pé. Não há limiar de "quieto" porque o
-        # `d_morto` leva a velocidade comandada a ZERO no alvo — o robô para pelo
+                           & (self._frac_quieto >= tol.parado_fracao)
+                           & (self._fora_de_pe_s < tol.limite_fora_de_pe_s), cond)
+        # `andar`: chegou no raio, apontado, e de pé. Não há limiar de "quieto" porque
+        # o `d_morto` leva a velocidade comandada a ZERO no alvo — o robô para pelo
         # perfil, não por penalidade. Ver §4.
-        cond = torch.where(tarefa == T.ANDAR, chegou & parado_de_pe, cond)
+        #
+        # O `andar c/ caixa` (abaixo) continua com o `chegou` de raio único. A S6 trata
+        # só o `andar`; a diferença fica sendo o disparo, porque o raio de manutenção
+        # da histerese é o mesmo 0.25 do raio único.
+        cond = torch.where(tarefa == T.ANDAR,
+                           chegou_andar & alinhado & parado_de_pe, cond)
         # ⚠️ `preensao` é OBRIGATÓRIA aqui, e faltava. O `pegar` era a única das sete
         # sem ela — `parado c/ caixa` e `andar c/ caixa` exigem, `botar` exige o
         # contrário. Sem ela o critério passa ENCOSTANDO o peito na caixa parada na
@@ -195,6 +234,9 @@ class Sucesso:
             self._conquistado[caiu] = False
             self._nunca_caiu[caiu] = True
             self._quieto_passos[caiu] = 0.0
+            self._chegou_ok[caiu] = False
+            self._alinhado_ok[caiu] = False
+            self._fora_de_pe_s[caiu] = 0.0
         self._len_ant.copy_(env.episode_length_buf)
 
         # 2. quem foi terminado por falha nunca mais "sobreviveu" neste episódio
@@ -206,10 +248,25 @@ class Sucesso:
         robo: Entity = env.scene["robot"]
         devagar = (robo.data.root_link_lin_vel_w[:, :2].norm(dim=-1)
                    < self.tol.parado_v_max)
-        quieto = devagar & de_pe(env, self.tol.de_pe_z, self.tol.de_pe_tilt_rad)
+        _em_pe = de_pe(env, self.tol.de_pe_z, self.tol.de_pe_tilt_rad)
+        quieto = devagar & _em_pe
         self._quieto_passos += quieto.float()
+        # S7: o tempo fora de `de pé` acumula aqui, no mesmo lugar e pelo mesmo motivo
+        # (o `_condicao` roda duas vezes por passo e contaria dobrado).
+        self._fora_de_pe_s += (~_em_pe).float() * self.dt
         self._frac_quieto = (self._quieto_passos
                              / env.episode_length_buf.clamp(min=1).float())
+
+        # 2c. `andar` (S6): dispara a histerese de `chegou` e de `alinhado`.
+        # Fica aqui pelo mesmo motivo do `_frac_quieto`: o `_condicao` roda duas vezes
+        # por passo (tarefa ativa e tarefa sorteada). Aqui o efeito seria idempotente
+        # (`|=` com a mesma geometria), mas manter toda escrita de estado num lugar só
+        # evita que a próxima mudança reintroduza a contagem dobrada.
+        _meta = env.command_manager.get_term("lift_target")
+        _d_alvo = (robo.data.root_link_pos_w[:, :2]
+                   - _meta.command[:, ALVO][:, :2]).norm(dim=-1)
+        self._chegou_ok |= _d_alvo < self.tol.andar_raio_chega
+        self._alinhado_ok |= _meta.erro_rumo_deg() < self.tol.alinhado_chega_deg
 
         # 3. sustentação: soma enquanto vale, ZERA quando quebra.
         #

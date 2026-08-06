@@ -111,14 +111,18 @@ class LiftTargetCommand(CommandTerm):
         self._destino_w = torch.zeros(self.num_envs, 3, device=self.device)
         self._face_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._spawn_xy = torch.zeros(self.num_envs, 2, device=self.device)
-        self._disparou = torch.zeros(
+        self._disparou = torch.ones(
             self.num_envs, dtype=torch.bool, device=self.device)
         """O gatilho da tarefa já disparou? Lido pelo `metrics.Sucesso`.
 
-        Existe porque o pré-gatilho não pode fechar sucesso: nos até 2 s de espera a
-        tarefa ATIVA é `parado` (ou `parado c/ caixa`), e o critério do `parado` é
-        `time_out & de pé` com sustentação **0 s** — fecha num passo só. Sem este gate,
-        uma tarefa pode pontuar por um critério que não é o dela."""
+        ⚠️ **Constante em True desde a S8**, que removeu o atraso de gatilho. A tarefa
+        sorteada entra ativa no passo 0, portanto não existe mais janela de pré-gatilho
+        em que uma tarefa poderia pontuar pelo critério do `parado`.
+
+        O campo e o acessor `disparou` ficam por dois motivos: o `metrics.Sucesso` os
+        consome, e o gate volta a ter conteúdo quando a troca de tarefa no meio do
+        episódio entrar (hoje adiada de propósito). Remover agora seria arrancar e
+        recolocar."""
         self._dir_w = torch.zeros(self.num_envs, 3, device=self.device)
         """Direção alvo da face, em MUNDO. 🔧 Conserto de 31/07: era guardada no frame
         da BASE e comparada contra a normal recomputada na base a cada passo — então
@@ -134,18 +138,15 @@ class LiftTargetCommand(CommandTerm):
         self._head = torch.zeros(self.num_envs, device=self.device)
         self._pendente = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
-        # ATRASO DE GATILHO (§14, U(0,2 s)): o episódio começa em `parado` e a tarefa
-        # sorteada só acende depois. Ensina a política a ficar estável ANTES de
-        # receber ordem, em vez de assumir comando válido no passo 0.
-        self._atraso = torch.zeros(self.num_envs, device=self.device)
+        # O ATRASO DE GATILHO saiu na S8. `_t` permanece como relógio do episódio,
+        # porque o `env.trigger_t` é exposto e lido fora; ele deixou de gatilhar nada.
         self._t = torch.zeros(self.num_envs, device=self.device)
         self._sorteada = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self._pre_gatilho = torch.zeros(
-            self.num_envs, dtype=torch.long, device=self.device)
         self._ativa = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        """A tarefa ATIVA agora — `PARADO` até o gatilho disparar. É esta que os
-        gates de reward e as terminações leem, não a sorteada. Escrita SEMPRE
-        in-place, porque `env.active_task` guarda a referência ao tensor."""
+        """A tarefa ATIVA agora. Desde a S8 ela é igual à sorteada desde o passo 0 —
+        antes havia uma janela de até 2 s em `parado`. É esta que os gates de reward e
+        as terminações leem. Escrita SEMPRE in-place, porque `env.active_task` guarda
+        a referência ao tensor."""
 
         # Disciplina do §15: os rewards leem `active_task` antes do 1º reset, então
         # o buffer TEM que existir aqui. Mesma disciplina que o `PlrHeights` segue.
@@ -184,25 +185,26 @@ class LiftTargetCommand(CommandTerm):
         tarefa = self._env.tarefa_sorteada[env_ids]
         self._sorteada[env_ids] = tarefa
 
-        # PRÉ-GATILHO (§4): `parado`, ou `parado c/ caixa` pra quem nasceu segurando.
-        # Sem essa distinção a caixa escorregaria durante o atraso de até 2 s — medido:
-        # 22 cm em 0.5 s com ação nula — e o episódio já nasceria perdido.
-        segurando = torch.tensor(T.SPAWN_SEGURANDO, device=self.device)
-        nasce_segurando = (tarefa.unsqueeze(-1) == segurando).any(dim=-1)
-        self._ativa[env_ids] = torch.where(
-            nasce_segurando,
-            torch.full_like(tarefa, T.PARADO_CAIXA),
-            torch.full_like(tarefa, T.PARADO),
-        )
-        self._pre_gatilho[env_ids] = self._ativa[env_ids]
+        # A tarefa sorteada entra ATIVA já no passo 0 (S8). O atraso de gatilho saiu.
+        #
+        # Ele existia para dar um transiente de comando: o episódio começava em
+        # `parado` (ou `parado c/ caixa` para quem nasce segurando) por até 2 s, e só
+        # então a tarefa real entrava. O pré-gatilho distinto era necessário porque a
+        # caixa escorrega 22 cm em 0.5 s com ação nula, e sem ele o episódio das três
+        # tarefas de `SPAWN_SEGURANDO` já nascia perdido.
+        #
+        # ⚠️ **O desenho fica SEM treino de transiente de comando nesta rodada, e isso
+        # é conhecido.** O substituto correto é a troca de tarefa no meio do episódio,
+        # que está adiada de propósito — ver FORA DE ESCOPO da spec. Não implementar
+        # aqui.
+        #
+        # Ganho de lado: o atraso consumia até 2 s dos 20 s. As células duras
+        # recuperam esse tempo.
+        self._ativa[env_ids] = tarefa
 
-        self._atraso[env_ids] = torch.empty(n, device=self.device).uniform_(
-            *self.cfg.atraso_gatilho_s)
-        self._t[env_ids] = 0.0
-
-        # distância e heading do destino: níveis, sem pose ainda
+        # distância e rumo do destino: níveis, sem pose ainda
         self._dist[env_ids] = self._distancia_nivel(tarefa, env_ids)
-        self._head[env_ids] = self._heading_nivel(tarefa, env_ids)
+        self._head[env_ids] = self._rumo_nivel(tarefa, env_ids)
 
         # ORIENTAÇÃO (só o `reorientar` usa). Nível 0-3 = giro em torno de z sobre
         # uma face LATERAL; nível 4 = topo/fundo, salto qualitativo que exige a mão.
@@ -270,19 +272,19 @@ class LiftTargetCommand(CommandTerm):
         self._pendente[ids] = False
 
     def _distancia_nivel(self, tarefa: torch.Tensor, env_ids: torch.Tensor):
-        idx = _nivel(self._env, "distancia", tarefa, env_ids)
-        niveis = torch.tensor(T.LEVELS["distancia"], device=self.device)
-        d = niveis[idx.clamp(max=len(T.LEVELS["distancia"]) - 1)]
+        idx = _nivel(self._env, "distancia_andar", tarefa, env_ids)
+        niveis = torch.tensor(T.LEVELS["distancia_andar"], device=self.device)
+        d = niveis[idx.clamp(max=len(T.LEVELS["distancia_andar"]) - 1)]
         # só as tarefas que ANDAM têm destino deslocado; as outras miram caixa/prateleira
         anda = torch.zeros_like(d, dtype=torch.bool)
         for t in T.ANDA:
             anda |= tarefa == t
         return torch.where(anda, d, torch.zeros_like(d))
 
-    def _heading_nivel(self, tarefa: torch.Tensor, env_ids: torch.Tensor):
-        idx = _nivel(self._env, "heading", tarefa, env_ids)
-        graus = torch.tensor(T.LEVELS["heading"], device=self.device)[
-            idx.clamp(max=len(T.LEVELS["heading"]) - 1)]
+    def _rumo_nivel(self, tarefa: torch.Tensor, env_ids: torch.Tensor):
+        idx = _nivel(self._env, "rumo", tarefa, env_ids)
+        graus = torch.tensor(T.LEVELS["rumo"], device=self.device)[
+            idx.clamp(max=len(T.LEVELS["rumo"]) - 1)]
         meio = torch.deg2rad(graus) / 2.0
         return (torch.rand(len(tarefa), device=self.device) * 2.0 - 1.0) * meio
 
@@ -291,10 +293,9 @@ class LiftTargetCommand(CommandTerm):
         """Reavalia `alvo_pos` a cada passo pela regra da tarefa (F5)."""
         self._resolver()
         self._t += self._env.step_dt
-        disparou = self._t >= self._atraso
-        self._disparou.copy_(disparou)
+        # S8: sem atraso de gatilho, a ativa é a sorteada desde o passo 0.
         # in-place: `env.active_task` guarda a REFERÊNCIA a este tensor
-        self._ativa.copy_(torch.where(disparou, self._sorteada, self._pre_gatilho))
+        self._ativa.copy_(self._sorteada)
         tarefa = self._ativa
 
         one = torch.zeros(self.num_envs, T.ONEHOT_DIM, device=self.device)
@@ -374,6 +375,27 @@ class LiftTargetCommand(CommandTerm):
         self._resolver()
         return (self.box.data.root_link_pos_w[:, :2] - self._spawn_xy).norm(dim=-1)
 
+    def erro_rumo_deg(self) -> torch.Tensor:
+        """Erro entre o yaw do robô e o RUMO do destino sorteado, em graus. [B]
+
+        Serve ao `alinhado` do critério de sucesso do `andar` (S6). O rumo é
+        `self._head`, o ângulo com que o destino foi posto em relação ao spawn — e não
+        a direção instantânea robô->alvo.
+
+        ⚠️ A diferença importa exatamente onde o critério é avaliado. A direção
+        instantânea fica INDEFINIDA quando o robô chega em cima do alvo (o vetor vai a
+        zero e o `atan2` devolve ruído), que é justamente o momento em que o
+        `alinhado` precisa valer. O rumo sorteado é constante no episódio e não tem
+        essa singularidade.
+
+        Acessor público de propósito: o `metrics.py` lendo `_head` seria acoplamento a
+        atributo privado de command term — o mesmo que o `dentro_do_morto` evita."""
+        self._resolver()
+        erro = self.robot.data.heading_w - self._head
+        # embrulha em [−π, π]: sem isso, 350° de erro leria como 350 em vez de −10
+        erro = torch.atan2(torch.sin(erro), torch.cos(erro))
+        return erro.abs() * (180.0 / torch.pi)
+
     def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
         """Esfera no destino + seta da direção alvo — este é o gizmo do item 6.
 
@@ -402,7 +424,6 @@ class LiftTargetCommandCfg(CommandTermCfg):
     table_name: str = "table"
     box_half_z: float = 0.10
     shelf_half_z: float = 0.02
-    atraso_gatilho_s: tuple[float, float] = (0.0, 2.0)
 
     @dataclass
     class VizCfg:
@@ -415,6 +436,17 @@ class LiftTargetCommandCfg(CommandTermCfg):
         return LiftTargetCommand(self, env)
 
 
+def _quintica(u: torch.Tensor) -> torch.Tensor:
+    """Interpolação quíntica `s(u) = 10u³ − 15u⁴ + 6u⁵`, com `u` em [0, 1].
+
+    `s(0) = 0`, `s(1) = 1`, e a primeira e a segunda derivadas são NULAS nas duas
+    pontas. É isso que ela traz: o perfil de frenagem deixa de ter joelho na entrada e
+    na saída da banda. Uma rampa linear tem derivada descontínua nos dois extremos, e
+    o robô sente isso como degrau de aceleração."""
+    u2 = u * u
+    return u2 * u * (10.0 - 15.0 * u + 6.0 * u2)
+
+
 class DesiredTwistCommand(CommandTerm):
     """`[vx, vy, ωz]` derivado do destino. NÃO vai na obs do ator.
 
@@ -422,10 +454,43 @@ class DesiredTwistCommand(CommandTerm):
     nenhuma: elas leem `command[:, :2]` e `command[:, 2]` do termo que recebem por
     nome, e o nome aqui é `"twist"` — o mesmo do cfg de velocity.
 
-    Perfil (§14/F6): fora do `d_freio` vai a `v_max`; entre `d_morto` e `d_freio`
-    faz rampa linear; dentro do `d_morto` vai a zero. O `d_morto` é 0.25 m nas
-    tarefas que andam (é o R de chegada) e 0.30 m na manipulação (`alvo_peito_b[0]`
-    + 0.10), porque manipular exige parar mais longe do que chegar."""
+    --------------------------------------------------------------------------
+    PERFIL DE DUAS FASES (S5)
+    --------------------------------------------------------------------------
+
+    O robô GIRA e depois ANDA. As duas fases não são uma máquina de estados; elas
+    emergem de um fator contínuo:
+
+        fase 1   `v` ≈ 0, `w` do erro de rumo      até o robô apontar para o alvo
+        fase 2   `v` do perfil de distância        até `chegou` travar
+
+    Não existe fase 3. O alvo de orientação **é** o rumo, portanto ao chegar andando
+    para frente o robô já está alinhado.
+
+    **A trava do `v` é contínua, e isso é essencial.** `v = v_perfil · clamp(cos(erro))`.
+    ⚠️ Uma trava dura (`if erro < 10°`) devolve o degrau que a rampa existe para
+    remover, e com frequência alta: ela abre em 10°, o robô anda, andar perturba o
+    rumo, o erro sobe para 12°, `v` cai a zero de golpe, o robô para, o erro cai, e a
+    trava abre outra vez.
+
+    **Ordem dos estágios: fase -> trava -> rampa.** A rampa é o ÚLTIMO estágio. Se ela
+    viesse antes da trava, não filtraria o degrau que a trava produz.
+
+    **`vy` é sempre zero.** O perfil manda o robô girar para apontar, e depois andar
+    para frente. Consequência declarada: o ator não treina marcha lateral nesta rodada.
+
+    **Duas peças de suavização, para dois problemas diferentes:**
+
+      - a quíntica age sobre a DISTÂNCIA, e tira o joelho do perfil de frenagem;
+      - o limitador de taxa age sobre o TEMPO, e garante o teto de `a_max` / `alpha_max`
+        nas transições de fase e no passo 0.
+
+    ⚠️ O passo 0 é o caso que motiva o limitador. No reset o alvo está além de
+    `d_morto + d_freio`, portanto o perfil pede `v_max` já no primeiro passo — um
+    degrau. Ali o erro de rastreio é máximo, e o gradiente diz "acelere mais forte".
+
+    O `d_morto` é 0.05 m nas tarefas que andam e 0.30 m na manipulação
+    (`alvo_peito_b[0]` + 0.10), porque manipular exige parar mais longe do que chegar."""
 
     cfg: "DesiredTwistCommandCfg"
 
@@ -436,12 +501,39 @@ class DesiredTwistCommand(CommandTerm):
         self._dentro = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
         self.metrics["v_comandada"] = torch.zeros(self.num_envs, device=self.device)
 
+        # Estado do limitador de taxa. É por-env e por-episódio: zera no reset, senão
+        # o primeiro passo do episódio novo herda a velocidade do episódio anterior.
+        self._v_ant = torch.zeros(self.num_envs, device=self.device)
+        self._w_ant = torch.zeros(self.num_envs, device=self.device)
+
+        # A banda de frenagem NÃO é número livre: ela é `v²/2a`, a distância que o robô
+        # precisa para parar de `v_max` com `a_max`. O assert amarra os três, para o
+        # valor não voltar a ficar órfão como o 0.50 antigo ficou quando o `v_max` caiu
+        # de 1.0 para 0.5.
+        esperado = cfg.v_max ** 2 / (2.0 * cfg.a_max)
+        assert abs(cfg.d_freio_extra - esperado) < 1e-6, (
+            f"d_freio_extra={cfg.d_freio_extra} não bate com v_max²/2·a_max="
+            f"{esperado:.4f}. Mudou `v_max` ou `a_max`? Recalcule a banda.")
+        # Banda angular pela mesma conta: `w²/2α = 1.2²/6 = 0.24 rad = 13.8°`.
+        self._banda_ang = cfg.w_max ** 2 / (2.0 * cfg.alpha_max)
+
+        # S14: a inclinação de `v_max` por kg é DERIVADA das pontas do eixo de peso,
+        # não digitada. Com (0.50 − 0.25) / (5 − 1) ela dá os 0.0625 m/s por kg da
+        # spec, e continua correta se o eixo de peso mudar de extremo.
+        self._peso_min = float(T.LEVELS["peso"][0])
+        _span = float(T.LEVELS["peso"][-1]) - self._peso_min
+        self._inclinacao_carga = ((cfg.v_max - cfg.v_max_carga_cheia) / _span
+                                  if _span > 0 else 0.0)
+
     @property
     def command(self) -> torch.Tensor:
         return self._command
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
-        pass  # derivado: não sorteia nada, recalcula todo passo
+        # Derivado: não sorteia nada. Só zera o estado do limitador, porque o episódio
+        # novo começa parado.
+        self._v_ant[env_ids] = 0.0
+        self._w_ant[env_ids] = 0.0
 
     def _update_command(self) -> None:
         alvo_cmd = self._env.command_manager.get_term(self.cfg.meta_name)
@@ -458,19 +550,64 @@ class DesiredTwistCommand(CommandTerm):
         for t in T.ANDA:
             anda |= tarefa == t
         d_morto = torch.where(anda, self.cfg.d_morto_andar, self.cfg.d_morto_manipula)
-        d_freio = d_morto + self.cfg.d_freio_extra
         self._dentro.copy_(d <= d_morto)
+        erro_rumo = torch.atan2(delta_b[:, 1], delta_b[:, 0])
 
-        # rampa: 0 no d_morto, 1 no d_freio, saturada em 1 acima dele
-        rampa = ((d - d_morto) / (d_freio - d_morto)).clamp(0.0, 1.0)
-        v = self.cfg.v_max * rampa
-        direcao = delta_b[:, :2] / d.clamp(min=1e-6).unsqueeze(-1)
-        self._command[:, :2] = direcao * v.unsqueeze(-1)
+        # --- estágio 0: velocidade máxima POR CARGA (S14) ---
+        # Cai linearmente de `v_max` (1 kg) a `v_max_carga_cheia` (5 kg). A massa vem
+        # do `payload_por_nivel`, que a sorteia em `U(1, peso(nível))`.
+        #
+        # ⚠️ Ligada à massa SORTEADA, não ao nível: pelo nível, um env que tirou 1.2 kg
+        # andaria à velocidade de 5 kg.
+        #
+        # ⚠️ A banda de frenagem acompanha. Ela é `v²/2a`, portanto derivá-la do
+        # `v_max` NOMINAL deixaria a carga pesada com banda longa demais — o robô
+        # começaria a frear meio metro cedo.
+        peso = getattr(self._env, "peso_amostrado", None)
+        if peso is None:
+            v_max = torch.full_like(d, self.cfg.v_max)
+        else:
+            v_max = (self.cfg.v_max - (peso - self._peso_min) * self._inclinacao_carga
+                     ).clamp(min=self.cfg.v_max_carga_cheia)
+        banda = (v_max ** 2 / (2.0 * self.cfg.a_max)).clamp(min=1e-4)
 
-        # heading: encara o destino enquanto está longe; dentro do d_morto para
-        alvo_yaw = torch.atan2(delta_b[:, 1], delta_b[:, 0])
-        w = (self.cfg.heading_gain * alvo_yaw).clamp(-self.cfg.w_max, self.cfg.w_max)
-        self._command[:, 2] = torch.where(d > d_morto, w, torch.zeros_like(w))
+        # --- estágio 1: FASE. Perfil de distância, suavizado pela quíntica. ---
+        rampa = ((d - d_morto) / banda).clamp(0.0, 1.0)
+        v_alvo = v_max * _quintica(rampa)
+
+        # --- estágio 2: TRAVA. Fator contínuo, nunca limiar. ---
+        # cos(180°) = −1 -> clamp -> 0: parado de costas para o alvo, gira sem andar.
+        # cos(0°) = 1: alinhado, anda à velocidade cheia do perfil.
+        v_alvo = v_alvo * torch.cos(erro_rumo).clamp(0.0, 1.0)
+        v_alvo = torch.where(self._dentro, torch.zeros_like(v_alvo), v_alvo)
+
+        # perfil angular: mesma forma do linear, com a banda derivada de w²/2α
+        mag = erro_rumo.abs()
+        rampa_ang = ((mag - self.cfg.morto_angular_rad) / self._banda_ang).clamp(0.0, 1.0)
+        w_alvo = torch.sign(erro_rumo) * self.cfg.w_max * _quintica(rampa_ang)
+        w_alvo = torch.where(self._dentro, torch.zeros_like(w_alvo), w_alvo)
+
+        # --- estágio 3: RAMPA. Limitador de taxa, o último estágio. ---
+        dt = self._env.step_dt
+        dv = (v_alvo - self._v_ant).clamp(-self.cfg.a_max * dt, self.cfg.a_max * dt)
+        dw = (w_alvo - self._w_ant).clamp(
+            -self.cfg.alpha_max * dt, self.cfg.alpha_max * dt)
+        v = self._v_ant + dv
+        w = self._w_ant + dw
+
+        # Dentro do morto o zero é EXATO, e não "quase". O limitador não precisa segurar
+        # nada aqui: a quíntica já levou o perfil a zero de forma contínua ao chegar em
+        # `d_morto`, então o degrau só apareceria se o robô violasse o próprio perfil —
+        # e nesse caso parar é o comportamento certo.
+        v = torch.where(self._dentro, torch.zeros_like(v), v)
+        w = torch.where(self._dentro, torch.zeros_like(w), w)
+        self._v_ant.copy_(v)
+        self._w_ant.copy_(w)
+
+        # `vy` é sempre zero: o perfil gira para apontar e anda para frente.
+        self._command[:, 0] = v
+        self._command[:, 1] = 0.0
+        self._command[:, 2] = w
 
     def _update_metrics(self) -> None:
         passos = self.cfg.resampling_time_range[1] / self._env.step_dt
@@ -489,12 +626,18 @@ class DesiredTwistCommand(CommandTerm):
 @dataclass(kw_only=True)
 class DesiredTwistCommandCfg(CommandTermCfg):
     meta_name: str = "lift_target"
-    v_max: float = 1.0
-    w_max: float = 0.5
-    heading_gain: float = 0.5
-    d_morto_andar: float = 0.25
+    # Os defaults espelham `knobs.Command` (S5). Quem constrói o termo é o `env.py`, e
+    # ele passa os valores de lá; estes só valem se alguém instanciar o cfg na mão.
+    v_max: float = 0.5
+    a_max: float = 1.0
+    w_max: float = 1.2
+    alpha_max: float = 3.0
+    heading_gain: float = 0.5           # sem uso desde a S5; ver `knobs.Command`
+    d_morto_andar: float = 0.05
     d_morto_manipula: float = 0.30
-    d_freio_extra: float = 0.50
+    d_freio_extra: float = 0.125        # = v_max²/2·a_max, afirmado por assert
+    v_max_carga_cheia: float = 0.25     # S14 — v_max com 5 kg
+    morto_angular_rad: float = 0.087
 
     def build(self, env: "ManagerBasedRlEnv") -> DesiredTwistCommand:
         return DesiredTwistCommand(self, env)
