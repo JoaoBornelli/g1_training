@@ -81,22 +81,26 @@ LOCOMOÇÃO
   └─ locomover              velocidade: 1,0 / 1,5 / 2,0
 
 MANIPULAÇÃO                 comando zero
-  ├─ pegar                  altura · peso
-  ├─ botar                  altura · peso
-  └─ reorientar             giro · altura
+  ├─ pegar                  altura
+  ├─ botar                  altura
+  └─ reorientar             giro
 
 LOCO-MANIPULAÇÃO
-  └─ locomover_carregando   velocidade · peso
+  └─ locomover_carregando   velocidade
 ```
+
+**Um eixo por tarefa.** A versão de 07/08 desta tabela dava dois eixos a quatro
+tarefas. O segundo eixo era o `peso`, e ele deixou de ser eixo — ver a §9.
 
 | origem | destravamentos |
 |---|---|
-| `locomover` | 4 |
-| `pegar` | 11 |
-| `locomover_carregando` | 7 |
-| `reorientar` | 10 |
-| `botar` | 10 |
-| **total** | **42** |
+| `locomover` | 2 |
+| `pegar` | 6 |
+| `reorientar` | 4 |
+| `locomover_carregando` | 2 |
+| `botar` | 6 |
+| aberturas de tarefa | 4 |
+| **total** | **24** |
 
 ## 4. As recompensas
 
@@ -172,15 +176,25 @@ Entra o `UniformVelocityCommandCfg` do mjlab.
 | `lin_vel_x`, `lin_vel_y` | `(-1, 1)` |
 | `ang_vel_z` | `(-0.5, 0.5)` |
 | `resampling_time_range` | `(3, 8)` |
-| `rel_standing_envs` | `0,1` |
+| `rel_standing_envs` | `0,1` — **dividido**: 0,05 parado, 0,05 giro parado |
 | `rel_heading_envs` | `0,3` |
 | `rel_forward_envs` | `0,2` |
+| `heading_command` | `True` |
+| `ranges.heading` | `(−π, π)` |
+| `heading_control_stiffness` | `0,5` |
 
 O comando é `[vx, vy, ωz]`. O terceiro campo é taxa de guinada. Ele não é orientação.
 
 O `0` não é nível da escada. Ele é `rel_standing_envs`, presente em todos os níveis.
 
 O sorteio é contínuo dentro do teto. Ele não escolhe entre cinco valores discretos.
+
+⚠️ **O sorteio contínuo vale para 70% dos envs.** Os três campos `heading_command`,
+`ranges.heading` e `heading_control_stiffness` faltavam nesta tabela, e sem eles o
+`rel_heading_envs` fica inerte em silêncio: o `is_heading_env` só é escrito dentro do
+`if self.cfg.heading_command` (`velocity_command.py:80-84`). Com eles ligados, nos 30%
+de envs de heading o `ωz` **não é sorteado** — ele é `clip(0,5 × erro_de_rumo, ±0,5)`,
+recalculado a cada passo.
 
 Uma subclasse zera o comando nas três tarefas de manipulação.
 
@@ -291,62 +305,123 @@ agachamento. Decisão do dono do experimento, com base em observação no `play`
 
 ## 9. Os desbloqueios
 
-### O grafo
+O currículo FICA. As opções "mjlab puro" e "medir sem destravar" foram descartadas. A
+razão é do dono do experimento: o robô não aprende as tarefas por exploração, e ele
+precisa de base.
+
+O que muda é a estrutura. Ela fica mais simples.
+
+### O grafo — quatro camadas
 
 ```
-locomover  (nasce aberta)
-   ├──> pegar
-   │      └──> locomover_carregando
-   │                 └──> botar
-   └──> reorientar
+1  locomover                        (nasce aberta)
+2  pegar        reorientar          abrem JUNTOS
+3  locomover_carregando             pais: pegar E reorientar
+4  botar                            pai: locomover_carregando
 ```
 
-### Quando um destravamento acontece
+A ordem tem razão física. O `reorientar` exige aproximar, tocar e aplicar força. O
+`pegar` exige tudo isso, mais força normal suficiente e mais erguer.
 
-O orquestrador roda a cada reset. Ele percorre as tarefas abertas. Três condições valem
-para cada uma.
+O grafo é declarado por PAIS, e não por FILHOS:
 
-| # | condição | valor | código |
-|---|---|---|---|
-| 1 | episódios desde o último evento **daquela tarefa** | ≥ 200 | `curriculum.py:477` |
-| 2 | nenhuma célula da tarefa está congelada | — | `curriculum.py:480` |
-| 3 | `_min_tarefa(t)` ≥ limiar | 0,90 | `curriculum.py:482` |
+```python
+PAIS = {
+    locomover:            (),
+    pegar:                (locomover,),
+    reorientar:           (locomover,),
+    locomover_carregando: (pegar, reorientar),      # junção AND
+    botar:                (locomover_carregando,),
+}
+```
 
-O `_min_tarefa(t)` é o mínimo sobre **todos os níveis já abertos de todos os eixos** da
-tarefa. A EMA usa `alpha = 0,03`.
+O `pegar` e o `reorientar` têm o mesmo pai, então abrem no mesmo evento. Isso substitui
+a regra F9 de "um filho por evento".
 
-A tarefa destrava quando o pior nível aberto dela chega a 0,90.
+### A regra do evento
 
-A condição 1 conta **episódios daquela tarefa**, não iterações. O `_medir` soma quantos
-envs da tarefa terminaram naquele reset (`curriculum.py:248`). O contador zera no evento
-(`curriculum.py:504`). A função dele é impedir destravamento por ruído.
+```
+evento da tarefa T:
+    condição:  episódios(T) ≥ 200  E  perf[T][topo] ≥ 0,90
 
-A condição 1 não limita na prática. Com 4 096 envs, 200 episódios de uma tarefa passam em
-poucas iterações. O portão que limita é o 0,90.
+    ação 1:    se a DR de peso de T ainda está fechada:  abre a DR
+               senão:                                    abertos[T] += 1
 
-O congelamento tem histerese. Uma queda maior que 0,10 contra a referência lenta congela.
-Uma volta a menos de 0,05 descongela.
+    ação 2:    para cada F que tem T entre os pais:
+                   se TODO pai P de F tem eventos[P] ≥ 1:  abre F no nível 0
+```
 
-### O que destrava, em que ordem
+As duas ações rodam no MESMO evento. A tarefa nova começa no nível 0 enquanto a tarefa
+mãe avança. Nada serializa.
 
-O `_destravar` segue uma prioridade fixa.
+O portão do filho é `eventos[P] ≥ 1`. Ele é um inteiro por tarefa, monotônico. O
+primeiro evento de uma tarefa dispara exatamente quando ela chega a 0,90 na configuração
+mais fácil dela.
 
-1. **Tarefa nova primeiro.** Se a tarefa tem filho fechado, ele abre. O eixo espera.
-2. **Depois, um eixo.** O código escolhe o eixo com maior folga, ou seja, o de melhor
-   competência mínima. O empate cai em round-robin sobre `AXIS_ORDER`.
+⚠️ O portão do filho nunca olha nível difícil. A cadeia não trava atrás de um nível duro.
 
-Um destravamento por evento, por tarefa. Duas tarefas podem destravar na mesma chamada.
+### O peso não é eixo. São dois níveis de DR
 
-### A sequência do `locomover`
-
-| ordem | o que abre |
+| nível de DR | massa da caixa |
 |---|---|
-| 1 | tarefa `pegar` |
-| 2 | tarefa `reorientar` |
-| 3 | velocidade n1 (teto 1,5) |
-| 4 | velocidade n2 (teto 2,0) |
+| 0 | 1 kg fixo |
+| 1 | `U(1, 5)` kg |
 
-O `pegar` abre com teto de velocidade 1,0. Ele não espera o robô correr a 2,0 m/s.
+**O sucesso não é atrelado ao peso.** O critério é "fez o que tinha que fazer", qualquer
+que seja a massa.
+
+Portanto o peso não tem célula, não tem EMA e não tem portão próprio. Ele é um booleano
+por tarefa, dentro do `state_dict`, que a DR lê.
+
+O booleano vira `True` no PRIMEIRO evento da tarefa. É a ação 1 acima. A tarefa nunca
+recebe as duas dificuldades no mesmo passo: o 1º evento alarga a carga, o 2º avança o
+eixo específico.
+
+O objetivo declarado é ensinar o nível fácil antes de entregar a tarefa completa.
+
+⚠️ Depois do alargamento, `perf[(t, eixo)][k]` é a taxa de sucesso marginalizada sobre a
+faixa de carga. Isso é aceito, e não é o travamento de 06/08. Aquele vinha de
+marginalizar sobre um EIXO que ficava progressivamente mais difícil, com o PLR dando 30%
+ao pior nível. Aqui a distribuição para de se mover depois do alargamento, e a política
+converge contra ela. O portão de 0,90 passa a significar "0,90 sobre a faixa inteira de
+carga", que é a tarefa real.
+
+⚠️ É PESO, não INÉRCIA. O `dr.body_mass` corrompe a heap, então a carga é força externa
+em −z. A caixa de 5 kg tem inércia de 1 kg. A DR randomiza carga ESTÁTICA.
+
+### O portão
+
+| # | condição | valor |
+|---|---|---|
+| 1 | episódios desde o último evento daquela tarefa | ≥ 200 |
+| 2 | `perf[T][topo]` ≥ limiar | 0,90 |
+
+A EMA usa `alpha = 0,03`. A condição 1 conta episódios daquela tarefa, não iterações, e
+existe para impedir destravamento por ruído.
+
+O gate lê o **nível corrente**, e não o `_min_tarefa` (mínimo sobre todos os níveis
+abertos). Consequência: o eixo avança mesmo se um nível anterior regrediu. O piso `ρ/L`
+continua sorteando os níveis antigos, então a regressão aparece no log. Ela vira
+observabilidade, não portão.
+
+### O que sai do orquestrador
+
+| some | por quê |
+|---|---|
+| `FILHOS` e a prioridade 1 do `_destravar` | viram `PAIS` mais o teste AND |
+| a regra F9 "um filho por evento" | os filhos abrem juntos |
+| `AXIS_ORDER`, `self.rr` e o round-robin | um eixo por tarefa, nada a desempatar |
+| `_min_tarefa`, `_min_cel`, `_push_competente` | o gate vira `perf[T][topo]` |
+| o condicionamento do `_medir` | não há outro eixo para condicionar |
+| o congelamento: `ref`, `congelado`, `congela_queda`, `descongela` | ele bloqueava a abertura do filho, e a referência já é EMA lenta desde a S3 |
+| a célula `(PARADO, PUSH)` e o eixo `push` | o push vira evento fixo |
+| os eixos `rumo`, `distancia_andar` e `peso` | o comando é sorteado; o peso vira DR |
+| `sim_curriculo.py`, 472 linhas | a ordem cabe no bloco da regra do evento |
+
+### O que fica
+
+O sorteio de tarefa. O PLR com piso `ρ/L`. A EMA por célula. O portão 0,90. O gate de
+200 episódios. O `state_dict`.
 
 ## 10. Mudanças de 07/08
 
@@ -424,22 +499,119 @@ caixa→peito (`gate_std = 0,25`). Sem ele o `box_at_peito` fica com escala úni
 Isso importa no `locomover_carregando`, que não é alcançado nesta run. O `pegar` tem
 gradiente contínuo pelo `lift` e pelo `reaching`.
 
+## 10b. Limpeza de 07/08 — segunda passada
+
+Enquadramento novo do dono do experimento: ele reescreve o treino quase inteiro, e
+reaproveita só algumas peças. Seis decisões fecharam nesta passada.
+
+### `d_morto` sai inteiro, e o freio de z vai junto
+
+O `d_morto` tem dois papéis. O papel A gera o comando (`v = 0` dentro do raio). Ele
+morre com o `DesiredTwistCommand`.
+
+O papel B abre o freio de z do `track_linear_velocity_freio_z`. Ele **já é inerte onde
+importa**: o `env.py:430` gateia o termo em `(PARADO, ANDAR, ANDAR_CAIXA,
+PARADO_CAIXA)`, e o `pegar` está fora. Agachar acontece só no `pegar`.
+
+Consequência: volta o `vel_mdp.track_linear_velocity` do fabricante, sem cópia.
+**Nenhum `command_threshold` substituto é necessário.**
+
+### `rumo` sai
+
+Saem junto o `erro_rumo_deg`, o `alinhado` e o `heading_gain`. O `ωz` é o único
+mecanismo de giro.
+
+### `fora_da_area` sai
+
+Com comando sorteado, ela reprova o rastreio bom. Uma janela de 1 m/s por 5 s já cobre
+os 5 m do raio, e ela é `time_out=False` — custa −4,0 e zera o `não_caiu`.
+
+O `unitree_g1_flat_env_cfg` remove o `out_of_terrain_bounds` (`env_cfgs.py:209`). No
+plano, o fabricante não termina por distância. O `nonfinite` cobre deriva
+descontrolada.
+
+### Giro parado ENTRA, com piso 0,15
+
+O giro parado é o comando `vx = 0`, `vy = 0`, `ωz ≠ 0`.
+
+| fato medido | valor |
+|---|---|
+| chance de o sorteio produzi-lo sozinho | 0,05 × 0,05 = **0,25%** |
+| gate dos quatro termos de marcha | `‖cmd_xy‖ + \|ωz\| > 0,05` |
+| sorteios de `ωz` abaixo de 0,05 | 10% |
+| piso adotado | **0,15** |
+
+O `ωz` **conta** no gate dos quatro termos de marcha (`velocity/mdp/rewards.py:233`,
+`:263`, `:306`, `:338`, `:377`). Portanto o robô que gira parado continua pagando
+`foot_clearance`, `foot_swing_height`, `feet_slip` e `soft_landing`. Esses quatro
+termos não precisam de mudança.
+
+O piso é obrigatório. Sem ele, 10% dos envs de giro ficam com o gate fechado e sem
+sinal de tarefa nenhum.
+
+O piso 0,15 é derivado, não digitado: o `rel_forward_envs` trava `lin_vel_x ≥ 0,3` num
+teto de 1,0, ou seja 30% do teto. Trinta por cento do teto de `ωz` (0,5) dá 0,15.
+
+A fração sai do `rel_standing_envs`, e não de uma fração nova. O regime parado é o mais
+simples dos três, e reduzi-lo custa menos que reduzir dado de marcha.
+
+⚠️ Armadilha de implementação: o `_update_command` zera o `is_standing_env` a cada
+passo (`velocity_command.py:136`). Os envs de giro têm de sair dessa máscara.
+
+### `heading_command` fica LIGADO
+
+Ele é nativo do mjlab e já vem ligado na task que o fabricante entrega para o G1.
+
+| item | onde |
+|---|---|
+| campo `heading_command` | `velocity_command.py:283` |
+| `heading_command=True` | `velocity_env_cfg.py:184` |
+| `rel_heading_envs=0.3` | `velocity_env_cfg.py:182` |
+| `heading=(-π, π)` | `velocity_env_cfg.py:191` |
+| override no g1 flat | nenhum |
+
+O ganho é 0,5 e o teto é 0,5, portanto o `ωz` satura quando o erro passa de 1,0 rad
+(57°). O `heading_target` sai de `U(−π, π)`, então em 68% dos sorteios o erro inicial
+passa de 1,0 rad. O env começa saturado, e o `ωz` decai a zero conforme o robô gira.
+
+O modo sorteado nunca produz essa trajetória. Ele pede taxa constante, e nunca pede
+"pare de girar nesta orientação".
+
+⚠️ **Isto não é o ciclo que travou o `andar`.** O ciclo antigo era
+`v_alvo *= cos(erro_rumo)`: sem giro, o comando ia a zero. O heading tem o sinal
+contrário — sem giro, o erro permanece grande e o `ωz` permanece no teto. A ordem
+satura em vez de desaparecer.
+
+**Interação com o giro parado.** A ordem de execução é resample → heading → zeramento
+do standing. O heading sobrescreve o `ωz` do piso. O resultado é "gire parado até
+apontar para X, depois pare" — que é o caso de uso da navegação que motivou o giro
+parado.
+
 ## 11. Decisões em aberto
 
-### `exige_grasp` no `locomover_carregando`
+### ~~`exige_grasp` no `locomover_carregando`~~ — DECIDIDO 07/08
 
-O gate quebra a simetria com o `locomover`. Sem ele, a tarefa fica literalmente
-`locomover` mais `box_at_peito` e `hold_still`.
+**O `exige_grasp` fica LIGADO.** O `locomover_carregando` exige preensão: os pads das
+duas palmas tocando a caixa.
 
-O `largou` só encerra o episódio quando a caixa cai abaixo de 0,30 m. Existe um estado
-intermediário: segurar a caixa mal, a 0,40 m, e andar.
+Isso é exatamente o que o `_grasp` mede
+(`g1_training/skills/lift/rewards.py`): as duas palmas em contato E nenhum verso em
+contato. Não há limiar de força. O spawn `SPAWN_SEGURANDO` já nasce com `_grasp = 1`,
+então o gate não é obstáculo de aquisição — ele é pressão para não largar.
 
-| desenho | perder a preensão custa | fator |
-|---|---|---|
-| com `exige_grasp` | 4,0 de rastreio + `box_at_peito` | 0,727 |
-| sem `exige_grasp` | só `box_at_peito` | 2,667 |
+O que a decisão fecha: os dois termos de rastreio são multiplicados pela preensão nesta
+tarefa. Largar a caixa custa **4,0 de rastreio mais o `box_at_peito`**.
 
-Simetria contra pressão de preensão. Não decidido.
+O buraco que ela tapa: o `largou` só encerra o episódio quando a caixa cai abaixo de
+0,30 m. Existia o estado intermediário de segurar mal, a 0,40 m, e andar. Sem o gate, esse
+estado paga o rastreio inteiro.
+
+O fator de orçamento não muda com a decisão. O `_equaliza_orcamento` soma pesos de termo,
+e o `exige_grasp` é multiplicador de runtime. Com o `hold_still` fora (§10), os termos
+próprios somam `2,0 + 2,0 + 1,0 = 5,0`, e o fator continua **0,800**, como a §4 registra.
+
+⚠️ A simetria com o `locomover` quebra de propósito. As duas tarefas partilham os dois
+termos de rastreio, e só nesta eles dependem da preensão.
 
 ### Escopo da postura na manipulação
 
@@ -452,14 +624,22 @@ As três tarefas de manipulação não têm escopo definido. Não decidido.
 
 | arquivo | remoções |
 |---|---|
-| `commands.py` | `DesiredTwistCommand` inteiro |
-| `tasks.py` | `distancia_andar`, `rumo`, `push`; `hold_still` de `TERMOS_DE_TAREFA`; tarefas `PARADO`, `ANDAR`, `PARADO_CAIXA`, `ANDAR_CAIXA` |
+| `commands.py` | `DesiredTwistCommand` inteiro; `_quintica`; `erro_rumo_deg` do `LiftTargetCommand` |
+| `rewards.py` | `track_linear_velocity_freio_z` — volta o termo do fabricante |
+| `terminations.py` | `fora_da_area` |
+| `tasks.py` | eixos `distancia_andar`, `rumo` e `push`; `AXIS_ORDER`; `peso` sai de `T.AXES` — a tabela de 2 valores dele fica, porque é a DR; `hold_still` de `TERMOS_DE_TAREFA`; tarefas `PARADO`, `ANDAR`, `PARADO_CAIXA`, `ANDAR_CAIXA` |
 | `metrics.py` | `chegou_andar`, `alinhado`, `chegou`, `sustenta_andar_s`, `de_pé` na locomoção |
-| `curriculum.py` | célula de push e as funções dela |
-| `env.py` | dois dos quatro termos de postura; `arm_vel`; `hold_still` |
-| `knobs.py` | `v_max`, `v_max_carga_cheia`, `a_max`, `w_max`, `alpha_max`, `d_morto_andar`, `morto_angular_rad`, `andar_raio`, `andar_raio_chega`, `heading_gain`, `arm_vel`, `hold_still` |
+| `curriculum.py` | célula de push e as funções dela; `FILHOS` e a prioridade 1 do `_destravar`; `self.rr` e o round-robin; `_min_tarefa`, `_min_cel`, `_push_competente`; o condicionamento do `_medir`; o congelamento (`ref`, `congelado`, `_congelamento`) |
+| `sim_curriculo.py` | o arquivo inteiro, 472 linhas |
+| `events.py` | `payload_por_nivel` vira `payload_dr` — o teto sai do booleano, não de `env.nivel["peso"]` |
+| `env.py` | dois dos quatro termos de postura; `arm_vel`; `hold_still`; o override de `track_linear_velocity.func`; o registro da terminação `fora_da_area` |
+| `knobs.py` | `v_max`, `v_max_carga_cheia`, `a_max`, `w_max`, `alpha_max`, `d_morto_andar`, `d_morto_manipula`, `d_freio_extra`, `morto_angular_rad`, `andar_raio`, `andar_raio_chega`, `andar_raio_mantem`, `alinhado_chega_deg`, `alinhado_mantem_deg`, `area_raio`, `heading_gain`, `arm_vel`, `hold_still`; o bloco `Push` inteiro; `congela_queda`, `descongela_dist_pico` e `ema_alpha_lenta` do bloco de currículo |
 
 O `alpha_max` estava rotulado "PALPITE A VALIDAR". Ele deixa de existir.
+
+⚠️ O `erro_rumo_deg` mora no `LiftTargetCommand`, não no `DesiredTwistCommand`. A linha
+"`DesiredTwistCommand` inteiro" não o cobre. Ele tem dois leitores vivos
+(`metrics.py:141` e `:269`), os dois no `alinhado`, que também sai.
 
 ## 13. O que permanece
 
@@ -477,10 +657,16 @@ Os dois portões de teste quebram.
 | `smoke.py` | 37 usos de `NUM_TASKS`, 28 de `PARADO`, 27 de `twist`, 22 de `ANDAR` |
 | `sim_curriculo.py` | a premissa inteira é "o `andar` só abre com push completo" |
 
+O `sim_curriculo.py` não é reescrito. Ele sai (§9). Com o grafo por camadas e um eixo
+por tarefa, a ordem dos destravamentos cabe no bloco da regra do evento.
+
+Sobra o `smoke.py`, com 1 832 linhas. Ele é o único portão de teste que resta, e ele
+está acoplado a nomes que deixam de existir.
+
 ## 15. O que a reforma não conserta
 
-A manipulação guarda 30 dos 42 destravamentos. A reforma arruma a frente da cadeia. Ela
-não reduz o volume.
+A manipulação guarda 16 dos 24 destravamentos. A reforma arruma a frente da cadeia e
+corta o volume quase pela metade. Ela não muda a ordem de grandeza.
 
 O orçamento continua sendo o limite duro. O treino tem 98 milhões de passos. O mjlab
 gasta 2,95 bilhões só para andar.
@@ -489,11 +675,14 @@ gasta 2,95 bilhões só para andar.
 
 | item | estado |
 |---|---|
+| desenho | **fechado** — §10b e §9 registram a limpeza de 07/08 |
 | implementação | não iniciada |
-| `smoke.py` e `sim_curriculo.py` | não atualizados |
+| `smoke.py` | não atualizado; o `sim_curriculo.py` sai inteiro |
 | notebook da Kaggle | falta converter de Dataset para `git clone` |
 | limpeza do log | não iniciada |
-| `exige_grasp` e `hold_still` | decisão pendente |
+| escopo da postura na manipulação | **única decisão pendente** (§11) |
+| `exige_grasp` | decidido — fica ligado (§11) |
+| `hold_still` | decidido — sai (§10) |
 
 A bagunça do log tem causa conhecida. Em `rsl_rl/utils/logger.py:186-202`, o mesmo laço
 escreve no TensorBoard e monta a linha do console, na ordem de inserção do dict. Não há
