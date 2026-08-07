@@ -242,21 +242,45 @@ pergunta empírica.
 
 **O `variable_posture` não muda.** Nem escala, nem peso, nem mecanismo.
 
-O código passa de quatro termos de postura para dois.
+**O código passa de quatro termos de postura para UM** (decidido 07/08). Um
+`variable_posture`, corpo todo, **sem gate**, peso +0,5. É o desenho do fabricante: um
+`pose` só, com `joint_names=(".*",)` e nenhuma máscara.
 
-| tarefa | escopo |
-|---|---|
-| `locomover` | corpo todo |
-| `locomover_carregando` | pernas e cintura |
-| `pegar`, `botar`, `reorientar` | **não decidido** |
+O escopo por tarefa deixa de existir. Ele era a segunda dimensão do desenho antigo, e a
+aritmética mostra que ele é desnecessário.
 
-O escopo é a segunda dimensão, e ela continua sendo parâmetro. O `env.py:516-522` já a
-separa: o `std` responde ao regime de velocidade, o escopo responde a se a mão está
-ocupada. O `variable_posture` resolve só a primeira.
+### Por que o escopo não é necessário
 
-O `variable_posture` é uma classe. O `gated()` chama `inner(env, **kw)`, então uma classe
-passada como `inner` produz uma instância. A saída é uma subclasse que multiplica a
-máscara de tarefa no resultado.
+O escopo existia para impedir que a postura travasse o braço nas tarefas que manipulam.
+Ela não trava. Ela deixa de pagar, e a tarefa paga oito vezes mais.
+
+Mais que isso: **o termo de corpo inteiro se desliga sozinho** onde o braço é a tarefa.
+
+Com comando zero, o `variable_posture` usa o regime `standing`. O cfg do g1 põe
+`std_standing = {".*": 0,05}` para todas as juntas, braços inclusive
+(`config/g1/env_cfgs.py:107`).
+
+Um ombro deslocado 0,5 rad para alcançar a caixa dá `0,25 / 0,0025 = 100`. Com 8 juntas
+de braço de 29, a média fica em ~27,6, e o termo vale `exp(−27,6) ≈ 1e−12`.
+
+Isso é zero em float32. O gradiente também é zero. O termo não pode enviesar nada.
+
+### A consequência declarada
+
+O termo fica inerte nas **quatro** tarefas com caixa, e não só nas três de manipulação.
+
+No `locomover_carregando` o comando não é zero, então o regime é `walking` e o ombro
+recebe `std = 0,15`. Mas os braços seguram a caixa no peito. Um ombro a 1,0 rad dá
+`1 / 0,0225 = 44`, média ~12, e `exp(−12) ≈ 6e−6`. Zero também.
+
+Portanto o `locomover_carregando` perde o `posture_carrega`, que hoje paga 0,5 por manter
+a perna perto da pose enquanto carrega.
+
+O que sobra ali: os quatro termos de marcha, porque o comando não é zero; mais o
+`upright`, o `body_ang_vel` e o `angular_momentum`, que são globais.
+
+A alternativa rejeitada era parar em dois termos — corpo todo no `locomover`, perna no
+`locomover_carregando`. Um termo é mais simples e é o que o fabricante entrega.
 
 ## 7. O push
 
@@ -613,12 +637,12 @@ próprios somam `2,0 + 2,0 + 1,0 = 5,0`, e o fator continua **0,800**, como a §
 ⚠️ A simetria com o `locomover` quebra de propósito. As duas tarefas partilham os dois
 termos de rastreio, e só nesta eles dependem da preensão.
 
-### Escopo da postura na manipulação
+### ~~Escopo da postura na manipulação~~ — DECIDIDO 07/08
 
-O `variable_posture` resolve o `std` pelo comando. O escopo — quais juntas o termo mede —
-continua sendo parâmetro por tarefa.
+O escopo por tarefa deixa de existir. Fica **um** `variable_posture`, corpo todo, sem
+gate. A derivação está na §6.
 
-As três tarefas de manipulação não têm escopo definido. Não decidido.
+**Não há decisão em aberto neste documento.**
 
 ## 12. O que sai do código
 
@@ -632,8 +656,8 @@ As três tarefas de manipulação não têm escopo definido. Não decidido.
 | `curriculum.py` | célula de push e as funções dela; `FILHOS` e a prioridade 1 do `_destravar`; `self.rr` e o round-robin; `_min_tarefa`, `_min_cel`, `_push_competente`; o condicionamento do `_medir`; o congelamento (`ref`, `congelado`, `_congelamento`) |
 | `sim_curriculo.py` | o arquivo inteiro, 472 linhas |
 | `events.py` | `payload_por_nivel` vira `payload_dr` — o teto sai do booleano, não de `env.nivel["peso"]` |
-| `env.py` | dois dos quatro termos de postura; `arm_vel`; `hold_still`; o override de `track_linear_velocity.func`; o registro da terminação `fora_da_area` |
-| `knobs.py` | `v_max`, `v_max_carga_cheia`, `a_max`, `w_max`, `alpha_max`, `d_morto_andar`, `d_morto_manipula`, `d_freio_extra`, `morto_angular_rad`, `andar_raio`, `andar_raio_chega`, `andar_raio_mantem`, `alinhado_chega_deg`, `alinhado_mantem_deg`, `area_raio`, `heading_gain`, `arm_vel`, `hold_still`; o bloco `Push` inteiro; `congela_queda`, `descongela_dist_pico` e `ema_alpha_lenta` do bloco de currículo |
+| `env.py` | **três dos quatro** termos de postura e o gate do que sobra; o helper `_so_pernas`; `arm_vel`; `hold_still`; o override de `track_linear_velocity.func`; o registro da terminação `fora_da_area` |
+| `knobs.py` | `v_max`, `v_max_carga_cheia`, `a_max`, `w_max`, `alpha_max`, `d_morto_andar`, `d_morto_manipula`, `d_freio_extra`, `morto_angular_rad`, `andar_raio`, `andar_raio_chega`, `andar_raio_mantem`, `alinhado_chega_deg`, `alinhado_mantem_deg`, `area_raio`, `heading_gain`, `arm_vel`, `hold_still`; `postura_std_parado`, `postura_std_manipula` e `postura_joints`; o bloco `Push` inteiro; `congela_queda`, `descongela_dist_pico` e `ema_alpha_lenta` do bloco de currículo |
 
 O `alpha_max` estava rotulado "PALPITE A VALIDAR". Ele deixa de existir.
 
@@ -680,9 +704,11 @@ gasta 2,95 bilhões só para andar.
 | `smoke.py` | não atualizado; o `sim_curriculo.py` sai inteiro |
 | notebook da Kaggle | falta converter de Dataset para `git clone` |
 | limpeza do log | não iniciada |
-| escopo da postura na manipulação | **única decisão pendente** (§11) |
+| escopo da postura | decidido — não existe; um termo, corpo todo (§6) |
 | `exige_grasp` | decidido — fica ligado (§11) |
 | `hold_still` | decidido — sai (§10) |
+
+**Nenhuma decisão de desenho continua em aberto.** O que resta é implementação.
 
 A bagunça do log tem causa conhecida. Em `rsl_rl/utils/logger.py:186-202`, o mesmo laço
 escreve no TensorBoard e monta a linha do console, na ordem de inserção do dict. Não há
