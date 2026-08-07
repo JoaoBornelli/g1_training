@@ -11,7 +11,7 @@ primeiro — ver `train.py`.
 
 ⚠️ `experiment_name` compartilhado (`g1_lifting_box`, em `g1_training/rl_cfg.py`)
 NÃO significa que o checkpoint da Lift carrega aqui: a obs do multi-tarefa tem
-151 números contra 132 da Lift, e largura diferente é Categoria C ("recomeçar do
+154 números contra 132 da Lift, e largura diferente é Categoria C ("recomeçar do
 zero", §15). O treino do multi-tarefa começa do zero, e é a última vez que isso
 é obrigatório.
 """
@@ -36,7 +36,7 @@ Aqui isso não vale, e o risco é real. O `load_run` default é o regex `.*`, e 
 `launch_training` monta o diretório como `log_root/experiment_name/<timestamp>_<run>`.
 Com o nome compartilhado, um `--agent.resume True` num log_root que também tenha runs
 da Lift casaria com uma delas e tentaria carregar um checkpoint de **132** números na
-rede de **151** — `size mismatch` na primeira camada.
+rede de **154** — `size mismatch` na primeira camada.
 
 E não há nada a perder: obs de largura diferente é Categoria C (§15), então checkpoint
 da Lift não carregaria aqui de jeito nenhum. Nome separado = o resume só acha o que é

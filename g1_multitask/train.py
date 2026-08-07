@@ -12,10 +12,11 @@
     # dual T4
     python g1_multitask/train.py --gpu-ids "all" --env.scene.num-envs 4096
 
-⚠️ **`num_envs` é POR RANK, não total.** Com dual T4 e 4096 por rank são 8192 envs, e
-o orçamento de 30 000 iterações da §14 se esgota em ~15 000. É por isso que a alavanca
-de corte existe (altura 7 → 4 níveis, distância 4 → 3, ~20 dos 60 eventos): melhor
-puxar deliberadamente no bloco 1, com o número na mão, do que descobrir na semana 3.
+⚠️ **`num_envs` é POR RANK, não total.** Com dual T4 e 4096 por rank são 8192 envs.
+
+A reforma de 07/08 cortou os destravamentos de 42 para **24**, então a alavanca de
+corte de níveis não é mais o primeiro recurso. A alavanca que resta, se o orçamento
+apertar, é o eixo `altura` — ele sozinho guarda 12 dos 24 (`pegar` 6 + `botar` 6).
 
 **Por que este arquivo existe em vez de chamar o `train` do mjlab direto.** O
 `main()` do mjlab só faz `import mjlab.tasks` antes de listar as tasks, e o registro
