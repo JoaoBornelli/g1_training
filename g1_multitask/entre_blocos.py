@@ -94,7 +94,7 @@ def relatorio(alvo: pathlib.Path) -> None:
     titulo("1. PROGRESSO DO CURRÍCULO")
     eventos = _ultimo(s, "Curriculum/orquestrador/eventos")
     abertas = _ultimo(s, "Curriculum/orquestrador/tarefas_abertas")
-    push = _ultimo(s, "Curriculum/orquestrador/push_nivel")
+    push = _ultimo(s, "Curriculum/orquestrador/tarefas_abertas")
     if eventos is None:
         print("  (nenhuma chave `Curriculum/orquestrador/*` no log — o currículo "
               "não rodou ou o nome do termo mudou)")
@@ -191,7 +191,7 @@ def relatorio(alvo: pathlib.Path) -> None:
   Em observação desde a calibração (T12), decidir com os números da seção 3:
       `box_shake`     — supera o sinal de tarefa nas 3 tarefas que carregam
       `table_contact` — idem em `parado c/ caixa` e `andar c/ caixa`
-      `arm_vel`       — idem em `andar c/ caixa`; braço que carrega é estrutura
+      (o `arm_vel` saiu na reforma de 07/08)
     Se com política treinada ainda superarem, é peso: Categoria A.
 """)
 
@@ -251,7 +251,7 @@ def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Pa
     ax.set_ylabel("passos"); ax.set_title("1. Está vivo? (episódio e quem o mata)")
     ax2 = ax.twinx()
     for nome, cor in (("time_out", "#2ca02c"), ("fell_over", "#d62728"),
-                      ("largou", "#ff7f0e"), ("fora_da_area", "#9467bd")):
+                      ("largou", "#ff7f0e"), ("caixa_caiu", "#9467bd")):
         _plot(ax2, acha(s, rf"Termination/{nome}$"), color=cor, lw=1, alpha=.8,
               label=nome)
     ax2.set_ylabel("terminações")
@@ -276,7 +276,7 @@ def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Pa
     ax = A[2]
     for tag, cor, rot in ((r"orquestrador/eventos", "k", "eventos (de 60)"),
                           (r"tarefas_abertas", "#2ca02c", "tarefas abertas"),
-                          (r"push_nivel", "#ff7f0e", "nível do push")):
+                          (r"tarefas_abertas", "#ff7f0e", "tarefas abertas")):
         _plot(ax, acha(s, tag), color=cor, lw=2, drawstyle="steps-post", label=rot)
     ax.set_title("3. O currículo andou?"); ax.legend(fontsize=8)
 
@@ -308,7 +308,7 @@ def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Pa
             if not tag.endswith("/min"):
                 continue
             cel = tag.split("/")[-2]
-            for eixo in ("altura", "peso", "distancia_andar", "rumo", "giro", "push"):
+            for eixo in ("velocidade", "altura", "giro"):
                 if cel.endswith("_" + eixo) and cel[: -len(eixo) - 1] == t:
                     alvos.append(tag)
                     break
@@ -363,7 +363,7 @@ def grafico(alvo: pathlib.Path, saida: pathlib.Path | None = None) -> pathlib.Pa
     ax = A[7]
     ok = _plot(ax, acha(s, r"Metrics/taxa_alvo"), color="#8c564b", lw=2,
                label="taxa do alvo composto")
-    _plot(ax, acha(s, r"Metrics/deriva_parado"), color="#1f77b4", lw=1.5,
+    _plot(ax, acha(s, r"Metrics/erro_vel_linear"), color="#1f77b4", lw=1.5,
           label="deriva do parado (m)")
     ax.set_title("8. O movimento faz sentido? (tremor e deriva)")
     ax.set_xlabel("iteração")

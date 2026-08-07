@@ -1,169 +1,151 @@
-"""As 7 tarefas: índice no one-hot, eixos de currículo, e a conta dos 60 eventos.
+"""As 5 tarefas: índice no one-hot, eixo de currículo, e a conta dos 24 eventos.
 
 Este módulo é a ESPINHA do desenho. Uma política só, condicionada a comando:
-`ação = f(estado, comando)`. A tarefa NÃO é um env diferente — é um one-hot
-dentro do vetor de comando. É isso que faz o algoritmo de visão, em campo,
-entrar como mais um escritor do mesmo vetor ("gire a caixa pra esquerda") sem
-tocar na política.
+`ação = f(estado, comando)`. A tarefa NÃO é um env diferente — é um one-hot dentro
+do vetor de comando. É isso que faz o algoritmo de visão, em campo, entrar como
+mais um escritor do mesmo vetor ("gire a caixa pra esquerda") sem tocar na política.
 
-Os eixos são INDEPENDENTES, não uma grade cartesiana: `7+5+4+3+3` células em vez
-do produto delas. Cada eixo sobe sozinho quando a tarefa dele mostra competência,
-e o piso `ρ/L` do PLR mantém os níveis antigos no sorteio (anti-esquecimento).
+**Um eixo por tarefa.** O desenho anterior dava dois eixos a quatro tarefas, e o
+segundo era o `peso`. O peso deixou de ser eixo — ver `LEVELS["peso"]`.
 
-Ver `Obsidian-documents/Robotics/G1-Curriculum-Design.md` §7, §7b, §9 e §12.
+Ver `EXPERIMENTO.md`, §3 e §9.
 """
 from __future__ import annotations
 
 # ---------------------------------------------------------------------- one-hot
-# Índices FIXADOS pela §9. A ordem entra no vetor de comando E no checkpoint, e a
-# fatia [9:17] da obs é posicional -> trocar um número aqui invalida todo
-# checkpoint anterior (Categoria C do §15, "recomeçar do zero"). Não reordenar.
-PARADO = 0
-ANDAR = 1
-PEGAR = 2
-BOTAR = 3
-REORIENTAR = 4
-PARADO_CAIXA = 5
-ANDAR_CAIXA = 6
-RESERVADO = 7
+# Índices FIXADOS. A ordem entra no vetor de comando E no checkpoint, e a fatia
+# [9:17] da obs é posicional -> trocar um número aqui invalida todo checkpoint
+# anterior (Categoria C). Não reordenar.
+#
+# ⚠️ A numeração é COMPACTA (0..4), e não herdada das 7 tarefas antigas. Preservar
+# os índices de `pegar`/`botar`/`reorientar` daria warm start um pouco melhor, mas
+# deixaria buracos em `range(NUM_TASKS)` — e o `_equaliza_orcamento` assertaria
+# contra a tarefa vazia. A reforma muda tanta recompensa que o ganho semântico do
+# one-hot herdado seria especulativo.
+LOCOMOVER = 0
+PEGAR = 1
+REORIENTAR = 2
+LOCOMOVER_CARREGANDO = 3
+BOTAR = 4
 
-NUM_TASKS = 7
+NUM_TASKS = 5
 ONEHOT_DIM = 8
-"""8 slots com 7 em uso. É a ÚNICA reserva que sobrou do desenho (§9b): a reserva
-de largura de observação saiu, porque crescer a obs depois é enxerto de 6 tensores
-com saída bit a bit idêntica. 1 slot custa desprezível e cobre "acrescentei uma
-tarefa" sem migrar nada. O 8º leva o tratamento completo — coluna zerada na 1ª
-camada e stats do normalizador congeladas — porque é o mesmo caso do target_pos_b:
-canal constante ganha `_std=0` no 1º update e, ao acender, entra 100x amplificado."""
+"""8 slots com 5 em uso.
+
+⚠️ **Continua 8, e isso é de propósito.** Encolher para 5 mudaria a largura da
+observação de 154 para 151, e largura é contrato com o checkpoint (§13). Os 3 slots
+livres ficam constantes em zero e recebem o mesmo tratamento do 8º slot original:
+coluna zerada na 1ª camada e stats do normalizador congeladas. Sem isso, um canal
+constante ganha `_std = 0` no 1º update e, ao acender, entra 100× amplificado."""
 
 NAMES = {
-    PARADO: "parado",
-    ANDAR: "andar",
+    LOCOMOVER: "locomover",
     PEGAR: "pegar",
-    BOTAR: "botar",
     REORIENTAR: "reorientar",
-    PARADO_CAIXA: "parado_caixa",
-    ANDAR_CAIXA: "andar_caixa",
+    LOCOMOVER_CARREGANDO: "locomover_carregando",
+    BOTAR: "botar",
 }
 
 # --------------------------------------------------------- conjuntos semânticos
-# Usados por gates de reward, terminações e escopo de postura. Ficam aqui, num
-# lugar só, pra a máscara do gate e a máscara do log saírem da MESMA fonte.
+# Usados por gates de reward, terminações e pela subclasse de comando. Ficam aqui,
+# num lugar só, pra a máscara do gate e a máscara do log saírem da MESMA fonte.
 
-COM_CAIXA = (PARADO_CAIXA, ANDAR_CAIXA)
+MANIPULA = (PEGAR, BOTAR, REORIENTAR)
+"""Manipulação. O comando de velocidade é ZERADO nestas três (§4)."""
+
+CMD_ZERO = MANIPULA
+"""Alias semântico: onde a subclasse de comando força `[0, 0, 0]`.
+
+Nome próprio porque o conceito é do COMANDO, não da tarefa. Se um dia uma tarefa de
+manipulação passar a andar, ela sai daqui sem sair de `MANIPULA`."""
+
+ANDA = (LOCOMOVER, LOCOMOVER_CARREGANDO)
+"""Tarefas com comando de velocidade sorteado."""
+
+COM_CAIXA = (LOCOMOVER_CARREGANDO,)
 """Tarefas em que CARREGAR é o estado exigido -> largar é falha (terminação).
+
 No `pegar`, largar no meio deve permitir nova tentativa no mesmo episódio; no
 `botar`, soltar É o objetivo. Só aqui largar termina o episódio (§6b/D)."""
 
-PARADAS = (PARADO, PARADO_CAIXA)
-MANIPULA = (PEGAR, BOTAR, REORIENTAR)
-ANDA = (ANDAR, ANDAR_CAIXA)
+SPAWN_SEGURANDO = (LOCOMOVER_CARREGANDO, BOTAR)
+"""Tarefas que nascem com as PALMAS TOCANDO a caixa (§3, §4).
+
+Não é o mesmo conjunto que `COM_CAIXA`: o `botar` também nasce segurando (o estado
+final do `pegar` é o estado inicial canônico dele), mas largar nele é o OBJETIVO.
+
+⚠️ Nascer segurando é nascer TOCANDO, com força normal zero. Segurar é o que a
+tarefa ensina — ver `pregrasp.py`. Medido em 30/07: sem esta condição de spawn as
+tarefas não têm caminho de aquisição, porque todos os termos de tarefa dão 0.0 no
+reset."""
+
+COM_DR_PESO = (PEGAR, REORIENTAR, LOCOMOVER_CARREGANDO, BOTAR)
+"""As quatro tarefas que envolvem a caixa. Só elas têm a DR de peso (§9)."""
 
 TERMOS_DE_TAREFA = (
     "track_linear_velocity", "track_angular_velocity",
     "lift", "reaching", "grasp", "box_at_peito", "box_at_prateleira",
-    "orienta_face", "hold_still",
+    "orienta_face",
 )
-"""Os termos POSITIVOS que dizem qual tarefa é. Fonte única do orçamento (06/08).
+"""Os termos POSITIVOS que dizem qual tarefa é. Fonte única do orçamento.
 
-É sobre esta lista que o `_equaliza_orcamento` do `env.py` calcula quanto cada
-tarefa pode ganhar por passo. Quem entra e quem fica de fora:
-
-**Entram** os 7 termos do bloco 2 da §6b (`lift` … `hold_still`) e os DOIS de
-rastreio. Os de rastreio entram porque a S9 os gateou: eles deixaram de ser
-invariante e viraram o sinal de tarefa do `parado` e do `andar`, que não têm termo
-de bloco 2 nenhum — é o que o `SEM_TERMO_DE_TAREFA` do `calibra.py` já registrava.
+É sobre esta lista que o `_equaliza_orcamento` do `env.py` calcula quanto cada tarefa
+pode ganhar por passo.
 
 **Ficam de fora** o `upright` (sem gate: vale 1.0 em toda tarefa, logo não muda a
-relação entre elas) e as 4 posturas (piso postural, o análogo do `pose` do
-fabricante). Ficam de fora também todos os negativos: o objetivo é justamente
-igualar a razão entre sinal e penalidade, e para isso o denominador tem que ficar
-parado.
+relação entre elas) e a postura (piso postural, o análogo do `pose` do fabricante).
+Ficam de fora também todos os negativos: o objetivo é igualar a razão entre sinal e
+penalidade, e para isso o denominador tem que ficar parado.
+
+O `hold_still` saiu (§10): ele é redundante com o `track_angular_velocity`, que lê o
+mesmo `root_link_ang_vel` e pune 3,5× mais forte a ω = 1.
 
 ⚠️ Todos os pesos aqui são CONSTANTES em tempo de execução, e o orçamento depende
-disso. O anelamento do `reaching` que o item 22 previa não existe em código e não vai
-existir (ver `knobs.Reward.reaching`). Quem for mutar peso de reward em runtime tem
-que recalcular a escala no mesmo passo, senão a tarefa afunda em silêncio."""
-
-SPAWN_SEGURANDO = (PARADO_CAIXA, ANDAR_CAIXA, BOTAR)
-"""Tarefas que nascem com as PALMAS TOCANDO a caixa (§3, §4).
-
-Não é o mesmo conjunto que `COM_CAIXA`: o `botar` também nasce segurando (o estado
-final do `pegar` é o estado inicial canônico dele, §4), mas largar nele é o
-OBJETIVO, não falha — por isso ele fica fora do gate da terminação `largou`.
-
-Medido em 30/07: sem esta condição de spawn as 3 não têm caminho de aquisição.
-Todos os termos de tarefa dão 0.0 no reset, porque a caixa nasce na prateleira e
-`reaching`/`grasp`/`lift` são gateados só no `pegar`.
-
-⚠️ Nascer segurando é nascer TOCANDO, com força normal zero. Segurar é o que a
-tarefa ensina — ver `pregrasp.py`.
-
-⚠️ **A máquina de pré-gatilho SAIU na S8.** Antes, estes envs esperavam em
-`parado c/ caixa` por até 2 s antes de a tarefa real acender, justamente porque a
-caixa escorrega 22 cm em 0.5 s com ação nula e o episódio nasceria perdido. Agora a
-tarefa sorteada entra ativa no passo 0.
-
-O que muda em consequência, e fica registrado: o `botar` perdeu o gradiente inicial
-que o `box_at_peito` dava durante a espera — ele não gateia no `botar`. Sobram o
-`reaching` e o `box_at_prateleira`, que são contínuos. O desenho também fica sem
-treino de transiente de comando nesta rodada; o substituto é a troca de tarefa no
-meio do episódio, adiada de propósito."""
+disso. Quem for mutar peso de reward em runtime tem que recalcular a escala no mesmo
+passo, senão a tarefa afunda em silêncio."""
 
 # ------------------------------------------------------------- eixos e níveis
 LEVELS: dict[str, tuple[float, ...]] = {
+    "velocidade": (1.0, 1.5, 2.0),
     "altura": (0.55, 0.45, 0.35, 0.25, 0.15, 0.05, 0.00),
-    "peso": (1.0, 2.0, 3.0, 4.0, 5.0),
-    "distancia_andar": (1.0, 1.5, 2.0),
-    "rumo": (60.0, 180.0, 360.0),
     "giro": (15.0, 45.0, 90.0, 180.0, 360.0),
-    "push": (0.0, 0.35, 0.70, 1.00, 1.00),
+    "peso": (1.0, 5.0),
 }
-"""Níveis de cada eixo, do fácil pro difícil (§14).
+"""Níveis de cada eixo, do fácil pro difícil (§9).
 
-- `giro` é a rotação COMANDADA (alvo posto a N graus da orientação ATUAL da
-  caixa), não o quanto ela nasce torta. O último nível (360) é o salto
-  qualitativo "a face alvo pode ser o topo ou o fundo" — exige erguer e rolar
-  a caixa entre as palmas, e só ele precisa da mão.
-- `distancia_andar` (S11) substitui o eixo `distancia`, que servia a quem anda E a
-  quem manipula. ⚠️ O primeiro degrau antigo era 0.3 m, com `d_morto_andar` e
-  `andar_raio` em 0.25: o robô andava 5 cm e o nível media `parado` com sustentação.
-  Agora o eixo começa em 1.0 m e só quem ANDA o possui.
-- `rumo` (S11) era `heading`. ⚠️ O nome mudou porque o significado mudou: ele era
-  a orientação FINAL, e agora é a MARCAÇÃO do alvo sorteado. Nome errado é onde a
-  confusão volta. Os níveis são a abertura total, portanto ±30°, ±90° e ±180°.
-- `push` é o único eixo GLOBAL (vale pra todas as tarefas ao mesmo tempo), o
-  único aninhado por construção (sem piso `ρ/L`) e o único com RECUO de nível.
-  Os valores são o fator sobre os 6 componentes de perturbação; força fica em
-  (0,0) nos níveis 0-2 e vai a ±50 N nos 3-4, com a duração alongando.
-"""
+- `velocidade` é o TETO de `lin_vel_x` e `lin_vel_y` do comando sorteado, por env. O
+  `ang_vel_z` acompanha na mesma proporção do cfg do fabricante.
+- `giro` é a rotação COMANDADA (alvo posto a N graus da orientação ATUAL da caixa),
+  não o quanto ela nasce torta. O último nível (360) é o salto qualitativo "a face
+  alvo pode ser o topo ou o fundo" — exige erguer e rolar a caixa entre as palmas.
+
+⚠️ **`peso` NÃO É EIXO.** Ele está aqui porque é uma tabela de níveis, mas não
+aparece em `AXES`, não tem célula no orquestrador, não tem EMA e não tem portão. Ele
+é a DR de carga, em 2 níveis: `1 kg` fixo e `U(1, 5)` kg. O sucesso não é atrelado ao
+peso — o critério é "fez o que tinha que fazer", qualquer que seja a massa.
+
+O nível 1 CONTÉM o nível 0, porque o sorteio é `U(piso, teto)`. Sem isso a carga leve
+sumiria do treino no momento em que a DR alargasse.
+
+Os eixos `rumo`, `distancia_andar` e `push` deixaram de existir. Os dois primeiros
+serviam ao comando derivado de um destino, que saiu; o `push` virou evento fixo."""
 
 AXES: dict[int, dict[str, int]] = {
-    PARADO: {},
-    ANDAR: {"distancia_andar": 0, "rumo": 0},
-    PEGAR: {"altura": 0, "peso": 0},
-    BOTAR: {"altura": 0, "peso": 0},
-    REORIENTAR: {"giro": 0, "altura": 0},
-    PARADO_CAIXA: {"peso": 0},
-    ANDAR_CAIXA: {"peso": 0, "distancia_andar": 0},
+    LOCOMOVER: {"velocidade": 0},
+    PEGAR: {"altura": 0},
+    REORIENTAR: {"giro": 0},
+    LOCOMOVER_CARREGANDO: {"velocidade": 0},
+    BOTAR: {"altura": 0},
 }
-"""Eixos de cada tarefa e o índice INICIAL de cada um.
+"""O eixo de cada tarefa e o índice INICIAL dele.
 
-⚠️ **O eixo de distância saiu do `pegar` e do `reorientar` (S11).** Ele fazia as duas
-tarefas de manipulação exigirem locomoção antes de encostar na caixa, e isso
-misturava duas competências numa medição só. Quem manipula agora nasce ao alcance.
+Um eixo por tarefa, e isso não é economia: é o que faz o condicionamento da medição
+ser desnecessário. Com dois eixos, a célula de um mede marginalizada sobre o outro, e
+o portão trava — foi o bug de 06/08.
 
-Todos os índices iniciais são 0 desde a S11: `distancia_andar` já começa em 1.0 m,
-então não há mais o caso "quem anda começa mais adiante no eixo" que o `_base` do
-orquestrador existia para tratar.
-
-O `parado` não tem eixo nenhum: a robustez dele vem do `push`, que é global.
+O `locomover_carregando` fica com `velocidade`, e não com `peso`, porque o peso não é
+eixo. O eixo `altura` do `pegar` e do `botar` continua sendo a posição da prateleira.
 """
-
-# Ordem do desempate round-robin dentro de cada tarefa. Necessária porque, com um
-# nível por eixo, toda célula recebe fluxo de episódios IDÊNTICO -> EMAs idênticas
-# -> empate triplo por construção. A medição segue primária; isto só desempata.
-AXIS_ORDER = ("giro", "altura", "peso", "distancia_andar", "rumo")
 
 
 def exceto(*excluidas: int) -> tuple[int, ...]:
@@ -172,24 +154,29 @@ def exceto(*excluidas: int) -> tuple[int, ...]:
     return tuple(t for t in range(NUM_TASKS) if t not in fora)
 
 
+def eixo_de(task: int) -> str:
+    """O nome do eixo da tarefa. Um por tarefa, por construção."""
+    (nome,) = AXES[task]
+    return nome
+
+
 def axis_levels(task: int, axis: str) -> tuple[float, ...]:
     """Os níveis que a tarefa de fato usa nesse eixo (já cortando o início)."""
     return LEVELS[axis][AXES[task][axis]:]
 
 
 def unlock_count() -> dict[str, int]:
-    """Quantos destravamentos cada fonte contribui. Tem que somar 60 (§14).
+    """Quantos destravamentos cada fonte contribui. Tem que somar 24 (§3).
 
-    Serve de teste: a conta é DERIVADA dos níveis e dos índices iniciais, então
-    se alguém mexer num nível sem querer o total denuncia. O bug que isto pega
-    já aconteceu no próprio doc — as duas linhas de distância contavam 3
-    destravamentos ignorando que tarefas que andam começam em 0.3, e a tabela
-    somava 62 com o total escrito 60."""
+    Serve de teste: a conta é DERIVADA dos níveis e dos índices iniciais, então se
+    alguém mexer num nível sem querer o total denuncia.
+
+    ⚠️ O alargamento da DR de peso NÃO conta aqui. Ele não é destravamento — ele pega
+    carona no primeiro evento de cada tarefa com caixa."""
     out = {NAMES[t]: 0 for t in AXES}
     for task, axes in AXES.items():
         for axis, start in axes.items():
             out[NAMES[task]] += len(LEVELS[axis]) - 1 - start
-    out["push"] = len(LEVELS["push"]) - 1
     out["aberturas"] = NUM_TASKS - 1  # a 1ª tarefa já nasce aberta
     return out
 

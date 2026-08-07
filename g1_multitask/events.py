@@ -96,33 +96,38 @@ def reset_segurando(
     caixa.write_root_state_to_sim(estado, env_ids=ids)
 
 
-def payload_por_nivel(
+def payload_dr(
     env: "ManagerBasedRlEnv",
     env_ids: torch.Tensor,
     box_mass: float,
     box_cfg: SceneEntityCfg = SceneEntityCfg("box"),
 ) -> None:
-    """O eixo `peso` do currículo virando força na caixa, POR ENV (S1).
+    """A DR de carga da caixa, POR ENV, em dois níveis.
+
+    | nível de DR | massa da caixa |
+    |---|---|
+    | 0 | `1 kg` fixo |
+    | 1 | `U(1, 5)` kg |
 
     É o `apply_box_payload` da Lift (`g1_training/common/events.py:190`) com uma
-    diferença só: lá a massa efetiva sai de um `weight_range` GLOBAL; aqui ela sai do
-    nível que o currículo sorteou para cada env. A física é a mesma —
+    diferença só: lá a massa efetiva sai de um `weight_range` GLOBAL; aqui o TETO sai
+    do booleano que o currículo abriu para a tarefa daquele env. A física é a mesma —
     `write_external_wrench_to_sim` com força dirigida em −z no COM da caixa.
 
-    ⚠️ **Massa sorteada em `U(peso_min, peso(nivel))`, não fixada em `peso(nivel)`.**
-    Com valor fixo por nível, o nível 4 não CONTÉM o nível 0: a carga leve desaparece
-    do treino assim que o eixo sobe. O `knobs.py` justifica a ausência do piso `ρ/L`
-    neste eixo dizendo que ele é "aninhado por construção" — o sorteio é o que torna
-    essa afirmação verdadeira. Sem ele, a afirmação é falsa e o eixo esquece.
+    ⚠️ **O peso NÃO é eixo de currículo.** Ele não tem célula, não tem EMA e não tem
+    portão próprio, porque o sucesso não é atrelado à massa — o critério é "fez o que
+    tinha que fazer". O booleano `env.dr_peso` vira `True` no PRIMEIRO evento da
+    tarefa, antes de o eixo específico avançar.
+
+    ⚠️ **Massa sorteada em `U(piso, teto)`, não fixada no teto.** Com valor fixo, o
+    nível 1 não CONTÉM o nível 0: a carga leve desapareceria do treino no momento em
+    que a DR alargasse. É o sorteio que torna verdadeira a afirmação de que o nível 1
+    contém o nível 0.
 
     ⚠️ **É PESO, e não INÉRCIA.** `dr.body_mass` corrompe a heap (CUDA illegal
     access), portanto a força externa é a única saída correta. A consequência fica
-    registrada: a caixa de 5 kg tem inércia de 1 kg, e o `andar c/ caixa` treina
-    contra uma carga sem momento. A competência do eixo `peso` mede capacidade de
-    carga **estática**; ela NÃO é evidência de robustez a payload em movimento.
-
-    Grava `env.peso_amostrado` — a S14 liga o `v_max` à massa SORTEADA, e não ao
-    nível, senão um env que tirou 1.2 kg andaria à velocidade de 5 kg."""
+    registrada: a caixa de 5 kg tem inércia de 1 kg. A DR randomiza carga
+    **estática**; ela NÃO é evidência de robustez a payload em movimento."""
     if env_ids is None or len(env_ids) == 0:
         return
     n = len(env_ids)
@@ -130,8 +135,10 @@ def payload_por_nivel(
     box: Entity = env.scene[box_cfg.name]
 
     pesos = torch.tensor(T.LEVELS["peso"], device=dev)
-    teto = pesos[env.nivel["peso"][env_ids]]                    # [n] peso do nível
-    piso = pesos[0]                                             # nível 0 do eixo
+    piso = pesos[0]
+    largo = getattr(env, "dr_peso", None)
+    teto = torch.where(largo[env_ids], pesos[1], piso) if largo is not None \
+        else piso.expand(n)
     m = piso + torch.rand(n, device=dev) * (teto - piso)
     env.peso_amostrado[env_ids] = m
 

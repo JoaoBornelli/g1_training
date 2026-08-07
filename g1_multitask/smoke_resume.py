@@ -67,9 +67,11 @@ check("3 iterações de PPO rodaram", True)
 
 # mexe no estado do currículo pra o round-trip ter o que provar
 orq_tr = env_tr.curriculum_manager.get_term_cfg("orquestrador").func
-orq_tr.abertos[(T.PARADO, "push")] = 3
-orq_tr.abertas = [T.PARADO, T.ANDAR, T.PEGAR]
+orq_tr.abertos[(T.LOCOMOVER, "velocidade")] = 3
+orq_tr.abertas = [T.LOCOMOVER, T.PEGAR, T.REORIENTAR]
 orq_tr.eventos = 7
+orq_tr.eventos_tarefa[T.LOCOMOVER] = 2
+orq_tr.dr_peso[T.PEGAR] = True
 orq_tr.perf[(T.PEGAR, "altura")][0] = 0.875   # exato em float32
 antes = orq_tr.state_dict()
 
@@ -85,11 +87,19 @@ runner_r = MultitaskRunner(_Wrap(env_r, clip_actions=rlc.clip_actions),
 runner_r.load(str(ckpt))
 orq_r = env_r.curriculum_manager.get_term_cfg("orquestrador").func
 check("eventos sobreviveram ao resume", orq_r.eventos == 7, f"deu {orq_r.eventos}")
-check("tarefas abertas sobreviveram", orq_r.abertas == [T.PARADO, T.ANDAR, T.PEGAR],
+check("tarefas abertas sobreviveram",
+      orq_r.abertas == [T.LOCOMOVER, T.PEGAR, T.REORIENTAR],
       str([T.NAMES[t] for t in orq_r.abertas]))
-check("nível de push sobreviveu", orq_r.abertos[(T.PARADO, "push")] == 3)
+check("nível de eixo sobreviveu", orq_r.abertos[(T.LOCOMOVER, "velocidade")] == 3)
 check("perf sobreviveu bit a bit",
       float(orq_r.perf[(T.PEGAR, "altura")][0]) == 0.875)
+# Os dois estados novos da reforma. O `eventos_tarefa` é o PORTÃO DO FILHO: perdê-lo
+# no resume reabriria a cadeia do zero, em silêncio. O `dr_peso` é a DR de carga.
+check("eventos_tarefa sobreviveu (é o portão do filho)",
+      orq_r.eventos_tarefa[T.LOCOMOVER] == 2,
+      f"deu {orq_r.eventos_tarefa[T.LOCOMOVER]}")
+check("dr_peso sobreviveu", orq_r.dr_peso[T.PEGAR] is True,
+      str(orq_r.dr_peso))
 
 # o `play` NÃO pode reinjetar o currículo: lá você fixa tarefa/nível na mão
 env_p = ManagerBasedRlEnv(cfg=sem_dr_instavel(load_env_cfg(g1_multitask.TASK_ID)),
@@ -99,7 +109,7 @@ runner_p = MultitaskRunner(_Wrap(env_p, clip_actions=rlc.clip_actions),
 runner_p.load(str(ckpt), load_cfg={"actor": True}, strict=True, map_location=DEVICE)
 orq_p = env_p.curriculum_manager.get_term_cfg("orquestrador").func
 check("play NÃO reinjeta o currículo (preserva o pin manual)",
-      orq_p.eventos == 0 and orq_p.abertas == [T.PARADO],
+      orq_p.eventos == 0 and orq_p.abertas == [T.LOCOMOVER],
       f"eventos={orq_p.eventos}, abertas={[T.NAMES[t] for t in orq_p.abertas]}")
 
 logs = list(tmp.rglob("events.out.tfevents.*"))

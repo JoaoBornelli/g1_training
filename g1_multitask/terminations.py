@@ -95,15 +95,13 @@ def caixa_caiu(env: "ManagerBasedRlEnv", tasks, margem: float = 0.10,
     return abaixo & _mascara(env, tasks, gate_command)
 
 
-def fora_da_area(env: "ManagerBasedRlEnv", raio: float = 5.0,
-                 asset_cfg: SceneEntityCfg = _ROBOT) -> torch.Tensor:
-    """[B] bool — o robô se afastou mais de `raio` do spawn (§14: 5 m).
-
-    O spawn é a `env_origin` daquele ambiente, não um buffer gravado no reset: a
-    origem é fixa por construção, e o jitter de base é de 10 cm — desprezível contra
-    5 m. Sem gate: vale em todas as tarefas.
-
-    Só a distância no PLANO. Subir ou descer não é sair da área."""
-    robo: Entity = env.scene[asset_cfg.name]
-    d = (robo.data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]).norm(dim=-1)
-    return d > raio
+# ⚠️ O `fora_da_area` SAIU na reforma de 07/08 (§10b).
+#
+# Ele terminava o episódio, com `time_out=False`, quando o robô passava de 5 m da
+# `env_origin`. Com o comando SORTEADO ele reprova o rastreio bom: uma janela de
+# 1 m/s por 5 s já cobre os 5 m, e a reamostragem é a cada 3 a 8 s num episódio de
+# 20 s. O custo era −4,0 de `terminacao` mais o `não_caiu` zerado.
+#
+# O `unitree_g1_flat_env_cfg` remove o `out_of_terrain_bounds` (`env_cfgs.py:209`):
+# no plano, o fabricante não termina por distância. O `nonfinite` cobre deriva
+# descontrolada.

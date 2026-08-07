@@ -99,74 +99,69 @@ class Scene:
 
 @dataclass
 class Command:
-    v_max: float = 0.5
-    """S5. Era 1.0, a borda do range stage-0 do fabricante. Decisão do desenho: o ULC
-    usa 0.55 no mesmo robô, e 0.5 é a velocidade em que o perfil de duas fases fecha o
-    orçamento de 20 s com folga (ver a conta da S14)."""
-    a_max: float = 1.0
-    """S5. Aceleração linear máxima, em m/s². São ~0.1 g; um bípede em marcha faz isso.
-    Ela é o teto do limitador de taxa e a origem da banda de frenagem."""
-    w_max: float = 1.2
-    """S5. Era 0.5, o `ang_vel_z` stage-0 do fabricante. O ULC usa 1.2 no mesmo robô, e
-    a fase 1 do perfil precisa girar até 180° dentro do orçamento do episódio."""
-    alpha_max: float = 3.0
-    """S5. Aceleração angular máxima, em rad/s².
+    """O comando de velocidade. **Todos estes números vêm do cfg de velocity do
+    fabricante** (`tasks/velocity/velocity_env_cfg.py:177-193`). Nenhum é escolhido
+    aqui, e é essa a intenção: restaurar a faixa de comando testada foi UMA mudança,
+    contra as três que afinar os termos de recompensa seria.
 
-    ⚠️ **PALPITE A VALIDAR.** A S5 manda medir: rodar o `model_stand_step_2000` no
-    `play`, mandar um degrau de `wz` e ler a aceleração que a política entrega. A
-    medição não é viável nesta rodada por dois motivos — o `play` não roda nesta
-    máquina, e o env da Stand não tem comando de `wz` para receber o degrau. A própria
-    S5 autoriza o fallback: "use 3,0 e registre no docstring que é um palpite".
+    ⚠️ O bloco antigo — `v_max`, `a_max`, `w_max`, `alpha_max`, `d_morto_*`,
+    `d_freio_extra`, `heading_gain`, `morto_angular_rad`, `v_max_carga_cheia` — SAIU
+    inteiro com o `DesiredTwistCommand` (§10b). Ele parametrizava um controlador de
+    posição que não existe mais."""
 
-    Consequência de errar: `alpha_max` alto demais deixa passar degrau angular que o
-    robô não segue; baixo demais faz o giro da fase 1 arrastar. A banda angular é
-    derivada dele, portanto o erro se propaga para ela."""
-    heading_gain: float = 0.5
-    """§14 / fabricante — `heading_control_stiffness`.
+    lin_vel_x: tuple[float, float] = (-1.0, 1.0)     # fabricante, stage 0
+    lin_vel_y: tuple[float, float] = (-1.0, 1.0)     # fabricante, stage 0
+    ang_vel_z: tuple[float, float] = (-0.5, 0.5)     # fabricante, stage 0
+    resampling_s: tuple[float, float] = (3.0, 8.0)   # fabricante
 
-    ⚠️ **SEM USO desde a S5.** O perfil angular passou a ser trapezoidal, igual ao
-    linear: `w_max` fora da banda, rampa dentro dela, zero dentro do morto. Um ganho
-    proporcional não descreve mais o comportamento. O campo fica porque o `env.py` o
-    passa ao construir o termo, e removê-lo mexeria em arquivo fora do escopo da S5."""
+    rel_standing_envs: float = 0.1
+    """Fração de envs com comando zero. **É dividida** com o giro parado, pelo
+    `frac_giro_no_standing` — 0,05 parado e 0,05 giro."""
 
-    d_morto_andar: float = 0.05
-    """S5. Era 0.25, que era o R de chegada do `andar`. Os dois se separaram: o morto
-    tem de ser MENOR que o raio de sucesso, senão o comando zera antes de o robô
-    entrar no círculo que a régua exige. A S6 põe o raio de chegada em 0.10."""
-    d_morto_manipula: float = 0.30       # §14 — `alvo_peito_b[0]` + 0.10 (derivado)
-    d_freio_extra: float = 0.125
-    """S5 — `d_freio − d_morto`, a banda em que a velocidade desce de `v_max` a zero.
+    rel_heading_envs: float = 0.3
+    """Fração de envs em que o `ωz` NÃO é sorteado: ele vira
+    `clip(stiffness × erro_de_rumo, ±ang_vel_z)`, recalculado a cada passo.
 
-    DERIVADO de `v_max` e `a_max`: `v²/2a = 0.5²/2 = 0.125 m`. O `commands.py` afirma
-    essa igualdade num assert, para o número não voltar a ficar órfão.
+    ⚠️ Só tem efeito com `heading_command=True` e `ranges.heading` preenchidos. Sem os
+    dois, o `is_heading_env` nunca é escrito (`velocity_command.py:80-84`) e este
+    campo fica inerte **em silêncio**."""
 
-    ⚠️ Era 0.50, dimensionado para `v_max = 1.0` com a justificativa "~2 passos para
-    desacelerar" = 1.0 m/s². A 0.5 m/s os mesmos 0.50 m dariam 0.25 m/s², e o robô
-    rastejaria o último meio metro."""
-    v_max_carga_cheia: float = 0.25
-    """S14 — `v_max` quando a caixa está no peso máximo do eixo (5 kg).
+    heading_control_stiffness: float = 0.5
+    """Ganho da lei de realimentação do heading. Fabricante.
 
-    Entre 1 kg e 5 kg o `v_max` cai LINEARMENTE de `v_max` para este valor. A
-    inclinação sai da conta, não de um número digitado:
-    `(0.50 − 0.25) / (5 − 1) = 0.0625` m/s por kg.
+    ⚠️ Este é o número que o antigo `heading_gain` copiava. Lá ele estava marcado
+    "SEM USO desde a S5"; aqui ele volta a ter efeito, porque o modo heading do
+    fabricante entra."""
 
-    ⚠️ **Ligado à massa SORTEADA, não ao nível.** A S1 sorteia a massa em
-    `U(1, peso(nível))`; ligar ao nível daria 0.25 m/s a um env que tirou 1.2 kg.
+    rel_forward_envs: float = 0.2
+    """Fração de envs com comando retilíneo: `lin_vel_x = |x|.clamp(min=0,3)`,
+    `lin_vel_y = 0`, `ωz = 0`. Fabricante.
 
-    Orçamento que este número tem de fechar — `andar c/ caixa`, 2.0 m, 5 kg, rumo no
-    nível fácil: giro 0.4 s + caminhada 8.0 s + sustentação 3.0 s = **11.4 s de 20 s**.
-    ⚠️ Se `rumo` for acrescentado ao `andar c/ caixa` mais tarde, refazer a conta: com
-    ±180° a 1.2 rad/s são +2.6 s."""
-    morto_angular_rad: float = 0.087
-    """S5 — 5°. O equivalente angular do `d_morto_andar`: dentro dele `w_cmd` é zero.
+    Ele é também o PRECEDENTE de que o giro parado é uma fração de envs com comando de
+    forma restrita, e de onde sai a proporção do piso."""
 
-    Cabe dentro da tolerância de `alinhado` da S6, que dispara em 10°. Se o morto fosse
-    maior que ela, o comando pararia de girar antes de o critério considerar alinhado."""
+    frac_giro_no_standing: float = 0.5
+    """Que fatia do `rel_standing_envs` vira giro parado (`vx = vy = 0`, `ωz ≠ 0`).
+
+    A fração sai de DENTRO do standing, e não de uma fração nova: o regime parado é o
+    mais simples dos três, e reduzi-lo custa menos que reduzir dado de marcha.
+
+    Sem uma fração dedicada o giro parado quase não é sorteado:
+    `P(|vx| < 0,05 e |vy| < 0,05) = 0,05 × 0,05 = 0,25%`."""
+
+    piso_giro_rad_s: float = 0.15
+    """Piso de `|ωz|` no giro parado, em rad/s.
+
+    **Obrigatório.** O gate dos quatro termos de marcha é `‖cmd_xy‖ + |ωz| > 0,05`, e
+    10% dos sorteios de `ωz ~ U(−0,5, 0,5)` ficam abaixo disso. Sem piso, esses envs
+    ficam sem sinal de tarefa nenhum.
+
+    **Derivado, não escolhido:** o `rel_forward_envs` trava `lin_vel_x ≥ 0,3` num teto
+    de 1,0, ou seja 30% do teto. Trinta por cento do teto de `ωz` (0,5) dá 0,15."""
 
     alvo_peito_b: tuple[float, float, float] = (0.20, 0.00, 0.15)
-    """§14 — alvo da caixa em frame da BASE. Constante: é por isso que o `pegar`
-    tem `alvo_pos = 0` no vetor de comando — o peito não precisa ser transmitido."""
-
+    """§14 — alvo da caixa em frame da BASE. Constante: é por isso que o `pegar` não
+    precisa transmitir o alvo do peito no vetor de comando."""
 
 
 @dataclass
@@ -176,6 +171,26 @@ class Reward:
     track_angular_velocity: float = 2.0
     upright: float = 1.0
     postura: float = 0.5
+    """Peso do ÚNICO termo de postura. Ele é BONIFICAÇÃO: a função devolve
+    `exp(−média(err²/std²))`, que vive em `(0, 1]` e nunca é negativa. Sair da pose
+    padrão PARA DE PAGAR; isso não cria dívida.
+
+    ⚠️ **O escopo por tarefa saiu (§6).** Eram quatro termos gateados, com o `std`
+    respondendo ao regime de velocidade e o escopo respondendo a se a mão estava
+    ocupada. Sobra UM `variable_posture`, corpo todo, sem gate — o desenho do
+    fabricante (`joint_names=(".*",)`).
+
+    O escopo era desnecessário porque o termo **se auto-desliga onde o braço é a
+    tarefa**. Com comando zero o regime é `standing`, e o cfg do g1 põe
+    `std_standing = 0,05` para todas as juntas. Um ombro deslocado 0,5 rad dá
+    `0,25/0,0025 = 100`; com 8 juntas de braço de 29 a média fica em ~27,6, e o termo
+    vale `exp(−27,6) ≈ 1e−12`. Zero em float32, gradiente zero.
+
+    Os `std` por regime vêm COLHIDOS do cfg do fabricante, não redigitados — ver o
+    `env.py`. Os knobs `postura_std_parado`, `postura_std_manipula` e
+    `postura_joints` saíram junto com o escopo."""
+
+
     foot_clearance: float = -2.0
     foot_swing_height: float = -0.25
     soft_landing_feet: float = -1e-5
@@ -191,24 +206,9 @@ class Reward:
     Não vai a zero: sem ele a política estaciona a junta no limite, e aí o alvo de
     junta perde autoridade (o PD satura). Metade é o começo; o `contrib` por
     tarefa × termo decide o valor final."""
-    action_rate_l2: float = -0.25
+    action_rate_l2: float = -0.10
     body_ang_vel: float = -0.05
     angular_momentum: float = -0.02
-    arm_vel: float = -0.002
-    """§14. ✅ **CONFERIDO E MANTIDO** (T12, 30/07), com uma ressalva de projeto.
-
-    A calibração o flagou superando o sinal de tarefa em `andar c/ caixa` (−0.064
-    contra +0.027). Artefato de ação nula outra vez: sem ação os braços chicoteiam
-    enquanto o robô tomba, e `joint_vel_l2` é quadrático.
-
-    A ressalva que fica registrada: nas 3 tarefas que **carregam**, o braço é
-    ESTRUTURA, não gesto — ele precisa de velocidade pra corrigir a preensão quando a
-    caixa escorrega. Punir velocidade de braço ali compete com a tarefa de um jeito
-    que não compete no `andar` de mãos vazias, onde o alvo do termo (o "correr pra
-    pegar") é justamente o que se quer punir.
-
-    Não gateio agora: −0.002 é peso muito baixo, e gate a mais é complexidade que a
-    medição ainda não justifica. Fica no radar do bloco 1 junto com o `box_shake`."""
     joint_acc: float = -2.5e-7
     feet_slip: float = -0.1
 
@@ -228,7 +228,6 @@ class Reward:
     box_at_prateleira: float = 1.0      # kernel(caixa → prateleira), SEM grasp
     kernel_angulo: float = 1.0          # só no `reorientar`
     grasp: float = 0.5                  # bônus de toque, só no `pegar`
-    hold_still: float = 0.5
 
     orcamento_tarefa: float = 4.0
     """Teto de sinal de tarefa POR PASSO, igual nas 7 tarefas. `<= 0` desliga (06/08).
@@ -449,18 +448,6 @@ class Reward:
     Com 0.5: transporte de 0.092 a 1.848 (20×) e soltar no destino dobra para 3.695.
     O teto de 4.0 do orçamento passa a ser atingível SÓ com a caixa solta no alvo."""
 
-    postura_std_parado: float = 0.05    # §6b — coluna `parado`
-    postura_std_manipula: float = 0.5   # §6b — colunas `orientar`/`pegar`/`botar`
-
-    postura_joints: tuple[str, ...] = (r".*(hip|knee|ankle|waist).*",)
-    """Escopo da postura: perna + cintura, BRAÇOS LIVRES.
-
-    Diferente da skill Stand, que usa `.*` (corpo todo). Aqui a mesma política
-    manipula, então uma postura de corpo inteiro brigaria com a tarefa. O doc
-    especifica o `std` por etapa mas não o escopo — esta é escolha do
-    implementador, e o `posture` da Lift já usava exatamente este escopo."""
-
-
 @dataclass
 class Foundation:
     action_scale_mult: float = 0.8       # §14 — config ativo da Lift, movimento mais gentil
@@ -536,137 +523,73 @@ class DR:
 
 @dataclass
 class Push:
-    """Escada de push — eixo GLOBAL, sem piso, o único com recuo de nível (§14).
+    """Empurrão FIXO, do fabricante. O eixo de currículo SAIU (§7).
 
-    Um fator único multiplica os 6 componentes. Nível 3 é o `fator 1.00` do config
-    ativo: `x/y ±0.6 · z ±0.4 · roll/pitch ±0.52 · yaw ±0.78 · 50 N por componente`.
-    Do 3 pro 4 o fator não muda — só a DURAÇÃO da força alonga."""
+    Os seis componentes e o intervalo são os do `push_robot` do
+    `velocity_env_cfg.py:223-237`, sem escala e sem nível. Saíram junto o
+    `push_fator` por env, a força sustentada (`empurrao_sustentado`) e a célula
+    `(PARADO, PUSH)` do orquestrador.
 
-    vel_x_full: tuple[float, float] = (-0.6, 0.6)       # fator 1.00
-    vel_y_full: tuple[float, float] = (-0.6, 0.6)
-    vel_z_full: tuple[float, float] = (-0.4, 0.4)
-    roll_full: tuple[float, float] = (-0.52, 0.52)
-    pitch_full: tuple[float, float] = (-0.52, 0.52)
-    yaw_full: tuple[float, float] = (-0.78, 0.78)
-    force_full: float = 50.0
+    O único acréscimo nosso é a `JANELA_LIVRE_S` do `push.py`."""
 
-    duracao_curta_s: tuple[float, float] = (0.3, 1.0)   # níveis 0-3
-    duracao_longa_s: tuple[float, float] = (0.3, 3.0)   # nível 4
-    cooldown_s: tuple[float, float] = (1.5, 3.0)        # §14 — medido
-    intervalo_impulso_s: tuple[float, float] = (1.0, 3.0)
+    velocity_range: dict = field(default_factory=lambda: {
+        "x": (-0.5, 0.5), "y": (-0.5, 0.5), "z": (-0.4, 0.4),
+        "roll": (-0.52, 0.52), "pitch": (-0.52, 0.52), "yaw": (-0.78, 0.78),
+    })
+    intervalo_s: tuple[float, float] = (1.0, 3.0)   # fabricante
 
 
 @dataclass
 class Tolerancia:
-    """Limiares de terminação e de sucesso (§14). Mudar um de SUCESSO é Categoria C —
+    """Limiares de terminação e de sucesso. Mudar um de SUCESSO é Categoria C —
     recomeçar do zero — porque a régua do currículo se move junto."""
 
     # --- terminação ---
-    largou_z: float = 0.30              # §14 — só `parado c/ caixa` e `andar c/ caixa`
-    area_raio: float = 5.0              # §14 — 5 m do spawn
+    largou_z: float = 0.30              # só o `locomover_carregando`
 
-    # --- "de pé" (item 19) ---
+    # --- "de pé" ---
     de_pe_z: float = 0.65
-    """§14. Compara com 0.76 m, a pelve no keyframe `KNEES_BENT` (medido): permite
-    agachar 11 cm, não permite ficar dobrado. Não reusa o `fell_over` (70°) porque
-    aquele é folgado demais — daria "de pé" pra um robô dobrado a 65°."""
+    """Compara com 0.76 m, a pelve no keyframe `KNEES_BENT` (medido): permite agachar
+    11 cm, não permite ficar dobrado. Não reusa o `fell_over` (70°) porque aquele é
+    folgado demais — daria "de pé" pra um robô dobrado a 65°."""
     de_pe_tilt_rad: float = 0.349       # 20°
 
-    # --- sucesso (§6b/E) ---
-    caixa_no_alvo: float = 0.10         # §14 — 3D, `pegar` e `botar`
-    caixa_quieta_v: float = 0.05        # §14 — ‖v‖ < 0.05 m/s
-    reorienta_angulo_deg: float = 10.0  # §14
-    reorienta_xy: float = 0.05          # §14
-    andar_raio: float = 0.25            # §14 — R de chegada (usado pelo `andar c/ caixa`)
-    andar_raio_chega: float = 0.10
-    """S6 — o raio que DISPARA a chegada do `andar`. Mais apertado que o antigo 0.25.
+    # --- critério BASE: erro médio de velocidade (§8) ---
+    tol_v: float = 0.25
+    """Erro linear médio máximo, em m/s. `erro_lin = (1/T) ∫ ‖v_cmd_xy − v_xy‖ dt`.
 
-    Tem de ser maior que o `d_morto_andar` de 0.05, senão o comando zera antes de o
-    robô entrar no círculo que a régua exige."""
-    andar_raio_mantem: float = 0.25
-    """S6 — o raio que a SUSTENTAÇÃO exige, depois de a chegada disparar.
+    O critério é FÍSICO. Ele mede metros por segundo, enquanto a recompensa calcula
+    `exp(−erro²/σ²)` — as duas funções são diferentes, então o `σ` da recompensa não
+    move a régua.
 
-    ⚠️ Histerese, e ela não é conforto. O `cond` sustentado zera o contador quando a
-    condição quebra. Sob push nível 4 — 50 N segurados por até 3 s — o robô sai de um
-    círculo de 0.10 m e o contador reinicia sem parar. O `andar` nunca chegaria a 0.90,
-    e ele é pai de `pegar` e de `reorientar`: a árvore inteira travaria atrás dele."""
-    alinhado_chega_deg: float = 10.0
-    """S6 — erro de rumo que DISPARA o alinhamento. O `morto_angular_rad` da S5 é 5°,
-    portanto o comando ainda gira até bem dentro desta tolerância."""
-    alinhado_mantem_deg: float = 25.0
-    """S6 — erro de rumo que a sustentação exige. Mesma histerese do raio, mesmo motivo.
+    **Derivado:** metade do `std` do `track_linear_velocity` do fabricante
+    (`sqrt(0.25) = 0.5`). Com o comando em `U(−1, 1)` nos dois eixos, `‖v_cmd_xy‖`
+    vale ~0,765 m/s em média, então 0,25 é ~33% de erro relativo.
 
-    ⚠️ O `alinhado` é GUARDA, não exigência independente. Quem chega andando para
-    frente chega apontado, porque o alvo de orientação é o próprio rumo (S5). Não
-    espere que ele morda."""
-    sustenta_pegar_s: float = 5.0       # §14
-    sustenta_andar_s: float = 3.0
-    """S6 — era 5.0. Segundos de pé e dentro do raio depois de chegar.
+    ⚠️ **Risco aceito, e declarado no §8:** o número é fixado SEM medição do
+    deslocamento de pelve durante o agachamento. Com comando zero na manipulação, este
+    limiar passa a medir a deriva. Um agachamento move a pelve ~0,3 m em ~1 s, o que
+    dá ~0,015 m/s de média num episódio de 20 s — cabe com folga. Confirmar no log."""
 
-    ⚠️ É um knob SÓ, e o `_exigencia_s` o usa para `ANDAR` e para `ANDAR_CAIXA`.
-    Baixar para 3 s muda os dois, e isso é desejado: o orçamento de tempo do
-    `andar c/ caixa` é o mais apertado das sete tarefas (ver a conta da S14)."""
-    sustenta_botar_s: float = 2.0       # §14 — quieta + de pé, simultâneos
-    sustenta_reorienta_s: float = 2.0   # §14 — ângulo + xy + apoiada, simultâneos
-    deriva_parado_log: float = 0.20
-    """§14 — 🔧 F3: **logada, NÃO é portão.** O critério antigo era deriva < 0.20 m no
-    episódio, e ele comprime a taxa de sucesso pra perto de zero sob push nível 4. O
-    sucesso do `parado` mede agora VELOCIDADE, não posição — ver `parado_v_max`."""
+    tol_w: float = 0.35
+    """Erro angular médio máximo, em rad/s. `erro_ang = (1/T) ∫ |ωz_cmd − ωz| dt`.
 
-    parado_v_max: float = 0.30
-    """Velocidade horizontal máxima que ainda conta como "parado", em m/s.
+    Mesma derivação: metade do `std` do `track_angular_velocity` (`sqrt(0.5) ≈ 0,707`).
 
-    **Novo em 03/08/2026.** Pedido do user: *"Ele não precisa ficar no mesmo lugar,
-    mas sim não se mover."* Estar deslocado é grátis; **se mover** é que reprova.
+    Com comando zero, ele mede rebolado de pelve — que é exatamente o buraco que o
+    `hold_still` deixou ao sair (§10). Aqui ele volta como critério, não como
+    recompensa."""
 
-    Por que 0,30 separa bem:
+    # --- condições adicionais por tarefa (§8) ---
+    caixa_no_alvo: float = 0.10         # 3D, `pegar` e `botar`
+    caixa_quieta_v: float = 0.05        # ‖v‖ < 0.05 m/s, só o `botar`
+    reorienta_angulo_deg: float = 10.0
+    reorienta_xy: float = 0.05
 
-        andar          `v_max` = 1,0 m/s          persistente  -> reprova
-        empurrão n4    ±50 N em ~35 kg = 1,43 m/s²
-                       pico ~0,4 m/s em 0,3 s     transitório  -> cabe na folga
-        balanço em pé  bem abaixo de 0,1 m/s      -> passa
-
-    O empurrão fura o limiar, mas dura 0,3 a 3,0 s de um episódio de 20 s, ou seja
-    1,5% a 15% — dentro dos 20% de folga da `parado_fracao`."""
-
-    limite_fora_de_pe_s: float = 2.5
-    """S7 — segundos ACUMULADOS fora de `de pé` que o `parado` tolera no episódio.
-
-    A régua era `time_outs & nunca_caiu`, e um robô permanentemente agachado passava:
-    o `fell_over` mede só INCLINAÇÃO (70°), e agachado com o tronco vertical ela é ~0°.
-
-    2,5 s é o vão entre os dois comportamentos que a régua precisa separar. Um passo
-    protetivo sob push custa de 1 a 2 s fora de `de pé` e passa. Agachar e ficar
-    agachado consome os 20 s do episódio e não passa.
-
-    ⚠️ ACUMULADO, e não consecutivo. Sob push nível 4 o robô sai e volta de `de pé`
-    várias vezes; um contador consecutivo perdoaria dez quedas curtas seguidas.
-
-    ⚠️ Usa o `de_pe` COMPARTILHADO, sem limiar próprio. Se o log mostrar o robô parado
-    em 0,66 m o episódio inteiro, o conserto é um knob de `z` só para o `parado` — não
-    mexer no `de_pe`, que `pegar`, `botar`, `parado c/ caixa` e `andar c/ caixa` usam.
-
-    ⚠️ Não usar limiar em espaço de juntas. A medição do `model_stand_step` mostra que
-    as juntas que se mexem são as que EQUILIBRAM (hip_yaw ±7,9°, hip_roll ±3,9°, o
-    resto abaixo de 2,1°). Um limiar ali mira o mecanismo de controle e briga com o
-    push. E os braços estão congelados na Stand; no multi-tarefa eles manipulam,
-    portanto aqueles números não transferem."""
-
-    parado_fracao: float = 0.80
-    """Fração dos passos do episódio em que `de pé E devagar` tem que valer.
-
-    **É a fração que implementa a intenção, não o instante.** A exigência de
-    sustentação do `parado` é 0 s, então o critério é testado NUM passo só — o do
-    `time_out`. Num passo só, dois furos medidos:
-
-    - anda os 20 s e para no último passo -> aprovaria
-    - fica sentado 19 s e levanta no último -> aprovaria (o `de_pe` entra na mesma
-      fração, então isto fecha de graça)
-
-    "Não se mover" é propriedade do episódio, não de um instante. Daí a fração.
-
-    ⚠️ Mudar isto é **Categoria C** — a régua do currículo se move, e as EMA de
-    `perf` acumuladas sob a régua antiga passam a significar outra coisa."""
+    sustenta_pegar_s: float = 5.0
+    sustenta_carregar_s: float = 3.0
+    sustenta_botar_s: float = 2.0       # quieta + de pé, simultâneos
+    sustenta_reorienta_s: float = 2.0   # ângulo + xy + apoiada, simultâneos
 
 
 @dataclass
@@ -676,29 +599,17 @@ class Curriculum:
     ema_alpha: float = 0.03             # §14 — faixa 0.02-0.05
 
     limiar_competencia: float = 0.90
-    """§14 — **absoluto, todas as tarefas, sem escape hatch.** O portão é `min`
-    sobre os níveis destravados da célula, não média: dominar o nível fácil e
-    ignorar o difícil não passa."""
+    """**Absoluto, todas as tarefas, sem escape hatch.**
 
-    ema_alpha_lenta: float = 0.003
-    """`ema_alpha / 10`. É a taxa da REFERÊNCIA contra a qual a queda é medida (S3).
+    ⚠️ O portão lê o nível CORRENTE (`perf[T][topo]`), e não mais o `min` sobre todos
+    os níveis abertos. Consequência: o eixo avança mesmo se um nível anterior
+    regrediu. O piso `ρ/L` continua sorteando os níveis antigos, então a regressão
+    aparece no log — ela vira observabilidade, não portão.
 
-    A referência era o máximo corrido. O máximo de um sinal ruidoso não estima a
-    média: ele estima a média mais 2,5σ a 3σ. A EMA de Bernoulli tem σ estacionário
-    `sqrt(α·p(1−p)/(2−α))`; com α = 0.03 e uma amostra por atualização isso dá 0.062
-    em p = 0.50 e 0.037 em p = 0.90. O desvio do máximo SOZINHO passa do
-    `congela_queda` de 0.10, e a célula congelava sem nenhuma regressão real.
+    ⚠️ O congelamento SAIU (§9), e com ele o `ema_alpha_lenta`, o `congela_queda` e o
+    `descongela_dist_pico`. Ele era o único mecanismo capaz de bloquear a abertura de
+    um filho, e a referência já era EMA lenta, que suaviza sozinha."""
 
-    Dez vezes mais lenta que a EMA de medição, de propósito: a referência tem que se
-    mover devagar o bastante para que uma queda genuína apareça como diferença, e
-    rápido o bastante para acompanhar melhora sustentada."""
-
-    congela_queda: float = 0.10         # §14 — queda > 0.10 congela a célula
-    descongela_dist_pico: float = 0.05
-    """§14 — volta a < 0.05 da referência descongela.
-
-    ⚠️ O nome cita `pico` e a referência deixou de ser o pico na S3. O nome fica como
-    está porque a S3 não o cita, e a regra da spec proíbe mexer no que ela não cita."""
     platô_amostras: int = 2000          # §14 — diagnóstico, NÃO portão
     platô_iters: int = 150
     platô_delta: float = 0.01

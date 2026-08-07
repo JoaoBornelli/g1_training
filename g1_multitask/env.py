@@ -55,16 +55,14 @@ from . import push as P
 from . import rewards as R
 from . import tasks as T
 from . import terminations as MT_terms
-from .commands import DesiredTwistCommandCfg, LiftTargetCommandCfg
+from .commands import LiftTargetCommandCfg, TwistMultitarefaCfg
 from .knobs import MultitaskKnobs
 from .pregrasp import POSE_PRE_GRASP
 from .scene import regroup
 from .tasks import (
-    ANDAR,
-    ANDAR_CAIXA,
     BOTAR,
-    PARADO,
-    PARADO_CAIXA,
+    LOCOMOVER,
+    LOCOMOVER_CARREGANDO,
     PEGAR,
     REORIENTAR,
 )
@@ -72,16 +70,6 @@ from .tasks import (
 _RESET_BASE_POSE_RANGE = {
     "x": (-0.10, 0.0), "y": (-0.10, 0.10), "z": (0.01, 0.05), "yaw": (-0.2, 0.2),
 }
-_TOKENS_PERNA = ("hip", "knee", "ankle", "waist")
-
-
-def _so_pernas(std: dict) -> dict:
-    """Filtra um dict de `std` por junta pro escopo perna+cintura.
-
-    Obrigatório, não cosmético: o `resolve_matching_names_values` do mjlab EXIGE que
-    toda chave case pelo menos uma junta. Deixar `.*shoulder.*` num escopo sem braço
-    levanta erro em vez de ser ignorado."""
-    return {k: v for k, v in std.items() if any(t in k for t in _TOKENS_PERNA)}
 
 
 def _equaliza_orcamento(cfg, alvo: float) -> dict[int, float]:
@@ -152,7 +140,9 @@ def build_multitask_env(
         },
         reset_base_pose_range=_RESET_BASE_POSE_RANGE,
         posture_weight=knobs.reward.postura,
-        posture_joints=list(knobs.reward.postura_joints),
+        # Corpo todo. O `base_env` exige o parâmetro, mas o termo que ele instala é
+        # DELETADO no bloco 8 e substituído pelo `variable_posture` do fabricante.
+        posture_joints=[".*"],
     )
 
     # --- 2a. COMANDO: substitui o `lift_target` de 4 números que a base instalou ---
@@ -168,15 +158,31 @@ def build_multitask_env(
             box_half_z=s.box_half[2],
             shelf_half_z=s.shelf_half_z,
         ),
-        "twist": DesiredTwistCommandCfg(
-            debug_vis=False,
-            resampling_time_range=(ep, ep),      # derivado: nunca sorteia
-            v_max=c.v_max, w_max=c.w_max, heading_gain=c.heading_gain,
-            v_max_carga_cheia=c.v_max_carga_cheia,
-            a_max=c.a_max, alpha_max=c.alpha_max,
-            morto_angular_rad=c.morto_angular_rad,
-            d_morto_andar=c.d_morto_andar, d_morto_manipula=c.d_morto_manipula,
-            d_freio_extra=c.d_freio_extra,
+        # O comando de velocidade é SORTEADO, no padrão do fabricante. Ele não é mais
+        # derivado de um destino: a linha `v_alvo *= cos(erro_rumo)` fechava um ciclo
+        # (sem girar, comando ≈ 0; sem comando, não aprende a andar) e o comando
+        # efetivo medido era 0,052 m/s contra `v_max` 0,5.
+        #
+        # ⚠️ `heading_command=True` E `ranges.heading` andam JUNTOS. Sem os dois, o
+        # `rel_heading_envs` fica inerte em silêncio (`velocity_command.py:80-84`).
+        "twist": TwistMultitarefaCfg(
+            entity_name="robot",
+            debug_vis=True,
+            resampling_time_range=c.resampling_s,
+            rel_standing_envs=c.rel_standing_envs,
+            rel_heading_envs=c.rel_heading_envs,
+            rel_forward_envs=c.rel_forward_envs,
+            heading_command=True,
+            heading_control_stiffness=c.heading_control_stiffness,
+            ranges=TwistMultitarefaCfg.Ranges(
+                lin_vel_x=c.lin_vel_x,
+                lin_vel_y=c.lin_vel_y,
+                ang_vel_z=c.ang_vel_z,
+                heading=(-math.pi, math.pi),
+            ),
+            tarefas_cmd_zero=T.CMD_ZERO,
+            frac_giro_no_standing=c.frac_giro_no_standing,
+            piso_giro_rad_s=c.piso_giro_rad_s,
         ),
     }
 
@@ -229,8 +235,7 @@ def build_multitask_env(
     _ator = cfg.observations["actor"].terms["target_pos_b"]
     _ator.func = obs.target_pos_b_gateado
     _ator.params = {"command_name": "lift_target",
-                    "tarefas_zeradas": (PARADO, ANDAR, PARADO_CAIXA,
-                                        ANDAR_CAIXA, PEGAR)}
+                    "tarefas_zeradas": (LOCOMOVER, LOCOMOVER_CARREGANDO, PEGAR)}
 
     # --- 4. CENA: mobília fora do grupo 0 (item 7, metade 1) ---
     # Refaz as duas entidades com o spec regrupado. `build_base_env` as criou no
@@ -315,7 +320,7 @@ def build_multitask_env(
                 "mesa_yaw_max_rad": math.radians(s.table_jitter_yaw_deg)},
     )
     cfg.events["payload"] = EventTermCfg(
-        func=MT_events.payload_por_nivel, mode="reset",
+        func=MT_events.payload_dr, mode="reset",
         params={"box_mass": s.box_mass},
     )
 
@@ -370,15 +375,14 @@ def build_multitask_env(
     # ⚠️ O `push_robot` do fabricante é SUBSTITUÍDO, não somado. Dois eventos que
     # escrevem velocidade de base no mesmo passo não se compõem: o segundo apaga o
     # primeiro, sem erro e sem log. Mesma armadilha do `reset_box` na S1.
+    # O eixo de currículo do push SAIU. Sobra o evento fixo do fabricante, sempre
+    # ligado, com a magnitude dele — mais a `JANELA_LIVRE_S` do `push.py`, que é a
+    # única coisa que o nosso invólucro acrescenta.
     if not play:
         cfg.events["push_robot"] = EventTermCfg(
             func=P.empurrao, mode="interval",
-            interval_range_s=knobs.push.intervalo_impulso_s,
-            params={"push": knobs.push},
-        )
-        cfg.events["push_force"] = EventTermCfg(
-            func=P.empurrao_sustentado, mode="step",
-            params={"push": knobs.push},
+            interval_range_s=knobs.push.intervalo_s,
+            params={"velocity_range": knobs.push.velocity_range},
         )
 
     # --- 7. LOCOMOÇÃO DE VOLTA (itens 8, 10, 11) ---
@@ -394,10 +398,11 @@ def build_multitask_env(
         cfg.rewards[nome] = deepcopy(fab.rewards[nome])
         cfg.rewards[nome].weight = peso
 
-    # `track_linear_velocity` entra na variante com freio de z (item 11): mesma
-    # assinatura e mesmos params do fabricante, uma linha de diferença no meio.
+    # ⚠️ O freio de z SAIU (§10b). Ele zerava a punição de `v_z` dentro do `d_morto`
+    # para não brigar com o agachamento, mas o termo é gateado só nas tarefas de
+    # locomoção — e agachar acontece no `pegar`, que está fora do gate. Ele já era
+    # inerte onde importava. Volta a função do fabricante, sem cópia.
     cfg.rewards["track_linear_velocity"] = deepcopy(fab.rewards["track_linear_velocity"])
-    cfg.rewards["track_linear_velocity"].func = R.track_linear_velocity_freio_z
     cfg.rewards["track_linear_velocity"].weight = r.track_linear_velocity
 
     # --- 7b. O PISO DE SOBREVIVÊNCIA SAI DA MANIPULAÇÃO (S9) ---
@@ -427,8 +432,8 @@ def build_multitask_env(
         cfg.rewards[nome] = RewardTermCfg(
             func=R.gated, weight=base.weight,
             params={"inner": base.func,
-                    "tasks": (PARADO, ANDAR, ANDAR_CAIXA, PARADO_CAIXA),
-                    "exige_grasp": (PARADO_CAIXA, ANDAR_CAIXA),
+                    "tasks": (LOCOMOVER, LOCOMOVER_CARREGANDO),
+                    "exige_grasp": (LOCOMOVER_CARREGANDO,),
                     "grasp_palm": PALM_SENSORS, "grasp_back": BACK_SENSORS,
                     **base.params},
         )
@@ -465,12 +470,9 @@ def build_multitask_env(
         params={"sensor_name": BODY_IMPACT_SENSOR, "rotulo": "mesa"},
     )
 
-    # Anti-dinâmica que a §14 lista e o `base_env` não instala.
-    cfg.rewards["arm_vel"] = RewardTermCfg(
-        func=base_rewards.joint_vel_l2, weight=r.arm_vel,
-        params={"asset_cfg": SceneEntityCfg(
-            "robot", joint_names=[".*(shoulder|elbow|wrist).*"])},
-    )
+    # ⚠️ O `arm_vel` SAIU (§10). Nas tarefas que carregam, o braço é ESTRUTURA e não
+    # gesto. E a medição contradizia o docstring dele: `contrib/parado/arm_vel =
+    # −0,0691` era o segundo maior custo, atrás só do `action_rate`.
     cfg.rewards["joint_acc"] = RewardTermCfg(
         func=base_rewards.joint_acc_l2, weight=r.joint_acc,
         params={"asset_cfg": SceneEntityCfg("robot")},
@@ -494,54 +496,29 @@ def build_multitask_env(
     if "action_rate_l2" in cfg.rewards:
         cfg.rewards["action_rate_l2"].func = R.action_rate_l2_juntas
 
-    # --- 8. POSTURA EM 3 ESCOPOS (item 12, resolvido por REUSO) ---
-    # O `base_env` instala UM `posture`. Ele sai e entram três, todos com a MESMA
-    # função do fabricante (`base_rewards.posture`) — nenhuma função nova.
+    # --- 8. POSTURA: UM TERMO, CORPO TODO, SEM GATE (§6) ---
+    # Eram quatro termos gateados por tarefa: o `std` respondia ao regime de
+    # velocidade e o escopo respondia a se a mão estava ocupada.
     #
-    # Por que três e não um `variable_posture`: aquele troca a tolerância pela
-    # velocidade COMANDADA, e `parado` e manipulação têm as duas velocidade ~0 —
-    # ele não distingue os dois casos, que precisam de std 0.05 e 0.5.
-    # Por que não `variable_posture` gateado: ele é uma CLASSE, e o `gated()` chama
-    # `inner(env, **kw)` — passar a classe construiria uma instância em vez de
-    # chamar. Usar a função simples três vezes é mais barato que fazer o `gated()`
-    # entender classe.
+    # O escopo era desnecessário, e a aritmética mostra por quê: o termo de corpo
+    # inteiro **se auto-desliga onde o braço é a tarefa**. Com comando zero o
+    # `variable_posture` usa o regime `standing`, e o cfg do g1 põe
+    # `std_standing = 0,05` para TODAS as juntas (`config/g1/env_cfgs.py:107`). Um
+    # ombro deslocado 0,5 rad dá `0,25/0,0025 = 100`; com 8 juntas de braço de 29 a
+    # média fica em ~27,6, e o termo vale `exp(−27,6) ≈ 1e−12`. Zero em float32, e o
+    # gradiente também. Ele não consegue enviesar nada.
     #
-    # O `std_walking` é COLHIDO do cfg do fabricante (dict por junta, calibrado por
-    # robô), não redigitado.
+    # Consequência declarada: o termo fica inerte nas QUATRO tarefas com caixa, e não
+    # só nas três de manipulação. No `locomover_carregando` o regime é `walking`
+    # (ombro `std = 0,15`), mas os braços seguram a caixa no peito — `exp(−12) ≈
+    # 6e−6`. Sobram ali os quatro termos de marcha, mais `upright`, `body_ang_vel` e
+    # `angular_momentum`, que são globais.
+    #
+    # O termo é COLHIDO do cfg do fabricante: os três dicts de `std` são calibrados
+    # por robô e não são redigitados aqui.
     del cfg.rewards["posture"]
-    std_walking = deepcopy(fab.rewards["pose"].params["std_walking"])
-    pernas = SceneEntityCfg("robot", joint_names=list(r.postura_joints))
-    corpo_todo = SceneEntityCfg("robot", joint_names=[".*"])
-
-    # São QUATRO termos, não três, porque o escopo e o std são independentes:
-    #   escopo   <- a mão está ocupada? (braço é efetuador, não pode ser travado)
-    #   std      <- qual o regime de velocidade? (parado / andando / manipulando)
-    # As 4 combinações com conteúdo real são as de baixo. Colapsar `andar` com
-    # `andar c/ caixa` daria std de marcha com braço travado numa tarefa que carrega
-    # caixa; colapsar `andar c/ caixa` com manipulação daria std 0.5 numa tarefa que
-    # anda. Nenhuma função nova em nenhum dos quatro.
-    for nome, tarefas, std, escopo in (
-        # mãos vazias: o braço PODE ser travado, e no `andar` deve — o `std_walking`
-        # do fabricante shapa balanço de braço nas entradas de ombro/cotovelo/punho.
-        ("posture_parado", (PARADO,), {".*": r.postura_std_parado}, corpo_todo),
-        ("posture_anda", (ANDAR,), std_walking, corpo_todo),
-        # mão ocupada (ou ocupando): braço LIVRE, escopo perna+cintura.
-        # ⚠️ `PEGAR` SAIU do gate em 03/08. O termo vale 0,5 com a perna perto da pose
-        # padrão e vai a ZERO no agachamento (std 0,5 rad contra um joelho que precisa
-        # de mais de 1 rad), então ele cobrava 0,5 de quem agacha — 12% do orçamento de
-        # tarefa. Com o clamp de pitch em 1,05 a perna PRECISA sair da pose padrão no
-        # `pegar`, e o único jeito de descer é justamente o que este termo punia.
-        # Sobram restrições esparsas (`fell_over` e o `de_pe` do critério), de
-        # propósito: a perna fica livre pra achar o agachamento.
-        ("posture_manip", (BOTAR, REORIENTAR, PARADO_CAIXA),
-         {".*": r.postura_std_manipula}, pernas),
-        ("posture_carrega", (ANDAR_CAIXA,), _so_pernas(std_walking), pernas),
-    ):
-        cfg.rewards[nome] = RewardTermCfg(
-            func=R.gated, weight=r.postura,
-            params={"inner": base_rewards.posture, "tasks": tuple(tarefas),
-                    "std": std, "asset_cfg": escopo},
-        )
+    cfg.rewards["posture"] = deepcopy(fab.rewards["pose"])
+    cfg.rewards["posture"].weight = r.postura
 
     # --- 9. ANTI-HACKS, com os 2 gates explícitos (§6b) ---
     # Só estes dois precisam de máscara. `foot_clearance`, `foot_swing_height` e
@@ -620,7 +597,7 @@ def build_multitask_env(
     cfg.rewards["box_at_peito"] = RewardTermCfg(
         func=R.gated, weight=r.box_at_peito,
         params={"inner": R.box_at_peito,
-                "tasks": (PEGAR, PARADO_CAIXA, ANDAR_CAIXA),
+                "tasks": (PEGAR, LOCOMOVER_CARREGANDO),
                 "std": r.sustain_std, "object_name": "box",
                 "alvo_peito_b": c.alvo_peito_b, **pega},
     )
@@ -640,13 +617,15 @@ def build_multitask_env(
                 "std_fino_deg": r.angulo_std_fino_deg,
                 "xy_std": r.reorienta_xy_std},
     )
-    cfg.rewards["hold_still"] = RewardTermCfg(
-        func=R.gated, weight=r.hold_still,
-        params={"inner": LR.hold_still_bonus,
-                "tasks": (PARADO_CAIXA, ANDAR_CAIXA, PEGAR),
-                "object_name": "box", "command_name": "lift_target",
-                "gate_std": 0.25, "still_std": 0.5, **pega},
-    )
+    # ⚠️ O `hold_still` SAIU (§10). Ele é redundante com o `track_angular_velocity`:
+    # os dois leem `root_link_ang_vel`, o root do G1 é a pelve, e a norma de ω é
+    # invariante de frame. A ω = 1 rad/s o `hold_still` perde 0,49 e o `track_ang`
+    # perde 1,73 — 3,5× mais forte. Ele veio da skill Lift, que é de tarefa única e
+    # não tem comando de velocidade.
+    #
+    # O buraco que sobra: o `pegar` não recebe `track_*`, então nada nele enxerga
+    # rotação de pelve pela RECOMPENSA. O critério de sucesso passa a enxergar — o
+    # `tol_w` do §8 mede exatamente isso.
 
     # --- 10b. ORÇAMENTO IGUAL NAS 7 TAREFAS (06/08) ---
     # Última coisa a mexer em peso de termo de tarefa, de propósito: a conta lê os
@@ -708,10 +687,12 @@ def build_multitask_env(
         params={"tasks": (REORIENTAR,), "margem": s.box_half[2],
                 "shelf_half_z": s.shelf_half_z},
     )
-    cfg.terminations["fora_da_area"] = TerminationTermCfg(
-        func=MT_terms.fora_da_area, time_out=False,
-        params={"raio": t_.area_raio},
-    )
+    # ⚠️ O `fora_da_area` SAIU (§10b). Com o comando sorteado ele reprova o rastreio
+    # bom: uma janela de 1 m/s por 5 s já cobre os 5 m do raio, e ele era
+    # `time_out=False` — custava −4,0 e zerava o `não_caiu`. O
+    # `unitree_g1_flat_env_cfg` remove o `out_of_terrain_bounds` (`env_cfgs.py:209`):
+    # no plano, o fabricante não termina por distância. O `nonfinite` cobre deriva
+    # descontrolada.
 
     # --- 14. SUCESSO por tarefa -> env.success_buf (itens 17 e 18) ---
     # Métrica FÍSICA, fora do reward manager. É ela que faz "ajustar peso entre
@@ -722,10 +703,13 @@ def build_multitask_env(
         func=MT_metrics.Sucesso, reduce="last",
         params={"tol": t_, "alvo_peito_b": c.alvo_peito_b},
     )
-    # F3: a deriva do `parado` vira LOG, não portão.
-    cfg.metrics["deriva_parado"] = MetricsTermCfg(
-        func=MT_metrics.deriva_parado, reduce="max",
-    )
+    # O erro de rastreio, cru, por passo. O `reduce="mean"` faz a média do EPISÓDIO,
+    # que é exatamente a régua do §8. O `UniformVelocityCommand` também loga
+    # `error_vel_xy`, mas aquele normaliza pela janela de reamostragem.
+    cfg.metrics["erro_vel_linear"] = MetricsTermCfg(
+        func=MT_metrics.erro_vel_linear, reduce="mean")
+    cfg.metrics["erro_vel_angular"] = MetricsTermCfg(
+        func=MT_metrics.erro_vel_angular, reduce="mean")
 
     # --- 15. OBSERVABILIDADE por tarefa x termo (tarefa nova, fora da §13) ---
     # O log default do mjlab dilui: `Episode_Reward/<termo>` é média sobre TODOS os

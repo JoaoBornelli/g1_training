@@ -12,20 +12,35 @@ de a informação ser necessária.
 Interface com o resto do pacote:
 
     env.tarefa_sorteada   [num_envs] long          — lida pelo evento e pelo comando
-    env.nivel             dict eixo -> [num_envs]  — lida pelo comando
+    env.nivel             dict eixo -> [num_envs]  — índice ABSOLUTO em T.LEVELS
+    env.teto_velocidade   [num_envs] float         — lido pela subclasse de comando
+    env.dr_peso           [num_envs] bool          — lido pelo `payload_dr`
+    env.plr_shelf_top     [num_envs] float         — lido pelo `reset_scene_plr`
     env.success_buf       [num_envs] float         — ESCRITA por metrics.py, lida aqui
 
-O molde é o `PlrHeights` da Lift (`g1_training/common/curriculums.py`): mesma fórmula
-rank-based, mesmo piso `ρ/L`, mesma disciplina de criar buffers no `__init__`. Duas
-diferenças de fundo:
+O molde do sorteio de nível é o `PlrHeights` da Lift
+(`g1_training/common/curriculums.py`): mesma fórmula rank-based, mesmo piso `ρ/L`,
+mesma disciplina de criar buffers no `__init__`. Duas diferenças de fundo:
 
-  1. `scores` deixa de ser `[L]` e passa a ser um por CÉLULA `(tarefa, eixo)`;
+  1. `scores` é por CÉLULA `(tarefa, eixo)`, e não `[L]`;
   2. a performance vem de `env.success_buf` — **fato físico** — e não da soma de
-     reward do episódio. É isso que faz ajustar peso entre blocos ser Categoria A
-     (grátis) em vez de Categoria C disfarçada (§15).
+     reward do episódio. É isso que faz ajustar peso entre blocos ser Categoria A.
 
 E ganha o que o `PlrHeights` não tem: `state_dict`/`load_state_dict`. Sem isso, com
-blocos de 2k-3k, o currículo voltaria ao nível 0 **10 a 15 vezes**.
+blocos de 2k-3k, o currículo voltaria ao nível 0 de 10 a 15 vezes.
+
+--------------------------------------------------------------------------------
+O QUE A REFORMA DE 07/08 TIROU DAQUI  (ver `EXPERIMENTO.md` §9)
+--------------------------------------------------------------------------------
+  - o `FILHOS` com prioridade "filho antes de eixo" e a regra F9 de um filho por
+    evento -> viraram `PAIS` com junção AND;
+  - o round-robin e o `AXIS_ORDER` -> um eixo por tarefa, nada a desempatar;
+  - o `_min_tarefa` e o `_min_cel` -> o portão lê o nível CORRENTE;
+  - o condicionamento do `_medir` -> não há outro eixo para condicionar;
+  - o congelamento inteiro (`ref`, `congelado`, histerese) -> ele era o único
+    mecanismo capaz de bloquear a abertura de um filho, e a referência já é EMA
+    lenta desde a S3, que suaviza sozinha;
+  - a célula `(PARADO, PUSH)` e o eixo `push` -> o push virou evento fixo.
 """
 from __future__ import annotations
 
@@ -39,30 +54,31 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.managers.curriculum_manager import CurriculumTermCfg
 
-# Grafo de dependências (§7b). `parado` -> `andar` exige competência em TODOS os
-# níveis de push, não só no atual. `reorientar` e `pegar` são IRMÃOS, ambos filhos do
-# `andar`: manipulação não-preênsil é mais difícil de controlar, e como gate duro ela
-# travaria `pegar`, `carregar` e `botar` atrás dela.
-FILHOS: dict[int, tuple[int, ...]] = {
-    T.PARADO: (T.ANDAR,),
-    # ⚠️ `pegar` ANTES de `reorientar`, e a ordem importa em 1 evento. Os dois são
-    # irmãos e nenhum trava o outro, mas o `andar` abre UM por evento (F9), e só o
-    # `pegar` está na cadeia crítica: é ele que produz o estado de segurar, que o
-    # `parado c/ caixa` consome, que leva ao `andar c/ caixa` e ao `botar`. Abrindo
-    # o `reorientar` primeiro, a cadeia até o `botar` vira 10 eventos; abrindo o
-    # `pegar` primeiro, 9 — que é o número da §7b.
-    T.ANDAR: (T.PEGAR, T.REORIENTAR),
-    T.PEGAR: (T.PARADO_CAIXA,),
-    T.PARADO_CAIXA: (T.ANDAR_CAIXA,),
-    T.ANDAR_CAIXA: (T.BOTAR,),
-    T.REORIENTAR: (),
-    T.BOTAR: (),
+# Grafo de dependências (§9). Quatro camadas. Declarado por PAIS, e não por FILHOS,
+# porque a camada 3 é uma JUNÇÃO: o `locomover_carregando` exige os DOIS pais.
+#
+#   1  locomover                    nasce aberta
+#   2  pegar        reorientar      abrem JUNTOS (mesmo pai, mesmo evento)
+#   3  locomover_carregando         pais: pegar E reorientar
+#   4  botar                        pai: locomover_carregando
+#
+# A ordem tem razão física. O `reorientar` exige aproximar, tocar e aplicar força. O
+# `pegar` exige tudo isso, mais força normal suficiente e mais erguer.
+PAIS: dict[int, tuple[int, ...]] = {
+    T.LOCOMOVER: (),
+    T.PEGAR: (T.LOCOMOVER,),
+    T.REORIENTAR: (T.LOCOMOVER,),
+    T.LOCOMOVER_CARREGANDO: (T.PEGAR, T.REORIENTAR),
+    T.BOTAR: (T.LOCOMOVER_CARREGANDO,),
 }
 
-PUSH = "push"
-"""O eixo global. Único sem piso `ρ/L` (é aninhado por construção: o nível 4 contém o
-0), único com RECUO, e o único cuja competência se mede sobre TODAS as tarefas em vez
-de uma — porque ele se aplica a todos os envs ao mesmo tempo."""
+EIXOS: tuple[str, ...] = tuple(
+    dict.fromkeys(e for eixos in T.AXES.values() for e in eixos))
+"""Os eixos que existem de fato, na ordem de primeira aparição.
+
+Derivado de `T.AXES`, e não digitado. O `peso` NÃO aparece aqui: ele está em
+`T.LEVELS` como tabela de DR, mas não é eixo — não tem célula, não tem EMA e não tem
+portão."""
 
 
 class Orquestrador:
@@ -74,123 +90,104 @@ class Orquestrador:
         self.rho = float(k.rho)
         self.beta = float(k.focus_beta)
         self.alpha = float(k.ema_alpha)
-        self.alpha_lenta = float(k.ema_alpha_lenta)
         self.limiar = float(k.limiar_competencia)
-        self.congela_queda = float(k.congela_queda)
-        self.descongela = float(k.descongela_dist_pico)
         self.platô_amostras = int(k.platô_amostras)
         self.alarme_transicoes = float(k.alarme_transicoes)
         self.min_amostras_evento = int(p.get("min_amostras_evento", 200))
         self.verboso = bool(p.get("verboso", True))
-        """Episódios NOVOS que a tarefa precisa acumular desde o último
-        destravamento dela. Não é conservadorismo: abrir uma tarefa-filha não mexe
-        nas células da mãe, então o `min` da mãe continua satisfeito e ela
-        dispararia a cada reset — o que daria dezenas de destravamentos na mesma
-        iteração em vez da cascata de ~10 eventos do desenho."""
+        """Episódios NOVOS que a tarefa precisa acumular desde o último evento dela.
+        Não é conservadorismo: sem ele a tarefa dispararia a cada reset."""
 
         # ---------------- estado INVARIANTE a num_envs (vai no checkpoint) --------
         self.celulas: list[tuple[int, str]] = [
-            (t, eixo) for t, eixos in T.AXES.items() for eixo in eixos
-        ] + [(T.PARADO, PUSH)]
+            (t, T.eixo_de(t)) for t in T.AXES
+        ]
         self.perf: dict[tuple[int, str], torch.Tensor] = {}
-        self.ref: dict[tuple[int, str], torch.Tensor] = {}
-        """Referência contra a qual a queda é medida. Era `pico`, o máximo corrido;
-        virou uma EMA de `alpha_lenta` na S3. O nome mudou junto porque `pico` deixou
-        de descrever o conteúdo."""
         self.amostras: dict[tuple[int, str], torch.Tensor] = {}
-        self.congelado: dict[tuple[int, str], torch.Tensor] = {}
         self.abertos: dict[tuple[int, str], int] = {}
         for cel in self.celulas:
             n = len(self._niveis(cel))
-            # EMA começa em 0.0, não em 0.5. O 0.5 era um prior otimista e ele
-            # ARMAVA O CONGELAMENTO SOZINHO: o `_congelamento` punha a referência em
-            # max(ref, perf), então o 0.5 inicial virava referência; a medição real
-            # levava a EMA a ~0 (o robô cai); a queda de 0.5 passava do limiar de
-            # 0.10 e a célula congelava por volta da 8ª atualização. Medido na
-            # sessão de 30/07: `parado_push/congeladas = 1.0` na iteração 29, sem
-            # nenhuma regressão real. Zero é honesto — célula não medida vale
-            # "sem competência", não "meia competência".
-            #
-            # Zero continua honesto com a referência nova: uma EMA lenta partindo de
-            # zero só sobe, então `queda = ref − perf` nasce negativa e nenhuma
-            # célula pode congelar antes de a referência subir de verdade.
+            # EMA começa em 0.0, não em 0.5. Célula não medida vale "sem competência",
+            # não "meia competência". O 0.5 era um prior otimista, e ele armava o
+            # congelamento sozinho no desenho antigo.
             self.perf[cel] = torch.zeros(n, device=dev)
-            self.ref[cel] = torch.zeros(n, device=dev)
             self.amostras[cel] = torch.zeros(n, device=dev)
-            self.congelado[cel] = torch.zeros(n, dtype=torch.bool, device=dev)
             self.abertos[cel] = 1
-        self.abertas: list[int] = [T.PARADO]
-        self.rr: dict[int, int] = {t: 0 for t in T.AXES}
+
+        self.abertas: list[int] = [T.LOCOMOVER]
+        self.eventos_tarefa: dict[int, int] = {t: 0 for t in T.AXES}
+        """Quantos eventos cada tarefa já teve. **É o portão do filho.**
+
+        Um inteiro, monotônico. O primeiro evento de uma tarefa dispara exatamente
+        quando ela chega ao limiar na configuração mais fácil dela — portanto
+        `eventos_tarefa[P] >= 1` significa "P passou do nível 0".
+
+        O portão do filho nunca olha nível difícil. A cadeia não trava atrás de um
+        nível duro."""
+        self.dr_peso: dict[int, bool] = {t: False for t in T.AXES}
+        """A DR de carga desta tarefa já alargou?
+
+        `False` = caixa de 1 kg fixo. `True` = massa em `U(1, 5)` kg.
+
+        ⚠️ **Não é eixo.** O peso não tem célula, não tem EMA e não tem portão
+        próprio, porque o sucesso não é atrelado à massa — o critério é "fez o que
+        tinha que fazer". O booleano vira `True` no PRIMEIRO evento da tarefa, antes
+        de o eixo específico avançar. Assim a tarefa nunca recebe as duas
+        dificuldades no mesmo passo."""
+
         self.desde_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
         self.eventos = 0
         self.transicoes_sem_evento = 0.0
-        # --- S15: diagnóstico. Nenhuma destas séries muda o treino. ---
         self.iteracoes_desde_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
-        self.amostras_no_evento: dict[int, float] = {t: 0.0 for t in T.AXES}
-        self.chamadas_congelado: dict[tuple, float] = {}
         self._passo_ultimo_evento: dict[int, int] = {t: 0 for t in T.AXES}
-        self._passos_por_iter = float(
-            int(getattr(env, "num_envs", 1)) * 24)
-        """Passos de ambiente por iteração de PPO. `num_steps_per_env = 24` é o valor
-        do `rl_cfg`; multiplicado pelos envs dá o incremento de `common_step_counter`
-        por iteração. Serve só para converter a série de diagnóstico de passos para
-        iterações, que é a unidade em que o orçamento de 30 000 é escrito."""
+        self._passos_por_iter = 24.0
+        """Incremento de `common_step_counter` por iteração de PPO.
 
-        # ---------------- estado POR-ENV (descartável, não vai no checkpoint) -----
+        🔧 **Conserto de 07/08.** Era `num_envs × 24`, e o docstring antigo justificava
+        assim: "multiplicado pelos envs dá o incremento por iteração". Está errado. O
+        `manager_based_rl_env.py:431` faz `common_step_counter += 1` por chamada de
+        `step()`, **independente de `num_envs`** — então a iteração de PPO avança o
+        contador em `num_steps_per_env = 24`, e só.
+
+        Com 4 096 envs o divisor estava 4 096× grande, e a série
+        `iteracoes_desde_evento` — que o doc chama de "o número mais valioso da
+        rodada" — reportava ~0 sempre. Sem ela, "24 destravamentos em N iterações" é
+        aposta, não plano.
+
+        ⚠️ O `transicoes_sem_evento` continua multiplicando por `num_envs`, e ali está
+        certo: transição de ambiente é passo × env."""
+
+        # ---------------- estado POR-ENV (descartável, fora do checkpoint) --------
         env.tarefa_sorteada = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
         env.nivel = {eixo: torch.zeros(env.num_envs, dtype=torch.long, device=dev)
-                     for eixo in T.LEVELS}
-        # Os três buffers que ligam o currículo à CENA e à FÍSICA (S1). Ficam aqui,
-        # junto de `env.nivel`, porque são a mesma classe de estado: por-env,
-        # re-derivados a cada reset, e portanto FORA do `state_dict`.
-        #
-        #   plr_shelf_top   escrito por `_amostrar`, lido por `reset_scene_plr`
-        #   plr_rest_z      escrito por `reset_scene_plr`, lido pelo `lift_reward`
-        #   peso_amostrado  escrito por `payload_por_nivel`, lido pela S14 (v_max)
-        #
-        # `peso_amostrado` nasce em 1.0 e não em 0.0: é uma MASSA, e massa zero não é
-        # um estado válido pra quem lê. 1.0 é o nível 0 do eixo de peso.
+                     for eixo in EIXOS}
         env.plr_shelf_top = torch.zeros(env.num_envs, device=dev)
         env.plr_rest_z = torch.zeros(env.num_envs, device=dev)
         env.peso_amostrado = torch.ones(env.num_envs, device=dev)
+        env.dr_peso = torch.zeros(env.num_envs, dtype=torch.bool, device=dev)
+        env.teto_velocidade = torch.full(
+            (env.num_envs,), float(T.LEVELS["velocidade"][0]), device=dev)
+        """Teto de `lin_vel_x`/`lin_vel_y` por env, lido pela subclasse de comando.
+
+        Escrito aqui, e não lido lá de `T.LEVELS`, porque o nível é por env e por
+        tarefa: o `locomover` e o `locomover_carregando` têm células independentes."""
+
         self._alturas = torch.tensor(T.LEVELS["altura"], device=dev)
-        # Os dois do eixo `push` (S2). Mesma classe: por-env, re-derivados no reset,
-        # fora do `state_dict`. O NÍVEL de push é global (`self.push_nivel`);
-        # `push_nivel_t` é a cópia por env que os eventos leem sem precisar do
-        # objeto do currículo.
-        env.push_fator = torch.zeros(env.num_envs, device=dev)
-        env.push_nivel_t = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
+        self._velocidades = torch.tensor(T.LEVELS["velocidade"], device=dev)
         self._visitou = torch.zeros(env.num_envs, dtype=torch.bool, device=dev)
-        # Marca do `common_step_counter` na última medição, pra contar transição por
-        # DIFERENÇA. Fica FORA do checkpoint de propósito: o contador do env zera em
-        # processo novo, e esta marca zera com ele — assim o resume não vê um salto.
         self._ultimo_passo = 0
-        # o nível de push é GLOBAL: um número, não um por env
-        self.push_nivel = 0
 
     # ------------------------------------------------------------------ helpers
     def _base(self, t: int, eixo: str) -> int:
         """Índice INICIAL da tarefa nesse eixo, dentro de `T.LEVELS[eixo]`.
 
-        Existe porque há DUAS convenções de índice, e confundi-las é bug silencioso
-        (foi, em 30/07): as células deste orquestrador indexam a partir do início da
-        tarefa (nível 0 da célula = o primeiro nível QUE ELA USA), enquanto
-        `env.nivel[eixo]` — que o termo de comando lê — guarda índice ABSOLUTO em
-        `T.LEVELS[eixo]`.
-
-        A diferença só é diferente de zero na `distancia` de quem ANDA, que começa em
-        0.3 (índice 1). Foi exatamente ali que o bug apareceu: o orquestrador sorteava
-        "nível 0 da célula" e o comando lia `T.LEVELS['distancia'][0] = 0.0`, ou seja
-        destino em cima do próprio robô — e o `twist` mandava ficar parado numa tarefa
-        de locomoção."""
-        if eixo == PUSH:
-            return 0
+        Existe porque há DUAS convenções de índice: as células indexam a partir do
+        início da tarefa, e `env.nivel[eixo]` guarda índice ABSOLUTO. Hoje todos os
+        inícios são 0, mas a função fica — confundi-las já foi bug silencioso."""
         return T.AXES[t][eixo]
 
     def _niveis(self, cel) -> tuple[float, ...]:
         t, eixo = cel
-        if eixo == PUSH:
-            return T.LEVELS[PUSH]
         return T.axis_levels(t, eixo)
 
     def _dist(self, cel) -> torch.Tensor:
@@ -198,14 +195,12 @@ class Orquestrador:
 
             P = ρ/L + (1−ρ) · rank^(−1/β) / Σ
 
-        ρ é piso uniforme: toda altura já vista recebe pelo menos ρ/L, e é isso que
+        ρ é piso uniforme: todo nível já visto recebe pelo menos ρ/L, e é isso que
         impede o esquecimento. rank 1 = mais difícil = mais massa."""
         L = self.abertos[cel]
         if L == 1:
             return torch.ones(1, device=self.dev)
         dificuldade = 1.0 - self.perf[cel][:L]
-        # célula congelada puxa massa: ela é o que está travando o `min` da tarefa
-        dificuldade = dificuldade + self.congelado[cel][:L].float()
         ordem = torch.argsort(dificuldade, descending=True)
         rank = torch.empty(L, device=self.dev)
         rank[ordem] = torch.arange(1, L + 1, device=self.dev, dtype=rank.dtype)
@@ -214,27 +209,23 @@ class Orquestrador:
         P = self.rho / L + (1.0 - self.rho) * foco
         return P / P.sum()
 
-    def _min_tarefa(self, t: int) -> float:
-        """Competência da tarefa = `min` sobre TODOS os níveis destravados dela.
-
-        `min`, não média: dominar o nível fácil e ignorar o difícil não passa. E é
-        absoluto em 0.90, sem escape hatch — o mesmo limiar em todas as tarefas."""
-        vals = []
-        for eixo in T.AXES[t]:
-            cel = (t, eixo)
-            vals.append(self.perf[cel][: self.abertos[cel]])
-        if not vals:
-            return 1.0          # `parado` não tem eixo próprio; quem manda é o push
-        return float(torch.cat(vals).min())
-
-    def _push_competente(self) -> bool:
-        """TODOS os níveis de push destravados em competência (gate do `parado`)."""
-        cel = (T.PARADO, PUSH)
-        return bool((self.perf[cel][: self.abertos[cel]] >= self.limiar).all())
+    def _topo(self, cel) -> int:
+        """Índice do nível corrente — o último aberto. É o que o portão lê."""
+        return self.abertos[cel] - 1
 
     # ------------------------------------------------------------------- medir
     def _medir(self, env, env_ids: torch.Tensor) -> None:
-        """EMA da taxa de sucesso na célula que cada env que terminou estava treinando."""
+        """EMA da taxa de sucesso na célula que cada env que terminou treinava.
+
+        ⚠️ **Sem condicionamento.** No desenho de dois eixos, medir um eixo exigia os
+        outros no nível base, senão a célula media marginalizada e o portão travava
+        (o bug de 06/08). Com um eixo por tarefa não há outro eixo, e as cinco linhas
+        do condicionamento saem.
+
+        O que resta de marginalização é a DR de carga, e ela é aceita: depois do
+        alargamento a distribuição PARA de se mover, então a política converge contra
+        ela. O portão de 0,90 passa a significar "0,90 sobre a faixa inteira de
+        carga", que é a tarefa real."""
         valido = self._visitou[env_ids]
         if not bool(valido.any()):
             self._visitou[env_ids] = True
@@ -246,160 +237,44 @@ class Orquestrador:
         for t in torch.unique(tarefa).tolist():
             m = tarefa == t
             self.desde_evento[t] += float(m.sum())
-            for eixo in T.AXES[t]:
-                cel = (t, eixo)
-                # ⚠️ **CONDICIONAMENTO (06/08). Sem ele o currículo trava para sempre.**
-                #
-                # Antes, o sucesso de cada episódio era creditado a TODAS as células da
-                # tarefa, e o `_amostrar` sorteia os eixos INDEPENDENTEMENTE. Então
-                # `perf[(PEGAR,'altura')][0]` era a taxa na altura 0.55 m
-                # MARGINALIZADA sobre a distribuição de peso — que dá ~30% de massa ao
-                # nível mais difícil por causa do piso `rho`.
-                #
-                # A aritmética que mata: com 0.95 a 1 kg e 0.30 a 5 kg, a célula de
-                # altura mede 0.7·0.95 + 0.3·0.30 = 0.755. O `_min_tarefa` fica abaixo
-                # de 0.90, o portão nunca abre, e como `FILHOS` encadeia
-                # `pegar -> parado c/ caixa -> andar c/ caixa -> botar`, a árvore
-                # inteira morre atrás de uma célula. Não há timeout nem recuo.
-                #
-                # A correção: cada eixo é medido com os OUTROS eixos no nível mais
-                # fácil. Aí `perf[(t,eixo)][k]` volta a significar "competência no
-                # nível k DESTE eixo", que é o que o portão supõe.
-                #
-                # Custo: menos amostras por atualização (só os envs que casam a
-                # condição). O `min_amostras_evento` regula isso, e o
-                # `amostras_no_evento` da S15 mede se ficou apertado demais.
-                cond = m.clone()
-                for outro in T.AXES[t]:
-                    if outro == eixo:
-                        continue
-                    cond &= env.nivel[outro][ids] == self._base(t, outro)
-                if not bool(cond.any()):
+            eixo = T.eixo_de(t)
+            cel = (t, eixo)
+            # `env.nivel` guarda índice ABSOLUTO; a célula indexa a partir do início
+            # dela. Ver `_base`.
+            lv = env.nivel[eixo][ids][m] - self._base(t, eixo)
+            s = sucesso[m]
+            for nivel in torch.unique(lv).tolist():
+                if nivel < 0 or nivel >= self.abertos[cel]:
                     continue
-                # `env.nivel` guarda índice ABSOLUTO em `T.LEVELS[eixo]`; a célula
-                # indexa a partir do início DELA. Ver `_base`.
-                lv = env.nivel[eixo][ids][cond] - self._base(t, eixo)
-                s = sucesso[cond]
-                for nivel in torch.unique(lv).tolist():
-                    if nivel < 0 or nivel >= self.abertos[cel]:
-                        continue
-                    media = float(s[lv == nivel].mean())
-                    p = self.perf[cel]
-                    p[nivel] = (1.0 - self.alpha) * p[nivel] + self.alpha * media
-                    self.amostras[cel][nivel] += float((lv == nivel).sum())
-                    self._congelamento(cel, nivel)
+                media = float(s[lv == nivel].mean())
+                p = self.perf[cel]
+                p[nivel] = (1.0 - self.alpha) * p[nivel] + self.alpha * media
+                self.amostras[cel][nivel] += float((lv == nivel).sum())
 
-        # push: competência do NÍVEL ATUAL, medida só nos envs da tarefa `parado`.
-        #
-        # ⚠️ Era `sucesso.mean()` sobre TODAS as tarefas. Medido em 05/08 no harness
-        # ruidoso: abrir o `andar` derrubava esta perf de 0.900 para 0.696, queda de
-        # 0.206. A queda é REAL, e não desvio do máximo — a S3 não a conserta. Mas ela
-        # não mede regressão de robustez a push: ela mede a COMPOSIÇÃO da população,
-        # porque a tarefa nova é mais difícil que a antiga.
-        #
-        # Consequência de manter a média global: `perf[push]` é comparada com um
-        # limiar ABSOLUTO de 0.90 no `_destravar_push` e no `_push_competente`, e com
-        # população mista esse 0.90 é inatingível por construção.
-        #
-        # Restringir ao `parado` deixa a população estável, e aí a queda volta a
-        # significar regressão. Na Fase 0 o resultado é IDÊNTICO ao de antes, porque só
-        # o `parado` está aberto — o gate da Fase 0 não muda.
-        #
-        # A célula continua sendo `(PARADO, PUSH)`, e o `parado` é justamente a tarefa
-        # cujo critério de sucesso é sobreviver: é o que o push testa.
-        cel = (T.PARADO, PUSH)
-        so_parado = tarefa == T.PARADO
-        n_parado = int(so_parado.sum())
-        if n_parado > 0:
-            media = float(sucesso[so_parado].mean())
-            p = self.perf[cel]
-            p[self.push_nivel] = ((1.0 - self.alpha) * p[self.push_nivel]
-                                  + self.alpha * media)
-            self.amostras[cel][self.push_nivel] += float(n_parado)
-            self._congelamento(cel, self.push_nivel)
         # Transições EXATAS desde a medição anterior, pelo contador do próprio env.
-        # A versão de antes fazia `len(ids) * max_episode_length` e contava cada env
-        # que terminou como um episódio COMPLETO de 1000 passos. Com episódio real de
-        # 11 passos isso inflava ~90x — medido 30/07: o alarme acusava 1.15e9 contra
-        # 1.4e7 transições reais na iteração 146, ou seja disparava ~1900 iterações
-        # antes da hora e enchia o log de centenas de linhas.
         passo = int(env.common_step_counter)
         self.transicoes_sem_evento += (float(passo - self._ultimo_passo)
                                        * float(env.num_envs))
         self._ultimo_passo = passo
         self._visitou[env_ids] = True
 
-    def _congelamento(self, cel, nivel: int) -> None:
-        """Queda > `congela_queda` contra a MÉDIA LENTA congela a célula (S3).
-
-        A referência é uma EMA de `alpha_lenta`, e não o máximo corrido. O máximo tem
-        desvio de +2.5σ a +3σ; com σ de 0.037 a 0.062 esse desvio SOZINHO passa do
-        limiar de 0.10, e a célula congelava sem regressão nenhuma.
-
-        Com referência sem desvio, o 0.10 volta a significar 3σ em p = 0.90. Em
-        p = 0.50 ele vale 1.6σ, e ali ainda há falso positivo em ~5% das medições.
-        Aceito: o congelamento não re-trava nível, e solta a < 0.05.
-
-        Não usar mediana em janela: ela exige buffer circular por nível, aumenta o
-        `state_dict`, e não melhora o resultado.
-
-        Congelar NÃO re-trava o nível (Decisão 2): ele continua no sorteio, e ainda
-        recebe massa extra, porque é ele que está travando o `min` da tarefa. O que a
-        marca faz é aparecer no log e bloquear novo destravamento até recuperar."""
-        p = float(self.perf[cel][nivel])
-        r = float(self.ref[cel][nivel])
-        a = self.alpha_lenta
-        r = (1.0 - a) * r + a * p
-        self.ref[cel][nivel] = r
-        queda = r - p
-        if queda > self.congela_queda:
-            self.congelado[cel][nivel] = True
-        elif queda < self.descongela:
-            self.congelado[cel][nivel] = False
-
     # --------------------------------------------------------------- destravar
-    def _destravar(self, t: int) -> str | None:
-        """UM destravamento na tarefa `t`, na prioridade do F9. Devolve o rótulo."""
-        # 1. TAREFA NOVA primeiro — abre trabalho paralelo que não depende de nada
-        #    mais. Esgotar o eixo antes exigiria andar 2 m com heading 360° ANTES de
-        #    encostar na caixa.
-        for filho in FILHOS[t]:
-            if filho not in self.abertas:
-                self.abertas.append(filho)
-                return f"abriu_{T.NAMES[filho]}"
+    def _abre_filhos(self) -> list[str]:
+        """Abre toda tarefa fechada cujos pais já tiveram o primeiro evento.
 
-        # 2. UM EIXO, o de maior competência (mais folga), empate por ROUND-ROBIN.
-        #    O desempate é obrigatório, não cosmético: no 1º evento há um nível em
-        #    cada eixo, todo episódio tem a mesma configuração, e cada célula recebe
-        #    o MESMO fluxo de dados -> EMAs idênticas -> empate por construção.
-        eixos = [e for e in T.AXIS_ORDER if e in T.AXES[t]
-                 and self.abertos[(t, e)] < len(self._niveis((t, e)))]
-        if not eixos:
-            return None
-        folga = {e: self._min_cel((t, e)) for e in eixos}
-        melhor = max(folga.values())
-        empatados = [e for e in eixos if abs(folga[e] - melhor) < 1e-6]
-        if len(empatados) == 1:
-            escolhido = empatados[0]
-        else:
-            # round-robin ciclando a ordem fixa: mesma filosofia breadth-first que o
-            # desenho já usa no nível das tarefas
-            ordem = [e for e in T.AXIS_ORDER if e in empatados]
-            escolhido = ordem[self.rr[t] % len(ordem)]
-            self.rr[t] += 1
-        self.abertos[(t, escolhido)] += 1
-        return f"{T.NAMES[t]}_{escolhido}_n{self.abertos[(t, escolhido)] - 1}"
+        É a ação 2 da regra do evento. A junção AND cai fora sozinha: o
+        `locomover_carregando` tem dois pais, e o `all()` exige os dois.
 
-    def _min_cel(self, cel) -> float:
-        return float(self.perf[cel][: self.abertos[cel]].min())
-
-    def _destravar_push(self) -> str | None:
-        cel = (T.PARADO, PUSH)
-        if self.abertos[cel] >= len(T.LEVELS[PUSH]):
-            return None
-        self.abertos[cel] += 1
-        self.push_nivel = self.abertos[cel] - 1
-        return f"push_n{self.push_nivel}"
+        O `pegar` e o `reorientar` têm o MESMO pai, então abrem na mesma chamada. É
+        isso que substitui a regra F9 de um filho por evento."""
+        rotulos = []
+        for f, pais in PAIS.items():
+            if f in self.abertas:
+                continue
+            if all(self.eventos_tarefa[p] >= 1 for p in pais):
+                self.abertas.append(f)
+                rotulos.append(f"abriu_{T.NAMES[f]}")
+        return rotulos
 
     # ------------------------------------------------------------------ sortear
     def _amostrar(self, env, env_ids: torch.Tensor) -> None:
@@ -412,23 +287,17 @@ class Orquestrador:
             tarefa = abertas[torch.randint(0, len(self.abertas), (n,), device=self.dev)]
         env.tarefa_sorteada[env_ids] = tarefa
 
-        for eixo in T.LEVELS:
-            if eixo == PUSH:
-                continue
+        for eixo in EIXOS:
             alvo = env.nivel[eixo]
             # O eixo que a tarefa sorteada NÃO possui recebe o nível MAIS FÁCIL
             # (índice absoluto 0 — `T.LEVELS` é ordenado do fácil pro difícil).
             #
-            # ⚠️ Sem esta linha o env mantinha o valor do episódio ANTERIOR dele, e
-            # isso era leitura obsoleta. Enquanto só o termo de comando lia `env.nivel`
-            # o estrago era limitado; desde que `plr_shelf_top` passou a sair daqui
-            # (S1), o lixo decidiria a POSIÇÃO DA PRATELEIRA em `parado`, `andar`,
-            # `parado c/ caixa` e `andar c/ caixa` — que não têm o eixo `altura`.
+            # ⚠️ Sem esta linha o env manteria o valor do episódio ANTERIOR dele, e
+            # isso é leitura obsoleta: o `plr_shelf_top` sai daqui, então o lixo
+            # decidiria a POSIÇÃO DA PRATELEIRA numa tarefa sem eixo de altura.
             #
-            # ⚠️ Nível mais fácil, e NÃO o corrente. O corrente daria ao `andar c/
-            # caixa` giros de ±180° que o currículo dele nunca mediu, e portanto
-            # nunca controlou. Com o nível 0 a cena fica sempre bem definida e
-            # nenhuma tarefa fica mais difícil do que a lista de eixos dela declara.
+            # ⚠️ Nível mais fácil, e NÃO o corrente. O corrente daria à tarefa uma
+            # dificuldade que o currículo dela nunca mediu.
             alvo[env_ids] = 0
             for t in torch.unique(tarefa).tolist():
                 if eixo not in T.AXES[t]:
@@ -437,23 +306,19 @@ class Orquestrador:
                 cel = (t, eixo)
                 sorteado = torch.multinomial(
                     self._dist(cel), int(m.sum()), replacement=True)
-                # converte pra ABSOLUTO antes de escrever: é assim que o termo de
-                # comando lê. Ver `_base`.
                 alvo[env_ids[m]] = sorteado + self._base(t, eixo)
 
         # A altura do nível vira POSIÇÃO DA PRATELEIRA. O `reset_scene_plr` lê este
         # buffer no evento de reset, que roda 6 linhas depois do currículo
         # (`manager_based_rl_env.py:554` contra `:560`) — sem off-by-one.
         env.plr_shelf_top[env_ids] = self._alturas[env.nivel["altura"][env_ids]]
-
-        # O eixo `push` vira PERTURBAÇÃO (S2). O fator é sorteado em `U(0, teto)` e não
-        # fixado no teto, pela mesma razão do peso: com valor fixo o nível 4 não contém
-        # o nível 0, e o push fraco desaparece do treino assim que o eixo sobe. É o
-        # sorteio que torna verdadeira a afirmação do `knobs.py` de que este eixo é
-        # "aninhado por construção" — ele é o único sem piso `ρ/L` justamente por isso.
-        teto = float(T.LEVELS[PUSH][self.push_nivel])
-        env.push_fator[env_ids] = torch.rand(len(env_ids), device=self.dev) * teto
-        env.push_nivel_t[env_ids] = self.push_nivel
+        # O teto de velocidade vira a faixa do comando sorteado, por env.
+        env.teto_velocidade[env_ids] = self._velocidades[
+            env.nivel["velocidade"][env_ids]]
+        # A DR de carga: por env, a partir do booleano da tarefa sorteada.
+        largou = torch.tensor([self.dr_peso[t] for t in range(T.NUM_TASKS)],
+                              dtype=torch.bool, device=self.dev)
+        env.dr_peso[env_ids] = largou[tarefa]
 
     # -------------------------------------------------------------------- termo
     def __call__(self, env, env_ids, **_):
@@ -461,47 +326,45 @@ class Orquestrador:
             return {}
         self._medir(env, env_ids)
 
-        # PUSH primeiro: os 4 destravamentos dele são a Fase 0 inteira, e acontecem
-        # antes de qualquer tarefa abrir. É deles que sai a medida de "quantas
-        # iterações do destravamento até a competência", de graça.
-        rotulos = []
-        cel_push = (T.PARADO, PUSH)
-        if (self.amostras[cel_push][self.push_nivel] >= self.min_amostras_evento
-                and float(self.perf[cel_push][self.push_nivel]) >= self.limiar):
-            r = self._destravar_push()
-            if r:
-                rotulos.append(r)
-                self.amostras[cel_push][self.push_nivel] = 0.0
-
+        # ------------------------------------------------------ regra do evento
+        #   condição:  episódios(T) ≥ 200  E  perf[T][topo] ≥ 0,90
+        #   ação 1:    se a DR de peso está fechada:  abre a DR
+        #              senão:                         abertos[T] += 1
+        #   ação 2:    abre todo filho cujos pais já tiveram o 1º evento
+        #
+        # As duas ações rodam no MESMO evento. A tarefa nova começa no nível 0
+        # enquanto a tarefa mãe avança. Nada serializa.
+        rotulos: list[str] = []
         for t in list(self.abertas):
             if self.desde_evento[t] < self.min_amostras_evento:
                 continue
-            if t == T.PARADO and not self._push_competente():
-                continue        # o `parado` só abre o `andar` com push COMPLETO
-            if any(bool(self.congelado[(t, e)].any()) for e in T.AXES[t]):
-                continue        # célula congelada bloqueia novo destravamento
-            if self._min_tarefa(t) < self.limiar:
+            cel = (t, T.eixo_de(t))
+            if float(self.perf[cel][self._topo(cel)]) < self.limiar:
                 continue
-            r = self._destravar(t)
-            if r:
-                rotulos.append(r)
-                # S15 — as duas séries que a rodada precisa medir, registradas NO
-                # momento do destravamento (depois elas já mudaram).
-                #
-                # `iteracoes_desde_evento` é o número mais valioso da rodada: sem ele,
-                # "54 destravamentos em 30 000 iterações" é aposta, não plano.
-                #
-                # `amostras_no_evento` responde se o portão `min` decidiu por
-                # COMPETÊNCIA ou por SORTE — com amostra pequena, a EMA que cruzou
-                # 0.90 pode ser ruído.
-                passo = int(env.common_step_counter)
-                self.iteracoes_desde_evento[t] = (
-                    (passo - self._passo_ultimo_evento[t]) / self._passos_por_iter)
-                self._passo_ultimo_evento[t] = passo
-                self.amostras_no_evento[t] = min(
-                    (float(self.amostras[(t, e)][: self.abertos[(t, e)]].min())
-                     for e in T.AXES[t]), default=float("nan"))
-                self.desde_evento[t] = 0.0
+
+            tem_dr = t in T.COM_DR_PESO and not self.dr_peso[t]
+            tem_eixo = self.abertos[cel] < len(self._niveis(cel))
+            if not (tem_dr or tem_eixo):
+                continue        # tarefa esgotada; os filhos dela já abriram
+
+            nome = T.NAMES[t]
+            if tem_dr:
+                # DR primeiro, sempre. O 1º evento alarga a carga; o 2º avança o
+                # eixo. A tarefa nunca recebe as duas dificuldades no mesmo passo.
+                self.dr_peso[t] = True
+                rotulos.append(f"{nome}_dr_peso")
+            else:
+                self.abertos[cel] += 1
+                rotulos.append(f"{nome}_{cel[1]}_n{self.abertos[cel] - 1}")
+
+            self.eventos_tarefa[t] += 1
+            rotulos.extend(self._abre_filhos())
+
+            passo = int(env.common_step_counter)
+            self.iteracoes_desde_evento[t] = (
+                (passo - self._passo_ultimo_evento[t]) / self._passos_por_iter)
+            self._passo_ultimo_evento[t] = passo
+            self.desde_evento[t] = 0.0
 
         if rotulos:
             self.eventos += len(rotulos)
@@ -518,31 +381,22 @@ class Orquestrador:
         out = {
             "eventos": torch.tensor(float(self.eventos), device=d),
             "tarefas_abertas": torch.tensor(float(len(self.abertas)), device=d),
-            "push_nivel": torch.tensor(float(self.push_nivel), device=d),
         }
-        # --- S15: diagnóstico por tarefa. Só log; não muda nada no treino. ---
         for t in T.AXES:
             nome = T.NAMES[t]
             out[f"diag/{nome}/iteracoes_desde_evento"] = torch.tensor(
                 float(self.iteracoes_desde_evento[t]), device=d)
-            out[f"diag/{nome}/amostras_no_evento"] = torch.tensor(
-                float(self.amostras_no_evento[t]), device=d)
+            out[f"diag/{nome}/dr_peso"] = torch.tensor(
+                float(self.dr_peso[t]), device=d)
         for cel in self.celulas:
             t, eixo = cel
             base = f"{T.NAMES[t]}_{eixo}"
-            # duração acumulada do congelamento, em chamadas de reset (S15)
-            n_cong = int(self.congelado[cel][: self.abertos[cel]].sum())
-            if n_cong:
-                self.chamadas_congelado[cel] = self.chamadas_congelado.get(cel, 0.0) + 1
-            out[f"diag/congelado_chamadas/{base}"] = torch.tensor(
-                float(self.chamadas_congelado.get(cel, 0.0)), device=d)
             out[f"{base}/abertos"] = torch.tensor(float(self.abertos[cel]), device=d)
             out[f"{base}/min"] = self.perf[cel][: self.abertos[cel]].min()
-            out[f"{base}/congeladas"] = self.congelado[cel].float().sum()
             for i in range(self.abertos[cel]):
                 out[f"{base}/perf_n{i}"] = self.perf[cel][i]
-                # PLATÔ é DIAGNÓSTICO, não portão (§14): >= 2000 amostras na célula E
-                # máximo não superado. Loga; não bloqueia nem destrava.
+                # PLATÔ é DIAGNÓSTICO, não portão: >= 2000 amostras na célula. Loga;
+                # não bloqueia nem destrava.
                 if float(self.amostras[cel][i]) >= self.platô_amostras:
                     out[f"{base}/plato_n{i}"] = torch.tensor(1.0, device=d)
         if self.transicoes_sem_evento > self.alarme_transicoes:
@@ -562,44 +416,47 @@ class Orquestrador:
         chave = lambda cel: f"{cel[0]}|{cel[1]}"      # noqa: E731
         return {
             "perf": {chave(c): self.perf[c].cpu() for c in self.celulas},
-            "ref": {chave(c): self.ref[c].cpu() for c in self.celulas},
             "amostras": {chave(c): self.amostras[c].cpu() for c in self.celulas},
-            "congelado": {chave(c): self.congelado[c].cpu() for c in self.celulas},
             "abertos": {chave(c): self.abertos[c] for c in self.celulas},
             "abertas": list(self.abertas),
-            "rr": dict(self.rr),
+            "eventos_tarefa": dict(self.eventos_tarefa),
+            "dr_peso": dict(self.dr_peso),
             "desde_evento": dict(self.desde_evento),
-            "push_nivel": self.push_nivel,
             "eventos": self.eventos,
             "transicoes_sem_evento": self.transicoes_sem_evento,
         }
 
     def load_state_dict(self, estado: dict) -> None:
+        """⚠️ Checkpoint anterior à reforma de 07/08 NÃO carrega aqui de forma útil.
+
+        As chaves de célula mudaram junto com os índices de tarefa e os eixos, e as
+        chaves antigas (`ref`, `congelado`, `rr`, `push_nivel`) não têm destino. O
+        `get` com default deixa o load passar sem erro e o currículo começa do zero.
+        Isso é o correto: o desenho mudou, e retomar níveis medidos contra outra
+        distribuição seria pior que recomeçar."""
         chave = lambda cel: f"{cel[0]}|{cel[1]}"      # noqa: E731
         for c in self.celulas:
             k = chave(c)
-            # ⚠️ Checkpoint anterior à S3 tem a chave `"pico"`, não `"ref"`. Ele carrega
-            # sem erro e a referência começa em zero. Zero na referência significa
-            # "sem regressão possível", o que é seguro: a EMA lenta só sobe a partir
-            # dali. Não há código de migração de propósito.
-            for nome, destino in (("perf", self.perf), ("ref", self.ref),
-                                  ("amostras", self.amostras),
-                                  ("congelado", self.congelado)):
+            for nome, destino in (("perf", self.perf), ("amostras", self.amostras)):
                 if k in estado.get(nome, {}):
                     destino[c] = estado[nome][k].to(self.dev)
             if k in estado.get("abertos", {}):
                 self.abertos[c] = int(estado["abertos"][k])
         self.abertas = list(estado.get("abertas", self.abertas))
-        self.rr = {int(k): int(v) for k, v in estado.get("rr", self.rr).items()}
-        self.desde_evento = {int(k): float(v)
-                             for k, v in estado.get("desde_evento",
-                                                    self.desde_evento).items()}
-        self.push_nivel = int(estado.get("push_nivel", self.push_nivel))
+        self.eventos_tarefa = {int(k): int(v) for k, v
+                               in estado.get("eventos_tarefa",
+                                             self.eventos_tarefa).items()}
+        self.dr_peso = {int(k): bool(v) for k, v
+                        in estado.get("dr_peso", self.dr_peso).items()}
+        self.desde_evento = {int(k): float(v) for k, v
+                             in estado.get("desde_evento",
+                                           self.desde_evento).items()}
         self.eventos = int(estado.get("eventos", self.eventos))
         self.transicoes_sem_evento = float(
             estado.get("transicoes_sem_evento", self.transicoes_sem_evento))
         print(f"[CURRICULO] retomado: {self.eventos}/{T.total_unlocks()} eventos, "
-              f"{len(self.abertas)} tarefas abertas, push nível {self.push_nivel}")
+              f"{len(self.abertas)} tarefas abertas, "
+              f"DR de peso em {sum(self.dr_peso.values())}/{len(T.COM_DR_PESO)}")
 
     def reset(self, env_ids=None):
         pass    # o estado do currículo PERSISTE entre resets — é o método

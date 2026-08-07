@@ -49,7 +49,6 @@ DECIDIDOS = (
     "box_at_*",      # sustain_std: conferido e mantido, justificativa no knobs.py
     "box_shake",     # observar no bloco 1; ação nula infla a medição
     "table_contact",
-    "arm_vel",
 )
 """Achados que JÁ têm decisão escrita no `knobs.py`. Continuam sendo medidos e
 impressos — o número não deixa de importar — mas saem do veredito como `decidido`
@@ -171,12 +170,10 @@ DERIVADO de `T.TERMOS_DE_TAREFA` (06/08) para não haver duas listas a divergir.
 dois de rastreio saem porque este script mede a razão penalidade/sinal do bloco 2, e
 o `SEM_TERMO_DE_TAREFA` logo abaixo trata `parado` e `andar` à parte."""
 
-SEM_TERMO_DE_TAREFA = (T.PARADO, T.ANDAR)
-"""Estas duas NÃO têm termo de bloco 2, e isso é desenho, não falta (§6b/B: as
-colunas `parado` e `andar` estão vazias no bloco 2). O objetivo delas vem do
-`track_linear_velocity`/`track_angular_velocity`, que depois do F6 ficaram LIGADOS em
-todas as tarefas porque toda tarefa tem uma regra de destino — mesmo que o destino
-seja "onde eu já estou"."""
+SEM_TERMO_DE_TAREFA = (T.LOCOMOVER,)
+"""O `locomover` NÃO tem termo de bloco 2, e isso é desenho, não falta. O objetivo
+dele são os dois de rastreio, que a S9 gateou nas duas tarefas que andam. Locomoção é
+a tarefa ali, então rastrear velocidade É o sinal de tarefa."""
 
 print("""
   Critério: não é "10x a mediana" (a mediana é dominada por termos deliberadamente
@@ -250,7 +247,7 @@ def _restaura(e, st):
     e.sim.forward()
 
 
-LE_DERIVADA = ("box_shake", "joint_acc", "arm_vel", "body_ang_vel",
+LE_DERIVADA = ("box_shake", "joint_acc", "body_ang_vel",
                "angular_momentum", "soft_landing_feet", "soft_landing_table",
                "feet_slip", "action_rate_l2", "track_linear_velocity",
                "track_angular_velocity", "foot_clearance", "foot_swing_height")
@@ -282,7 +279,7 @@ DIRECOES = (
     ("robô +x (2 cm pra frente)", "robot", 0, +0.02),
 )
 
-for tarefa in (T.ANDAR, T.PEGAR, T.REORIENTAR, T.BOTAR):
+for tarefa in (T.LOCOMOVER, T.PEGAR, T.REORIENTAR, T.BOTAR):
     env.task_dist = torch.zeros(T.NUM_TASKS, device=DEVICE)
     env.task_dist[tarefa] = 1.0
     env.reset()

@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.utils.lab_api.math import quat_apply
 
@@ -33,7 +32,6 @@ from .tasks import ONEHOT_DIM
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-_ROBOT = SceneEntityCfg("robot")
 ONEHOT = slice(9, 17)
 ALVO = slice(0, 3)
 
@@ -174,35 +172,6 @@ def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
     a = env.action_manager.action[:, :n_juntas]
     p = env.action_manager.prev_action[:, :n_juntas]
     return torch.sum(torch.square(a - p), dim=-1)
-
-
-# -------------------------------------------------------------- locomoção (T6)
-def track_linear_velocity_freio_z(
-    env: "ManagerBasedRlEnv",
-    std: float,
-    command_name: str,
-    asset_cfg: SceneEntityCfg = _ROBOT,
-) -> torch.Tensor:
-    """Cópia de `vel_mdp.track_linear_velocity` com UMA linha diferente (item 11).
-
-    Original:   `z_error = actual_z²`            — sempre punido
-    Aqui:       `z_error = actual_z² × (fora do d_morto)`
-
-    Por quê: dentro do raio de chegada o robô PRECISA se mover em z — agachar pra
-    pegar a caixa no chão, erguer pra levar ao peito. Punir velocidade em z ali
-    briga diretamente com a tarefa. Fora do raio, o robô está andando, e velocidade
-    vertical é pulo — aí a punição é o que se quer.
-
-    Cópia inteira e não wrapper porque a linha a mudar é no MEIO do cálculo; um
-    wrapper teria que recomputar tudo pra subtrair o termo."""
-    asset: Entity = env.scene[asset_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    assert command is not None, f"Command '{command_name}' not found."
-    actual = asset.data.root_link_lin_vel_b
-    xy_error = torch.sum(torch.square(command[:, :2] - actual[:, :2]), dim=1)
-    fora = (~env.command_manager.get_term(command_name).dentro_do_morto()).float()
-    z_error = torch.square(actual[:, 2]) * fora        # <-- a única linha diferente
-    return torch.exp(-(xy_error + z_error) / std**2)
 
 
 # --------------------------------------------------------- tarefa: pegar (T8)
