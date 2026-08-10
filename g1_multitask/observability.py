@@ -128,6 +128,12 @@ class Relatorio:
                 # ser ZERO. Diferente de zero = crédito falso, e o log denuncia na hora
                 # em vez de exigir uma caçada de horas como a de 31/07.
                 out[f"{T.NAMES[t]}/atribuicao_divergente"] = dm[t, 1]
+                # erro de rastreio POR TAREFA (10/08): média por PASSO na janela do
+                # relatório, não média de médias de episódio — perto o bastante pra
+                # calibrar. É a régua do §8 sem a diluição do `erro_vel_*` global,
+                # e é contra ESTES números que `tol_v`/`tol_w` se decidem.
+                out[f"{T.NAMES[t]}/erro_vel_lin"] = dm[t, 2]
+                out[f"{T.NAMES[t]}/erro_vel_ang"] = dm[t, 3]
             dsoma.zero_()
             dcont.zero_()
         return out

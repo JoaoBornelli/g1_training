@@ -95,7 +95,11 @@ class Sucesso:
         # coluna 0 = `cond_fisica`: a condição da tarefa sorteada vale agora?
         # coluna 1 = `atribuicao_divergente`: houve sucesso com a condição dela FALSA?
         # Existe porque o log de 31/07 mostrou `perf[pegar] = 0,98` com `grasp = 0`.
-        env.diag_soma = torch.zeros(T.NUM_TASKS, 2, device=dev)
+        # colunas 2 e 3 = erro de velocidade linear/angular POR TAREFA (10/08). O
+        # `Episode_Metrics/erro_vel_*` global dilui: com 3 tarefas abertas, 2 têm
+        # comando zero, e o 0,89 do bloco 2 não dizia QUEM reprovava na régua. É
+        # contra estas colunas que `tol_v`/`tol_w` se calibram.
+        env.diag_soma = torch.zeros(T.NUM_TASKS, 4, device=dev)
         env.diag_cont = torch.zeros(T.NUM_TASKS, device=dev)
         # buffer criado ANTES do 1º reset: o currículo lê daqui
         env.success_buf = torch.zeros(n, device=dev)
@@ -193,8 +197,10 @@ class Sucesso:
         # contaria dobrado.
         robo: Entity = env.scene["robot"]
         cmd = env.command_manager.get_command("twist")
-        self._erro_lin += (cmd[:, :2] - robo.data.root_link_lin_vel_b[:, :2]).norm(dim=-1)
-        self._erro_ang += (cmd[:, 2] - robo.data.root_link_ang_vel_b[:, 2]).abs()
+        e_lin = (cmd[:, :2] - robo.data.root_link_lin_vel_b[:, :2]).norm(dim=-1)
+        e_ang = (cmd[:, 2] - robo.data.root_link_ang_vel_b[:, 2]).abs()
+        self._erro_lin += e_lin
+        self._erro_ang += e_ang
         self._passos += 1.0
 
         # 4. sustentação: soma enquanto vale, ZERA quando quebra.
@@ -216,7 +222,8 @@ class Sucesso:
         cond_srt = self._condicao(env, srt)
         sem_condicao = (self._conquistado & ~antes) & ~cond_srt
         env.diag_soma.index_add_(
-            0, srt, torch.stack([cond_srt.float(), sem_condicao.float()], dim=-1))
+            0, srt, torch.stack([cond_srt.float(), sem_condicao.float(),
+                                 e_lin, e_ang], dim=-1))
         env.diag_cont.index_add_(0, srt, torch.ones_like(cond_srt, dtype=torch.float))
 
         env.success_buf.copy_(self._conquistado.float())
