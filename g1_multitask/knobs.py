@@ -30,7 +30,17 @@ class Scene:
     shelf_half_xy: float = 0.30                                  # §14
     shelf_half_z: float = 0.02                                   # §14 — fina = prateleira, não paredão
     shelf_top: float = 0.55                                      # nível 0 do eixo de altura
-    box_xy: tuple[float, float] = (0.50, 0.0)
+    box_xy: tuple[float, float] = (0.30, 0.0)
+    """Borda da FRENTE da mesa: `(table_x − shelf_half_xy) + box_half[0]` = 0.30.
+
+    ⚠️ **Era 0.50 (centro da mesa) até 10/08** — o default que a Lift ABANDONOU em
+    16/07 (`c2026_07_16_box_edge.py`): no centro, a pose em pé sem escorar
+    fisicamente não alcança a caixa. O `box_jitter_x` assimétrico abaixo foi
+    calibrado EM CIMA do 0.30 ("+0.20 é o limite prático de alcance; 0.50 era o
+    'longe demais' original" — `c2026_07_16_generalize.py`). Recombinado com o
+    nominal 0.50, ele punha a caixa sempre na metade OPOSTA da mesa: alcançável em
+    ≈19% dos episódios, e o `cond_fisica` do `reorientar` no bloco 1 travou em
+    0.17 — o teto era a fração alcançável. O `pegar` deu 0.0000."""
     table_xy: tuple[float, float] = (0.50, 0.0)
 
     afasta_distancia: float = 5.0
@@ -72,8 +82,13 @@ class Scene:
 
     level_jitter_z: float = 0.02        # §14 — ±0.02 m em cima da altura sorteada
 
-    table_jitter_xy: float = 0.15
-    """S12 — ±0.15 m no xy da prateleira, por episódio.
+    table_jitter_xy: float = 0.05
+    """S12 — ±0.05 m no xy da prateleira, por episódio.
+
+    ⚠️ **Era 0.15 até 10/08.** Como o delta é compartilhado com a caixa, ele soma ao
+    alcance exigido: com 0.15, ~19% dos episódios caíam além do limite prático de
+    0.50 — e o portão de competência exige 0.90, então o teto estrutural (~0.81)
+    nunca fecharia o eixo. Com 0.05 sobram ~6% além do limite (0.90 atingível).
 
     Sem ele a mesa fica sempre no mesmo lugar e o `botar` decora um ponto em vez de
     aprender a pousar onde a prateleira está.
