@@ -336,12 +336,19 @@ class TwistMultitarefa(UniformVelocityCommand):
     `reorientar` não andam. A zeragem acontece no `_update_command`, depois do
     heading e depois da zeragem de standing, então ela vence as duas.
 
-    **2. Teto de velocidade POR ENV.** O eixo `velocidade` do currículo é por tarefa,
-    e o `locomover` e o `locomover_carregando` têm células independentes. O
-    fabricante sorteia com uma faixa ESCALAR para todos os envs
+    **2. Teto de velocidade POR ENV, só no `vx`.** O eixo `velocidade` do currículo é
+    por tarefa, e o `locomover` e o `locomover_carregando` têm células
+    independentes. O fabricante sorteia com uma faixa ESCALAR para todos os envs
     (`velocity_command.py:77`), então o teto por env entra como reescala depois do
-    `super()`. Reescalar preserva o formato do `rel_forward_envs`: o piso de 0,3 vira
-    `0,3 × escala`.
+    `super()`. Reescalar preserva o formato do `rel_forward_envs`: o piso de 0,3
+    vira `0,3 × escala`.
+
+    ⚠️ **SÓ a coluna do `vx` (10/08).** A progressão do próprio fabricante pro G1
+    alarga `lin_vel_x` até (−1.5, 2.0) e o yaw até 0.7 SEM tocar o `lin_vel_y`
+    (`config/g1/env_cfgs.py:217`) — lateral acima de ±1.0 não é envelope testado.
+    Até o bloco 2 a reescala pegava as DUAS colunas: no nível 1 o lateral ia a
+    ±1.5 m/s, e o rastreio de guinada do `locomover` degradou junto
+    (`contrib/locomover/track_angular_velocity` 0.44 → 0.21, medido 10/08).
 
     ⚠️ O `ang_vel_z` **não** é reescalado. O eixo é de velocidade linear. E a lei do
     heading satura na faixa ESCALAR `cfg.ranges.ang_vel_z`, então escalar o sorteio
@@ -388,12 +395,15 @@ class TwistMultitarefa(UniformVelocityCommand):
         super()._resample_command(env_ids)
         r = torch.empty(len(env_ids), device=self.device)
 
-        # --- teto por env: reescala o que o fabricante sorteou ---
+        # --- teto por env: reescala SÓ o vx sorteado (ver docstring da classe) ---
+        # O `vel_command_w` acompanha porque no resample ele é CÓPIA do sorteio
+        # (`velocity_command.py:90`) — escalar só um dos dois quebraria os
+        # world-envs se um dia forem ligados.
         teto = getattr(self._env, "teto_velocidade", None)
         if teto is not None:
-            escala = (teto[env_ids] / self._teto_nominal).unsqueeze(-1)
-            self.vel_command_b[env_ids, :2] *= escala
-            self.vel_command_w[env_ids, :2] *= escala
+            escala = teto[env_ids] / self._teto_nominal
+            self.vel_command_b[env_ids, 0] *= escala
+            self.vel_command_w[env_ids, 0] *= escala
 
         # --- giro parado: sai de DENTRO da fração de standing ---
         parado = self.is_standing_env[env_ids]
