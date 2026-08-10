@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from mjlab.asset_zoo.robots.unitree_g1.g1_constants import KNEES_BENT_KEYFRAME
 from mjlab.entity import Entity
 from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.utils.lab_api.math import quat_apply
@@ -175,16 +176,47 @@ def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
 
 
 # --------------------------------------------------------- tarefa: pegar (T8)
-def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
-    """O alvo do peito, do frame da base pro mundo. [B, 3]
+_PELVE_DE_PE_Z = float(KNEES_BENT_KEYFRAME.pos[2])
+"""Altura da pelve DE PÉ (keyframe `KNEES_BENT`, 0.76 m) — a MESMA referência de
+onde o `de_pe_z = 0.65` da régua deriva. Importada do keyframe, não digitada."""
 
-    Ele é CONSTANTE na base — é por isso que `alvo_pos` do `pegar` não precisa
-    transmiti-lo no vetor de comando (§9). Mas o erro da caixa se mede no mundo,
-    então converte aqui."""
+
+def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
+    """O alvo do peito: xy ACOMPANHA a base, z é ANCORADO NO MUNDO. [B, 3]
+
+    Era 100% frame da base até 10/08, e isso criava um argmax agachado: o alvo
+    descia junto com a pelve, então levar o peito até a caixa pagava o mesmo que
+    erguer a caixa até um peito de pé — e era mais barato. Medido no fim do
+    bloco 2: `box_at_peito = 0.51` com `cond_fisica = 0.0000` exato (segurava a
+    caixa no peito, agachado), confirmado no play do `model_12299`.
+
+    A divisão:
+      - **xy na base** — a caixa acompanha o robô; é o que o transporte
+        (`locomover_carregando`) exige. Ponto fixo em xy pregaria o robô no chão.
+      - **z no mundo** — peito DE PÉ: `pelve(KNEES_BENT) + alvo_peito_b[2]` =
+        0.76 + 0.15 = **0.91 m** sobre a origem do env. Agachar 10 cm derruba o
+        kernel de `std = 0.05` para e⁻⁴ ≈ 0.02 — segurar agachado deixa de
+        pagar, em TODAS as tarefas com caixa na mão.
+
+    Consequência no `lift_ao_peito`: o `alvo_z` dele sai daqui, então a linha de
+    chegada do progresso parou de descer com a pelve — e o eixo `altura` ficou
+    honesto: prateleira baixa passou a exigir erguer o percurso INTEIRO.
+
+    ⚠️ Premissa declarada: CHÃO PLANO (o cenário do experimento inteiro). Com
+    terreno, a âncora teria de virar "altura sobre o terreno local".
+
+    ⚠️ O `no_peito` da régua (`metrics._condicao`) usa ESTA MESMA função, de
+    propósito: reward e critério não podem divergir de alvo (classe de defeito
+    C1/C2 do bloco 1)."""
     robot: Entity = env.scene["robot"]
-    alvo_b = torch.tensor(alvo_peito_b, device=robot.data.root_link_pos_w.device)
+    alvo_b = torch.as_tensor(alvo_peito_b,
+                             device=robot.data.root_link_pos_w.device)
     alvo_b = alvo_b.expand(robot.data.root_link_pos_w.shape[0], 3)
-    return robot.data.root_link_pos_w + quat_apply(robot.data.root_link_quat_w, alvo_b)
+    alvo = robot.data.root_link_pos_w + quat_apply(robot.data.root_link_quat_w,
+                                                   alvo_b)
+    alvo[:, 2] = (env.scene.env_origins[:, 2]
+                  + _PELVE_DE_PE_Z + float(alvo_peito_b[2]))
+    return alvo
 
 
 def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
@@ -237,9 +269,10 @@ def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,
     """Preensão × gaussiana do erro caixa->alvo do peito (§6b, +1).
 
     Adaptado do `sustain_precise_reward` da Lift, com UMA diferença de fundo: lá o
-    alvo vinha do vetor de comando; aqui é constante na base. Isso muda o
-    significado — o alvo ACOMPANHA o robô, então andar com a caixa no peito
-    continua pontuando, o que é exatamente o que o `andar c/ caixa` precisa.
+    alvo vinha do vetor de comando; aqui sai do `alvo_peito_w` — o xy ACOMPANHA o
+    robô (andar com a caixa no peito continua pontuando, que é o que o `andar
+    c/ caixa` precisa), e o z é ancorado no MUNDO em altura de peito DE PÉ
+    (10/08): agachar com a caixa parou de pagar, em qualquer tarefa com caixa.
 
     Exige preensão (`_grasp`) porque a caixa parada no lugar certo sem estar na mão
     não é a tarefa. Kernels e gate de preensão vêm da Lift por import."""

@@ -41,12 +41,12 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.utils.lab_api.math import quat_apply
 
 from g1_training.base_env import BACK_SENSORS, PALM_SENSORS, SUPPORT_SENSOR
 from g1_training.skills.lift.rewards import _contact, _grasp
 
 from . import tasks as T
+from .rewards import alvo_peito_w
 from .terminations import de_pe
 
 if TYPE_CHECKING:
@@ -131,9 +131,11 @@ class Sucesso:
         apoiada = _contact(env, SUPPORT_SENSOR) > 0.5
         caixa_quieta = caixa.data.root_link_lin_vel_w.norm(dim=-1) < tol.caixa_quieta_v
 
-        peito_w = robo.data.root_link_pos_w + quat_apply(
-            robo.data.root_link_quat_w,
-            self.alvo_peito_b.expand(env.num_envs, 3))
+        # `alvo_peito_w` de rewards.py, DE PROPÓSITO: reward e régua têm de medir
+        # contra o MESMO alvo — xy na base, z ancorado no mundo desde 10/08. Antes
+        # (alvo 100% na pelve) segurar AGACHADO passava no `no_peito`, e no
+        # `locomover_carregando`, que não tem `de_pé`, nada mais barrava.
+        peito_w = alvo_peito_w(env, self.alvo_peito_b)
         no_peito = (caixa.data.root_link_pos_w - peito_w).norm(dim=-1) < tol.caixa_no_alvo
         no_alvo = (caixa.data.root_link_pos_w
                    - meta.command[:, ALVO]).norm(dim=-1) < tol.caixa_no_alvo

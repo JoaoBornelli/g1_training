@@ -175,8 +175,12 @@ class Command:
     de 1,0, ou seja 30% do teto. Trinta por cento do teto de `ωz` (0,5) dá 0,15."""
 
     alvo_peito_b: tuple[float, float, float] = (0.20, 0.00, 0.15)
-    """§14 — alvo da caixa em frame da BASE. Constante: é por isso que o `pegar` não
-    precisa transmitir o alvo do peito no vetor de comando."""
+    """§14 — alvo da caixa relativo à base. Constante: é por isso que o `pegar` não
+    precisa transmitir o alvo do peito no vetor de comando.
+
+    ⚠️ Desde 10/08 o `alvo_peito_w` só usa xy na base; o z é ANCORADO NO MUNDO em
+    `pelve_de_pé + 0.15 = 0.91 m` (ver `rewards.alvo_peito_w`). Alvo 100% na base
+    fazia segurar agachado valer nota cheia — era o argmax do bloco 2."""
 
 
 @dataclass
