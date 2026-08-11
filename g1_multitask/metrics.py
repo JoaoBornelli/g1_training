@@ -59,6 +59,18 @@ PASSOS_MIN_S = 1.0
 
 Sem este piso, o critério base dispararia no passo 1, onde a média é um número só."""
 
+FILTRO_ANG_TAU_S = 0.5
+"""Constante de tempo do passa-baixa do erro angular FILTRADO (só-log, 11/08).
+
+O erro cru tem um piso sistêmico de 0.62-0.73 rad/s que não é rastreio ruim: a
+oscilação de guinada da própria marcha (~1.5-2 Hz) e o push do fabricante moram
+dentro da integral — foi por isso que o `tol_w` subiu pra 0.70, virando guarda de
+sanidade em vez de teste de rastreio. Esta versão filtra o erro ASSINADO com EMA de
+0.5 s antes do |·|: a oscilação de marcha (período 0.5-0.7 s) atenua ~7×, o
+seguir-comando (janelas de 3-8 s) passa inteiro. É o número que responde "ele segue
+o ωz ou está se perdendo?" — se o currículo avançar com ele alto, o `tol_w` aperta
+com dado na mão (os destraves são catraca; só as EMAs recalibram)."""
+
 
 class Sucesso:
     """Critério de sucesso por tarefa, com sustentação temporal.
@@ -89,6 +101,9 @@ class Sucesso:
         self._erro_lin = torch.zeros(n, device=dev)
         self._erro_ang = torch.zeros(n, device=dev)
         self._passos = torch.zeros(n, device=dev)
+        # estado do passa-baixa do erro ASSINADO (só-log; ver FILTRO_ANG_TAU_S)
+        self._erro_ang_filt = torch.zeros(n, device=dev)
+        self._alpha_filt = min(1.0, self.dt / FILTRO_ANG_TAU_S)
 
         self._palmas = SceneEntityCfg("robot", site_names=[])
         # --- diagnóstico por tarefa, emitido pelo `observability.Relatorio` ---
@@ -99,7 +114,9 @@ class Sucesso:
         # `Episode_Metrics/erro_vel_*` global dilui: com 3 tarefas abertas, 2 têm
         # comando zero, e o 0,89 do bloco 2 não dizia QUEM reprovava na régua. É
         # contra estas colunas que `tol_v`/`tol_w` se calibram.
-        env.diag_soma = torch.zeros(T.NUM_TASKS, 4, device=dev)
+        # coluna 4 = |erro angular FILTRADO| (11/08) — rastreio sem a oscilação de
+        # marcha; é quem vigia se o tol_w 0.70 deixou passar um não-rastreador.
+        env.diag_soma = torch.zeros(T.NUM_TASKS, 5, device=dev)
         env.diag_cont = torch.zeros(T.NUM_TASKS, device=dev)
         # buffer criado ANTES do 1º reset: o currículo lê daqui
         env.success_buf = torch.zeros(n, device=dev)
@@ -188,6 +205,7 @@ class Sucesso:
             self._nunca_caiu[caiu] = True
             self._erro_lin[caiu] = 0.0
             self._erro_ang[caiu] = 0.0
+            self._erro_ang_filt[caiu] = 0.0
             self._passos[caiu] = 0.0
         self._len_ant.copy_(env.episode_length_buf)
 
@@ -199,10 +217,14 @@ class Sucesso:
         # contaria dobrado.
         robo: Entity = env.scene["robot"]
         cmd = env.command_manager.get_command("twist")
+        e_ang_sinal = cmd[:, 2] - robo.data.root_link_ang_vel_b[:, 2]
         e_lin = (cmd[:, :2] - robo.data.root_link_lin_vel_b[:, :2]).norm(dim=-1)
-        e_ang = (cmd[:, 2] - robo.data.root_link_ang_vel_b[:, 2]).abs()
+        e_ang = e_ang_sinal.abs()
         self._erro_lin += e_lin
         self._erro_ang += e_ang
+        # o filtro roda no erro ASSINADO — filtrar depois do |·| não cancela a
+        # oscilação (o retificador vira tudo pro mesmo lado)
+        self._erro_ang_filt += self._alpha_filt * (e_ang_sinal - self._erro_ang_filt)
         self._passos += 1.0
 
         # 4. sustentação: soma enquanto vale, ZERA quando quebra.
@@ -225,7 +247,8 @@ class Sucesso:
         sem_condicao = (self._conquistado & ~antes) & ~cond_srt
         env.diag_soma.index_add_(
             0, srt, torch.stack([cond_srt.float(), sem_condicao.float(),
-                                 e_lin, e_ang], dim=-1))
+                                 e_lin, e_ang,
+                                 self._erro_ang_filt.abs()], dim=-1))
         env.diag_cont.index_add_(0, srt, torch.ones_like(cond_srt, dtype=torch.float))
 
         env.success_buf.copy_(self._conquistado.float())

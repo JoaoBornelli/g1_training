@@ -134,6 +134,10 @@ class Relatorio:
                 # e é contra ESTES números que `tol_v`/`tol_w` se decidem.
                 out[f"{T.NAMES[t]}/erro_vel_lin"] = dm[t, 2]
                 out[f"{T.NAMES[t]}/erro_vel_ang"] = dm[t, 3]
+                # |erro angular filtrado| (11/08): rastreio sem a oscilação de
+                # marcha. É quem diz se o tol_w 0.70 deixou passar não-rastreador
+                # — alto com currículo avançando = apertar a régua, com dado.
+                out[f"{T.NAMES[t]}/erro_vel_ang_filt"] = dm[t, 4]
             dsoma.zero_()
             dcont.zero_()
         return out
