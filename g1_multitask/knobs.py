@@ -590,14 +590,26 @@ class Tolerancia:
     limiar passa a medir a deriva. Um agachamento move a pelve ~0,3 m em ~1 s, o que
     dá ~0,015 m/s de média num episódio de 20 s — cabe com folga. Confirmar no log."""
 
-    tol_w: float = 0.35
+    tol_w: float = 0.70
     """Erro angular médio máximo, em rad/s. `erro_ang = (1/T) ∫ |ωz_cmd − ωz| dt`.
-
-    Mesma derivação: metade do `std` do `track_angular_velocity` (`sqrt(0.5) ≈ 0,707`).
 
     Com comando zero, ele mede rebolado de pelve — que é exatamente o buraco que o
     `hold_still` deixou ao sair (§10). Aqui ele volta como critério, não como
-    recompensa."""
+    recompensa.
+
+    ⚠️ **Era 0.35 (metade do std do kernel do fabricante) até 11/08 — e 0.35 zerou o
+    sucesso das 3 tarefas por 8000+ iterações.** O piso REAL, medido por tarefa em
+    duas janelas independentes do bloco 3 (`contrib/<tarefa>/erro_vel_ang`):
+    locomover 0.62-0.66 · pegar 0.65-0.67 · reorientar 0.72-0.73. Uniforme com e sem
+    comando ⇒ o piso é sistêmico: a oscilação de guinada da própria marcha e o
+    `push_robot` do fabricante (até ±0.78 rad/s a cada 1-3 s) moram DENTRO da
+    integral. 0.35 selecionava andar arrastado — o gait raso do início do bloco 1
+    passava, o gait bom não.
+
+    O 0.70 é a MESMA derivação com o fator corrigido pela medição: 1× o std do
+    kernel (`sqrt(0.5) ≈ 0.707`) em vez de metade. Mudança de régua feita na janela
+    em que `perf ≡ 0` em tudo (nada a preservar). **Aceitação:** o `perf_n0` do
+    `locomover` descola do zero em ~100-200 iterações; se não, o degrau é 0.80."""
 
     # --- condições adicionais por tarefa (§8) ---
     caixa_no_alvo: float = 0.10         # 3D, `pegar` e `botar`
