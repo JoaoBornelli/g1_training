@@ -265,7 +265,8 @@ def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
 
 
 def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,
-                 alvo_peito_b, palm_sensors, back_sensors) -> torch.Tensor:
+                 alvo_peito_b, palm_sensors, back_sensors,
+                 std_grosso: float = 0.0) -> torch.Tensor:
     """Preensão × gaussiana do erro caixa->alvo do peito (§6b, +1).
 
     Adaptado do `sustain_precise_reward` da Lift, com UMA diferença de fundo: lá o
@@ -275,11 +276,23 @@ def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,
     (10/08): agachar com a caixa parou de pagar, em qualquer tarefa com caixa.
 
     Exige preensão (`_grasp`) porque a caixa parada no lugar certo sem estar na mão
-    não é a tarefa. Kernels e gate de preensão vêm da Lift por import."""
+    não é a tarefa. Kernels e gate de preensão vêm da Lift por import.
+
+    ⚠️ **Dupla escala desde 11/08 — mesmo conserto, mesmo modo de falha do
+    `box_at_prateleira`.** Com a âncora do peito em MUNDO (0.91 m), o std único de
+    0.05 valia `e⁻²⁵ = zero exato` com a caixa a 25 cm — o caminho vertical inteiro
+    ficou sem o segundo pagador (só o `lift` pagava, com o span dobrado), e o
+    `pegar` se acomodou em "mãos na caixa, sem erguer": medido no bloco 3,
+    `lift = 0.02` e `std_vantagem/pegar` colapsado de 0.18 pra 0.075. A grossa
+    (0.30) paga ~0.25 a 25 cm; o fino continua mandando perto do alvo. Mesmo 50/50
+    do `reaching`, `orienta_face` e `box_at_prateleira`."""
     obj: Entity = env.scene[object_name]
     err_sq = torch.sum(torch.square(
         alvo_peito_w(env, alvo_peito_b) - obj.data.root_link_pos_w), dim=-1)
-    return _grasp(env, palm_sensors, back_sensors) * height_kernel(err_sq, std)
+    kernel = height_kernel(err_sq, std)
+    if std_grosso > 0.0:
+        kernel = 0.5 * height_kernel(err_sq, std_grosso) + 0.5 * kernel
+    return _grasp(env, palm_sensors, back_sensors) * kernel
 
 
 # ---------------------------------------------------------- tarefa: botar (T8)

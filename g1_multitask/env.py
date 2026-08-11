@@ -598,7 +598,8 @@ def build_multitask_env(
         func=R.gated, weight=r.box_at_peito,
         params={"inner": R.box_at_peito,
                 "tasks": (PEGAR, LOCOMOVER_CARREGANDO),
-                "std": r.sustain_std, "object_name": "box",
+                "std": r.sustain_std, "std_grosso": r.peito_std_grosso,
+                "object_name": "box",
                 "alvo_peito_b": c.alvo_peito_b, **pega},
     )
     cfg.rewards["box_at_prateleira"] = RewardTermCfg(

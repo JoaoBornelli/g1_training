@@ -384,7 +384,22 @@ class Reward:
     sem precisão", que é o motivo pelo qual a Lift o escolheu apertado.
 
     ⚠️ Se algum dia uma tarefa tiver que ATINGIR o alvo do peito partindo de longe
-    **sem** `lift`/`reaching` ligados, este número volta pra mesa."""
+    **sem** `lift`/`reaching` ligados, este número volta pra mesa.
+
+    ⚠️ **Materializou-se em 11/08**, pela outra ponta: a âncora do peito foi pro
+    MUNDO (0.91 m) e o caminho até ela ficou longo demais pro std único — ver
+    `peito_std_grosso`."""
+
+    peito_std_grosso: float = 0.30
+    """Escala GROSSA do `box_at_peito`, em metros (11/08). Mesmo conserto e mesmo
+    modo de falha do `botar_std_grosso`: com a âncora do peito em mundo, o std
+    único de 0.05 valia `e⁻²⁵ = zero exato` a 25 cm do alvo — o caminho vertical
+    ficou sem o segundo pagador e o `pegar` se acomodou em "mãos na caixa, sem
+    erguer" (bloco 3: `lift = 0.02`, `std_vantagem/pegar` 0.18 → 0.075).
+
+    DERIVADA da mesma razão 6:1 que o repo já usa (`botar_std_grosso` = 0.30 sobre
+    fino 0.05). O `locomover_carregando` nasce NO alvo e não sente a grossa; o
+    fino continua mandando perto do alvo, então a precisão final não afrouxa."""
 
     std_coarse: float = 1.0             # §14, herdado da Lift
     std_fine: float = 0.25              # §14, herdado da Lift
