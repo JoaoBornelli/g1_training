@@ -66,13 +66,19 @@ runner_tr.learn(num_learning_iterations=3, init_at_random_ep_len=True)
 check("3 iterações de PPO rodaram", True)
 
 # mexe no estado do currículo pra o round-trip ter o que provar
+#
+# ⚠️ As chaves de célula saem de `T.eixo_de`, e não digitadas: o eixo do `pegar` já
+# mudou de `altura` para `alvo` (11/08) e a versão com o nome fixo quebrou com
+# `KeyError`. Derivar aqui faz o portão sobreviver à próxima troca de eixo.
 orq_tr = env_tr.curriculum_manager.get_term_cfg("orquestrador").func
-orq_tr.abertos[(T.LOCOMOVER, "velocidade")] = 3
+CEL_LOCO = (T.LOCOMOVER, T.eixo_de(T.LOCOMOVER))
+CEL_PEGAR = (T.PEGAR, T.eixo_de(T.PEGAR))
+orq_tr.abertos[CEL_LOCO] = 1
 orq_tr.abertas = [T.LOCOMOVER, T.PEGAR, T.REORIENTAR]
 orq_tr.eventos = 7
 orq_tr.eventos_tarefa[T.LOCOMOVER] = 2
 orq_tr.dr_peso[T.PEGAR] = True
-orq_tr.perf[(T.PEGAR, "altura")][0] = 0.875   # exato em float32
+orq_tr.perf[CEL_PEGAR][0] = 0.875   # exato em float32
 antes = orq_tr.state_dict()
 
 ckpt = tmp / "model_teste.pt"
@@ -90,9 +96,9 @@ check("eventos sobreviveram ao resume", orq_r.eventos == 7, f"deu {orq_r.eventos
 check("tarefas abertas sobreviveram",
       orq_r.abertas == [T.LOCOMOVER, T.PEGAR, T.REORIENTAR],
       str([T.NAMES[t] for t in orq_r.abertas]))
-check("nível de eixo sobreviveu", orq_r.abertos[(T.LOCOMOVER, "velocidade")] == 3)
+check("nível de eixo sobreviveu", orq_r.abertos[CEL_LOCO] == 1)
 check("perf sobreviveu bit a bit",
-      float(orq_r.perf[(T.PEGAR, "altura")][0]) == 0.875)
+      float(orq_r.perf[CEL_PEGAR][0]) == 0.875)
 # Os dois estados novos da reforma. O `eventos_tarefa` é o PORTÃO DO FILHO: perdê-lo
 # no resume reabriria a cadeia do zero, em silêncio. O `dr_peso` é a DR de carga.
 check("eventos_tarefa sobreviveu (é o portão do filho)",
