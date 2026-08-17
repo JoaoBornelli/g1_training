@@ -28,7 +28,10 @@ from mjlab.utils.lab_api.math import quat_apply
 
 from g1_training.skills.lift.rewards import _grasp, height_kernel
 
+from .tasks import LEVELS as _LEVELS
 from .tasks import ONEHOT_DIM
+
+T_LEVELS_ALVO = _LEVELS["alvo"]
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -169,10 +172,63 @@ def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
 
     O sinal de que o custo era ruído: `action_rate_l2` marcava −3,07 / −3,10 / −3,10 /
     −3,14 em quatro tarefas de física completamente diferente. Termo que não distingue
-    andar de agachar não está medindo comportamento."""
+    andar de agachar não está medindo comportamento.
+
+    ⚠️ **Substituída pela `ActionRateJuntas` em 11/08**, que faz o mesmo e ainda pesa
+    os canais de braço. Fica aqui como referência da versão sem peso."""
     a = env.action_manager.action[:, :n_juntas]
     p = env.action_manager.prev_action[:, :n_juntas]
     return torch.sum(torch.square(a - p), dim=-1)
+
+
+class ActionRateJuntas:
+    """`action_rate_l2` nos canais de junta, com FATOR próprio nos braços. (11/08)
+
+    O termo plano cobrava −0,88 no `pegar` contra 1,07 de todo o sinal de tarefa
+    coletado — **82%** — numa tarefa cujo conteúdo é mover os braços. E a saída da
+    política para esse custo é encolher o `std`, o que reduz a exploração exatamente
+    onde ela falta.
+
+    Só os braços recebem o fator. O peso global fica: o termo existe para conter jitter
+    de perna na marcha, e ali ele funciona (`contrib/locomover/action_rate = −1,02` com
+    a locomoção fechada).
+
+    **Classe e não função** porque os índices de junta precisam do `env`, e resolvê-los
+    a cada passo custaria uma busca por regex por chamada.
+
+    ⚠️ **Ela confere que a ordem da AÇÃO bate com a ordem das JUNTAS.** Os índices vêm
+    de `find_joints`, que devolve a ordem do modelo; o vetor de ação segue a ordem do
+    termo de ação. Hoje as duas coincidem (`target_ids == range(29)`), mas um dia o
+    termo pode passar a mirar um subconjunto — e aí pesar pelo índice errado
+    penalizaria a junta errada, em silêncio. Daí o assert."""
+
+    def __init__(self, cfg, env: "ManagerBasedRlEnv"):
+        p = cfg.params
+        self._n = int(p.get("n_juntas", 29))
+        fator = float(p.get("fator_bracos", 1.0))
+        padroes = tuple(p.get("padroes_bracos", ()))
+        peso = torch.ones(self._n, device=env.device)
+        if fator != 1.0 and padroes:
+            termo = env.action_manager.get_term("joint_pos")
+            alvos = getattr(termo, "target_ids", None)
+            if alvos is not None:
+                esperado = list(range(self._n))
+                reais = [int(i) for i in list(alvos)[: self._n]]
+                assert reais == esperado, (
+                    "a ordem da ação não é a ordem das juntas — pesar por índice "
+                    f"penalizaria a junta errada. target_ids[:{self._n}] = {reais}")
+            idx, nomes = env.scene["robot"].find_joints(list(padroes))
+            idx = [i for i in idx if i < self._n]
+            assert idx, f"nenhuma junta casou {padroes}"
+            peso[idx] = fator
+            print(f"[REWARD] action_rate: {len(idx)} canais de braço × {fator}")
+        self._peso = peso
+
+    def __call__(self, env: "ManagerBasedRlEnv", **kw) -> torch.Tensor:
+        del kw
+        a = env.action_manager.action[:, : self._n]
+        p = env.action_manager.prev_action[:, : self._n]
+        return torch.sum(self._peso * torch.square(a - p), dim=-1)
 
 
 # --------------------------------------------------------- tarefa: pegar (T8)
@@ -181,48 +237,80 @@ _PELVE_DE_PE_Z = float(KNEES_BENT_KEYFRAME.pos[2])
 onde o `de_pe_z = 0.65` da régua deriva. Importada do keyframe, não digitada."""
 
 
+_PEITO_DE_PE_Z = _PELVE_DE_PE_Z + 0.15
+"""Altura do peito com o robô DE PÉ, em metros: `0.76 + 0.15 = 0.91`.
+
+É o TOPO da rampa do eixo `alvo` do `pegar` (nível 1,0). O `0.15` é o `alvo_peito_b[2]`
+da §14, aqui como constante porque o topo da rampa não pode depender da pose corrente.
+
+⚠️ Sem termo de `env_origins`, de propósito: as origens de env diferem em x e y, nunca
+em z (ver `events.afasta_cena`), e o `plr_rest_z` também é gravado sem elas
+(`common/events.py:164`). Somar aqui e não lá desalinharia numerador e denominador."""
+
+
 def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
-    """O alvo do peito: xy ACOMPANHA a base, z é ANCORADO NO MUNDO. [B, 3]
+    """O alvo do peito, do frame da BASE pro mundo. [B, 3]
 
-    Era 100% frame da base até 10/08, e isso criava um argmax agachado: o alvo
-    descia junto com a pelve, então levar o peito até a caixa pagava o mesmo que
-    erguer a caixa até um peito de pé — e era mais barato. Medido no fim do
-    bloco 2: `box_at_peito = 0.51` com `cond_fisica = 0.0000` exato (segurava a
-    caixa no peito, agachado), confirmado no play do `model_12299`.
+    Ele é CONSTANTE na base — é por isso que o `alvo_pos` do comando não precisa
+    transmiti-lo (§9). Mas o erro da caixa se mede no mundo, então converte aqui.
 
-    A divisão:
-      - **xy na base** — a caixa acompanha o robô; é o que o transporte
-        (`locomover_carregando`) exige. Ponto fixo em xy pregaria o robô no chão.
-      - **z no mundo** — peito DE PÉ: `pelve(KNEES_BENT) + alvo_peito_b[2]` =
-        0.76 + 0.15 = **0.91 m** sobre a origem do env. Agachar 10 cm derruba o
-        kernel de `std = 0.05` para e⁻⁴ ≈ 0.02 — segurar agachado deixa de
-        pagar, em TODAS as tarefas com caixa na mão.
+    ⚠️ **Voltou a ser 100% frame da base em 11/08**, e a âncora de mundo que viveu um
+    dia aqui foi removida. Ela existia para matar um argmax agachado no `pegar`: o alvo
+    descia com a pelve, então levar o peito até a caixa pagava o mesmo que erguer a
+    caixa. O `pegar` **não usa mais este termo** — o alvo dele é altura de mundo, via
+    `alvo_z_pegar`. Sobrou o `locomover_carregando`, e ali a âncora de mundo era pior:
+    a pelve oscila na marcha, e não existe canal de altura de mundo na observação (nem
+    no ator nem no crítico). Frame da base é o único alvo que o robô consegue calcular
+    de `box_pos_b`.
 
-    Consequência no `lift_ao_peito`: o `alvo_z` dele sai daqui, então a linha de
-    chegada do progresso parou de descer com a pelve — e o eixo `altura` ficou
-    honesto: prateleira baixa passou a exigir erguer o percurso INTEIRO.
-
-    ⚠️ Premissa declarada: CHÃO PLANO (o cenário do experimento inteiro). Com
-    terreno, a âncora teria de virar "altura sobre o terreno local".
-
-    ⚠️ O `no_peito` da régua (`metrics._condicao`) usa ESTA MESMA função, de
-    propósito: reward e critério não podem divergir de alvo (classe de defeito
-    C1/C2 do bloco 1)."""
+    O agachamento não compensa no `locomover_carregando` por dois outros motivos: ele
+    tem de rastrear velocidade (4,0 dos 5,0 de orçamento dele), e a terminação `largou`
+    encerra o episódio se a caixa cair."""
     robot: Entity = env.scene["robot"]
     alvo_b = torch.as_tensor(alvo_peito_b,
                              device=robot.data.root_link_pos_w.device)
     alvo_b = alvo_b.expand(robot.data.root_link_pos_w.shape[0], 3)
-    alvo = robot.data.root_link_pos_w + quat_apply(robot.data.root_link_quat_w,
+    return robot.data.root_link_pos_w + quat_apply(robot.data.root_link_quat_w,
                                                    alvo_b)
-    alvo[:, 2] = (env.scene.env_origins[:, 2]
-                  + _PELVE_DE_PE_Z + float(alvo_peito_b[2]))
-    return alvo
 
 
-def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
-                  rest_z_attr: str, palm_sensors, back_sensors,
-                  upright_std: float = 0.1) -> torch.Tensor:
-    """Progresso de altura da caixa, do repouso ATÉ O PEITO. [B]
+def alvo_z_pegar(env: "ManagerBasedRlEnv") -> torch.Tensor:
+    """Altura-alvo do `pegar`, no MUNDO, por env. [B]
+
+        alvo_z = repouso + fração × (peito_de_pé − repouso)
+
+    A fração vem do eixo `alvo` do currículo (`env.alvo_frac`). O repouso vem do
+    `reset_scene_plr` (`env.plr_rest_z`), que já inclui o jitter de ±2 cm da altura.
+
+    **Por que fração e não metro.** Ela compõe com o eixo `altura`: quando a prateleira
+    descer, o repouso desce e a rampa se re-escala sozinha. O nível 1,0 é sempre o
+    peito.
+
+    ⚠️ **O robô NÃO observa este alvo, e isso é seguro.** O `progress` do `lift` satura
+    em 1,0 e o critério é um PISO em z — erguer mais nunca reduz a recompensa nem
+    reprova. Portanto a política não precisa saber em que nível está: ela maximiza
+    subindo, sempre. Foi essa monotonicidade que permitiu tirar o alvo da observação em
+    vez de alargá-la (Categoria C).
+
+    Fallback para o `alvo_frac` ausente: nível mais fácil. O termo de recompensa é
+    construído antes do termo de currículo."""
+    rest = env.plr_rest_z
+    frac = getattr(env, "alvo_frac", None)
+    if frac is None:
+        frac = torch.full_like(rest, float(T_LEVELS_ALVO[0]))
+    return rest + frac * (_PEITO_DE_PE_Z - rest).clamp(min=0.05)
+
+
+def lift_altura(env: "ManagerBasedRlEnv", object_name: str,
+                rest_z_attr: str, palm_sensors, back_sensors,
+                upright_std: float = 0.1) -> torch.Tensor:
+    """Progresso de altura da caixa, do repouso até `alvo_z_pegar`. [B]
+
+    ⚠️ **Chamava-se `lift_ao_peito` até 11/08, e o alvo era o peito.** Agora ele é a
+    altura graduada pelo eixo `alvo` do currículo. O motivo: com denominador de 0,26 m
+    fixo, erguer 5 cm dava `progress = 0,19` e o portão do currículo pede 0,90 — ou
+    seja o robô tinha de erguer 23,4 cm antes de QUALQUER evento, e ele conseguia
+    0,4 cm. Com a rampa, o nível 0 fecha a tarefa com 5 cm. Ver `alvo_z_pegar`.
 
     ⚠️ **Existe porque o `lift_reward` da Lift estava medindo nada aqui.** Ele lê a
     altura-alvo de `command[:, 2]`, e no `pegar` o `alvo_pos` do comando É A PRÓPRIA
@@ -252,9 +340,9 @@ def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
     obj: Entity = env.scene[object_name]
     box_z = obj.data.root_link_pos_w[:, 2]
     rz = getattr(env, rest_z_attr)
-    alvo_z = alvo_peito_w(env, alvo_peito_b)[:, 2]
-    # piso no denominador: sem ele, uma caixa que nasce à altura do peito daria 0/0
-    span = (alvo_z - rz).clamp(min=0.05)
+    alvo_z = alvo_z_pegar(env)
+    # piso no denominador: sem ele, uma caixa que nasce à altura do alvo daria 0/0
+    span = (alvo_z - rz).clamp(min=0.02)
     progress = torch.clamp((box_z - rz) / span, 0.0, 1.0)
 
     world_up = torch.zeros(box_z.shape[0], 3, device=box_z.device)
@@ -262,6 +350,68 @@ def lift_ao_peito(env: "ManagerBasedRlEnv", object_name: str, alvo_peito_b,
     box_up = quat_apply(obj.data.root_link_quat_w, world_up)
     upright = torch.exp(-(1.0 - box_up[:, 2]) / upright_std)
     return _grasp(env, palm_sensors, back_sensors) * upright * progress
+
+
+def unload(env: "ManagerBasedRlEnv", object_name: str, sensor_apoio: str,
+           palm_sensors, back_sensors, rest_z_attr: str = "plr_rest_z",
+           margem: float = 0.02, g: float = 9.81) -> torch.Tensor:
+    """Fração do peso da caixa que SAIU da prateleira. [B] (11/08)
+
+    **A ponte contínua entre tocar e erguer.** O `_grasp` é booleano: tocar paga, e
+    apertar paga zero até a caixa se mover. Medido no bloco 3, com 22 mil iterações:
+    preensão em 0,851 e a caixa subindo **4 mm**. O robô mora no platô pago.
+
+    A força normal da prateleira contra a caixa cai de `m·g` para zero **antes de a
+    caixa sair do lugar**. É a única grandeza da cena que responde ao aperto de forma
+    contínua, e por isso ela preenche exatamente o vão.
+
+        unload = preensão × clamp(1 − F_apoio_z / (m·g)) × [box_z >= repouso − margem]
+
+    ⚠️ **Os dois fatores de gate são obrigatórios, e cada um fecha um hack medível.**
+    Sem `preensão`, empurrar a caixa da borda zera o apoio da MESA (o sensor casa
+    caixa↔mesa, não caixa↔chão) e paga o termo inteiro sem manipular nada. Sem o teste
+    de altura, a caixa no chão continua pagando.
+
+    ⚠️ O peso é `env.peso_amostrado × g`, e NÃO `box_mass`: a DR de carga aplica força
+    externa em vez de mudar a massa (`dr.body_mass` corrompe a heap), então a massa do
+    modelo não reflete a carga sorteada.
+
+    ⚠️ O sensor precisa do campo `"force"`. Com `reduce="netforce"` ele vem em
+    `[B, N, 3]` no frame GLOBAL (`sensor/contact_sensor.py:196`), então a componente z
+    é o apoio vertical direto. O `abs()` é indiferença de sinal, não conserto.
+
+    Reward-only: força de contato é grandeza privilegiada do sim e não entra na obs."""
+    obj: Entity = env.scene[object_name]
+    forca = env.scene[sensor_apoio].data.force
+    assert forca is not None, (
+        f"o sensor '{sensor_apoio}' precisa do campo 'force' — ver env.py")
+    apoio_z = forca[:, :, 2].sum(dim=1).abs()
+    peso = (env.peso_amostrado * g).clamp(min=1e-3)
+    fracao = (1.0 - apoio_z / peso).clamp(0.0, 1.0)
+    acima = obj.data.root_link_pos_w[:, 2] >= (getattr(env, rest_z_attr) - margem)
+    return _grasp(env, palm_sensors, back_sensors) * fracao * acima.float()
+
+
+def box_shake_pegar(env: "ManagerBasedRlEnv", object_name: str,
+                    palm_sensors, back_sensors,
+                    std: float = 0.10) -> torch.Tensor:
+    """`box_shake` que só cobra DEPOIS de a caixa chegar perto do alvo. [B] (11/08)
+
+    O termo plano brigava com a tarefa: medido no bloco 3, ele subia junto com o `lift`
+    e cancelava o ganho dele. Erguer uma caixa por abraço gira a caixa — a rotação é
+    parte da manobra, não hack.
+
+    O gate é `preensão × exp(−(alvo_z − box_z)²/std²)`, com o erro clampado em zero
+    para cima: passar do alvo não reabre a cobrança. Portanto erguer é de graça e
+    sacudir a caixa já erguida custa.
+
+    Mesmo desenho do `hold_still_bonus` da Lift, e pelo mesmo motivo declarado lá: não
+    taxar o `reach`/`lift`, que exigem exatamente o movimento que o termo puniria."""
+    obj: Entity = env.scene[object_name]
+    w2 = torch.sum(torch.square(obj.data.root_link_ang_vel_w), dim=-1)
+    falta = (alvo_z_pegar(env) - obj.data.root_link_pos_w[:, 2]).clamp(min=0.0)
+    porta = _grasp(env, palm_sensors, back_sensors) * torch.exp(-(falta ** 2) / std ** 2)
+    return w2 * porta
 
 
 def box_at_peito(env: "ManagerBasedRlEnv", std: float, object_name: str,

@@ -24,6 +24,39 @@ if TYPE_CHECKING:
 ONEHOT = slice(9, 17)
 _ROBOT = SceneEntityCfg("robot")
 
+_LIMITES: dict[tuple[str, tuple[float, ...]], torch.Tensor] = {}
+
+
+def time_out_por_tarefa(env: "ManagerBasedRlEnv",
+                        limites_s: tuple[float, ...]) -> torch.Tensor:
+    """[B] bool — fim do episódio, com comprimento POR TAREFA. (11/08)
+
+    **Substitui o `time_out` do mjlab**, que compara com `env.max_episode_length` — um
+    ESCALAR derivado de `cfg.episode_length_s` (`manager_based_rl_env.py:281`). Não há
+    como pedir episódio por tarefa por config.
+
+    Por que ele existe: a manipulação gastava 20 s por tentativa, dos quais ~3 s eram
+    a aproximação e o resto era repetição do mesmo estado. Com 10 s a taxa de episódios
+    dobra, e o portão de 200 episódios do currículo enche na metade do tempo.
+
+    ⚠️ **Tem de ser registrado com `time_out=True`.** O rsl_rl usa essa flag para
+    fazer bootstrap do valor no fim do episódio; com `False` ele trataria o corte como
+    fracasso e ensinaria o robô a evitá-lo.
+
+    ⚠️ `cfg.episode_length_s` continua sendo o TETO. Ele governa o `max_episode_length`
+    (e portanto o `init_at_random_ep_len` do treino) e nenhum limite aqui pode passar
+    dele — este termo só corta ANTES.
+
+    O limite vem em segundos, por índice de tarefa, e vira passos uma vez só. O cache é
+    por (device, limites) porque `step_dt` é fixo no processo."""
+    chave = (str(env.device), tuple(limites_s))
+    lim = _LIMITES.get(chave)
+    if lim is None:
+        passos = [max(1, int(round(s / env.step_dt))) for s in limites_s]
+        lim = torch.tensor(passos, dtype=torch.long, device=env.device)
+        _LIMITES[chave] = lim
+    return env.episode_length_buf >= lim[env.active_task]
+
 
 def _mascara(env: "ManagerBasedRlEnv", tasks, gate_command: str) -> torch.Tensor:
     """[B] bool — a tarefa ativa está em `tasks`. Mesma fonte que o gate de reward."""

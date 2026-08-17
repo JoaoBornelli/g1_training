@@ -46,7 +46,7 @@ from g1_training.base_env import BACK_SENSORS, PALM_SENSORS, SUPPORT_SENSOR
 from g1_training.skills.lift.rewards import _contact, _grasp
 
 from . import tasks as T
-from .rewards import alvo_peito_w
+from .rewards import alvo_peito_w, alvo_z_pegar
 from .terminations import de_pe
 
 if TYPE_CHECKING:
@@ -70,6 +70,90 @@ sanidade em vez de teste de rastreio. Esta versão filtra o erro ASSINADO com EM
 seguir-comando (janelas de 3-8 s) passa inteiro. É o número que responde "ele segue
 o ωz ou está se perdendo?" — se o currículo avançar com ele alto, o `tol_w` aperta
 com dado na mão (os destraves são catraca; só as EMAs recalibram)."""
+
+
+def condicao_tarefa(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
+                    tarefa: torch.Tensor | None = None) -> torch.Tensor:
+    """[B] bool — a condição FÍSICA da tarefa vale AGORA, por env.
+
+    **Função de módulo desde 11/08, e isso é estrutural.** Ela tem DOIS consumidores: o
+    critério de sucesso (`Sucesso`, que alimenta o currículo) e a recompensa densa
+    (`sucesso_denso`). Se cada um tivesse a sua cópia, reward e critério podiam divergir
+    — que é a classe de defeito C1/C2 do bloco 1 (recompensa máxima num estado que o
+    critério reprova).
+
+    Não pode ser método: o `RewardManager` roda ANTES do `MetricsManager` no `step()`
+    (`manager_based_rl_env.py:439-440`), então ler um buffer que o `Sucesso` escreve
+    daria a condição do passo ANTERIOR — e, no primeiro passo após o reset, a do
+    episódio anterior."""
+    robo: Entity = env.scene["robot"]
+    caixa: Entity = env.scene["box"]
+    meta = env.command_manager.get_term("lift_target")
+    tarefa = env.active_task if tarefa is None else tarefa
+
+    # --- primitivas compartilhadas, computadas uma vez ---
+    parado_de_pe = de_pe(env, tol.de_pe_z, tol.de_pe_tilt_rad)
+    preensao = _grasp(env, PALM_SENSORS, BACK_SENSORS) > 0.5
+    apoiada = _contact(env, SUPPORT_SENSOR) > 0.5
+    caixa_quieta = caixa.data.root_link_lin_vel_w.norm(dim=-1) < tol.caixa_quieta_v
+
+    # ⚠️ **PISO em z, não esfera 3D (11/08).** O `pegar` mede altura de MUNDO contra o
+    # alvo graduado pelo eixo `alvo`. A esfera de 0,10 m reprovava o robô por fazer
+    # MAIS: com o alvo em +5 cm e a caixa a +26 cm, a distância dá 21 cm. E ele não
+    # observa o nível, então não teria como parar na altura certa. O piso é monotônico.
+    erguida = (caixa.data.root_link_pos_w[:, 2]
+               >= alvo_z_pegar(env) - tol.alvo_tol_z)
+    # o alvo do peito ficou SÓ no `locomover_carregando`, e voltou ao frame da base
+    peito_w = alvo_peito_w(env, alvo_peito_b)
+    no_peito = (caixa.data.root_link_pos_w - peito_w).norm(dim=-1) < tol.caixa_no_alvo
+    no_alvo = (caixa.data.root_link_pos_w
+               - meta.command[:, ALVO]).norm(dim=-1) < tol.caixa_no_alvo
+    orientada = ((meta.erro_angulo_deg() < tol.reorienta_angulo_deg)
+                 & (meta.desvio_xy() < tol.reorienta_xy) & apoiada)
+
+    # --- condição ADICIONAL por tarefa (§8) ---
+    # O `locomover` não tem nenhuma: o critério base já mede a tarefa dele.
+    #
+    # ⚠️ O `de_pé` SAIU do critério de locomoção. O `pose` e o `upright` já
+    # produzem a postura, de forma contínua, e o `fell_over` já termina a queda.
+    cond = torch.ones_like(parado_de_pe)
+    # ⚠️ `preensao` e `de_pé` ficam no `pegar` mesmo com o critério de altura simples.
+    # Sem `preensao` o robô aninha a caixa no vão dos antebraços contra o tronco e ergue
+    # sem pegar — o hack que o `exige_grasp` do `gated` documenta como MEDIDO. O
+    # `_grasp` exige contato de palma e proíbe contato de dorso, então ele fecha esse
+    # caminho. Sem `de_pé`, o estado final do `pegar` deixa de ser o estado inicial
+    # canônico do `locomover_carregando` e do `botar`.
+    cond = torch.where(tarefa == T.PEGAR,
+                       erguida & parado_de_pe & preensao, cond)
+    cond = torch.where(tarefa == T.BOTAR,
+                       no_alvo & ~preensao & caixa_quieta & parado_de_pe, cond)
+    cond = torch.where(tarefa == T.REORIENTAR, orientada, cond)
+    cond = torch.where(tarefa == T.LOCOMOVER_CARREGANDO,
+                       no_peito & preensao, cond)
+    return cond
+
+
+def sucesso_denso(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
+                  tasks: tuple[int, ...]) -> torch.Tensor:
+    """[B] — 1,0 enquanto a condição da tarefa vale, nas tarefas listadas. (11/08)
+
+    **Recompensa, e vive aqui de propósito.** O alvo não pagava nada: o `cond_fisica`
+    era só diagnóstico, e o bloco 3 rodou 22 mil iterações com ele em 0,0000 sem um
+    único termo de recompensa olhando para ele. Pôr o bônus no mesmo módulo do critério
+    é o que garante que os dois medem a mesma coisa — ver `condicao_tarefa`.
+
+    ⚠️ Ele é gateado por tarefa AQUI, e não pelo `gated`, porque a máscara do `gated`
+    lê o one-hot do comando e este termo já precisa do `active_task` para a condição. Um
+    gate só, uma fonte só.
+
+    ⚠️ O `locomover` fica fora: a condição dele é `ones_like` e ele coletaria o bônus
+    inteiro de graça. O sinal denso dele são os dois `track_*`.
+
+    ⚠️ Fora de `TERMOS_DE_TAREFA`: dentro, o orçamento do `pegar` iria a 9,5 e o bônus
+    se diluiria para 2,1. Ver `tasks.TERMOS_DE_TAREFA`."""
+    quais = torch.as_tensor(list(tasks), dtype=torch.long, device=env.device)
+    dentro = (env.active_task.unsqueeze(-1) == quais).any(dim=-1)
+    return condicao_tarefa(env, tol, alvo_peito_b).float() * dentro.float()
 
 
 class Sucesso:
@@ -136,48 +220,7 @@ class Sucesso:
 
         `tarefa=None` usa `env.active_task`, que é o que PONTUA. Passando
         `env.tarefa_sorteada` sai a condição que o CURRÍCULO credita."""
-        tol = self.tol
-        robo: Entity = env.scene["robot"]
-        caixa: Entity = env.scene["box"]
-        meta = env.command_manager.get_term("lift_target")
-        tarefa = env.active_task if tarefa is None else tarefa
-
-        # --- primitivas compartilhadas, computadas uma vez ---
-        parado_de_pe = de_pe(env, tol.de_pe_z, tol.de_pe_tilt_rad)
-        preensao = _grasp(env, PALM_SENSORS, BACK_SENSORS) > 0.5
-        apoiada = _contact(env, SUPPORT_SENSOR) > 0.5
-        caixa_quieta = caixa.data.root_link_lin_vel_w.norm(dim=-1) < tol.caixa_quieta_v
-
-        # `alvo_peito_w` de rewards.py, DE PROPÓSITO: reward e régua têm de medir
-        # contra o MESMO alvo — xy na base, z ancorado no mundo desde 10/08. Antes
-        # (alvo 100% na pelve) segurar AGACHADO passava no `no_peito`, e no
-        # `locomover_carregando`, que não tem `de_pé`, nada mais barrava.
-        peito_w = alvo_peito_w(env, self.alvo_peito_b)
-        no_peito = (caixa.data.root_link_pos_w - peito_w).norm(dim=-1) < tol.caixa_no_alvo
-        no_alvo = (caixa.data.root_link_pos_w
-                   - meta.command[:, ALVO]).norm(dim=-1) < tol.caixa_no_alvo
-        orientada = ((meta.erro_angulo_deg() < tol.reorienta_angulo_deg)
-                     & (meta.desvio_xy() < tol.reorienta_xy) & apoiada)
-
-        # --- condição ADICIONAL por tarefa (§8) ---
-        # O `locomover` não tem nenhuma: o critério base já mede a tarefa dele.
-        #
-        # ⚠️ O `de_pé` SAIU do critério de locomoção. O `pose` e o `upright` já
-        # produzem a postura, de forma contínua, e o `fell_over` já termina a queda.
-        cond = torch.ones_like(parado_de_pe)
-        # ⚠️ `preensao` é OBRIGATÓRIA no `pegar`, e ela faltava no desenho antigo. Sem
-        # ela o critério passa ENCOSTANDO o peito na caixa parada na prateleira: na
-        # fronteira do `de_pe` o alvo do peito desce para z = 0,723 e a caixa na
-        # prateleira está em 0,65 — Δz = 0,073, dentro dos 0,10 m. Medido em 31/07:
-        # `pegar` marcava 98,6% de sucesso com `grasp = 0` e `lift = 0`.
-        cond = torch.where(tarefa == T.PEGAR,
-                           no_peito & parado_de_pe & preensao, cond)
-        cond = torch.where(tarefa == T.BOTAR,
-                           no_alvo & ~preensao & caixa_quieta & parado_de_pe, cond)
-        cond = torch.where(tarefa == T.REORIENTAR, orientada, cond)
-        cond = torch.where(tarefa == T.LOCOMOVER_CARREGANDO,
-                           no_peito & preensao, cond)
-        return cond
+        return condicao_tarefa(env, self.tol, self.alvo_peito_b, tarefa)
 
     def _exigencia_s(self, env) -> torch.Tensor:
         """[B] — quantos segundos a condição tem que valer seguido, por tarefa."""

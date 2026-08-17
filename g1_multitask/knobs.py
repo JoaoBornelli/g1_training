@@ -243,10 +243,83 @@ class Reward:
 
     Ele mantém 20% do orçamento no `pegar` e 50% no `reorientar` depois da
     equalização — a escala é uniforme dentro da tarefa, então a fatia não mudou."""
-    box_at_peito: float = 1.0           # grasp × kernel(caixa → peito)
+    box_at_peito: float = 1.0
+    """grasp × kernel(caixa → peito). **Só no `locomover_carregando` desde 11/08.**
+
+    Ele saiu do `pegar` por decisão de desenho: lá o alvo é altura de mundo, e ponto.
+    Com isso a âncora de mundo do `alvo_peito_w` perdeu a razão de existir e voltou
+    para o frame da BASE — que é o único frame observável durante a marcha (a pelve
+    oscila, e não há canal de altura de mundo na obs). Ver `rewards.alvo_peito_w`."""
     box_at_prateleira: float = 1.0      # kernel(caixa → prateleira), SEM grasp
     kernel_angulo: float = 1.0          # só no `reorientar`
     grasp: float = 0.5                  # bônus de toque, só no `pegar`
+
+    unload: float = 1.0
+    """**A ponte contínua entre tocar e erguer** (11/08). Só no `pegar`.
+
+        unload = preensão × clamp(1 − F_apoio / (m·g)) × [caixa acima do repouso]
+
+    O buraco que ele preenche: `_grasp` é BOOLEANO, então tocar paga e apertar paga
+    **zero** até a caixa se mover. Medido no bloco 3: preensão em 0,851 com a caixa
+    subindo 4 mm. O robô fica no platô pago.
+
+    A força de apoio da prateleira cai de `m·g` para 0 **antes de a caixa sair do
+    lugar** — é essa a única grandeza que responde ao aperto de forma contínua.
+
+    ⚠️ **Os dois fatores de gate são obrigatórios.** Sem `preensão`, derrubar a caixa
+    da borda zera o apoio da mesa e paga o termo inteiro. Sem `caixa acima do
+    repouso`, a caixa no chão também paga.
+
+    ⚠️ O peso é `env.peso_amostrado × 9,81`, não `box_mass`: a DR de carga aplica
+    força externa e o buffer já existe.
+
+    O peso 1,0 herda o slot que o `box_at_peito` deixou no `pegar` — o orçamento da
+    tarefa não muda. Subir é Categoria A."""
+
+    sucesso_denso: float = 5.0
+    """Bônus por a condição FÍSICA da tarefa valer AGORA, por segundo. (11/08)
+
+    Ele existe porque o alvo não pagava nada: `cond_fisica` era só diagnóstico, e o
+    log inteiro do bloco 3 mostrou 0,0000 sem nenhum termo de recompensa olhando para
+    ele.
+
+    ⚠️ **Fora de `TERMOS_DE_TAREFA`, de propósito.** Dentro, o orçamento do `pegar`
+    iria a 9,5, o fator cairia para 0,42 e o próprio bônus se diluiria para 2,1 — ele
+    se anularia. Ele é bônus de OBJETIVO, não sinal de aproximação.
+
+    Vale nas QUATRO tarefas com caixa, então a paridade entre elas fica preservada. O
+    `locomover` fica fora: a condição dele é `ones_like` (o critério real dele é a
+    média de erro de velocidade), e ele coletaria 5,0/s de graça.
+
+    ⚠️ O peso passa pelo `scale_by_dt`, então 5,0 aqui é 5,0 **por segundo** — e o
+    `contrib` lê 5,0, porque o `_step_reward` divide o `dt` de volta
+    (`reward_manager.py:132`).
+
+    Por que ele importa tanto: `gamma = 0,99` a 50 Hz dá horizonte de 2,0 s. Prêmio a
+    3 s de distância vale 0,22 do valor de face. Um bônus que paga CONTINUAMENTE
+    enquanto a condição vale atravessa o desconto; um bônus terminal não."""
+
+    action_rate_bracos: float = 0.25
+    """Fator do `action_rate_l2` nos 14 canais de braço (11/08). `1.0` = desliga.
+
+    Medido no bloco 3: `action_rate` custava −0,88 contra 1,07 de todo o sinal de
+    tarefa coletado no `pegar` — **82%**. E a tarefa do `pegar` É mover os braços.
+
+    Só os braços, e não o peso global: o termo precisa continuar cobrando jitter de
+    perna, que é o que ele existe para conter na locomoção. Os índices saem de
+    `find_joints`, e a classe confere que a ordem da ação bate com a ordem das
+    juntas."""
+
+    shake_gate_std: float = 0.10
+    """Escala do gate do `box_shake` no `pegar`, em metros (11/08).
+
+    O `box_shake` medido subia junto com o `lift` e cancelava o ganho dele. Agora ele
+    só cobra **depois** de a caixa chegar perto do alvo: o fator é
+    `preensão × exp(−(alvo_z − box_z)²/std²)`. Erguer sai de graça; sacudir a caixa
+    já erguida custa.
+
+    Mesmo desenho do `hold_still_bonus` da Lift, que gateia no hold pelo mesmo
+    motivo — não taxar a manobra que a tarefa exige."""
 
     orcamento_tarefa: float = 4.0
     """Teto de sinal de tarefa POR PASSO, igual nas 7 tarefas. `<= 0` desliga (06/08).
@@ -483,6 +556,25 @@ class Reward:
     O teto de 4.0 do orçamento passa a ser atingível SÓ com a caixa solta no alvo."""
 
 @dataclass
+class Episodio:
+    """Comprimento do episódio, POR REGIME. (11/08)
+
+    Era global em 20 s. O `pegar` gasta ~3 s aproximando e o resto do episódio
+    repetindo o mesmo estado — 17 s de amostra quase idêntica por tentativa.
+
+    ⚠️ O `locomocao_s` continua sendo o `episode_length_s` do cfg, ou seja o TETO. O
+    `max_episode_length` do mjlab é escalar (`manager_based_rl_env.py:281`), então o
+    corte por tarefa entra como terminação própria — ver `terminations.time_out_por_tarefa`.
+
+    Por que 10 s e não 5 s: a preensão se estabelece por volta de 3 s (derivado de
+    `grasp = 0,851` num episódio de 20 s). Com 5 s sobrariam 2 s para apertar, erguer e
+    sustentar, e o `sustenta_pegar_s` não caberia."""
+
+    locomocao_s: float = 20.0
+    manipulacao_s: float = 10.0
+
+
+@dataclass
 class Foundation:
     action_scale_mult: float = 0.8       # §14 — config ativo da Lift, movimento mais gentil
 
@@ -632,7 +724,24 @@ class Tolerancia:
     reorienta_angulo_deg: float = 10.0
     reorienta_xy: float = 0.05
 
-    sustenta_pegar_s: float = 5.0
+    alvo_tol_z: float = 0.02
+    """Folga do PISO de altura do `pegar`, em metros: `box_z >= alvo_z − 0,02`. (11/08)
+
+    ⚠️ **Piso, e não esfera.** O critério era `‖caixa − alvo‖ < 0,10` em 3D. Com o eixo
+    `alvo` graduado isso reprovava o robô por fazer MAIS: alvo em +5 cm e caixa a
+    +26 cm dá distância de 21 cm. E ele não observa o nível, então não teria como
+    parar na altura certa.
+
+    Com piso, o critério é monotônico em z: erguer mais nunca reprova. É o que torna a
+    graduação por fração segura."""
+
+    sustenta_pegar_s: float = 2.0
+    """Segundos com a condição do `pegar` verdadeira. **Era 5,0 até 11/08.**
+
+    ⚠️ Ele TEM de ser menor que o episódio da manipulação. Com episódio de 10 s e
+    preensão estabelecida por volta de 3 s (derivado: `grasp` valia 0,851 de média num
+    episódio de 20 s), 5,0 s exigiria a condição valendo de 5 s a 10 s sem uma falha —
+    e num episódio de 5 s ela seria matematicamente impossível."""
     sustenta_carregar_s: float = 3.0
     sustenta_botar_s: float = 2.0       # quieta + de pé, simultâneos
     sustenta_reorienta_s: float = 2.0   # ângulo + xy + apoiada, simultâneos
@@ -664,6 +773,22 @@ class Curriculum:
     seed_newest_high: bool = True
     """Semeia o nível mais NOVO com dificuldade alta, pra o sorteio já focar nele.
     Herdado do `PlrHeights`."""
+
+    piso_amostragem: float = 0.15
+    """Fração MÍNIMA de envs por tarefa aberta. (11/08)
+
+    O sorteio de tarefa era uniforme (`randint`), então cada tarefa aberta levava
+    `1/K` — e uma tarefa já resolvida consumia a mesma amostra que a travada. Agora a
+    massa é inversa à competência:
+
+        P(T) = piso + (1 − piso·K) · (1 − perf[T][topo]) / Σ(1 − perf)
+
+    Com K = 5 o piso ocupa 0,75 e sobram 0,25 para distribuir. Com K = 3 sobram 0,55.
+
+    ⚠️ O piso é anti-esquecimento, o mesmo papel do `rho` nos NÍVEIS. Sem ele, uma
+    tarefa que chega a `perf = 1,0` sairia do sorteio e a política a esqueceria.
+
+    ⚠️ `piso × K` tem de ficar abaixo de 1. Com 5 tarefas o teto do piso é 0,20."""
 
 
 @dataclass
@@ -701,6 +826,7 @@ class MultitaskKnobs:
     scene: Scene = field(default_factory=Scene)
     command: Command = field(default_factory=Command)
     reward: Reward = field(default_factory=Reward)
+    episodio: Episodio = field(default_factory=Episodio)
     foundation: Foundation = field(default_factory=Foundation)
     dr: DR = field(default_factory=DR)
     tolerancia: Tolerancia = field(default_factory=Tolerancia)

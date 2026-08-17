@@ -225,7 +225,11 @@ else:
     check("o round-robin saiu", not hasattr(CU, "AXIS_ORDER") and "rr" not in vars(CU))
 
 print("\n-- contagem dos destravamentos --")
-ESPERADO = 24
+ESPERADO = 12
+"""4 aberturas de tarefa + 4 alargamentos de DR + 4 níveis de `pegar_alvo`.
+
+Era 24 antes do congelamento de 11/08 (`T.NIVEIS_ATIVOS`). Descongelar um eixo muda
+este número — e é isso que o check protege: mexer num nível sem querer denuncia."""
 por_fonte = T.unlock_count()
 for fonte, n in por_fonte.items():
     print(f"        {fonte:<24} {n}")
@@ -235,6 +239,61 @@ check("um eixo por tarefa",
       str({T.NAMES[t]: list(e) for t, e in T.AXES.items() if len(e) != 1}))
 for morto in ("rumo", "distancia_andar", "push"):
     check(f"o eixo `{morto}` não existe mais", morto not in T.LEVELS)
+
+# O eixo do `pegar` gradua QUANTO erguer, não de onde pegar. Trocar isso de volta pra
+# `altura` sem descongelar a rampa recria o bloqueio de 22 mil iterações.
+check("o `pegar` usa o eixo `alvo`", list(T.AXES[T.PEGAR]) == ["alvo"],
+      str(list(T.AXES[T.PEGAR])))
+check("a rampa do `alvo` é FRAÇÃO em (0, 1]",
+      all(0.0 < f <= 1.0 for f in T.LEVELS["alvo"])
+      and T.LEVELS["alvo"][-1] == 1.0, str(T.LEVELS["alvo"]))
+check("a rampa do `alvo` está descongelada",
+      T.NIVEIS_ATIVOS["alvo"] == len(T.LEVELS["alvo"]),
+      f'{T.NIVEIS_ATIVOS["alvo"]} de {len(T.LEVELS["alvo"])}')
+# Com todos os eixos congelados, três tarefas passam a ter a DR como única fonte de
+# evento — e o `locomover` fica SEM fonte nenhuma. O conserto é a condição
+# `eventos_tarefa[t] == 0` no orquestrador; sem ela o `pegar` nunca abre.
+congelados = [e for e, n in T.NIVEIS_ATIVOS.items() if n == 1]
+if congelados:
+    import inspect  # noqa: E402
+    fonte = inspect.getsource(CU.Orquestrador.__call__)
+    check("o orquestrador dá o 1º evento a tarefa sem nada a destravar",
+          "eventos_tarefa[t] == 0" in fonte, f"eixos congelados: {congelados}")
+
+
+print("\n-- sinais novos do bloco 4 --")
+check("`unload` existe e é só do `pegar`",
+      "unload" in cfg.rewards
+      and tuple(cfg.rewards["unload"].params["tasks"]) == (T.PEGAR,),
+      str(cfg.rewards.get("unload") and cfg.rewards["unload"].params["tasks"]))
+check("o sensor de apoio dá força (o `unload` depende dela)",
+      any(s.name == "box_support" and "force" in s.fields
+          for s in (cfg.scene.sensors or ())),
+      str([s.fields for s in (cfg.scene.sensors or ()) if s.name == "box_support"]))
+check("`box_at_peito` saiu do `pegar`",
+      T.PEGAR not in cfg.rewards["box_at_peito"].params["tasks"],
+      str(cfg.rewards["box_at_peito"].params["tasks"]))
+check("`sucesso_denso` está FORA do orçamento de tarefa",
+      "sucesso_denso" in cfg.rewards
+      and "sucesso_denso" not in T.TERMOS_DE_TAREFA)
+check("`sucesso_denso` não paga o `locomover`",
+      T.LOCOMOVER not in cfg.rewards["sucesso_denso"].params["tasks"],
+      str(cfg.rewards["sucesso_denso"].params["tasks"]))
+check("o `time_out` é por tarefa, e é time_out=True",
+      cfg.terminations["time_out"].time_out is True
+      and "limites_s" in cfg.terminations["time_out"].params)
+_lim = cfg.terminations["time_out"].params["limites_s"]
+check("manipulação mais curta que locomoção",
+      all(_lim[t] < _lim[T.LOCOMOVER] for t in T.MANIPULA),
+      str({T.NAMES[t]: _lim[t] for t in range(T.NUM_TASKS)}))
+check("nenhum limite passa do `episode_length_s`",
+      max(_lim) <= cfg.episode_length_s, f"{max(_lim)} vs {cfg.episode_length_s}")
+check("sustentar cabe no episódio da manipulação",
+      ACTIVE.tolerancia.sustenta_pegar_s < ACTIVE.episodio.manipulacao_s,
+      f"{ACTIVE.tolerancia.sustenta_pegar_s} s de {ACTIVE.episodio.manipulacao_s} s")
+check("piso de amostragem cabe nas 5 tarefas",
+      ACTIVE.curriculum.piso_amostragem * T.NUM_TASKS < 1.0,
+      f"{ACTIVE.curriculum.piso_amostragem} × {T.NUM_TASKS}")
 
 
 # ==================================================== 8. a DR de peso

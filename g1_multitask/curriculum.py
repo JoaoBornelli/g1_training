@@ -91,6 +91,7 @@ class Orquestrador:
         self.beta = float(k.focus_beta)
         self.alpha = float(k.ema_alpha)
         self.limiar = float(k.limiar_competencia)
+        self.piso_tarefa = float(getattr(k, "piso_amostragem", 0.15))
         self.platô_amostras = int(k.platô_amostras)
         self.alarme_transicoes = float(k.alarme_transicoes)
         self.min_amostras_evento = int(p.get("min_amostras_evento", 200))
@@ -172,8 +173,17 @@ class Orquestrador:
         Escrito aqui, e não lido lá de `T.LEVELS`, porque o nível é por env e por
         tarefa: o `locomover` e o `locomover_carregando` têm células independentes."""
 
+        env.alvo_frac = torch.full(
+            (env.num_envs,), float(T.LEVELS["alvo"][0]), device=dev)
+        """Fração da rampa de altura do `pegar`, por env. Lida pelo `alvo_z_pegar`.
+
+        O eixo `alvo` gradua QUANTO erguer. A conversão de fração para metros mora no
+        `rewards.alvo_z_pegar`, porque ela precisa do `plr_rest_z` — que só existe
+        depois do evento de reset, seis linhas adiante."""
+
         self._alturas = torch.tensor(T.LEVELS["altura"], device=dev)
         self._velocidades = torch.tensor(T.LEVELS["velocidade"], device=dev)
+        self._alvos = torch.tensor(T.LEVELS["alvo"], device=dev)
         self._visitou = torch.zeros(env.num_envs, dtype=torch.bool, device=dev)
         self._ultimo_passo = 0
 
@@ -212,6 +222,38 @@ class Orquestrador:
     def _topo(self, cel) -> int:
         """Índice do nível corrente — o último aberto. É o que o portão lê."""
         return self.abertos[cel] - 1
+
+    def _dist_tarefas(self) -> torch.Tensor:
+        """P(tarefa) INVERSA à competência, com piso. [len(abertas)] (11/08)
+
+            P(T) = piso + (1 − piso·K) · (1 − perf[T][topo]) / Σ(1 − perf)
+
+        O sorteio era uniforme (`randint`), então uma tarefa já resolvida consumia a
+        mesma amostra que a travada. No bloco 3 isso custou caro: o `locomover` fechava
+        `cond_fisica = 1,0` e levava um terço dos envs, enquanto o `pegar` — em 0,0 —
+        levava outro terço.
+
+        ⚠️ **O piso é o anti-esquecimento**, o mesmo papel do `rho` nos NÍVEIS. Sem
+        ele, uma tarefa em `perf = 1,0` sairia do sorteio e a política a esqueceria; e
+        como o `perf` é EMA de sucesso, esquecer derrubaria o `perf` e a tarefa voltaria
+        — um ciclo de vai e vem.
+
+        ⚠️ Se `piso × K >= 1` não há folga para distribuir, e a função devolve uniforme.
+        É o caso degenerado (piso alto demais para o número de tarefas), e uniforme é a
+        resposta certa: o piso já é tudo que se pediu."""
+        K = len(self.abertas)
+        if K <= 1:
+            return torch.ones(1, device=self.dev)
+        resto = 1.0 - self.piso_tarefa * K
+        if resto <= 0.0:
+            return torch.full((K,), 1.0 / K, device=self.dev)
+        dif = torch.tensor(
+            [1.0 - float(self.perf[(t, T.eixo_de(t))][self._topo((t, T.eixo_de(t)))])
+             for t in self.abertas], device=self.dev).clamp(min=0.0)
+        if float(dif.sum()) <= 1e-6:
+            # todas competentes: o piso é o que sobra, e ele é uniforme
+            return torch.full((K,), 1.0 / K, device=self.dev)
+        return self.piso_tarefa + resto * dif / dif.sum()
 
     # ------------------------------------------------------------------- medir
     def _medir(self, env, env_ids: torch.Tensor) -> None:
@@ -284,7 +326,10 @@ class Orquestrador:
         if forcada is not None:
             tarefa = torch.multinomial(forcada.to(self.dev), n, replacement=True)
         else:
-            tarefa = abertas[torch.randint(0, len(self.abertas), (n,), device=self.dev)]
+            # Inversa à competência, com piso. Era `randint` uniforme até 11/08.
+            escolha = torch.multinomial(
+                self._dist_tarefas(), n, replacement=True)
+            tarefa = abertas[escolha]
         env.tarefa_sorteada[env_ids] = tarefa
 
         for eixo in EIXOS:
@@ -315,6 +360,9 @@ class Orquestrador:
         # O teto de velocidade vira a faixa do comando sorteado, por env.
         env.teto_velocidade[env_ids] = self._velocidades[
             env.nivel["velocidade"][env_ids]]
+        # A fração da rampa de altura do `pegar`. Vira metros no `alvo_z_pegar`, que
+        # precisa do `plr_rest_z` — escrito pelo evento de reset, 6 linhas adiante.
+        env.alvo_frac[env_ids] = self._alvos[env.nivel["alvo"][env_ids]]
         # A DR de carga: por env, a partir do booleano da tarefa sorteada.
         largou = torch.tensor([self.dr_peso[t] for t in range(T.NUM_TASKS)],
                               dtype=torch.bool, device=self.dev)
@@ -344,7 +392,17 @@ class Orquestrador:
 
             tem_dr = t in T.COM_DR_PESO and not self.dr_peso[t]
             tem_eixo = self.abertos[cel] < len(self._niveis(cel))
-            if not (tem_dr or tem_eixo):
+            # ⚠️ **`eventos_tarefa[t] == 0` é obrigatório (11/08).** Sem ele, uma tarefa
+            # SEM nada a destravar nunca tem evento — e sem o primeiro evento dela os
+            # filhos nunca abrem. O caso real: com `NIVEIS_ATIVOS["velocidade"] = 1`, o
+            # `locomover` não tem eixo a avançar e não está em `COM_DR_PESO`, então as
+            # duas condições acima dão falso. O treino rodaria SÓ locomoção, para
+            # sempre, sem uma linha de erro no log.
+            #
+            # E é a semântica que o `eventos_tarefa` já promete no docstring dele: "o
+            # primeiro evento dispara quando ela chega ao limiar na configuração mais
+            # fácil". O código não cumpria isso quando não havia o que destravar.
+            if not (tem_dr or tem_eixo or self.eventos_tarefa[t] == 0):
                 continue        # tarefa esgotada; os filhos dela já abriram
 
             nome = T.NAMES[t]
@@ -353,9 +411,14 @@ class Orquestrador:
                 # eixo. A tarefa nunca recebe as duas dificuldades no mesmo passo.
                 self.dr_peso[t] = True
                 rotulos.append(f"{nome}_dr_peso")
-            else:
+            elif tem_eixo:
                 self.abertos[cel] += 1
                 rotulos.append(f"{nome}_{cel[1]}_n{self.abertos[cel] - 1}")
+            else:
+                # Nada a destravar, e é o PRIMEIRO evento: ele existe só para abrir os
+                # filhos. `elif` explícito porque o `else` cru incrementaria `abertos`
+                # além do número de níveis, e o `_dist` indexaria fora da célula.
+                rotulos.append(f"{nome}_nivel0")
 
             self.eventos_tarefa[t] += 1
             rotulos.extend(self._abre_filhos())

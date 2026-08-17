@@ -84,7 +84,7 @@ COM_DR_PESO = (PEGAR, REORIENTAR, LOCOMOVER_CARREGANDO, BOTAR)
 
 TERMOS_DE_TAREFA = (
     "track_linear_velocity", "track_angular_velocity",
-    "lift", "reaching", "grasp", "box_at_peito", "box_at_prateleira",
+    "lift", "reaching", "grasp", "unload", "box_at_peito", "box_at_prateleira",
     "orienta_face",
 )
 """Os termos POSITIVOS que dizem qual tarefa é. Fonte única do orçamento.
@@ -100,6 +100,11 @@ penalidade, e para isso o denominador tem que ficar parado.
 O `hold_still` saiu (§10): ele é redundante com o `track_angular_velocity`, que lê o
 mesmo `root_link_ang_vel` e pune 3,5× mais forte a ω = 1.
 
+O `sucesso_denso` fica de fora **de propósito** (11/08). Ele é bônus de OBJETIVO, não
+sinal de aproximação: pôr os 5,0 dele no orçamento faria o fator do `pegar` cair para
+0,42 e o próprio bônus se diluir para 2,1 — ele se anularia. Como ele vale nas quatro
+tarefas com caixa, a paridade entre elas fica preservada de qualquer forma.
+
 ⚠️ Todos os pesos aqui são CONSTANTES em tempo de execução, e o orçamento depende
 disso. Quem for mutar peso de reward em runtime tem que recalcular a escala no mesmo
 passo, senão a tarefa afunda em silêncio."""
@@ -109,15 +114,26 @@ LEVELS: dict[str, tuple[float, ...]] = {
     "velocidade": (1.0, 1.5, 2.0),
     "altura": (0.55, 0.45, 0.35, 0.25, 0.15, 0.05, 0.00),
     "giro": (15.0, 45.0, 90.0, 180.0, 360.0),
+    "alvo": (0.2, 0.4, 0.6, 0.8, 1.0),
     "peso": (1.0, 5.0),
 }
 """Níveis de cada eixo, do fácil pro difícil (§9).
 
-- `velocidade` é o TETO de `lin_vel_x` e `lin_vel_y` do comando sorteado, por env. O
-  `ang_vel_z` acompanha na mesma proporção do cfg do fabricante.
+- `velocidade` é o TETO de `lin_vel_x` do comando sorteado, por env. O `lin_vel_y` NÃO
+  acompanha: a progressão do fabricante para o G1 alarga só o `x`.
 - `giro` é a rotação COMANDADA (alvo posto a N graus da orientação ATUAL da caixa),
   não o quanto ela nasce torta. O último nível (360) é o salto qualitativo "a face
   alvo pode ser o topo ou o fundo" — exige erguer e rolar a caixa entre as palmas.
+- `alvo` é o eixo do `pegar`, em **fração** da distância entre o repouso da caixa e a
+  altura do peito de pé. Ele gradua **quanto erguer** (11/08).
+
+  ⚠️ **Fração, e não centímetro.** O eixo `altura` desce a prateleira num bloco
+  futuro, e o repouso desce com ela. Valor absoluto em metros ficaria descolado: o
+  nível 1,0 pararia longe do peito. Com fração, `alvo_z = repouso + f × (peito −
+  repouso)` e o nível 1,0 é sempre o peito, em qualquer altura de prateleira.
+
+  Com a prateleira em 0,55 m (repouso 0,65 m) e o peito em 0,91 m, os cinco níveis
+  pedem 5,2 · 10,4 · 15,6 · 20,8 · 26,0 cm. O nível 0 fecha erguendo 5 cm.
 
 ⚠️ **`peso` NÃO É EIXO.** Ele está aqui porque é uma tabela de níveis, mas não
 aparece em `AXES`, não tem célula no orquestrador, não tem EMA e não tem portão. Ele
@@ -132,7 +148,7 @@ serviam ao comando derivado de um destino, que saiu; o `push` virou evento fixo.
 
 AXES: dict[int, dict[str, int]] = {
     LOCOMOVER: {"velocidade": 0},
-    PEGAR: {"altura": 0},
+    PEGAR: {"alvo": 0},
     REORIENTAR: {"giro": 0},
     LOCOMOVER_CARREGANDO: {"velocidade": 0},
     BOTAR: {"altura": 0},
@@ -144,8 +160,34 @@ ser desnecessário. Com dois eixos, a célula de um mede marginalizada sobre o o
 o portão trava — foi o bug de 06/08.
 
 O `locomover_carregando` fica com `velocidade`, e não com `peso`, porque o peso não é
-eixo. O eixo `altura` do `pegar` e do `botar` continua sendo a posição da prateleira.
-"""
+eixo.
+
+⚠️ **O `pegar` trocou `altura` por `alvo` em 11/08.** O eixo `altura` move a
+prateleira: ele gradua DE ONDE pegar, e baixá-la só aumenta a distância a erguer.
+Nenhum eixo graduava QUANTO erguer, e é isso que travava a tarefa. A altura volta a
+ser eixo do `pegar` num bloco futuro, quando o `alvo` esgotar — o `botar` continua com
+ela. Serializar assim mantém o invariante de um eixo vivo por tarefa."""
+
+NIVEIS_ATIVOS: dict[str, int] = {
+    "velocidade": 1,
+    "altura": 1,
+    "giro": 1,
+    "alvo": 5,
+}
+"""Quantos níveis de cada eixo o currículo pode abrir AGORA.
+
+⚠️ **Isto é um congelamento deliberado (11/08), não a tabela física.** A decisão é
+"ver se o robô consegue fazer TUDO antes de endurecer qualquer coisa": só o `alvo`
+progride, porque ele é o eixo que destrava o `pegar`. Os outros três ficam no nível
+mais fácil, e o currículo passa a ter um trabalho só — abrir as cinco tarefas.
+
+`LEVELS` fica intacto de propósito: ele é a tabela física, e o `play.py` valida
+`--velocidade` contra ela. Descongelar um eixo = mudar um número aqui.
+
+⚠️ **Congelar exigiu um conserto no orquestrador.** Com um nível só, o `locomover`
+não tem eixo a avançar nem DR de carga, então a regra do evento caía no `continue` e
+ele NUNCA tinha evento — e sem o primeiro evento dele o `pegar` e o `reorientar` nunca
+abriam. Ver a condição `eventos_tarefa[t] == 0` em `curriculum.py`."""
 
 
 def exceto(*excluidas: int) -> tuple[int, ...]:
@@ -161,22 +203,33 @@ def eixo_de(task: int) -> str:
 
 
 def axis_levels(task: int, axis: str) -> tuple[float, ...]:
-    """Os níveis que a tarefa de fato usa nesse eixo (já cortando o início)."""
-    return LEVELS[axis][AXES[task][axis]:]
+    """Os níveis que a tarefa de fato usa nesse eixo.
+
+    Corta o início (`AXES`) e o teto (`NIVEIS_ATIVOS`). É a ÚNICA fonte do
+    comprimento de célula: o orquestrador testa `abertos < len(axis_levels(...))`,
+    então congelar um eixo aqui congela o portão dele."""
+    inicio = AXES[task][axis]
+    return LEVELS[axis][inicio: inicio + NIVEIS_ATIVOS[axis]]
 
 
 def unlock_count() -> dict[str, int]:
-    """Quantos destravamentos cada fonte contribui. Tem que somar 24 (§3).
+    """Quantos destravamentos cada fonte contribui.
 
-    Serve de teste: a conta é DERIVADA dos níveis e dos índices iniciais, então se
-    alguém mexer num nível sem querer o total denuncia.
+    Serve de teste: a conta é DERIVADA dos níveis ativos e dos índices iniciais, então
+    se alguém mexer num nível sem querer o total denuncia.
 
-    ⚠️ O alargamento da DR de peso NÃO conta aqui. Ele não é destravamento — ele pega
-    carona no primeiro evento de cada tarefa com caixa."""
+    Com o congelamento de 11/08 são **12**: 4 aberturas de tarefa, 4 alargamentos de DR
+    e 4 níveis de `pegar_alvo`.
+
+    ⚠️ A DR de peso CONTA aqui desde 11/08. Ela não avança eixo, mas consome um evento
+    (a regra abre a DR antes de mexer no eixo), e com os eixos congelados ela passou a
+    ser a única fonte de evento de três tarefas. Deixá-la fora faria o total mentir."""
     out = {NAMES[t]: 0 for t in AXES}
     for task, axes in AXES.items():
-        for axis, start in axes.items():
-            out[NAMES[task]] += len(LEVELS[axis]) - 1 - start
+        for axis in axes:
+            out[NAMES[task]] += len(axis_levels(task, axis)) - 1
+    for t in COM_DR_PESO:
+        out[NAMES[t]] += 1
     out["aberturas"] = NUM_TASKS - 1  # a 1ª tarefa já nasce aberta
     return out
 

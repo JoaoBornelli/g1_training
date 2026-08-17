@@ -39,6 +39,7 @@ from g1_training.base_env import (
     BODY_IMPACT_SENSOR,
     BODY_TABLE_SENSOR,
     FOOT_SITES,
+    SUPPORT_SENSOR,
     build_base_env,
 )
 from g1_training.common import events as lift_events
@@ -284,6 +285,20 @@ def build_multitask_env(
             sensor.primary = replace(
                 sensor.primary, exclude=(r"_foot\d+_collision",))
 
+    # --- 5b2. O SENSOR DE APOIO PASSA A DAR FORÇA (11/08) ---
+    # O `base_env` cria o `box_support` com `fields=("found",)` — booleano. O `unload`
+    # precisa da MAGNITUDE do apoio, que é a única grandeza da cena que responde ao
+    # aperto de forma contínua: ela cai de `m·g` a zero ANTES de a caixa se mover.
+    #
+    # `reduce="netforce"` já está lá, e com ele a força vem em `[B, N, 3]` no frame
+    # GLOBAL (`sensor/contact_sensor.py:196`), então a componente z é o apoio vertical.
+    # Mesmo padrão do `body_table_impact`, que já pede `("found", "force")`.
+    #
+    # Mutado aqui e não no `base_env` porque a Lift partilha aquele arquivo.
+    for sensor in cfg.scene.sensors or ():
+        if sensor.name == SUPPORT_SENSOR and "force" not in sensor.fields:
+            sensor.fields = tuple(sensor.fields) + ("force",)
+
     # --- 5c. OS EIXOS `altura` E `peso` CHEGAM À CENA E À FÍSICA (S1) ---
     # Antes disto, `env.nivel` tinha UM leitor (`commands.py`), então só os eixos que
     # vivem no vetor de comando — `distancia`, `heading`, `giro` — eram aplicados. Os
@@ -491,10 +506,19 @@ def build_multitask_env(
 
     # item 6 — o `action_rate_l2` do fabricante soma os 49 canais, incluindo os 20 de
     # comportamento. Com `ESCALA_C = 0` esses 20 não fazem nada, então cobrá-los faz a
-    # política encolher o `std` de TODOS os canais pra pagar menos. Ver o docstring de
-    # `R.action_rate_l2_juntas` pra assinatura medida disso na run de 31/07.
+    # política encolher o `std` de TODOS os canais pra pagar menos.
+    #
+    # 11/08: a classe substituiu a função e acrescentou FATOR nos 14 canais de braço.
+    # O termo plano cobrava −0,88 no `pegar` contra 1,07 de sinal de tarefa — 82% —
+    # numa tarefa cujo conteúdo é mover os braços. Ver `R.ActionRateJuntas`.
     if "action_rate_l2" in cfg.rewards:
-        cfg.rewards["action_rate_l2"].func = R.action_rate_l2_juntas
+        cfg.rewards["action_rate_l2"].func = R.ActionRateJuntas
+        cfg.rewards["action_rate_l2"].params = {
+            **cfg.rewards["action_rate_l2"].params,
+            "n_juntas": 29,
+            "fator_bracos": r.action_rate_bracos,
+            "padroes_bracos": (r".*_shoulder_.*", r".*_elbow_.*", r".*_wrist_.*"),
+        }
 
     # --- 8. POSTURA: UM TERMO, CORPO TODO, SEM GATE (§6) ---
     # Eram quatro termos gateados por tarefa: o `std` respondia ao regime de
@@ -529,10 +553,28 @@ def build_multitask_env(
                 "asset_cfg": SceneEntityCfg("robot", site_names=FOOT_SITES),
                 "forward_margin": r.com_margin},
     )
+    # ⚠️ DOIS termos de shake desde 11/08, e o corte é o `pegar`.
+    #
+    # O termo plano brigava com a tarefa: medido no bloco 3, ele subia junto com o
+    # `lift` e cancelava o ganho dele. Erguer por abraço gira a caixa — a rotação é
+    # parte da manobra. No `pegar` o termo passa a cobrar só DEPOIS de a caixa chegar
+    # perto do alvo (`R.box_shake_pegar`); nas outras tarefas nada muda.
+    #
+    # Dois `RewardTermCfg` em vez de um parâmetro porque o gate do `pegar` lê o
+    # `alvo_z_pegar`, que não significa nada nas outras tarefas. E os dois são
+    # negativos, portanto fora de `TERMOS_DE_TAREFA` — o orçamento não sente.
     cfg.rewards["box_shake"] = RewardTermCfg(
         func=R.gated, weight=r.box_shake,
-        params={"inner": LR.box_shake_penalty, "tasks": T.exceto(REORIENTAR),
+        params={"inner": LR.box_shake_penalty,
+                "tasks": T.exceto(REORIENTAR, PEGAR),
                 "object_name": "box"},
+    )
+    cfg.rewards["box_shake_pegar"] = RewardTermCfg(
+        func=R.gated, weight=r.box_shake,
+        params={"inner": R.box_shake_pegar, "tasks": (PEGAR,),
+                "object_name": "box", "std": r.shake_gate_std,
+                # escrito à mão: o dict `pega` só nasce no bloco 10, abaixo
+                "palm_sensors": PALM_SENSORS, "back_sensors": BACK_SENSORS},
     )
     # Estes dois valem em todas as tarefas -> sem gate. O `back_penalty` fica inerte
     # sem caixa na mão (o sensor não dispara), e isso é aceitável.
@@ -565,11 +607,31 @@ def build_multitask_env(
     # e denominador do progresso viravam o mesmo número. Medido em 06/08: `progress`
     # ficava em 1.0000 a qualquer altura, e em `nan` quando a caixa estava no repouso.
     # O termo de peso 2.0 pagava por encostar as palmas, nunca por erguer.
+    # ⚠️ `R.lift_altura` desde 11/08 (era `lift_ao_peito`). A altura-alvo passa a vir do
+    # eixo `alvo` do currículo, em rampa. Com o alvo fixo no peito, o denominador era
+    # 0,26 m: erguer 5 cm dava `progress = 0,19` contra um portão de 0,90, ou seja o
+    # robô tinha de erguer 23,4 cm antes do PRIMEIRO evento — e ele conseguia 0,4 cm.
+    # No nível 0 da rampa ele fecha a tarefa com 5 cm. Ver `R.alvo_z_pegar`.
     cfg.rewards["lift"] = RewardTermCfg(
         func=R.gated, weight=r.lift,
-        params={"inner": R.lift_ao_peito, "tasks": (PEGAR,),
-                "object_name": "box", "alvo_peito_b": c.alvo_peito_b,
+        params={"inner": R.lift_altura, "tasks": (PEGAR,),
+                "object_name": "box",
                 "rest_z_attr": "plr_rest_z", "upright_std": r.upright_std, **pega},
+    )
+    # `unload` — a PONTE entre tocar e erguer (11/08). Só no `pegar`.
+    #
+    # O buraco que ele preenche é o platô do `_grasp` booleano: tocar paga 0,44 e
+    # apertar paga ZERO até a caixa se mover. Medido no bloco 3 com 22 mil iterações —
+    # preensão 0,851, caixa subindo 4 mm. A força de apoio da prateleira é a única
+    # grandeza que responde ao aperto de forma contínua.
+    #
+    # ⚠️ Os dois gates internos são anti-hack, não conservadorismo: sem preensão,
+    # empurrar a caixa da borda zera o apoio da MESA e paga o termo inteiro.
+    cfg.rewards["unload"] = RewardTermCfg(
+        func=R.gated, weight=r.unload,
+        params={"inner": R.unload, "tasks": (PEGAR,),
+                "object_name": "box", "sensor_apoio": SUPPORT_SENSOR,
+                "rest_z_attr": "plr_rest_z", **pega},
     )
     # `reaching` — aproximação das palmas à caixa. **PERMANENTE, não anela** (06/08).
     #
@@ -594,10 +656,17 @@ def build_multitask_env(
         func=R.gated, weight=r.grasp,
         params={"inner": LR.grasp_reward, "tasks": (PEGAR,), **pega},
     )
+    # ⚠️ **Saiu do `pegar` em 11/08.** A decisão de desenho é que o alvo do `pegar` é
+    # altura de mundo, e nada mais — o `lift` e o `unload` cobrem a tarefa dele. Sobra
+    # o transporte, onde "encostado no peito" é o que precisa ser medido.
+    #
+    # Consequência: a âncora de mundo do `alvo_peito_w` perdeu a razão de existir e
+    # voltou ao frame da BASE. Ali ela era pior — a pelve oscila na marcha e não há
+    # canal de altura de mundo na observação, nem no ator nem no crítico.
     cfg.rewards["box_at_peito"] = RewardTermCfg(
         func=R.gated, weight=r.box_at_peito,
         params={"inner": R.box_at_peito,
-                "tasks": (PEGAR, LOCOMOVER_CARREGANDO),
+                "tasks": (LOCOMOVER_CARREGANDO,),
                 "std": r.sustain_std, "std_grosso": r.peito_std_grosso,
                 "object_name": "box",
                 "alvo_peito_b": c.alvo_peito_b, **pega},
@@ -627,6 +696,29 @@ def build_multitask_env(
     # O buraco que sobra: o `pegar` não recebe `track_*`, então nada nele enxerga
     # rotação de pelve pela RECOMPENSA. O critério de sucesso passa a enxergar — o
     # `tol_w` do §8 mede exatamente isso.
+
+    # --- 10a2. O ALVO PASSA A PAGAR (11/08) ---
+    # O `cond_fisica` era só diagnóstico. O bloco 3 rodou 22 mil iterações com ele em
+    # 0,0000 sem NENHUM termo de recompensa olhando pra ele — ou seja, chegar ao alvo
+    # não valia nada além do que a aproximação já pagava.
+    #
+    # ⚠️ **Fora de `T.TERMOS_DE_TAREFA`, e essa é a decisão que faz o termo funcionar.**
+    # Dentro, o orçamento do `pegar` iria a 9,5, o fator cairia de 0,889 pra 0,42 e o
+    # próprio bônus se diluiria pra 2,1 — ele se anularia. Ele é bônus de OBJETIVO, não
+    # sinal de aproximação, e por isso não entra na conta da equalização (o `upright`
+    # fica fora pelo mesmo tipo de razão).
+    #
+    # ⚠️ Nas QUATRO tarefas com caixa, então a paridade entre elas fica preservada. O
+    # `locomover` fica fora: a condição dele é `ones_like` e ele coletaria 5,0/s de
+    # graça — o sinal denso dele são os dois `track_*`.
+    #
+    # ⚠️ O gate mora DENTRO da função, não no `R.gated`: ela já precisa do
+    # `active_task` pra escolher a condição, e duas fontes de máscara podem divergir.
+    cfg.rewards["sucesso_denso"] = RewardTermCfg(
+        func=MT_metrics.sucesso_denso, weight=r.sucesso_denso,
+        params={"tol": t_, "alvo_peito_b": c.alvo_peito_b,
+                "tasks": T.COM_DR_PESO},
+    )
 
     # --- 10b. ORÇAMENTO IGUAL NAS 7 TAREFAS (06/08) ---
     # Última coisa a mexer em peso de termo de tarefa, de propósito: a conta lê os
@@ -679,6 +771,27 @@ def build_multitask_env(
     # `time_out`, `fell_over` (70°) e `nonfinite` já vêm herdados. As 3 daqui são as
     # que faltam da §6b/D, e as duas primeiras são GATEADAS: a distinção `pegar` ×
     # `carregar` é o ponto — largar no `pegar` deve dar nova chance no mesmo episódio.
+    # --- 13a. EPISÓDIO POR TAREFA (11/08) ---
+    # A manipulação gastava 20 s por tentativa. Cerca de 3 s eram a aproximação (o
+    # `grasp` valia 0,851 de média num episódio de 20 s) e o resto era repetição do
+    # mesmo estado. Com 10 s a taxa de episódios dobra, e o portão de 200 episódios do
+    # currículo enche na metade do tempo.
+    #
+    # ⚠️ `episode_length_s` fica no valor da LOCOMOÇÃO, porque ele é o teto: o
+    # `max_episode_length` do mjlab sai dele e nenhum limite por tarefa pode passar
+    # dele. Este termo só corta ANTES.
+    #
+    # ⚠️ `time_out=True` é obrigatório. Com `False`, o rsl_rl trataria o corte como
+    # fracasso, sem bootstrap do valor, e ensinaria o robô a evitar o fim do episódio.
+    ep_s = knobs.episodio
+    cfg.episode_length_s = ep_s.locomocao_s
+    limites = tuple(ep_s.manipulacao_s if t in T.MANIPULA else ep_s.locomocao_s
+                    for t in range(T.NUM_TASKS))
+    cfg.terminations["time_out"] = TerminationTermCfg(
+        func=MT_terms.time_out_por_tarefa, time_out=True,
+        params={"limites_s": limites},
+    )
+
     cfg.terminations["largou"] = TerminationTermCfg(
         func=MT_terms.largou, time_out=False,
         params={"tasks": T.COM_CAIXA, "z_min": t_.largou_z},
