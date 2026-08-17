@@ -99,6 +99,21 @@ check("tarefas abertas sobreviveram",
 check("nível de eixo sobreviveu", orq_r.abertos[CEL_LOCO] == 1)
 check("perf sobreviveu bit a bit",
       float(orq_r.perf[CEL_PEGAR][0]) == 0.875)
+
+# ⚠️ O caso que o congelamento de eixos criou: o checkpoint traz MAIS níveis abertos do
+# que o eixo tem hoje. Restaurando cru, a célula continua sorteando um nível que o
+# `NIVEIS_ATIVOS` diz estar fechado — o congelamento vira letra morta, em silêncio.
+estado_gordo = dict(antes)
+estado_gordo["abertos"] = {**antes["abertos"], f"{CEL_LOCO[0]}|{CEL_LOCO[1]}": 99}
+estado_gordo["perf"] = {**antes["perf"],
+                        f"{CEL_LOCO[0]}|{CEL_LOCO[1]}": torch.zeros(99)}
+orq_r.load_state_dict(estado_gordo)
+n_loco = len(orq_r._niveis(CEL_LOCO))
+check("checkpoint com nível a mais é CORTADO pelo eixo de hoje",
+      orq_r.abertos[CEL_LOCO] == n_loco
+      and orq_r.perf[CEL_LOCO].numel() == n_loco,
+      f"abertos={orq_r.abertos[CEL_LOCO]} perf={orq_r.perf[CEL_LOCO].numel()} "
+      f"eixo={n_loco}")
 # Os dois estados novos da reforma. O `eventos_tarefa` é o PORTÃO DO FILHO: perdê-lo
 # no resume reabriria a cadeia do zero, em silêncio. O `dr_peso` é a DR de carga.
 check("eventos_tarefa sobreviveu (é o portão do filho)",

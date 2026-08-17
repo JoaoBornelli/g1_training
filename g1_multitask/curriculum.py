@@ -500,11 +500,29 @@ class Orquestrador:
         chave = lambda cel: f"{cel[0]}|{cel[1]}"      # noqa: E731
         for c in self.celulas:
             k = chave(c)
+            # ⚠️ **O comprimento da célula MANDA sobre o checkpoint (17/08).** O número
+            # de níveis de um eixo pode mudar entre blocos — foi o que o
+            # `NIVEIS_ATIVOS` fez ao congelar `velocidade` de 3 para 1. Restaurando
+            # cru, o `abertos = 2` do checkpoint sobrevive e a célula **continua
+            # sorteando o nível 1**: o congelamento é ignorado em SILÊNCIO (o
+            # `tem_eixo` só impede avançar, não sortear). E na direção oposta —
+            # descongelar de 1 para 5 — o `perf` viria com comprimento 1 e o primeiro
+            # avanço indexaria fora dele.
+            n = len(self._niveis(c))
             for nome, destino in (("perf", self.perf), ("amostras", self.amostras)):
-                if k in estado.get(nome, {}):
-                    destino[c] = estado[nome][k].to(self.dev)
+                if k not in estado.get(nome, {}):
+                    continue
+                vindo = estado[nome][k].to(self.dev)
+                alvo = torch.zeros(n, device=self.dev)
+                m = min(n, int(vindo.numel()))
+                alvo[:m] = vindo[:m]              # trunca ou completa com zero
+                destino[c] = alvo
             if k in estado.get("abertos", {}):
-                self.abertos[c] = int(estado["abertos"][k])
+                antes = int(estado["abertos"][k])
+                self.abertos[c] = min(antes, n)
+                if antes > n:
+                    print(f"[CURRICULO] {T.NAMES[c[0]]}/{c[1]}: checkpoint tinha "
+                          f"{antes} níveis abertos, o eixo hoje tem {n} — cortado")
         self.abertas = list(estado.get("abertas", self.abertas))
         self.eventos_tarefa = {int(k): int(v) for k, v
                                in estado.get("eventos_tarefa",
