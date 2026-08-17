@@ -19,6 +19,8 @@ a única coisa que roda local. Duas consequências, tratadas abaixo:
 """
 from __future__ import annotations
 
+import os
+
 import torch
 
 from mjlab.rl.runner import MjlabOnPolicyRunner
@@ -51,6 +53,23 @@ Depois da S10 o ator o vê preenchido em apenas duas das sete tarefas (`botar` e
 `reorientar`), portanto ele é zero na maior parte da amostra.
 """
 
+
+STD_NO_RESUME_ENV = "G1_STD_RESUME"
+"""Variável de ambiente que reaquece o `std` UMA VEZ, na retomada do bloco. (17/08)
+
+    G1_STD_RESUME=0.8 python -m mjlab.scripts.train ...
+
+Ela existe porque o gancho de abertura de tarefa não cobre a fronteira de bloco: num
+resume em que as tarefas já estão todas abertas, `len(abertas)` não cresce e nada
+dispara — que é justamente o caso de retomar com reward novo.
+
+**Variável de ambiente, e não constante nem knob**, de propósito. Reaquecer a CADA
+bloco é ruim no fim do treino: com 10 a 15 retomadas, o `std` voltaria a 0,8 toda vez e
+a política nunca convergiria. Assim a decisão é por bloco, explícita, e o default é não
+fazer nada.
+
+⚠️ Só age quando o treino de fato RETOMOU (`current_learning_iteration > 0`). Num treino
+do zero o `init_std` do cfg já manda."""
 
 STD_AO_ABRIR_TAREFA = 0.8
 """Piso do `std` da política no instante em que o currículo abre uma tarefa. (17/08)
@@ -190,15 +209,41 @@ class MultitaskRunner(MjlabOnPolicyRunner):
         O contador nasce do estado do currículo, não de zero — assim um resume no meio
         de um bloco não dispara o reaquecimento de novo."""
         self._n_abertas: int | None = None
+        self._resume_tratado = False
         _update = self.alg.update
 
         def update(*a, **kw):
-            self._reaquece_std_se_abriu()
+            self._reaquece_no_resume()
+            self._reaquece_se_abriu()
             return _update(*a, **kw)
 
         self.alg.update = update
 
-    def _reaquece_std_se_abriu(self) -> None:
+    def _reaquece_no_resume(self) -> None:
+        """Reaquece UMA VEZ na retomada, se `G1_STD_RESUME` estiver setada. (17/08)
+
+        O gancho de abertura de tarefa não cobre a fronteira de bloco: num resume em que
+        as tarefas já estão todas abertas, `len(abertas)` não cresce e nada dispara — que
+        é exatamente o caso de retomar com reward novo, quando a exploração é o que mais
+        falta. Ver `STD_NO_RESUME_ENV` para por que é variável de ambiente."""
+        if self._resume_tratado:
+            return
+        self._resume_tratado = True
+        bruto = os.environ.get(STD_NO_RESUME_ENV)
+        if not bruto:
+            return
+        if int(getattr(self, "current_learning_iteration", 0)) <= 0:
+            print(f"[RUNNER] {STD_NO_RESUME_ENV} ignorado: treino do zero, "
+                  "o `init_std` do cfg já manda")
+            return
+        try:
+            alvo = float(bruto)
+        except ValueError:
+            print(f"[RUNNER] {STD_NO_RESUME_ENV}='{bruto}' não é número — ignorado")
+            return
+        self._sobe_std(f"retomada de bloco ({STD_NO_RESUME_ENV}={alvo})", alvo)
+
+    def _reaquece_se_abriu(self) -> None:
         orq = self._termos_curriculo().get("orquestrador")
         if orq is None:
             return
@@ -209,15 +254,19 @@ class MultitaskRunner(MjlabOnPolicyRunner):
         if n <= self._n_abertas:
             return
         self._n_abertas = n
+        self._sobe_std(f"tarefa nova ({n} abertas)", STD_AO_ABRIR_TAREFA)
+
+    def _sobe_std(self, motivo: str, alvo: float) -> None:
+        """Piso no `std` do ator. **`clamp_(min=)`, nunca `fill_()`** — ele só SOBE."""
         modelo = getattr(self.alg, "_raw_actor", None) or getattr(self.alg, "actor")
         param = getattr(getattr(modelo, "distribution", None), "std_param", None)
         if param is None:
-            print("[RUNNER] tarefa nova, mas o ator não tem `std_param` — sem "
+            print(f"[RUNNER] {motivo}, mas o ator não tem `std_param` — sem "
                   "reaquecimento (distribuição diferente de GaussianDistribution?)")
             return
         antes = float(param.data.mean())
-        param.data.clamp_(min=STD_AO_ABRIR_TAREFA)
-        print(f"[RUNNER] tarefa nova ({n} abertas): std {antes:.3f} -> "
+        param.data.clamp_(min=alvo)
+        print(f"[RUNNER] {motivo}: std {antes:.3f} -> "
               f"{float(param.data.mean()):.3f}")
 
     # ------------------------------------------------------- S15: diagnóstico
