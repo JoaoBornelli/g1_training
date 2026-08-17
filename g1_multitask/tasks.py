@@ -124,8 +124,13 @@ LEVELS: dict[str, tuple[float, ...]] = {
 - `giro` é a rotação COMANDADA (alvo posto a N graus da orientação ATUAL da caixa),
   não o quanto ela nasce torta. O último nível (360) é o salto qualitativo "a face
   alvo pode ser o topo ou o fundo" — exige erguer e rolar a caixa entre as palmas.
-- `alvo` é o eixo do `pegar`, em **fração** da distância entre o repouso da caixa e a
-  altura do peito de pé. Ele gradua **quanto erguer** (17/08).
+- `alvo` é o eixo do `pegar`, em **fração** da distância entre o repouso da caixa e uma
+  altitude FIXA de 0,91 m no mundo. Ele gradua **quanto erguer** (17/08).
+
+  ⚠️ **As duas pontas são do MUNDO; nenhuma segue o robô.** O repouso é propriedade da
+  prateleira; o topo é constante. Um alvo que acompanha a pelve faz agachar encurtar o
+  percurso, e o argmax vira levar o peito até a caixa em vez de erguer a caixa — foi o
+  que o robô aprendeu no bloco 2. Ver `rewards._TOPO_RAMPA_Z`.
 
   ⚠️ **Fração, e não centímetro.** O eixo `altura` desce a prateleira num bloco
   futuro, e o repouso desce com ela. Valor absoluto em metros ficaria descolado: o

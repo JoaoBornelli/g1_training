@@ -237,11 +237,26 @@ _PELVE_DE_PE_Z = float(KNEES_BENT_KEYFRAME.pos[2])
 onde o `de_pe_z = 0.65` da régua deriva. Importada do keyframe, não digitada."""
 
 
-_PEITO_DE_PE_Z = _PELVE_DE_PE_Z + 0.15
-"""Altura do peito com o robô DE PÉ, em metros: `0.76 + 0.15 = 0.91`.
+_TOPO_RAMPA_Z = _PELVE_DE_PE_Z + 0.15
+"""Topo da rampa do eixo `alvo` do `pegar`: **altitude FIXA de 0,91 m no mundo.**
 
-É o TOPO da rampa do eixo `alvo` do `pegar` (nível 1,0). O `0.15` é o `alvo_peito_b[2]`
-da §14, aqui como constante porque o topo da rampa não pode depender da pose corrente.
+⚠️⚠️ **NÃO é "a altura do peito". É uma altitude constante que POR ACASO coincide com a
+altura do peito quando o robô está de pé.** A distinção é o defeito que custou um bloco
+inteiro de treino, e o nome antigo — `_PEITO_DE_PE_Z` — convidava à confusão:
+
+  - **alvo que SEGUE o robô** (`pelve_atual + 0,15`) — foi o que o `lift` usou até 10/08.
+    Agachar baixa o alvo, encurta o percurso e `progress = 1,0` fica alcançável com a
+    caixa mais baixa. O argmax vira **levar o peito até a caixa**, e foi exatamente o que
+    o robô aprendeu: `box_at_peito = 0,51` com `cond_fisica = 0,0000`.
+  - **alvo FIXO no mundo** (esta constante) — agachar não move nada. A única forma de
+    subir o `progress` é **erguer a caixa**.
+
+Esta constante é lida uma vez, de `KNEES_BENT_KEYFRAME.pos[2] + 0,15`, e nunca consulta
+a pose corrente. Nenhuma função da cadeia do `pegar` (`lift_altura`, `box_shake_pegar`,
+`condicao_tarefa`) toca em `root_link_pos_w` do robô para formar o alvo.
+
+O `0,15` é o `alvo_peito_b[2]` da §14. Ele entra só para DERIVAR o número em vez de
+digitá-lo — não para acoplar o alvo ao peito.
 
 ⚠️ Sem termo de `env_origins`, de propósito: as origens de env diferem em x e y, nunca
 em z (ver `events.afasta_cena`), e o `plr_rest_z` também é gravado sem elas
@@ -275,16 +290,22 @@ def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
 
 
 def alvo_z_pegar(env: "ManagerBasedRlEnv") -> torch.Tensor:
-    """Altura-alvo do `pegar`, no MUNDO, por env. [B]
+    """Altura-alvo do `pegar`. **Altitude de MUNDO, por env.** [B]
 
-        alvo_z = repouso + fração × (peito_de_pé − repouso)
+        alvo_z = repouso + fração × (TOPO_RAMPA_Z − repouso)
 
-    A fração vem do eixo `alvo` do currículo (`env.alvo_frac`). O repouso vem do
-    `reset_scene_plr` (`env.plr_rest_z`), que já inclui o jitter de ±2 cm da altura.
+    ⚠️⚠️ **As DUAS pontas são do MUNDO. Nenhuma segue o robô.** O `repouso` é onde a
+    caixa descansa, ou seja uma propriedade da PRATELEIRA (`plr_rest_z`, gravado pelo
+    `reset_scene_plr`, com o jitter de ±2 cm). O topo é a constante `_TOPO_RAMPA_Z`.
+    Esta função não lê `root_link_pos_w` do robô, e não pode passar a ler: um alvo que
+    acompanha a pelve faz agachar encurtar o percurso, e o argmax vira levar o peito
+    até a caixa em vez de erguer a caixa. Ver `_TOPO_RAMPA_Z`.
+
+    A fração vem do eixo `alvo` do currículo (`env.alvo_frac`).
 
     **Por que fração e não metro.** Ela compõe com o eixo `altura`: quando a prateleira
-    descer, o repouso desce e a rampa se re-escala sozinha. O nível 1,0 é sempre o
-    peito.
+    descer, o repouso desce e a rampa se re-escala sozinha — o nível 1,0 continua sendo
+    a mesma altitude de 0,91 m, e o percurso a vencer cresce, que é o correto.
 
     ⚠️ **O robô NÃO observa este alvo, e isso é seguro.** O `progress` do `lift` satura
     em 1,0 e o critério é um PISO em z — erguer mais nunca reduz a recompensa nem
@@ -298,7 +319,7 @@ def alvo_z_pegar(env: "ManagerBasedRlEnv") -> torch.Tensor:
     frac = getattr(env, "alvo_frac", None)
     if frac is None:
         frac = torch.full_like(rest, float(T_LEVELS_ALVO[0]))
-    return rest + frac * (_PEITO_DE_PE_Z - rest).clamp(min=0.05)
+    return rest + frac * (_TOPO_RAMPA_Z - rest).clamp(min=0.05)
 
 
 def lift_altura(env: "ManagerBasedRlEnv", object_name: str,
