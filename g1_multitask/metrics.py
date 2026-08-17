@@ -76,7 +76,7 @@ def condicao_tarefa(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
                     tarefa: torch.Tensor | None = None) -> torch.Tensor:
     """[B] bool — a condição FÍSICA da tarefa vale AGORA, por env.
 
-    **Função de módulo desde 11/08, e isso é estrutural.** Ela tem DOIS consumidores: o
+    **Função de módulo desde 17/08, e isso é estrutural.** Ela tem DOIS consumidores: o
     critério de sucesso (`Sucesso`, que alimenta o currículo) e a recompensa densa
     (`sucesso_denso`). Se cada um tivesse a sua cópia, reward e critério podiam divergir
     — que é a classe de defeito C1/C2 do bloco 1 (recompensa máxima num estado que o
@@ -97,7 +97,7 @@ def condicao_tarefa(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
     apoiada = _contact(env, SUPPORT_SENSOR) > 0.5
     caixa_quieta = caixa.data.root_link_lin_vel_w.norm(dim=-1) < tol.caixa_quieta_v
 
-    # ⚠️ **PISO em z, não esfera 3D (11/08).** O `pegar` mede altura de MUNDO contra o
+    # ⚠️ **PISO em z, não esfera 3D (17/08).** O `pegar` mede altura de MUNDO contra o
     # alvo graduado pelo eixo `alvo`. A esfera de 0,10 m reprovava o robô por fazer
     # MAIS: com o alvo em +5 cm e a caixa a +26 cm, a distância dá 21 cm. E ele não
     # observa o nível, então não teria como parar na altura certa. O piso é monotônico.
@@ -135,7 +135,7 @@ def condicao_tarefa(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
 
 def sucesso_denso(env: "ManagerBasedRlEnv", tol, alvo_peito_b,
                   tasks: tuple[int, ...]) -> torch.Tensor:
-    """[B] — 1,0 enquanto a condição da tarefa vale, nas tarefas listadas. (11/08)
+    """[B] — 1,0 enquanto a condição da tarefa vale, nas tarefas listadas. (17/08)
 
     **Recompensa, e vive aqui de propósito.** O alvo não pagava nada: o `cond_fisica`
     era só diagnóstico, e o bloco 3 rodou 22 mil iterações com ele em 0,0000 sem um

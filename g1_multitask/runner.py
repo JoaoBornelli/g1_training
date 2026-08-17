@@ -53,7 +53,7 @@ Depois da S10 o ator o vê preenchido em apenas duas das sete tarefas (`botar` e
 
 
 STD_AO_ABRIR_TAREFA = 0.8
-"""Piso do `std` da política no instante em que o currículo abre uma tarefa. (11/08)
+"""Piso do `std` da política no instante em que o currículo abre uma tarefa. (17/08)
 
 O `std` começa em 1,0 (`init_std` do cfg do fabricante) e decai: o bloco 3 media 0,45.
 Uma tarefa nova entra na distribuição justamente quando a exploração já está estreita.
@@ -166,7 +166,7 @@ class MultitaskRunner(MjlabOnPolicyRunner):
 
     # -------------------------------------------- exploração ao abrir tarefa
     def _ligar_reaquecimento_std(self) -> None:
-        """Sobe o `std` da política quando o currículo ABRE uma tarefa. (11/08)
+        """Sobe o `std` da política quando o currículo ABRE uma tarefa. (17/08)
 
         **Por que ele existe.** O `std` cai ao longo do treino: começa em 1,0 e o bloco
         3 media 0,45. Quando uma tarefa nova abre, a política encontra uma distribuição

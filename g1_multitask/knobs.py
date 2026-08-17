@@ -244,7 +244,7 @@ class Reward:
     Ele mantém 20% do orçamento no `pegar` e 50% no `reorientar` depois da
     equalização — a escala é uniforme dentro da tarefa, então a fatia não mudou."""
     box_at_peito: float = 1.0
-    """grasp × kernel(caixa → peito). **Só no `locomover_carregando` desde 11/08.**
+    """grasp × kernel(caixa → peito). **Só no `locomover_carregando` desde 17/08.**
 
     Ele saiu do `pegar` por decisão de desenho: lá o alvo é altura de mundo, e ponto.
     Com isso a âncora de mundo do `alvo_peito_w` perdeu a razão de existir e voltou
@@ -255,7 +255,7 @@ class Reward:
     grasp: float = 0.5                  # bônus de toque, só no `pegar`
 
     unload: float = 1.0
-    """**A ponte contínua entre tocar e erguer** (11/08). Só no `pegar`.
+    """**A ponte contínua entre tocar e erguer** (17/08). Só no `pegar`.
 
         unload = preensão × clamp(1 − F_apoio / (m·g)) × [caixa acima do repouso]
 
@@ -277,7 +277,7 @@ class Reward:
     tarefa não muda. Subir é Categoria A."""
 
     sucesso_denso: float = 5.0
-    """Bônus por a condição FÍSICA da tarefa valer AGORA, por segundo. (11/08)
+    """Bônus por a condição FÍSICA da tarefa valer AGORA, por segundo. (17/08)
 
     Ele existe porque o alvo não pagava nada: `cond_fisica` era só diagnóstico, e o
     log inteiro do bloco 3 mostrou 0,0000 sem nenhum termo de recompensa olhando para
@@ -300,7 +300,7 @@ class Reward:
     enquanto a condição vale atravessa o desconto; um bônus terminal não."""
 
     action_rate_bracos: float = 0.25
-    """Fator do `action_rate_l2` nos 14 canais de braço (11/08). `1.0` = desliga.
+    """Fator do `action_rate_l2` nos 14 canais de braço (17/08). `1.0` = desliga.
 
     Medido no bloco 3: `action_rate` custava −0,88 contra 1,07 de todo o sinal de
     tarefa coletado no `pegar` — **82%**. E a tarefa do `pegar` É mover os braços.
@@ -311,7 +311,7 @@ class Reward:
     juntas."""
 
     shake_gate_std: float = 0.10
-    """Escala do gate do `box_shake` no `pegar`, em metros (11/08).
+    """Escala do gate do `box_shake` no `pegar`, em metros (17/08).
 
     O `box_shake` medido subia junto com o `lift` e cancelava o ganho dele. Agora ele
     só cobra **depois** de a caixa chegar perto do alvo: o fator é
@@ -557,7 +557,7 @@ class Reward:
 
 @dataclass
 class Episodio:
-    """Comprimento do episódio, POR REGIME. (11/08)
+    """Comprimento do episódio, POR REGIME. (17/08)
 
     Era global em 20 s. O `pegar` gasta ~3 s aproximando e o resto do episódio
     repetindo o mesmo estado — 17 s de amostra quase idêntica por tentativa.
@@ -725,7 +725,7 @@ class Tolerancia:
     reorienta_xy: float = 0.05
 
     alvo_tol_z: float = 0.02
-    """Folga do PISO de altura do `pegar`, em metros: `box_z >= alvo_z − 0,02`. (11/08)
+    """Folga do PISO de altura do `pegar`, em metros: `box_z >= alvo_z − 0,02`. (17/08)
 
     ⚠️ **Piso, e não esfera.** O critério era `‖caixa − alvo‖ < 0,10` em 3D. Com o eixo
     `alvo` graduado isso reprovava o robô por fazer MAIS: alvo em +5 cm e caixa a
@@ -736,7 +736,7 @@ class Tolerancia:
     graduação por fração segura."""
 
     sustenta_pegar_s: float = 2.0
-    """Segundos com a condição do `pegar` verdadeira. **Era 5,0 até 11/08.**
+    """Segundos com a condição do `pegar` verdadeira. **Era 5,0 até 17/08.**
 
     ⚠️ Ele TEM de ser menor que o episódio da manipulação. Com episódio de 10 s e
     preensão estabelecida por volta de 3 s (derivado: `grasp` valia 0,851 de média num
@@ -775,7 +775,7 @@ class Curriculum:
     Herdado do `PlrHeights`."""
 
     piso_amostragem: float = 0.15
-    """Fração MÍNIMA de envs por tarefa aberta. (11/08)
+    """Fração MÍNIMA de envs por tarefa aberta. (17/08)
 
     O sorteio de tarefa era uniforme (`randint`), então cada tarefa aberta levava
     `1/K` — e uma tarefa já resolvida consumia a mesma amostra que a travada. Agora a

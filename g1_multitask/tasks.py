@@ -100,7 +100,7 @@ penalidade, e para isso o denominador tem que ficar parado.
 O `hold_still` saiu (§10): ele é redundante com o `track_angular_velocity`, que lê o
 mesmo `root_link_ang_vel` e pune 3,5× mais forte a ω = 1.
 
-O `sucesso_denso` fica de fora **de propósito** (11/08). Ele é bônus de OBJETIVO, não
+O `sucesso_denso` fica de fora **de propósito** (17/08). Ele é bônus de OBJETIVO, não
 sinal de aproximação: pôr os 5,0 dele no orçamento faria o fator do `pegar` cair para
 0,42 e o próprio bônus se diluir para 2,1 — ele se anularia. Como ele vale nas quatro
 tarefas com caixa, a paridade entre elas fica preservada de qualquer forma.
@@ -125,7 +125,7 @@ LEVELS: dict[str, tuple[float, ...]] = {
   não o quanto ela nasce torta. O último nível (360) é o salto qualitativo "a face
   alvo pode ser o topo ou o fundo" — exige erguer e rolar a caixa entre as palmas.
 - `alvo` é o eixo do `pegar`, em **fração** da distância entre o repouso da caixa e a
-  altura do peito de pé. Ele gradua **quanto erguer** (11/08).
+  altura do peito de pé. Ele gradua **quanto erguer** (17/08).
 
   ⚠️ **Fração, e não centímetro.** O eixo `altura` desce a prateleira num bloco
   futuro, e o repouso desce com ela. Valor absoluto em metros ficaria descolado: o
@@ -162,7 +162,7 @@ o portão trava — foi o bug de 06/08.
 O `locomover_carregando` fica com `velocidade`, e não com `peso`, porque o peso não é
 eixo.
 
-⚠️ **O `pegar` trocou `altura` por `alvo` em 11/08.** O eixo `altura` move a
+⚠️ **O `pegar` trocou `altura` por `alvo` em 17/08.** O eixo `altura` move a
 prateleira: ele gradua DE ONDE pegar, e baixá-la só aumenta a distância a erguer.
 Nenhum eixo graduava QUANTO erguer, e é isso que travava a tarefa. A altura volta a
 ser eixo do `pegar` num bloco futuro, quando o `alvo` esgotar — o `botar` continua com
@@ -176,7 +176,7 @@ NIVEIS_ATIVOS: dict[str, int] = {
 }
 """Quantos níveis de cada eixo o currículo pode abrir AGORA.
 
-⚠️ **Isto é um congelamento deliberado (11/08), não a tabela física.** A decisão é
+⚠️ **Isto é um congelamento deliberado (17/08), não a tabela física.** A decisão é
 "ver se o robô consegue fazer TUDO antes de endurecer qualquer coisa": só o `alvo`
 progride, porque ele é o eixo que destrava o `pegar`. Os outros três ficam no nível
 mais fácil, e o currículo passa a ter um trabalho só — abrir as cinco tarefas.
@@ -218,10 +218,10 @@ def unlock_count() -> dict[str, int]:
     Serve de teste: a conta é DERIVADA dos níveis ativos e dos índices iniciais, então
     se alguém mexer num nível sem querer o total denuncia.
 
-    Com o congelamento de 11/08 são **12**: 4 aberturas de tarefa, 4 alargamentos de DR
+    Com o congelamento de 17/08 são **12**: 4 aberturas de tarefa, 4 alargamentos de DR
     e 4 níveis de `pegar_alvo`.
 
-    ⚠️ A DR de peso CONTA aqui desde 11/08. Ela não avança eixo, mas consome um evento
+    ⚠️ A DR de peso CONTA aqui desde 17/08. Ela não avança eixo, mas consome um evento
     (a regra abre a DR antes de mexer no eixo), e com os eixos congelados ela passou a
     ser a única fonte de evento de três tarefas. Deixá-la fora faria o total mentir."""
     out = {NAMES[t]: 0 for t in AXES}

@@ -68,7 +68,7 @@ check("3 iterações de PPO rodaram", True)
 # mexe no estado do currículo pra o round-trip ter o que provar
 #
 # ⚠️ As chaves de célula saem de `T.eixo_de`, e não digitadas: o eixo do `pegar` já
-# mudou de `altura` para `alvo` (11/08) e a versão com o nome fixo quebrou com
+# mudou de `altura` para `alvo` (17/08) e a versão com o nome fixo quebrou com
 # `KeyError`. Derivar aqui faz o portão sobreviver à próxima troca de eixo.
 orq_tr = env_tr.curriculum_manager.get_term_cfg("orquestrador").func
 CEL_LOCO = (T.LOCOMOVER, T.eixo_de(T.LOCOMOVER))

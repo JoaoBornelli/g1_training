@@ -228,7 +228,7 @@ print("\n-- contagem dos destravamentos --")
 ESPERADO = 12
 """4 aberturas de tarefa + 4 alargamentos de DR + 4 níveis de `pegar_alvo`.
 
-Era 24 antes do congelamento de 11/08 (`T.NIVEIS_ATIVOS`). Descongelar um eixo muda
+Era 24 antes do congelamento de 17/08 (`T.NIVEIS_ATIVOS`). Descongelar um eixo muda
 este número — e é isso que o check protege: mexer num nível sem querer denuncia."""
 por_fonte = T.unlock_count()
 for fonte, n in por_fonte.items():

@@ -174,7 +174,7 @@ def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
     −3,14 em quatro tarefas de física completamente diferente. Termo que não distingue
     andar de agachar não está medindo comportamento.
 
-    ⚠️ **Substituída pela `ActionRateJuntas` em 11/08**, que faz o mesmo e ainda pesa
+    ⚠️ **Substituída pela `ActionRateJuntas` em 17/08**, que faz o mesmo e ainda pesa
     os canais de braço. Fica aqui como referência da versão sem peso."""
     a = env.action_manager.action[:, :n_juntas]
     p = env.action_manager.prev_action[:, :n_juntas]
@@ -182,7 +182,7 @@ def action_rate_l2_juntas(env: "ManagerBasedRlEnv", n_juntas: int = 29
 
 
 class ActionRateJuntas:
-    """`action_rate_l2` nos canais de junta, com FATOR próprio nos braços. (11/08)
+    """`action_rate_l2` nos canais de junta, com FATOR próprio nos braços. (17/08)
 
     O termo plano cobrava −0,88 no `pegar` contra 1,07 de todo o sinal de tarefa
     coletado — **82%** — numa tarefa cujo conteúdo é mover os braços. E a saída da
@@ -254,7 +254,7 @@ def alvo_peito_w(env: "ManagerBasedRlEnv", alvo_peito_b) -> torch.Tensor:
     Ele é CONSTANTE na base — é por isso que o `alvo_pos` do comando não precisa
     transmiti-lo (§9). Mas o erro da caixa se mede no mundo, então converte aqui.
 
-    ⚠️ **Voltou a ser 100% frame da base em 11/08**, e a âncora de mundo que viveu um
+    ⚠️ **Voltou a ser 100% frame da base em 17/08**, e a âncora de mundo que viveu um
     dia aqui foi removida. Ela existia para matar um argmax agachado no `pegar`: o alvo
     descia com a pelve, então levar o peito até a caixa pagava o mesmo que erguer a
     caixa. O `pegar` **não usa mais este termo** — o alvo dele é altura de mundo, via
@@ -306,7 +306,7 @@ def lift_altura(env: "ManagerBasedRlEnv", object_name: str,
                 upright_std: float = 0.1) -> torch.Tensor:
     """Progresso de altura da caixa, do repouso até `alvo_z_pegar`. [B]
 
-    ⚠️ **Chamava-se `lift_ao_peito` até 11/08, e o alvo era o peito.** Agora ele é a
+    ⚠️ **Chamava-se `lift_ao_peito` até 17/08, e o alvo era o peito.** Agora ele é a
     altura graduada pelo eixo `alvo` do currículo. O motivo: com denominador de 0,26 m
     fixo, erguer 5 cm dava `progress = 0,19` e o portão do currículo pede 0,90 — ou
     seja o robô tinha de erguer 23,4 cm antes de QUALQUER evento, e ele conseguia
@@ -355,7 +355,7 @@ def lift_altura(env: "ManagerBasedRlEnv", object_name: str,
 def unload(env: "ManagerBasedRlEnv", object_name: str, sensor_apoio: str,
            palm_sensors, back_sensors, rest_z_attr: str = "plr_rest_z",
            margem: float = 0.02, g: float = 9.81) -> torch.Tensor:
-    """Fração do peso da caixa que SAIU da prateleira. [B] (11/08)
+    """Fração do peso da caixa que SAIU da prateleira. [B] (17/08)
 
     **A ponte contínua entre tocar e erguer.** O `_grasp` é booleano: tocar paga, e
     apertar paga zero até a caixa se mover. Medido no bloco 3, com 22 mil iterações:
@@ -395,7 +395,7 @@ def unload(env: "ManagerBasedRlEnv", object_name: str, sensor_apoio: str,
 def box_shake_pegar(env: "ManagerBasedRlEnv", object_name: str,
                     palm_sensors, back_sensors,
                     std: float = 0.10) -> torch.Tensor:
-    """`box_shake` que só cobra DEPOIS de a caixa chegar perto do alvo. [B] (11/08)
+    """`box_shake` que só cobra DEPOIS de a caixa chegar perto do alvo. [B] (17/08)
 
     O termo plano brigava com a tarefa: medido no bloco 3, ele subia junto com o `lift`
     e cancelava o ganho dele. Erguer uma caixa por abraço gira a caixa — a rotação é

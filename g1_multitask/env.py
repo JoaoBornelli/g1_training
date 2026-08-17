@@ -285,7 +285,7 @@ def build_multitask_env(
             sensor.primary = replace(
                 sensor.primary, exclude=(r"_foot\d+_collision",))
 
-    # --- 5b2. O SENSOR DE APOIO PASSA A DAR FORÇA (11/08) ---
+    # --- 5b2. O SENSOR DE APOIO PASSA A DAR FORÇA (17/08) ---
     # O `base_env` cria o `box_support` com `fields=("found",)` — booleano. O `unload`
     # precisa da MAGNITUDE do apoio, que é a única grandeza da cena que responde ao
     # aperto de forma contínua: ela cai de `m·g` a zero ANTES de a caixa se mover.
@@ -508,7 +508,7 @@ def build_multitask_env(
     # comportamento. Com `ESCALA_C = 0` esses 20 não fazem nada, então cobrá-los faz a
     # política encolher o `std` de TODOS os canais pra pagar menos.
     #
-    # 11/08: a classe substituiu a função e acrescentou FATOR nos 14 canais de braço.
+    # 17/08: a classe substituiu a função e acrescentou FATOR nos 14 canais de braço.
     # O termo plano cobrava −0,88 no `pegar` contra 1,07 de sinal de tarefa — 82% —
     # numa tarefa cujo conteúdo é mover os braços. Ver `R.ActionRateJuntas`.
     if "action_rate_l2" in cfg.rewards:
@@ -553,7 +553,7 @@ def build_multitask_env(
                 "asset_cfg": SceneEntityCfg("robot", site_names=FOOT_SITES),
                 "forward_margin": r.com_margin},
     )
-    # ⚠️ DOIS termos de shake desde 11/08, e o corte é o `pegar`.
+    # ⚠️ DOIS termos de shake desde 17/08, e o corte é o `pegar`.
     #
     # O termo plano brigava com a tarefa: medido no bloco 3, ele subia junto com o
     # `lift` e cancelava o ganho dele. Erguer por abraço gira a caixa — a rotação é
@@ -607,7 +607,7 @@ def build_multitask_env(
     # e denominador do progresso viravam o mesmo número. Medido em 06/08: `progress`
     # ficava em 1.0000 a qualquer altura, e em `nan` quando a caixa estava no repouso.
     # O termo de peso 2.0 pagava por encostar as palmas, nunca por erguer.
-    # ⚠️ `R.lift_altura` desde 11/08 (era `lift_ao_peito`). A altura-alvo passa a vir do
+    # ⚠️ `R.lift_altura` desde 17/08 (era `lift_ao_peito`). A altura-alvo passa a vir do
     # eixo `alvo` do currículo, em rampa. Com o alvo fixo no peito, o denominador era
     # 0,26 m: erguer 5 cm dava `progress = 0,19` contra um portão de 0,90, ou seja o
     # robô tinha de erguer 23,4 cm antes do PRIMEIRO evento — e ele conseguia 0,4 cm.
@@ -618,7 +618,7 @@ def build_multitask_env(
                 "object_name": "box",
                 "rest_z_attr": "plr_rest_z", "upright_std": r.upright_std, **pega},
     )
-    # `unload` — a PONTE entre tocar e erguer (11/08). Só no `pegar`.
+    # `unload` — a PONTE entre tocar e erguer (17/08). Só no `pegar`.
     #
     # O buraco que ele preenche é o platô do `_grasp` booleano: tocar paga 0,44 e
     # apertar paga ZERO até a caixa se mover. Medido no bloco 3 com 22 mil iterações —
@@ -656,7 +656,7 @@ def build_multitask_env(
         func=R.gated, weight=r.grasp,
         params={"inner": LR.grasp_reward, "tasks": (PEGAR,), **pega},
     )
-    # ⚠️ **Saiu do `pegar` em 11/08.** A decisão de desenho é que o alvo do `pegar` é
+    # ⚠️ **Saiu do `pegar` em 17/08.** A decisão de desenho é que o alvo do `pegar` é
     # altura de mundo, e nada mais — o `lift` e o `unload` cobrem a tarefa dele. Sobra
     # o transporte, onde "encostado no peito" é o que precisa ser medido.
     #
@@ -697,7 +697,7 @@ def build_multitask_env(
     # rotação de pelve pela RECOMPENSA. O critério de sucesso passa a enxergar — o
     # `tol_w` do §8 mede exatamente isso.
 
-    # --- 10a2. O ALVO PASSA A PAGAR (11/08) ---
+    # --- 10a2. O ALVO PASSA A PAGAR (17/08) ---
     # O `cond_fisica` era só diagnóstico. O bloco 3 rodou 22 mil iterações com ele em
     # 0,0000 sem NENHUM termo de recompensa olhando pra ele — ou seja, chegar ao alvo
     # não valia nada além do que a aproximação já pagava.
@@ -771,7 +771,7 @@ def build_multitask_env(
     # `time_out`, `fell_over` (70°) e `nonfinite` já vêm herdados. As 3 daqui são as
     # que faltam da §6b/D, e as duas primeiras são GATEADAS: a distinção `pegar` ×
     # `carregar` é o ponto — largar no `pegar` deve dar nova chance no mesmo episódio.
-    # --- 13a. EPISÓDIO POR TAREFA (11/08) ---
+    # --- 13a. EPISÓDIO POR TAREFA (17/08) ---
     # A manipulação gastava 20 s por tentativa. Cerca de 3 s eram a aproximação (o
     # `grasp` valia 0,851 de média num episódio de 20 s) e o resto era repetição do
     # mesmo estado. Com 10 s a taxa de episódios dobra, e o portão de 200 episódios do

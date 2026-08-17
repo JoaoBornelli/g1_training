@@ -29,7 +29,7 @@ _LIMITES: dict[tuple[str, tuple[float, ...]], torch.Tensor] = {}
 
 def time_out_por_tarefa(env: "ManagerBasedRlEnv",
                         limites_s: tuple[float, ...]) -> torch.Tensor:
-    """[B] bool — fim do episódio, com comprimento POR TAREFA. (11/08)
+    """[B] bool — fim do episódio, com comprimento POR TAREFA. (17/08)
 
     **Substitui o `time_out` do mjlab**, que compara com `env.max_episode_length` — um
     ESCALAR derivado de `cfg.episode_length_s` (`manager_based_rl_env.py:281`). Não há

@@ -224,7 +224,7 @@ class Orquestrador:
         return self.abertos[cel] - 1
 
     def _dist_tarefas(self) -> torch.Tensor:
-        """P(tarefa) INVERSA à competência, com piso. [len(abertas)] (11/08)
+        """P(tarefa) INVERSA à competência, com piso. [len(abertas)] (17/08)
 
             P(T) = piso + (1 − piso·K) · (1 − perf[T][topo]) / Σ(1 − perf)
 
@@ -326,7 +326,7 @@ class Orquestrador:
         if forcada is not None:
             tarefa = torch.multinomial(forcada.to(self.dev), n, replacement=True)
         else:
-            # Inversa à competência, com piso. Era `randint` uniforme até 11/08.
+            # Inversa à competência, com piso. Era `randint` uniforme até 17/08.
             escolha = torch.multinomial(
                 self._dist_tarefas(), n, replacement=True)
             tarefa = abertas[escolha]
@@ -392,7 +392,7 @@ class Orquestrador:
 
             tem_dr = t in T.COM_DR_PESO and not self.dr_peso[t]
             tem_eixo = self.abertos[cel] < len(self._niveis(cel))
-            # ⚠️ **`eventos_tarefa[t] == 0` é obrigatório (11/08).** Sem ele, uma tarefa
+            # ⚠️ **`eventos_tarefa[t] == 0` é obrigatório (17/08).** Sem ele, uma tarefa
             # SEM nada a destravar nunca tem evento — e sem o primeiro evento dela os
             # filhos nunca abrem. O caso real: com `NIVEIS_ATIVOS["velocidade"] = 1`, o
             # `locomover` não tem eixo a avançar e não está em `COM_DR_PESO`, então as
