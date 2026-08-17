@@ -52,6 +52,17 @@ Depois da S10 o ator o vê preenchido em apenas duas das sete tarefas (`botar` e
 """
 
 
+STD_AO_ABRIR_TAREFA = 0.8
+"""Piso do `std` da política no instante em que o currículo abre uma tarefa. (11/08)
+
+O `std` começa em 1,0 (`init_std` do cfg do fabricante) e decai: o bloco 3 media 0,45.
+Uma tarefa nova entra na distribuição justamente quando a exploração já está estreita.
+
+0,8 e não 1,0: a política já sabe andar e alcançar, e voltar ao ruído inicial
+desmancharia essas habilidades. Combina com `learning_rate = 5e-4` no começo do bloco,
+pelo mesmo motivo do warm-start em degrau novo."""
+
+
 def _indices_congelados(env, modelo) -> torch.Tensor:
     """Índices dos canais de comando NO VETOR QUE ESTE MODELO CONCATENA.
 
@@ -118,6 +129,7 @@ class MultitaskRunner(MjlabOnPolicyRunner):
             self.idx_congelados[nome] = idx
             _congelar(modelo, idx)
         self._ligar_diagnostico_vantagem()
+        self._ligar_reaquecimento_std()
 
     def _ligar_diagnostico_vantagem(self) -> None:
         """Faz a série de vantagem por tarefa chegar ao log. (S15)
@@ -151,6 +163,62 @@ class MultitaskRunner(MjlabOnPolicyRunner):
 
         self.alg.compute_returns = compute_returns
         self.alg.update = update
+
+    # -------------------------------------------- exploração ao abrir tarefa
+    def _ligar_reaquecimento_std(self) -> None:
+        """Sobe o `std` da política quando o currículo ABRE uma tarefa. (11/08)
+
+        **Por que ele existe.** O `std` cai ao longo do treino: começa em 1,0 e o bloco
+        3 media 0,45. Quando uma tarefa nova abre, a política encontra uma distribuição
+        que nunca viu com a exploração já estreita — e a tarefa nova é justamente a que
+        precisa explorar.
+
+        ⚠️ **`clamp_(min=...)`, nunca `fill_()`.** Ele só SOBE. Se o `std` já estiver
+        acima do alvo, mexer nele cortaria exploração em vez de dar.
+
+        ⚠️ Ele NÃO troca a parametrização do `std`. Trocar `std_type` de `"scalar"` para
+        `"log"` renomeia o parâmetro (`std_param` -> `log_std_param`,
+        `rsl_rl/modules/distribution.py:165-168`) e o `load` com `strict=True` quebra. E
+        não daria o que se quer: o `GaussianDistribution` tem UM vetor global, então o
+        `std` não pode variar por tarefa de jeito nenhum. Exploração por tarefa exigiria
+        o `HeteroscedasticGaussianDistribution`, que dobra a última camada do ator —
+        Categoria C, checkpoint não carrega.
+
+        **Gancho pelo `alg.update`**, o mesmo padrão do diagnóstico de vantagem: não há
+        laço a tocar. Roda uma vez por iteração de PPO.
+
+        O contador nasce do estado do currículo, não de zero — assim um resume no meio
+        de um bloco não dispara o reaquecimento de novo."""
+        self._n_abertas: int | None = None
+        _update = self.alg.update
+
+        def update(*a, **kw):
+            self._reaquece_std_se_abriu()
+            return _update(*a, **kw)
+
+        self.alg.update = update
+
+    def _reaquece_std_se_abriu(self) -> None:
+        orq = self._termos_curriculo().get("orquestrador")
+        if orq is None:
+            return
+        n = len(getattr(orq, "abertas", ()))
+        if self._n_abertas is None:
+            self._n_abertas = n           # 1ª iteração: só registra a linha de base
+            return
+        if n <= self._n_abertas:
+            return
+        self._n_abertas = n
+        modelo = getattr(self.alg, "_raw_actor", None) or getattr(self.alg, "actor")
+        param = getattr(getattr(modelo, "distribution", None), "std_param", None)
+        if param is None:
+            print("[RUNNER] tarefa nova, mas o ator não tem `std_param` — sem "
+                  "reaquecimento (distribuição diferente de GaussianDistribution?)")
+            return
+        antes = float(param.data.mean())
+        param.data.clamp_(min=STD_AO_ABRIR_TAREFA)
+        print(f"[RUNNER] tarefa nova ({n} abertas): std {antes:.3f} -> "
+              f"{float(param.data.mean()):.3f}")
 
     # ------------------------------------------------------- S15: diagnóstico
     def _std_vantagem_por_tarefa(self) -> dict[str, float]:
