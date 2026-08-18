@@ -38,6 +38,20 @@ def checa(cond: bool, msg: str) -> None:
         print(f"  FALHA {msg}")
 
 
+def termo_obs(env, grupo: str, nome: str):
+    """O TermCfg de observação como o manager o tem, e não como o cfg o declarou.
+
+    ⚠ Os dois não são o mesmo objeto. O manager faz `deepcopy` do cfg e RESOLVE os
+    `SceneEntityCfg` nele: no cfg `site_names=PALM_SITES` continua com
+    `site_ids=slice(None)` (os 6 sites do robô), e no manager já é `[4, 5]` (as duas
+    palmas). Chamar a função com os params do CFG rebenta em `palmas - alvos`,
+    porque `palmas` sai [B,6,3] contra [B,2,3]. Vale igual para as recompensas, e lá
+    o acesso é público: `reward_manager.get_term_cfg(nome).params`.
+    """
+    m = env.observation_manager
+    return m._group_obs_term_cfgs[grupo][m.active_terms[grupo].index(nome)]
+
+
 def main() -> int:
     k = Knobs()
     print("== 1. o cfg monta ==")
@@ -73,10 +87,15 @@ def main() -> int:
           "`base_lin_vel` está no crítico (privilégio legítimo)")
 
     print("== 5. termos e terminações ==")
+    # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a
+    # fundação não tem esse termo) + os 5 de tarefa.
     n_rew = len(cfg.rewards)
-    checa(n_rew == 18, f"18 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    checa(n_rew == 19, f"19 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    # a fundação traz 3 (`time_out`, `fell_over`, `out_of_terrain_bounds`), o env_cfg
+    # tira o `out_of_terrain_bounds` e põe as 2 nossas. NÃO existe `nonfinite` no
+    # mjlab — ver `tasks/velocity/velocity_env_cfg.py:377`.
     n_term = len(cfg.terminations)
-    checa(n_term == 5, f"5 terminações (medido {n_term}: {sorted(cfg.terminations)})")
+    checa(n_term == 4, f"4 terminações (medido {n_term}: {sorted(cfg.terminations)})")
     checa(cfg.terminations["time_out"].time_out is True,
           "`time_out` tem time_out=True (sem isso o rsl_rl trata como fracasso)")
 
@@ -95,36 +114,32 @@ def main() -> int:
 
     print("== 7. o bit `caixa_valida` ==")
     cmd = env.command_manager.get_term("caixa_alvo")
-    # força metade dos envs em cada estado e mede
+    # zera o bit em TODOS os envs. `_update_command` não recalcula o bit — ele só o
+    # LÊ, e é ele que propaga o zero para as fatias `face_alvo` e `dir_alvo`.
     cmd._command[:, 9] = 0.0
     cmd._update_command()
-    env.observation_manager.compute()
-    o0 = env.observation_manager.compute()["actor"]
-    idx = {}
-    inicio = 0
-    for nome, termo in cfg.observations["actor"].terms.items():
-        d = env.observation_manager.group_obs_term_dim["actor"][
-            list(cfg.observations["actor"].terms).index(nome)]
-        largura = int(d[0]) if hasattr(d, "__len__") else int(d)
-        idx[nome] = (inicio, inicio + largura)
-        inicio += largura
+
+    # ⚠ Duas armadilhas de MEDIÇÃO, e as duas fazem este teste passar/reprovar por
+    # motivo errado:
+    #   1. `observation_manager.compute()` devolve o `_obs_buffer` CACHEADO do passo
+    #      anterior (`observation_manager.py:311`) — a obs de quando o bit era 1.
+    #   2. `palmas_para_caixa` e `caixa_para_alvo` levam `Unoise(±0.01)`, somado
+    #      DEPOIS da função. Zero mais ruído não é zero, e o ruído é de propósito.
+    # O invariante é da FUNÇÃO. Portanto ela é chamada direto, com os params
+    # resolvidos do manager, sem passar pelo buffer nem pelo ruído.
     zerados = ("palmas_para_caixa", "caixa_para_alvo", "face_alvo", "dir_alvo")
     for nome in zerados:
-        a, b = idx[nome]
-        checa(bool((o0[:, a:b].abs() < 1e-6).all()),
-              f"com bit=0, `{nome}` é zero")
+        tc = termo_obs(env, "actor", nome)
+        v = tc.func(env, **tc.params)
+        checa(bool((v.abs() < 1e-6).all()),
+              f"com bit=0, `{nome}` é zero (medido max {float(v.abs().max()):.3e})")
 
     # ⚠ O teste MAIS importante da lista. Com o bit em 0 os canais são zerados, e
     # um vetor zerado dá exp(0) = 1. Sem multiplicar por `caixa_valida`, "não
     # existe caixa" pagaria o valor MÁXIMO.
-    from g1_poc import recompensas as R
-    for nome, fn, params in (
-        ("staged", R.staged, cfg.rewards["staged"].params),
-        ("precise_pos", R.precise_pos, cfg.rewards["precise_pos"].params),
-        ("precise_ori", R.precise_ori, cfg.rewards["precise_ori"].params),
-        ("squeeze", R.squeeze, cfg.rewards["squeeze"].params),
-    ):
-        v = fn(env, **params)
+    for nome in ("staged", "precise_pos", "precise_ori", "squeeze"):
+        tc = env.reward_manager.get_term_cfg(nome)
+        v = tc.func(env, **tc.params)
         checa(bool((v.abs() < 1e-6).all()),
               f"com bit=0, `{nome}` é zero (medido max {float(v.abs().max()):.3e})")
 
@@ -148,10 +163,24 @@ def main() -> int:
     fundo_laje = kc.prateleira_topo_piso - 2 * kc.prateleira_meia_z
     checa(fundo_laje >= -1e-9,
           f"a laje APOIA no chão no piso da faixa (fundo = {fundo_laje:+.3f} m)")
-    caixa_x = kc.caixa_xy[0]
+    # O x da caixa é 0,32 (§3.1). NÃO é a tangência exata da borda perto, que daria
+    # 0,30 — são 2 cm de folga. Portanto o invariante não é um número derivado, e sim
+    # o que a folga tem de garantir: a caixa apoiada por inteiro, o jitter (só
+    # positivo, para dentro) sem jogá-la fora, e ela do lado PERTO do robô, porque o
+    # centro da prateleira é inalcançável (lição 16/07).
+    caixa_x, meia = kc.caixa_xy[0], kc.caixa_meia_aresta[0]
     borda_perto = kc.prateleira_xy[0] - kc.prateleira_meia_xy
-    checa(abs(caixa_x - (borda_perto + kc.caixa_meia_aresta[0])) < 1e-6,
-          f"a caixa nasce na borda perto do robô (x = {caixa_x:.2f} m)")
+    borda_longe = kc.prateleira_xy[0] + kc.prateleira_meia_xy
+    checa(caixa_x - meia >= borda_perto - 1e-9,
+          f"a caixa nasce apoiada por inteiro (face em {caixa_x - meia:.2f} m, "
+          f"borda perto em {borda_perto:.2f} m)")
+    face_max = caixa_x + kc.caixa_jitter_x[1] + meia
+    checa(face_max <= borda_longe + 1e-9,
+          f"o jitter não tira a caixa da prateleira (face em {face_max:.2f} m, "
+          f"borda longe em {borda_longe:.2f} m)")
+    checa(caixa_x <= kc.prateleira_xy[0],
+          f"a caixa nasce do lado perto do robô (x = {caixa_x:.2f} m, centro da "
+          f"prateleira em {kc.prateleira_xy[0]:.2f} m)")
     # o alvo do `pegar` tem de estar ACIMA da caixa em repouso por mais que o raio
     ka, kt = k.alvo, k.tol
     repouso = kc.prateleira_topo_teto + kc.caixa_meia_aresta[2]

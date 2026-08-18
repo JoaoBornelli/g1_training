@@ -1,6 +1,8 @@
 """As terminações próprias do g1_poc (§12).
 
-`time_out`, `fell_over` e `nonfinite` vêm de fora e não aparecem aqui.
+`time_out` e `fell_over` vêm da fundação e não aparecem aqui. Ela traz um terceiro,
+o `out_of_terrain_bounds`, que o `env_cfg` remove: o terreno é plano e a mobília tem
+pose absoluta. São 4 no total, e o smoke confere o número.
 
 Princípio: **terminar em vez de penalizar.** Uma trajetória inválida acaba; ela não
 paga multa. É o que a tarefa `tracking` do mjlab faz, e ela troca quatro penalidades
