@@ -41,12 +41,21 @@ SENSOR_PES = "pes_chao"
 # Corpos que NÃO podem escorar na prateleira. O antebraço, a mão e o pé ficam de
 # fora: numa pega a 0.04 m o antebraço passa perto do tampo, e esse contato é
 # normal. Escorar o TRONCO ou a COXA é o defeito medido no repo.
+#
+# ⚠ A CANELA também fica de fora, e por medida: `prateleira_topo_piso = 0.04`, então
+# no nível mais baixo do currículo a laje é um degrau de 4 cm na frente dos pés.
+# Cobrar canela/pé ali repetiria o A11 do multitask — o robô pagava por PISAR na
+# prateleira, que é o contato que o `feet_slip` precisa ver.
+#
+# Os nomes são os do modelo, não os do URDF: o G1 não tem geom de colisão de cintura
+# nem de joelho (o tronco cobre a cintura; a perna vai de `thigh` a `shin`), e o do
+# quadril é `left_hip_collision` — sem segundo `_`. Padrão que casa zero geom é
+# ValueError no `resolve_matching_names`, não aviso.
 CORPOS_QUE_NAO_ESCORAM = (
-    r"pelvis.*_collision",
-    r"torso.*_collision",
-    r"waist.*_collision",
-    r".*_hip_.*_collision",
-    r".*_knee_.*_collision",
+    r"pelvis_collision",
+    r"torso_collision",
+    r".*_hip_collision",
+    r".*_thigh_collision",
 )
 
 
