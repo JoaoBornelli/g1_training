@@ -276,7 +276,8 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     cfg.rewards["squeeze"] = RewardTermCfg(
         func=R.squeeze, weight=kr.squeeze,
         params={"command_name": CMD_CAIXA, "palm_sensors": C.SENSOR_PALMA,
-                "massa_attr": "poc_massa", "mu": kr.squeeze_mu},
+                "massa_attr": "poc_massa", "mu": kr.squeeze_mu,
+                "asset_cfg": palmas},
     )
     cfg.rewards["joint_vel_hinge"] = RewardTermCfg(
         func=R.joint_vel_hinge, weight=kr.joint_vel_hinge,
@@ -307,7 +308,11 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     cfg.events["reset_base"].params["pose_range"] = kc.reset_base_pose
     # §11.1 — a entrega do navegador: o robô chega andando, não parado.
     cfg.events["reset_base"].params["velocity_range"] = kc.reset_base_vel_manipulacao
-    cfg.events["push_robot"].interval_range_s = kd.push_intervalo_s
+    # ⚠ O `push_robot` NÃO existe no modo play: o próprio cfg do G1 o remove
+    # (`config/g1/env_cfgs.py:169`). Portanto ele precisa de guarda — sem ela o
+    # registro da task quebra, porque o `__init__` monta o cfg de play também.
+    if "push_robot" in cfg.events:
+        cfg.events["push_robot"].interval_range_s = kd.push_intervalo_s
 
     # atrito da CAIXA, POR EPISÓDIO, compartilhado entre os dois pads.
     # ⚠ O treino atual registra isto como `startup` e nos pads do robô, sem
@@ -387,6 +392,14 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
         cfg.events.pop("push_robot", None)
+        # ⚠ O play do G1 ACRESCENTA `randomize_terrain` (`env_cfgs.py:172`), e ele
+        # entra no FIM do dict — portanto rodaria DEPOIS do `reset_cena` e do
+        # `afasta_cena`. Ele mexe na origem do env, e a nossa mobília é posicionada
+        # com pose ABSOLUTA. O resultado seria a caixa e a prateleira dessincronizadas
+        # do robô. Aqui não há terreno gerado, portanto ele não tem função.
+        cfg.events.pop("randomize_terrain", None)
+        # os dois cronogramas por passo global saem; `forma` e `nivel` FICAM, porque
+        # o `afasta_cena` e o comando leem `env.poc_manipula`.
         cfg.curriculum.pop("twist_ranges", None)
         cfg.curriculum.pop("hinge", None)
         cfg.curriculum.pop("action_rate", None)

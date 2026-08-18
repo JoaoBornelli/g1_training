@@ -102,7 +102,12 @@ def sensores() -> tuple[ContactSensorCfg, ...]:
             name=nome,
             primary=ContactMatch(mode="geom", pattern=pad, entity="robot"),
             secondary=ContactMatch(mode="geom", pattern="box_geom", entity="box"),
-            fields=("found", "force", "normal"),
+            # ⚠ `reduce="netforce"` soma todos os contatos num wrench só, e a força
+            # sai no frame GLOBAL. Portanto o campo `normal` NÃO é pedido: com a
+            # redução em netforce ele perde significado (qual das normais?). O
+            # `squeeze` calcula a normal da palma da orientação do site, que é
+            # exata. Ver `recompensas.squeeze`.
+            fields=("found", "force"),
             reduce="netforce",
             num_slots=1,
         )

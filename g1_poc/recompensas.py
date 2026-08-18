@@ -21,6 +21,7 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.utils.lab_api.math import quat_apply
 
 from g1_poc.observacoes import alvos_das_palmas
 
@@ -129,6 +130,7 @@ def squeeze(
     palm_sensors: tuple[str, str],
     massa_attr: str,
     mu: float,
+    asset_cfg: SceneEntityCfg = _ROBOT,
 ) -> torch.Tensor:
     """`tanh( min(F_n_esq, F_n_dir) / F_ref )` — o termo que faltava.
 
@@ -151,21 +153,38 @@ def squeeze(
     A força de palma cresce de forma CONTÍNUA com a penetração comandada. Portanto
     este termo tem derivada positiva em toda a faixa de 0 N a F_ref.
 
-    ANTI-HACK: usa só a componente NORMAL ao pad. Apertar a caixa para BAIXO contra
+    ANTI-HACK: usa só a componente NORMAL AO PAD. Apertar a caixa para BAIXO contra
     a prateleira gera força TANGENCIAL, e não normal — o ADR-0001 registrou esse
     risco. A projeção o fecha sem precisar de um segundo termo.
 
+    A normal do pad vem da ORIENTAÇÃO DO SITE, e não do campo `normal` do sensor.
+    Motivo: os sensores de palma usam `reduce="netforce"`, que soma todos os contatos
+    num wrench só — e aí "a normal do contato" perde significado. A geometria da mão
+    é conhecida e fixa: o mesh mede 13,2 × 6,7 × 10,7 cm, portanto a face fina é Y, e
+    a palma esquerda olha para −Y local e a direita para +Y local (é o que o offset
+    dos pads em `common/robot.py` produz, e é por isso que as duas palmas ficam
+    viradas uma para a outra).
+
+    A força vem no frame GLOBAL, porque `netforce` implica `global_frame`.
+
     O `min` das duas palmas exige aperto SIMÉTRICO: uma palma sozinha vale zero.
     """
+    robot: Entity = env.scene[asset_cfg.name]
+    # ordem dos sites = ordem de PALM_SITES = (esquerda, direita). O G1 declara
+    # `left_palm` antes de `right_palm` no XML, e a skill Lift já depende disso.
+    quat = robot.data.site_quat_w[:, asset_cfg.site_ids]            # [B,2,4]
+    locais = torch.tensor(
+        [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], device=quat.device, dtype=quat.dtype)
+    normais = quat_apply(quat, locais.expand(quat.shape[0], 2, 3))  # [B,2,3]
+
     forcas = []
-    for nome in palm_sensors:
-        dados = env.scene[nome].data
-        f = dados.force
-        n = dados.normal
+    for i, nome in enumerate(palm_sensors):
+        f = env.scene[nome].data.force
         assert f is not None, f"sensor '{nome}' precisa do field 'force'."
-        assert n is not None, f"sensor '{nome}' precisa do field 'normal'."
-        # componente ao longo da normal do contato, somada nos slots
-        f_n = torch.sum(f * n, dim=-1).abs().sum(dim=-1)
+        # `f` é [B, slots, 3] no frame global. Projeta na normal da palma.
+        # `abs` em vez de sinal: errar a convenção zeraria o termo em silêncio, e a
+        # componente que queremos excluir é a TANGENCIAL, que a projeção já remove.
+        f_n = torch.sum(f * normais[:, i].unsqueeze(1), dim=-1).abs().sum(dim=-1)
         forcas.append(f_n)
     f_min = torch.minimum(forcas[0], forcas[1])
     # F_ref = m·g / (2·μ). A massa é POR ENV (a DR de carga a sorteia).
