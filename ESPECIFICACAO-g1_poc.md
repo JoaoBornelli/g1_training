@@ -176,8 +176,9 @@ do tampo, e esse contato é normal.
 | `njmax` / `nconmax` | 800 / 300 | do repositório |
 
 **Experimento posterior.** A tarefa de manipulação do mjlab usa `elliptic` e `impratio = 10`.
-Esse par modela melhor o cone de atrito de uma pega. Teste depois da POC, com a terminação
-`nonfinite` de rede.
+Esse par modela melhor o cone de atrito de uma pega. Teste depois da POC, com uma terminação
+`nonfinite` de rede — ela ainda **não existe** e precisa ser criada sobre o
+`nonfinite_state` de `g1_training/common`. Ver §12.
 
 ---
 
@@ -234,17 +235,22 @@ observação: erro de alvo igual a zero. São duas situações opostas.
 **Aviso de contrato.** A largura da observação é um contrato com o checkpoint. Acrescentar um
 canal depois invalida todos os checkpoints. O bit entra antes do primeiro bloco.
 
-### 5.2 Crítico — 122 canais
+### 5.2 Crítico — 125 canais
 
-O crítico recebe os 112 canais do ator, sem ruído, mais 10 canais privilegiados:
+O crítico recebe os 112 canais do ator, sem ruído, mais 13 canais privilegiados:
 
 | termo | dim |
 |---|---:|
+| `base_lin_vel` | 3 |
 | força normal das duas palmas | 2 |
 | força de apoio da prateleira | 1 |
 | velocidade linear da caixa | 3 |
 | velocidade angular da caixa | 3 |
 | topo da prateleira | 1 |
+
+⚠ São **13**, e não 10: o `base_lin_vel` conta. Ele SAI do ator (num humanoide real não
+é medido de forma confiável) e volta aqui, o que é privilégio legítimo — o crítico é
+descartado no deploy. Uma versão anterior desta seção somava 122 por esquecê-lo.
 
 `enable_corruption = False`.
 
@@ -402,9 +408,24 @@ O treino **não** faz reset entre elos. O robô, a caixa e as velocidades contin
 
 ---
 
-## 8. Recompensas — 18 termos
+## 8. Recompensas — 20 termos
+
+São **13 da fundação + `self_collisions` + 6 de tarefa**. O `self_collisions` não existe
+no `velocity_env_cfg` do mjlab: o `env_cfg` o CRIA, sobre o sensor `auto_colisao`.
+Portanto 13 + 1 + 6 = 20, e o `smoke.py` confere o número.
 
 Os pesos são por segundo. O mjlab divide o `dt` de volta.
+
+⚠ **Para ler um `Episode_Reward/*` do log, o divisor é `max_episode_length_s`, e não o
+número de passos** (`reward_manager.py:108`). O valor médio da função por passo é
+
+```
+média(func) = Episode_Reward × max_episode_length_s / (duração_real_s × peso)
+```
+
+Com o episódio em 20 s e a duração real em 13,6 s, o fator é 1,47. Errar isto dá um
+fator 20 e inverte o diagnóstico: no bloco 1 o `squeeze` parecia estar em 0,047 quando
+estava em **0,945**, ou seja saturado.
 
 ### 8.1 Fundação — 13 termos, pesos do `velocity` do G1
 
@@ -429,7 +450,7 @@ Os cinco termos de marcha se auto-gateiam pelo comando. Eles multiplicam por
 
 **Este auto-gate substitui toda a máquina de gates por tarefa.**
 
-### 8.2 Tarefa — 5 termos
+### 8.2 Tarefa — 6 termos
 
 | termo | peso | forma | origem |
 |---|---:|---|---|
@@ -437,7 +458,12 @@ Os cinco termos de marcha se auto-gateiam pelo comando. Eles multiplicam por
 | `precise_pos` | +2,0 | `exp(−‖caixa − alvo‖² / 0,05²)` | `manipulation` |
 | `precise_ori` | +1,0 | `reaching × exp(−Δθ² / 0,40²)` | novo |
 | **`squeeze`** | **+1,0** | `tanh( min(F_n_esq , F_n_dir) / F_ref )` | **novo** |
+| **`unload`** | **+2,0** | `clamp(1 − F_apoio/m·g) × preensão × não_caiu` | **§8.5, ligado 19/08** |
 | `joint_vel_hinge` | −0,01 | `(\|v\| − 0,5)⁺²`, cronograma | `manipulation` |
+
+O `unload` estava **em reserva** na §8.5, com o gatilho "se o `squeeze` subir e o
+`precise_pos` não seguir". O gatilho disparou no bloco 1 e ele subiu para cá. Ver
+§8.2.2.
 
 **`reaching` é bimanual.** O `reaching` do mjlab mede um site só. Use o `reaching_kernel` do
 repositório: ele mede as duas palmas contra as duas faces laterais, com
@@ -460,13 +486,17 @@ Esta é a única função do mjlab que a especificação modifica.
 **A estrutura multiplicativa é o anti-hack.** O `bringing` só paga através do `reaching`.
 Levar a caixa ao alvo sem as mãos nela não paga.
 
-**Os três termos de tarefa multiplicam por `caixa_valida`.**
+**Os cinco termos de tarefa multiplicam por `caixa_valida`.**
 
 ```
 staged      ×= caixa_valida
 precise_pos ×= caixa_valida
 precise_ori ×= caixa_valida
+squeeze     ×= caixa_valida
+unload      ×= caixa_valida
 ```
+
+Só o `joint_vel_hinge` fica fora: ele é qualidade de movimento, e vale com caixa ou sem.
 
 Isto é obrigatório. Com o bit em 0 os canais da caixa são zerados, e um vetor zerado dá
 `exp(−0 / σ²) = 1`. Sem a multiplicação, "não existe caixa" pagaria o valor **máximo**.
@@ -512,10 +542,53 @@ O `min` das duas palmas exige aperto **simétrico**. Uma palma sozinha vale zero
 O ADR-0001 já registrou este risco.
 
 O conserto é a projeção na normal do pad. A palma aponta na horizontal, em ±Y local. Apertar
-para baixo gera força **tangencial**, e não normal. Portanto a projeção fecha o hack, e não é
-necessário um segundo termo.
+para baixo gera força **tangencial**, e não normal.
+
+⚠ **A projeção não fechou o hack, e a versão anterior desta seção afirmava que fechava.**
+Medido no bloco 1, iteração 1884: força de palma em **647% de `F_ref`** e apoio da
+prateleira em **138% do peso** ao mesmo tempo. A projeção impede que o empurrão para
+baixo seja **pago** como aperto — ela não impede que ele **aconteça de graça**. O robô faz
+as duas coisas juntas: aperta na horizontal (pago) e prensa para baixo (grátis, e escora
+os braços). Foi preciso um segundo termo, o `unload` da §8.2.2.
 
 `squeeze` multiplica por `caixa_valida`.
+
+### 8.2.2 `unload` — a ponte contínua, ligada em 19/08
+
+O `squeeze` resolve o vão de 0 N a `F_ref` e **satura logo depois**. Com a força em 6,47×
+`F_ref`, `tanh(6,47) = 0,99999` e a derivada é **1e-5**: ele deixa de guiar. O bloco 1
+parou exatamente aí — 1884 iterações, `episode_success` **zero**, mãos nas faces, caixa
+imóvel.
+
+```
+unload = clamp(1 − F_apoio/m·g , 0, 1) × preensão_bimanual × não_caiu × caixa_valida
+```
+
+**Por que a força de apoio, e não a altura.** Ela é a única grandeza da cena que responde
+de forma contínua ao ato de erguer: cai de `m·g` a zero **antes** de a caixa se mover. A
+altura é degrau; o apoio é rampa. O g1_multitask fechou o mesmo platô com ela — medido
+lá: 9,70 N apoiada → 0,00 N erguida, fração 0,011 → 1,000, sem exploração extra, porque o
+gradiente é denso e o robô já está com as mãos na caixa.
+
+**É a coordenada, e não o tamanho do gradiente.** Medido no bloco 1, o gradiente de
+`d(recompensa)/d(posição da caixa)` era **8,67 por metro** — grande. Mas
+`d(posição da caixa)/d(ação)` era **zero**, porque a caixa estava prensada contra o tampo.
+É o mesmo erro de coordenada que a §8.2.1 diagnosticou para o aperto, um nível adiante.
+
+**Ele SOMA ao `squeeze`, e não o substitui.** O aperto já está resolvido; o que faltava era
+pagar por descarregar. Peso 2,0, igual ao `precise_pos`, porque é sinal de tarefa.
+
+**Os dois gates, e o que cada um fecha:**
+
+| gate | sem ele |
+|---|---|
+| preensão bimanual (as duas palmas em contato) | DERRUBAR a caixa paga o máximo: sem tampo embaixo, `F_apoio = 0` e a fração vale 1 |
+| `não_caiu` (`z > repouso − 3 cm`) | empurrá-la para fora do tampo paga igual a erguê-la |
+
+⚠ O segundo gate é de **queda**, e não de subida. Exigir a caixa **acima** do repouso
+recriaria o degrau que este termo existe para remover: o apoio cai enquanto a altura ainda
+não mudou, e é nessa faixa que está o gradiente que falta. O repouso é `env.poc_topo` por
+env — não uma constante —, porque o currículo alarga a faixa da prateleira no passo 4.
 
 ### 8.3 O gradiente de incentivo
 
@@ -575,11 +648,15 @@ Estes termos não entram agora. Eles têm gatilho definido.
 
 | termo | quando ligar |
 |---|---|
-| `unload` — `clamp(1 − F_apoio / m·g) × squeeze` | se o `squeeze` subir e o `precise_pos` não seguir. Ele cobre a faixa de `F_ref` até a carga inteira. |
+| ~~`unload`~~ | **LIGADO em 19/08.** O gatilho era "se o `squeeze` subir e o `precise_pos` não seguir", e foi exatamente o que mediu no bloco 1: `squeeze` 0,945 (saturado) contra `precise_pos` 0,0002. Subiu para a §8.2.2. |
 | `box_shake` | se o `precise_ori` não bastar para conter a rotação durante o transporte |
 | `com_balance` | se o robô se inclinar para frente escorado na caixa, e o `upright` não pegar |
+| separar o `bringing` do `staged` em termo próprio | se, com o `unload`, a caixa sair da prateleira e não chegar ao alvo. Hoje "chegar" e "trazer" dividem um peso único (3,0) e não há como pesá-los em separado. |
 
 Regra: se aparecer um hack, volte **um** termo, e não seis.
+
+O `unload` é a prova de que a reserva funciona: o gatilho estava escrito antes do treino,
+a medição o disparou, e entrou **um** termo.
 
 ---
 
@@ -780,7 +857,7 @@ Isto custa duas linhas no `reset_base`. Ele treina a entrega de bastão sem trei
 
 ---
 
-## 12. Terminações — 5 termos
+## 12. Terminações — 4 termos
 
 | termo | condição | `time_out` |
 |---|---|---|
@@ -788,7 +865,16 @@ Isto custa duas linhas no `reset_base`. Ele treina a entrega de bastão sem trei
 | `fell_over` | a inclinação do tronco passa de 70° | False |
 | `caixa_largada` | a caixa está abaixo de 0,20 m, ou a caixa está a mais de 0,40 m das duas palmas | False |
 | `contato_ilegal` | pelve, tronco ou coxa toca a prateleira com mais de 50 N | False |
-| `nonfinite` | o estado não é finito | False |
+
+São 4 e não 5. A fundação do `velocity` traz **três** terminações — `time_out`,
+`fell_over` e `out_of_terrain_bounds` (`velocity_env_cfg.py:377`) —, o `env_cfg` remove o
+`out_of_terrain_bounds` (o terreno é plano e a mobília tem pose absoluta) e acrescenta as
+duas nossas.
+
+⚠ **Não existe terminação `nonfinite` no mjlab**, e uma versão anterior desta tabela a
+listava. O que existe é a função `nonfinite_state` em `g1_training/common`, disponível e
+**não usada aqui** — ver o risco 6 da §19, que a menciona como rede para o teste de
+`cone = elliptic`.
 
 O `time_out = True` é obrigatório. Sem ele o rsl_rl trata o fim do tempo como fracasso.
 
@@ -861,13 +947,21 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
 
 1. A task registra, e o nome não colide.
 2. O cfg instancia, e 5 passos rodam com 8 envs.
-3. `obs[actor]` tem 112 canais. `obs[critic]` tem 122.
+3. `obs[actor]` tem 112 canais. `obs[critic]` tem 125.
 4. Cada coluna de `_step_reward` é finita. Ele nomeia a coluna que falhar.
 5. O comando `caixa_alvo` tem 10 números, e as quatro fatias cobrem tudo sem sobreposição.
-6. Existem 18 termos de recompensa e 5 terminações.
+6. Existem 20 termos de recompensa (13 + `self_collisions` + 6) e 4 terminações, e os 6
+   termos de tarefa existem por nome.
 7. Os cinco termos de marcha valem zero quando o `twist` é zero.
-8. Com `caixa_valida = 0`: os quatro canais da caixa são zero, **e** `staged`, `precise_pos` e
-   `precise_ori` são zero. Este teste é o mais importante da lista.
+8. Com `caixa_valida = 0`: os quatro canais da caixa são zero, **e** `staged`, `precise_pos`,
+   `precise_ori`, `squeeze` e `unload` são zero. Este teste é o mais importante da lista.
+   ⚠ Ele é feito chamando a FUNÇÃO com os params do manager. Dois motivos, e os dois já
+   deram falso resultado: o `observation_manager.compute()` devolve o `_obs_buffer`
+   CACHEADO do passo anterior (`observation_manager.py:311`), e o ruído `Unoise` entra
+   DEPOIS da função. Os `SceneEntityCfg` do cfg também não servem — o manager faz
+   `deepcopy` e resolve a cópia, então no cfg `site_ids` continua `slice(None)`.
+8b. Derrubar a caixa **não** paga `unload`. É o gate que impede o caminho mais curto:
+   sem tampo embaixo, `F_apoio = 0` e a fração valeria 1.
 9. A prateleira está no grupo de geom 2.
 10. As quatro cadeias montam, e cada elo escreve um alvo diferente.
 11. A transição de elo não faz reset: a pose do robô e a pose da caixa continuam.
@@ -876,6 +970,9 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
 14. A prateleira se move quando o `pegar` fecha, e a folga vertical é positiva.
 15. O `squeeze` cresce quando a força normal de palma cresce, e vale zero com uma palma só.
 16. O `squeeze` **não** cresce quando a caixa é apertada para baixo contra a prateleira.
+    ⚠ Isto é sobre o que o termo PAGA. Medido no bloco 1: o robô prensa a caixa de todo
+    modo, porque prensar é grátis e escora os braços. Quem cobra por isso é o `unload`,
+    e a medição de campo é a `sonda.py` — o smoke não pega comportamento.
 17. O episódio **não** termina quando o último elo fecha. O `episode_success` fica travado em 1.
 18. O elo `botar` não fecha enquanto a prateleira carregar menos de 80% do peso.
 
@@ -929,8 +1026,8 @@ dela de x = 0,50 m para x = 0,60 m.
 | 2 | A carga de 5 kg com a inércia de 1 kg. A DR endurece a estática, e não a dinâmica. | Declarado. A skill Lift ergueu 5 kg com o mesmo mecanismo. |
 | 3 | A prateleira a 0,04 m fica à frente do tronco no agachamento. O `contato_ilegal` pode travar o nível 4. | Suba o piso para 0,15 m, ou mova o centro para x = 0,60 m. |
 | 4 | O pulso é mole: 1,68 N·m/rad, limite de 5 N·m. A palma inclina sob carga, e o contato plano vira linha. | Meça `Metrics/` da força de palma. Se a pega falhar por inclinação, aumente a espessura do pad. |
-| 5 | A troca do gate `_grasp` booleano por `squeeze` contínuo mais forma multiplicativa não está validada para um humanoide bimanual. | Se aparecer um hack, volte **um** termo da §8.5, e não seis. O primeiro é o `unload`. |
-| 6 | O `cone = pyramidal` modela pior o cone de atrito de uma pega. | Teste `elliptic` com `impratio = 10` depois da POC, com o `nonfinite` de rede. |
+| 5 | ~~A troca do gate `_grasp` booleano por `squeeze` contínuo mais forma multiplicativa não está validada para um humanoide bimanual.~~ **MATERIALIZOU-SE no bloco 1.** O `squeeze` saturou em 647% de `F_ref` (derivada 1e-5) e o robô prensou a caixa contra o tampo: apoio em 138% do peso, sucesso zero em 1884 iterações. | A mitigação era esta e funcionou como escrita: entrou **um** termo da §8.5, o `unload` (§8.2.2). O que resta na reserva continua valendo, e a régua de campo é a `sonda.py`. |
+| 6 | O `cone = pyramidal` modela pior o cone de atrito de uma pega. | Teste `elliptic` com `impratio = 10` depois da POC, com uma terminação `nonfinite` de rede — a criar, ela não existe (§12). |
 | 7 | A pose da caixa é verdade absoluta do simulador, com ruído de ±0,01 m. Falta latência, falta viés, e falta perda de rastreio. | Fora do escopo da POC. Entra no bloco de sim-to-real. O bit `caixa_valida` já cria o canal para tratar a perda de rastreio. |
 | 8 | O bit `caixa_valida` só é sorteado em 0 na forma de locomoção. O treino nunca o vê mudar **dentro** de um episódio. | No robô real ele muda entre os passos 1 e 2. Sorteie a troca dentro do episódio no bloco de sim-to-real. |
 | 9 | A altura de colocação vai a 0,80 m, e a de pega vai a 0,04 m. As duas pontas ficam nos extremos do alcance. | Se o `botar` a 0,80 m não fechar, baixe o teto para 0,70 m. Uma bancada tem 0,90 m e fica fora do alcance de qualquer forma. |

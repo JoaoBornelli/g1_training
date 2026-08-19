@@ -1,6 +1,8 @@
 """As observações do g1_poc.
 
-Contrato (§5): 112 canais no ator, 122 no crítico.
+Contrato (§5): 112 canais no ator, 125 no crítico. Os 13 privilegiados são o
+`base_lin_vel` (3) mais os 10 de força/caixa deste arquivo — o `env_cfg` o tira do ator e
+o devolve ao crítico.
 
 Os quatro canais de caixa são ZERADOS quando `caixa_valida` é 0. Sem isso, "não
 existe caixa" e "a caixa está exatamente no alvo" produziriam a mesma observação.
