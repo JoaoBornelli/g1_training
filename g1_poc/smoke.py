@@ -88,9 +88,13 @@ def main() -> int:
 
     print("== 5. termos e terminações ==")
     # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a
-    # fundação não tem esse termo) + os 5 de tarefa.
+    # fundação não tem esse termo) + os 6 de tarefa (o `unload` entrou em 19/08).
     n_rew = len(cfg.rewards)
-    checa(n_rew == 19, f"19 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    checa(n_rew == 20, f"20 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    tarefa = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
+              "joint_vel_hinge")
+    faltam = [t for t in tarefa if t not in cfg.rewards]
+    checa(not faltam, f"os 6 termos de tarefa existem (faltam: {faltam})")
     # a fundação traz 3 (`time_out`, `fell_over`, `out_of_terrain_bounds`), o env_cfg
     # tira o `out_of_terrain_bounds` e põe as 2 nossas. NÃO existe `nonfinite` no
     # mjlab — ver `tasks/velocity/velocity_env_cfg.py:377`.
@@ -137,7 +141,7 @@ def main() -> int:
     # ⚠ O teste MAIS importante da lista. Com o bit em 0 os canais são zerados, e
     # um vetor zerado dá exp(0) = 1. Sem multiplicar por `caixa_valida`, "não
     # existe caixa" pagaria o valor MÁXIMO.
-    for nome in ("staged", "precise_pos", "precise_ori", "squeeze"):
+    for nome in ("staged", "precise_pos", "precise_ori", "squeeze", "unload"):
         tc = env.reward_manager.get_term_cfg(nome)
         v = tc.func(env, **tc.params)
         checa(bool((v.abs() < 1e-6).all()),
@@ -200,6 +204,23 @@ def main() -> int:
     cmd._update_command()
     checa(bool(torch.allclose(z0, cmd._command[:, 2])),
           "agachar 20 cm NÃO move o alvo (âncora de mundo, ADR-0001)")
+
+    print("== 11b. o anti-hack do `unload` ==")
+    # ⚠ O `unload` paga por `1 − F_apoio/m·g`. Sem gate, DERRUBAR a caixa da prateleira
+    # paga o MÁXIMO: sem tampo embaixo o apoio é zero e a fração vale 1. É o caminho
+    # mais curto do robô, e este teste é o que o fecha.
+    cmd._command[:, 9] = 1.0                # o teste do bit zerou; restaura
+    cmd._update_command()
+    tc_unload = env.reward_manager.get_term_cfg("unload")
+    caixa = env.scene["box"]
+    pose_caixa = caixa.data.root_link_pose_w.clone()
+    pose_caixa[:, 2] = 0.05                 # no chão, longe da prateleira
+    caixa.write_root_link_pose_to_sim(pose_caixa)
+    env.sim.forward()
+    v_caida = tc_unload.func(env, **tc_unload.params)
+    checa(bool((v_caida.abs() < 1e-6).all()),
+          f"derrubar a caixa NÃO paga `unload` (medido max "
+          f"{float(v_caida.abs().max()):.3e})")
 
     print("== 12. currículo ==")
     checa(NIVEL_MAX == 6, f"NIVEL_MAX == 6 (medido {NIVEL_MAX})")

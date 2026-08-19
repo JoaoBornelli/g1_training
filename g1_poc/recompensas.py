@@ -7,7 +7,13 @@ Desenho:
     precise_pos = exp(−‖caixa − alvo‖² / 0,05²)
     precise_ori = reaching × exp(−Δθ² / 0,40²)
     squeeze     = tanh( min(F_n_esq, F_n_dir) / F_ref )
+    unload      = 1 − F_apoio/m·g                    — a PONTE do platô do grasp
     joint_vel_hinge = (|v| − v_max)⁺²
+
+⚠ O `unload` entrou em 19/08, depois de o bloco 1 rodar 1884 iterações com sucesso
+ZERO. O `squeeze` saturou em 6× `F_ref` (derivada 1e-5) e o robô PRENSAVA a caixa
+contra a prateleira — apoio em 138% do peso. Ele soma ao `squeeze`, não o substitui.
+Ver o docstring de `unload`.
 
 Os quatro primeiros multiplicam por `caixa_valida`. **Isto é obrigatório**: com o
 bit em 0 os canais da caixa são zerados, e um vetor zerado dá exp(0) = 1. Sem a
@@ -191,6 +197,62 @@ def squeeze(
     massa = getattr(env, massa_attr)
     f_ref = (massa * 9.81 / (2.0 * mu)).clamp(min=1e-3)
     return torch.tanh(f_min / f_ref) * _valida(env, command_name)
+
+
+def unload(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    object_name: str,
+    support_sensor: str,
+    palm_sensors: tuple[str, str],
+    massa_attr: str,
+    caixa_meia_z: float,
+    tol_queda: float,
+) -> torch.Tensor:
+    """`1 − F_apoio/m·g`, gateado por preensão bimanual e por "a caixa não caiu".
+
+    **É a ponte contínua do platô do grasp, e o `squeeze` sozinho não a dá.** Medido
+    neste pacote na iteração 1884: a força de palma chega a 6× `F_ref`, onde
+    `tanh(6,47) = 0,99999` e a derivada é 1e-5 — o `squeeze` satura e deixa de guiar.
+    Ao mesmo tempo o apoio da prateleira ficava em 138% do peso: o robô PRENSAVA a
+    caixa contra o tampo, porque isso escora os braços e nada cobrava por descarregá-la.
+
+    A força de apoio é a única grandeza da cena que responde de forma contínua ao ato
+    de erguer: ela cai de `m·g` a zero ANTES de a caixa se mover. Medido no
+    g1_multitask, que fechou o mesmo platô com ela: 9,70 N apoiada -> 0,00 N erguida.
+
+    Os dois gates são anti-hack, e cada um fecha um caminho distinto:
+
+    1. **preensão bimanual** — sem ele, DERRUBAR a caixa da prateleira paga o máximo:
+       sem tampo embaixo, `F_apoio = 0` e a fração vale 1.
+    2. **a caixa não caiu** — sem ele, empurrá-la para fora do tampo paga igual a
+       erguê-la.
+
+    ⚠ O segundo gate é de QUEDA, e não de subida. Exigir a caixa ACIMA do repouso
+    recriaria exatamente o degrau que este termo existe para remover: o apoio cai
+    enquanto a altura ainda não mudou, e é nessa faixa que está o gradiente que falta.
+    """
+    f = env.scene[support_sensor].data.force
+    assert f is not None, f"sensor '{support_sensor}' precisa do field 'force'."
+    # `reduce="netforce"` -> força no frame GLOBAL, portanto z é o apoio vertical.
+    apoio_z = f[..., 2].abs().sum(dim=-1)
+    massa = getattr(env, massa_attr)
+    peso = (massa * 9.81).clamp(min=1e-3)
+    fracao = (1.0 - apoio_z / peso).clamp(0.0, 1.0)
+
+    pega = torch.ones_like(fracao, dtype=torch.bool)
+    for nome in palm_sensors:
+        found = env.scene[nome].data.found
+        assert found is not None, f"sensor '{nome}' precisa do field 'found'."
+        pega &= (found > 0).any(dim=-1)
+
+    # o repouso é o topo SORTEADO da prateleira, e não uma constante: o `reset_cena`
+    # grava `env.poc_topo` por env, e o currículo alarga a faixa no passo 4.
+    obj: Entity = env.scene[object_name]
+    repouso = env.poc_topo + caixa_meia_z
+    nao_caiu = obj.data.root_link_pos_w[:, 2] > (repouso - tol_queda)
+
+    return fracao * pega.float() * nao_caiu.float() * _valida(env, command_name)
 
 
 def joint_vel_hinge(

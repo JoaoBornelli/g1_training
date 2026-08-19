@@ -118,6 +118,10 @@ class Recompensa:
     precise_ori_std: float = 0.40
     squeeze: float = 1.0
     squeeze_mu: float = 0.8              # μ pessimista da faixa de DR
+    # a PONTE do platô do grasp (19/08). O `squeeze` satura em 6× F_ref e para de
+    # guiar; o apoio da prateleira é contínuo e cai antes de a caixa se mover.
+    unload: float = 2.0                  # igual ao `precise_pos`: é sinal de TAREFA
+    unload_tol_queda: float = 0.03       # 3 cm abaixo do repouso já é queda
     joint_vel_hinge: float = -0.01       # cronograma o leva a -1.0
     joint_vel_max: float = 0.5
 

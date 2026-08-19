@@ -11,7 +11,7 @@ O que este arquivo muda:
     4. a observação: sai `base_lin_vel` do ator, entram os 5 canais de caixa
     5. o crítico: 13 canais privilegiados
     6. a `posture` ganha o quarto regime
-    7. os 5 termos de tarefa
+    7. os 6 termos de tarefa
     8. as 2 terminações próprias
     9. os 3 eventos de cena
    10. o currículo em 3 partes
@@ -254,7 +254,7 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                 "force_threshold": k.term.auto_colisao_N},
     )
 
-    # -------------------------------------------------- 7. os 5 termos de tarefa
+    # -------------------------------------------------- 7. os 6 termos de tarefa
     palmas = SceneEntityCfg("robot", site_names=C.PALM_SITES)
     cfg.rewards["staged"] = RewardTermCfg(
         func=R.staged, weight=kr.staged,
@@ -278,6 +278,16 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         params={"command_name": CMD_CAIXA, "palm_sensors": C.SENSOR_PALMA,
                 "massa_attr": "poc_massa", "mu": kr.squeeze_mu,
                 "asset_cfg": palmas},
+    )
+    # a PONTE do platô do grasp. Ele SOMA ao `squeeze`, e não o substitui: o aperto já
+    # está resolvido (6× F_ref na it 1884), o que faltava era pagar por DESCARREGAR.
+    cfg.rewards["unload"] = RewardTermCfg(
+        func=R.unload, weight=kr.unload,
+        params={"command_name": CMD_CAIXA, "object_name": "box",
+                "support_sensor": C.SENSOR_APOIO, "palm_sensors": C.SENSOR_PALMA,
+                "massa_attr": "poc_massa",
+                "caixa_meia_z": kc.caixa_meia_aresta[2],
+                "tol_queda": kr.unload_tol_queda},
     )
     cfg.rewards["joint_vel_hinge"] = RewardTermCfg(
         func=R.joint_vel_hinge, weight=kr.joint_vel_hinge,
