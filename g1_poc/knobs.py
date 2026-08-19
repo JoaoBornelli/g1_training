@@ -217,10 +217,21 @@ class Cronograma:
         {"step": 1000 * 24,  "lin_vel_x": (-0.8, 1.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
         {"step": 2500 * 24,  "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-1.5, 1.5)},
     ])
+    # ⚠ O degrau de −1,00 estava em 3000 e foi para 10000 em 19/08, medido.
+    # Na iteração 3080 ele bateu e o `joint_vel_hinge` + `action_rate_l2` passaram a
+    # consumir 99,1% de TODAS as penalidades e 100% de todo o sinal positivo: a
+    # recompensa líquida virou −0,03 (Mean reward −0,37). No mesmo passo o
+    # `contato_ilegal` foi de 6,4% para 17,5% das terminações — com movimento caro,
+    # escorar o tronco na prateleira economiza esforço.
+    #
+    # A causa é de FASE, não de valor: o cronograma é por passo global e pressupõe a
+    # tarefa resolvida em 3000 iterações. Ela só saiu de zero em 3080
+    # (`episode_success` 0,0060, o primeiro do projeto). A §17 põe "refino de pose" no
+    # passo 6, o ÚLTIMO, e o freio chegou cinco passos adiantado.
     hinge: list = field(default_factory=lambda: [
-        {"step": 0,         "weight": -0.01},
-        {"step": 1500 * 24, "weight": -0.10},
-        {"step": 3000 * 24, "weight": -1.00},
+        {"step": 0,          "weight": -0.01},
+        {"step": 1500 * 24,  "weight": -0.10},
+        {"step": 10000 * 24, "weight": -1.00},
     ])
     action_rate: list = field(default_factory=lambda: [
         {"step": 0,         "weight": -0.10},

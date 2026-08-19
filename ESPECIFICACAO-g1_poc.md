@@ -806,14 +806,34 @@ Use `mdp.reward_curriculum` do mjlab.
 |---|---|---|
 | 0 | −0,01 | −0,10 |
 | 1500 × 24 | −0,10 | −0,10 |
-| 3000 × 24 | −1,00 | −0,25 |
+| 3000 × 24 | −0,10 | −0,25 |
+| **10 000 × 24** | **−1,00** | −0,25 |
 
 **Regra de leitura: não olhe para a pose antes de 1500 iterações.** Antes disso o freio solto é
 deliberado.
 
-**Aviso.** A carga chega a 5 kg no nível 4, e o `joint_vel_hinge` aperta no passo 1500 × 24.
-Os dois podem coincidir. Se o sucesso cair nesse ponto, adie o aperto até o nível médio da
-população passar de 4.
+⚠ **O degrau de −1,00 estava em 3000 × 24 e foi para 10 000 × 24 em 19/08, medido.** O aviso
+abaixo previa o risco e ele se materializou — só que pior do que o previsto, porque o sucesso
+não "caiu": ele **ainda não existia** quando o freio chegou.
+
+Na iteração 3080, com o degrau ativo, o `joint_vel_hinge` mais o `action_rate_l2` passaram a
+consumir **99,1% de todas as penalidades e 100% de todo o sinal positivo** — líquido −0,03,
+`Mean reward` −0,37. O `contato_ilegal` foi de 6,4% para **17,5%** das terminações: com
+movimento caro, escorar o tronco na prateleira economiza esforço. E o `episode_success` tinha
+acabado de sair de zero, em 0,0060 — o primeiro do projeto.
+
+**A causa é de FASE, e não de valor.** O cronograma é por passo global e pressupõe a tarefa
+resolvida em 3000 iterações; ela levou 3080 só para começar. A §17 põe "refino de pose" no
+passo 6, o **último**, e o freio chegou cinco passos adiantado.
+
+**Aviso, agora com precedente.** A carga chega a 5 kg no nível 4, e o `joint_vel_hinge` aperta
+no passo 1500 × 24. Os dois podem coincidir. Se o sucesso cair nesse ponto, adie o aperto até o
+nível médio da população passar de 4.
+
+**A correção estrutural, ainda não feita:** gatear a pose por **competência** em vez de por
+passo global — apertar só quando o `episode_success` passar de um limiar. Isso resolve a classe
+do problema; adiar o degrau resolve esta instância. Enquanto o gate não existir, todo bloco que
+passe de 10 000 iterações precisa reconferir a fase.
 
 ---
 
