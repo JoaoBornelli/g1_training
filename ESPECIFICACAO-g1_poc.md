@@ -818,9 +818,19 @@ não "caiu": ele **ainda não existia** quando o freio chegou.
 
 Na iteração 3080, com o degrau ativo, o `joint_vel_hinge` mais o `action_rate_l2` passaram a
 consumir **99,1% de todas as penalidades e 100% de todo o sinal positivo** — líquido −0,03,
-`Mean reward` −0,37. O `contato_ilegal` foi de 6,4% para **17,5%** das terminações: com
-movimento caro, escorar o tronco na prateleira economiza esforço. E o `episode_success` tinha
-acabado de sair de zero, em 0,0060 — o primeiro do projeto.
+`Mean reward` −0,37. E o `episode_success` tinha acabado de sair de zero, em 0,0060 — o
+primeiro do projeto.
+
+⚠ **Uma atribuição causal foi RETIRADA daqui.** Este texto afirmava que o freio provocava o
+hack de escorar o tronco, porque o `contato_ilegal` subira de 6,4% para 17,5% das
+terminações. **Não se sustenta:** outra run, com o **mesmo** freio de −1,00 e *menos*
+avançada pós-degrau (34 iterações contra 80), mediu **3,4%**. A escora a 17,5% era
+transitório de adaptação, e não consequência do freio. A conta do orçamento acima está
+medida e vale; a causa do hack fica **não estabelecida**.
+
+**Como ler `Mean reward`:** ele é a soma por episódio SEM a divisão por
+`max_episode_length_s`, portanto `Mean reward = líquido × max_episode_length_s`. Com 20 s,
+um líquido de −2,54 aparece como −50,3. Verificado nos dois blocos.
 
 **A causa é de FASE, e não de valor.** O cronograma é por passo global e pressupõe a tarefa
 resolvida em 3000 iterações; ela levou 3080 só para começar. A §17 põe "refino de pose" no
