@@ -508,7 +508,11 @@ class CaixaAlvoCommand(CommandTerm):
         self.metrics["erro_posicao"] = self.erro_pos() * v
         self.metrics["erro_angulo_deg"] = torch.rad2deg(self.erro_ang()) * v
         self.metrics["no_alvo"] = perto.float() * v
-        self.metrics["episode_success"] = self.episode_success
+        # ⚠ CLONE, nunca o buffer cru: os outros metrics são snapshots (`× v`), e
+        # este era um ALIAS — qualquer coisa que zerasse o buffer antes de o reset
+        # ler o metric apagava o sucesso do log (foi o rastro que denunciou o wipe
+        # do resample na it 5306: `pegou` 0,97 com `episode_success` 0,00).
+        self.metrics["episode_success"] = self.episode_success.clone()
         self.metrics["frac_manipula"] = self.manipula.float()
 
         # os três fatores que faltavam, cada um como FRAÇÃO

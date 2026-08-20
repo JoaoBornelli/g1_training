@@ -100,6 +100,14 @@ def main() -> int:
     # mjlab — ver `tasks/velocity/velocity_env_cfg.py:377`.
     n_term = len(cfg.terminations)
     checa(n_term == 4, f"4 terminações (medido {n_term}: {sorted(cfg.terminations)})")
+    # ⚠ o resample do comando NUNCA pode caber dentro do episódio: com o range
+    # igual à duração, o time_left cruzava zero no passo 999 e zerava
+    # episode_success/pegou/alvo UM PASSO antes do time_out — o nível lia sucesso
+    # 0 em todo episódio que chegava ao fim (medido it 5306: pegou 0,97, sucesso 0,00)
+    checa(cfg.commands["caixa_alvo"].resampling_time_range[0] > k.episodio.duracao_s,
+          f"o resample do `caixa_alvo` não cabe no episódio (range "
+          f"{cfg.commands['caixa_alvo'].resampling_time_range[0]:.0f} s > "
+          f"{k.episodio.duracao_s:.0f} s) — senão o wipe do passo 999 volta")
     checa(cfg.terminations["time_out"].time_out is True,
           "`time_out` tem time_out=True (sem isso o rsl_rl trata como fracasso)")
 

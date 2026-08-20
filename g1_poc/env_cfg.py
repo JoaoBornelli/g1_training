@@ -123,7 +123,15 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     ep = ke.duracao_s
     cfg.commands = {
         CMD_CAIXA: CaixaAlvoCommandCfg(
-            resampling_time_range=(ep, ep),      # 1 meta por episódio
+            # ⚠ 10×, e NUNCA igual à duração do episódio. Com (20, 20) o time_left
+            # do comando cruza zero no passo 999 e o time_out da terminação só
+            # dispara no passo 1000: o _resample rodava UM PASSO antes do fim e
+            # zerava episode_success/pegou/alvo — o nível lia sucesso 0 em todo
+            # episódio que chegava ao time_out (medido it 5306: pegou 0,97 com
+            # sucesso 0,00), e a escada ficava esfomeada. O "sucesso 0,006 no
+            # treino vs 0,75 na sonda" do bloco 2 era em grande parte isto. A meta
+            # é 1 por episódio: quem resampleia é o RESET.
+            resampling_time_range=(10.0 * ep, 10.0 * ep),
             debug_vis=True,
             pegar_range=(ka.pegar_x, ka.pegar_y, ka.pegar_z),
             raio_sucesso=kt.raio_sucesso,
@@ -457,6 +465,9 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
 
     # -------------------------------------------------- play
     if play:
+        # no play o episódio é infinito e SEM currículo de nível: o resample de
+        # 20 s volta, para o viewer ciclar metas (o wipe não tem o que esfomear)
+        cfg.commands[CMD_CAIXA].resampling_time_range = (ep, ep)
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
         cfg.events.pop("push_robot", None)
