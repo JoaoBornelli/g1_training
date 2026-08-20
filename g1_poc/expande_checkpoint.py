@@ -1,9 +1,32 @@
-"""Expande um checkpoint do ator 112/crítico 125 para 115/128.
-
-Adiciona o canal `face_normal_b` nas posições ÚLTIMAS de ambos.
+"""Expande um checkpoint do ator 112/crítico 125 para 115/128 (`face_normal_b`).
 
     python -m g1_poc.expande_checkpoint --entrada model_5100.pt --saida model_5100_115.pt
-    python -m g1_poc.expande_checkpoint --auto-teste   # sonda um checkpoint vazio
+    python -m g1_poc.expande_checkpoint --auto-teste
+
+O canal novo é o ÚLTIMO dos dois grupos, de propósito: a cirurgia é um APPEND na
+última dimensão de todo tensor cuja última dimensão é 112 (→115) ou 125 (→128),
+onde quer que ele esteja no checkpoint. Isso cobre, com uma regra só:
+
+    actor_state_dict / mlp.0.weight            [512, 112] -> [512, 115]  zeros
+    actor_state_dict / obs_normalizer._mean    [1, 112]   -> [1, 115]    zeros
+    actor_state_dict / obs_normalizer._var     [1, 112]   -> [1, 115]    UNS
+    actor_state_dict / obs_normalizer._std     [1, 112]   -> [1, 115]    UNS
+    critic_state_dict / (idem, 125 -> 128)
+    optimizer_state_dict / state / * / exp_avg(_sq)  [512, 112|125] -> zeros
+
+Zeros nas colunas de peso: a política começa IGNORANDO o canal novo e aprende a
+usá-lo. Uns em `_var`/`_std`: variância unitária é o estado neutro do
+`EmpiricalNormalization`. Zeros nos momentos do Adam: momento nulo para colunas
+novas. Os demais tensores (camadas ocultas, `distribution.*` [29], biases) não
+têm última dimensão 112/125 e passam intactos.
+
+⚠ A PRIMEIRA versão deste script procurava `ckpt["actor"]["network"]` e um
+normalizador `mean/var/count` — estrutura que NÃO existe no checkpoint do mjlab
+— e o auto-teste "passava" sem nunca exercitar a expansão (criava um checkpoint
+já-115 e o recarregava). Medido em 20/08 no Kaggle: "Chaves modificadas:
+(nenhuma)" e o resume morria com size mismatch. O auto-teste de agora PODA um
+checkpoint recém-salvo para 112/125 antes de expandir, e falha se a poda ou a
+expansão tocarem zero tensores.
 """
 from __future__ import annotations
 
@@ -13,110 +36,126 @@ import sys
 
 import torch
 
+# (última dimensão de entrada, última dimensão de saída)
+_REGRAS = ((112, 115), (125, 128))
 
-def expande(ckpt: dict) -> dict:
-    """Expande um checkpoint de 112/125 para 115/128.
 
-    Cirurgia de append nas colunas de entrada:
-    - weight [h, 112] → [h, 115] com 3 zeros
-    - bias intacto
-    - mean [112] → [115] com 3 zeros
-    - var [112] → [115] com 3 uns
-    """
-    mudadas = {}
+def _expande_tensor(t: torch.Tensor, velho: int, novo: int, fill: float) -> torch.Tensor:
+    forma = list(t.shape)
+    forma[-1] = novo
+    saida = torch.full(forma, fill, dtype=t.dtype)
+    saida[..., :velho] = t
+    return saida
 
-    # ========== ator: entrada 112 → 115 ==========
-    if "actor" in ckpt and "network" in ckpt["actor"]:
-        net = ckpt["actor"]["network"]
-        for nome, param in net.items():
-            if nome.endswith("weight") and param.shape[-1] == 112:
-                # Linear layer: [out, 112] → [out, 115]
-                novo = torch.zeros(param.shape[0], 115, dtype=param.dtype)
-                novo[:, :112] = param
-                net[nome] = novo
-                mudadas[f"actor/{nome}"] = f"{param.shape} -> {novo.shape}"
-            elif nome.endswith("bias"):
-                # Bias stays [out]
-                pass
 
-    # ========== crítico: entrada 125 → 128 ==========
-    if "critic" in ckpt and "network" in ckpt["critic"]:
-        net = ckpt["critic"]["network"]
-        for nome, param in net.items():
-            if nome.endswith("weight") and param.shape[-1] == 125:
-                # Linear layer: [out, 125] → [out, 128]
-                novo = torch.zeros(param.shape[0], 128, dtype=param.dtype)
-                novo[:, :125] = param
-                net[nome] = novo
-                mudadas[f"critic/{nome}"] = f"{param.shape} -> {novo.shape}"
-            elif nome.endswith("bias"):
-                # Bias stays [out]
-                pass
+def expande(ckpt: dict) -> tuple[dict, dict]:
+    """Expande IN-PLACE todo tensor com última dimensão 112→115 ou 125→128."""
+    mudadas: dict[str, str] = {}
 
-    # ========== normalizadores ==========
-    # O obs_normalizer é usado no ator; pode estar em "obs_normalizer" ou em
-    # "algorithm" → "obs_normalizer" dependendo da versão
-    def expande_normalizer(norm_dict, velho_tamanho: int, novo_tamanho: int):
-        """Expande mean/var/count de [velho] → [novo]."""
-        mudadas_local = {}
-        for chave in ["mean", "var", "count"]:
-            if chave not in norm_dict:
-                continue
-            param = norm_dict[chave]
-            if param.shape[0] != velho_tamanho:
-                continue
-            if chave == "count":
-                # count não muda
-                continue
-            novo = torch.zeros(novo_tamanho, dtype=param.dtype)
-            novo[:velho_tamanho] = param
-            if chave == "mean":
-                # append zeros
-                pass
-            elif chave == "var":
-                # append uns
-                novo[velho_tamanho:] = 1.0
-            norm_dict[chave] = novo
-            mudadas_local[chave] = f"{param.shape} -> {novo.shape}"
-        return mudadas_local
+    def caminha(obj, prefixo: str) -> None:
+        if not isinstance(obj, dict):
+            return
+        for k, v in list(obj.items()):
+            if isinstance(v, torch.Tensor) and v.ndim >= 1:
+                for velho, novo in _REGRAS:
+                    if v.shape[-1] == velho:
+                        # `_var`/`_std` do normalizador ganham UNS; todo o resto, zeros
+                        fill = 1.0 if ("_var" in str(k) or "_std" in str(k)) else 0.0
+                        obj[k] = _expande_tensor(v, velho, novo, fill)
+                        mudadas[f"{prefixo}{k}"] = (
+                            f"{tuple(v.shape)} -> {tuple(obj[k].shape)} (fill {fill})")
+                        break
+            elif isinstance(v, dict):
+                caminha(v, f"{prefixo}{k}/")
 
-    # Procura obs_normalizer em locais comuns
-    for caminho in [
-        ("obs_normalizer",),
-        ("algorithm", "obs_normalizer"),
-        ("actor_normalizer",),
-        ("actor", "normalizer"),
-    ]:
-        obj = ckpt
-        for k in caminho[:-1]:
-            if k in obj:
-                obj = obj[k]
-            else:
-                obj = None
-                break
-        if obj is not None and caminho[-1] in obj:
-            print(f"[INFO] Expandindo normalizer em {'/'.join(caminho)}")
-            local_mudadas = expande_normalizer(obj[caminho[-1]], 112, 115)
-            mudadas.update({f"{'/'.join(caminho)}/{k}": v for k, v in local_mudadas.items()})
-
-    # Procura obs_normalizer do crítico (é menos comum)
-    for caminho in [
-        ("critic_normalizer",),
-        ("critic", "normalizer"),
-    ]:
-        obj = ckpt
-        for k in caminho[:-1]:
-            if k in obj:
-                obj = obj[k]
-            else:
-                obj = None
-                break
-        if obj is not None and caminho[-1] in obj:
-            print(f"[INFO] Expandindo normalizer crítico em {'/'.join(caminho)}")
-            local_mudadas = expande_normalizer(obj[caminho[-1]], 125, 128)
-            mudadas.update({f"{'/'.join(caminho)}/{k}": v for k, v in local_mudadas.items()})
-
+    caminha(ckpt, "")
     return ckpt, mudadas
+
+
+def _encolhe(ckpt: dict) -> int:
+    """SÓ para o auto-teste: poda 115→112 e 128→125, o inverso da cirurgia.
+
+    ⚠ Poda SÓ os tensores que a cirurgia alvo de verdade (a camada de ENTRADA e o
+    normalizador). Uma poda genérica por última dimensão cortaria também camadas
+    OCULTAS cuja largura coincide com 128 (`mlp.4.bias`, `mlp.6.weight`) — no
+    arquivo real elas nunca têm 112/125 na última dimensão, então a EXPANSÃO
+    genérica não as toca; a poda tem de espelhar isso.
+    """
+    n = 0
+
+    def caminha(obj) -> None:
+        nonlocal n
+        if not isinstance(obj, dict):
+            return
+        for k, v in list(obj.items()):
+            if isinstance(v, torch.Tensor) and v.ndim >= 1:
+                if not ("mlp.0.weight" in str(k) or "obs_normalizer._" in str(k)):
+                    continue
+                for velho, novo in _REGRAS:
+                    if v.shape[-1] == novo:
+                        obj[k] = v[..., :velho].clone()
+                        n += 1
+                        break
+            elif isinstance(v, dict):
+                caminha(v)
+
+    caminha(ckpt)
+    return n
+
+
+def _auto_teste() -> int:
+    """Salva um checkpoint REAL do runner, poda para 112/125, expande e recarrega.
+
+    A poda é o que a primeira versão não fazia — sem ela o teste valida um
+    checkpoint que já nasceu 115 e passa sem exercitar nada.
+    """
+    from dataclasses import asdict
+
+    import g1_poc  # noqa: F401  (registra a task)
+    from g1_poc.env_cfg import make_g1_poc_env_cfg
+    from mjlab.envs import ManagerBasedRlEnv
+    from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+    from mjlab.tasks.registry import load_rl_cfg
+
+    env_cfg = make_g1_poc_env_cfg(play=True)
+    env_cfg.scene.num_envs = 2
+    agent_cfg = load_rl_cfg(g1_poc.TASK_ID)
+
+    base = ManagerBasedRlEnv(cfg=env_cfg, device="cpu")
+    env = RslRlVecEnvWrapper(base, clip_actions=agent_cfg.clip_actions)
+    runner = MjlabOnPolicyRunner(env, asdict(agent_cfg), device="cpu")
+
+    caminho = "/tmp/g1_poc_ckpt_115.pt"
+    runner.save(caminho)
+    ckpt = torch.load(caminho, map_location="cpu", weights_only=False)
+
+    podados = _encolhe(ckpt)
+    print(f"[AUTO-TESTE] poda 115/128 -> 112/125: {podados} tensores")
+    assert podados > 0, "a poda não achou tensor nenhum — a estrutura mudou?"
+
+    ckpt, mudadas = expande(ckpt)
+    print(f"[AUTO-TESTE] expansão: {len(mudadas)} tensores")
+    for chave, desc in sorted(mudadas.items()):
+        print(f"  {chave}: {desc}")
+    assert len(mudadas) == podados, (
+        f"a expansão ({len(mudadas)}) não desfez a poda ({podados})")
+
+    # os invariantes da cirurgia, medidos no próprio arquivo
+    ator = ckpt["actor_state_dict"]
+    w = ator["mlp.0.weight"]
+    assert w.shape[-1] == 115 and bool((w[:, 112:] == 0).all()), \
+        "as colunas novas do peso têm de ser ZERO (a política começa ignorando o canal)"
+    for k in ("obs_normalizer._var", "obs_normalizer._std"):
+        if k in ator:
+            assert bool((ator[k][..., 112:] == 1).all()), f"{k}: as colunas novas têm de ser UM"
+
+    caminho_saida = "/tmp/g1_poc_ckpt_expandido.pt"
+    torch.save(ckpt, caminho_saida)
+
+    # recarrega pelo MESMO caminho do train.py (load default, strict)
+    runner.load(caminho_saida)
+    print("[AUTO-TESTE] recarregado no runner 115/128, pelo caminho do train.py — OK")
+    return 0
 
 
 def main() -> int:
@@ -126,70 +165,11 @@ def main() -> int:
     p.add_argument("--saida", type=str, default=None,
                    help="checkpoint de saída (115/128)")
     p.add_argument("--auto-teste", action="store_true",
-                   help="testa com um checkpoint vazio")
+                   help="salva um checkpoint real, PODA para 112/125, expande e recarrega")
     args = p.parse_args()
 
     if args.auto_teste:
-        print("[AUTO-TESTE] Gerando checkpoint vazio...")
-        from dataclasses import asdict
-        import g1_poc  # noqa: F401 (registra a task)
-        from mjlab.envs import ManagerBasedRlEnv
-        from mjlab.rl import RslRlVecEnvWrapper, MjlabOnPolicyRunner
-        from mjlab.tasks.registry import load_rl_cfg
-
-        # Monta a task antes de tentar carregar as configs dela
-        from g1_poc.env_cfg import make_g1_poc_env_cfg
-        env_cfg = make_g1_poc_env_cfg(play=True)
-
-        # Carrega as configs
-        agent_cfg = load_rl_cfg(g1_poc.TASK_ID)
-
-        base = ManagerBasedRlEnv(cfg=env_cfg, device="cpu")
-        env = RslRlVecEnvWrapper(base, clip_actions=agent_cfg.clip_actions)
-        runner = MjlabOnPolicyRunner(env, asdict(agent_cfg), device="cpu")
-
-        ckpt_path_temp = "/tmp/g1_poc_test_ckpt.pt"
-        print(f"[AUTO-TESTE] Salvando em {ckpt_path_temp}...")
-        runner.save(ckpt_path_temp)
-
-        ckpt_entrada = torch.load(ckpt_path_temp, map_location="cpu", weights_only=False)
-        print(f"[AUTO-TESTE] Checkpoint carregado, tamanho: {len(ckpt_entrada)} chaves")
-
-        # Simula a estrutura: força entrada do ator para 112 e crítico para 125
-        # (pode estar diferente, mas vamos documentar o que vimos)
-        print("[AUTO-TESTE] Estrutura REAL do checkpoint:")
-        for chave, valor in sorted(ckpt_entrada.items()):
-            if isinstance(valor, dict):
-                print(f"  {chave}: dict com {len(valor)} itens")
-                for k2, v2 in sorted(valor.items()):
-                    if isinstance(v2, torch.Tensor):
-                        print(f"    {k2}: {v2.shape}")
-                    elif isinstance(v2, dict):
-                        print(f"    {k2}: dict com {len(v2)} itens")
-            elif isinstance(valor, torch.Tensor):
-                print(f"  {chave}: {valor.shape}")
-
-        ckpt_saida_path = "/tmp/g1_poc_test_ckpt_expanded.pt"
-        print(f"\n[AUTO-TESTE] Expandindo para {ckpt_saida_path}...")
-        ckpt_saida, mudadas = expande(ckpt_entrada)
-        torch.save(ckpt_saida, ckpt_saida_path)
-
-        print("\n[AUTO-TESTE] Chaves modificadas:")
-        for chave, descricao in sorted(mudadas.items()):
-            print(f"  {chave}: {descricao}")
-
-        # Validação: tenta carregar com contrato 115/128
-        print(f"\n[AUTO-TESTE] Validando carregamento no runner novo...")
-        base2 = ManagerBasedRlEnv(cfg=make_g1_poc_env_cfg(play=True), device="cpu")
-        env2 = RslRlVecEnvWrapper(base2, clip_actions=agent_cfg.clip_actions)
-        runner2 = MjlabOnPolicyRunner(env2, asdict(agent_cfg), device="cpu")
-        try:
-            runner2.load(ckpt_saida_path, load_cfg={"actor": True}, strict=True, map_location="cpu")
-            print("[AUTO-TESTE] ✓ Carregamento bem-sucedido!")
-            return 0
-        except Exception as e:
-            print(f"[AUTO-TESTE] ✗ Erro ao carregar: {e}")
-            return 1
+        return _auto_teste()
 
     if args.entrada is None or args.saida is None:
         p.print_help()
@@ -197,34 +177,27 @@ def main() -> int:
 
     entrada = pathlib.Path(args.entrada).expanduser()
     saida = pathlib.Path(args.saida).expanduser()
-
     if not entrada.is_file():
         print(f"Erro: arquivo de entrada não encontrado: {entrada}")
         return 1
 
     print(f"Carregando {entrada}...")
-    try:
-        ckpt = torch.load(str(entrada), map_location="cpu", weights_only=False)
-    except Exception as e:
-        print(f"Erro ao carregar checkpoint: {e}")
+    ckpt = torch.load(str(entrada), map_location="cpu", weights_only=False)
+
+    ckpt, mudadas = expande(ckpt)
+    print(f"\nChaves modificadas ({len(mudadas)}):")
+    for chave, desc in sorted(mudadas.items()):
+        print(f"  {chave}: {desc}")
+
+    # ⚠ zero mudanças = o arquivo NÃO era 112/125 (já expandido? estrutura nova?).
+    # Salvar uma cópia intacta e seguir foi exatamente o modo de falha de 20/08.
+    if not mudadas:
+        print("\nERRO: nenhum tensor com última dimensão 112/125 — nada a expandir.")
+        print("O arquivo já está expandido, ou a estrutura do checkpoint mudou.")
         return 1
 
-    print("Expandindo...")
-    ckpt_expandido, mudadas = expande(ckpt)
-
-    print("Salvando em", saida)
-    torch.save(ckpt_expandido, str(saida))
-
-    print("\nChaves modificadas:")
-    if mudadas:
-        for chave, descricao in sorted(mudadas.items()):
-            print(f"  {chave}: {descricao}")
-    else:
-        print("  (nenhuma)")
-
-    print(f"\nResumo: arquivo salvo em {saida}")
-    print(f"Validação: recarregue em um runner com contrato 115/128")
-
+    torch.save(ckpt, str(saida))
+    print(f"\nSalvo em {saida}")
     return 0
 
 
