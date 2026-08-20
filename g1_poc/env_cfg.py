@@ -8,7 +8,7 @@ O que este arquivo muda:
     1. terreno plano, e a mobília entra na cena
     2. os sensores de contato
     3. o comando: `caixa_alvo` (novo, PRIMEIRO) e `twist` (subclasse)
-    4. a observação: sai `base_lin_vel` do ator, entram os 5 canais de caixa + `face_normal_b`
+    4. a observação: os 5 canais de caixa + `face_normal_b` + `base_lin_vel` ruidoso por último
     5. o crítico: 13 canais privilegiados
     6. a `posture` ganha o quarto regime (FORMA do episódio)
     7. os 9 termos de tarefa
@@ -17,7 +17,7 @@ O que este arquivo muda:
    10. o currículo em 4 partes: forma, nível, gate por competência, qualidade
    11. a máquina de elo (§7)
 
-Contrato de observação: **ator 115, crítico 128**. Ele é derivado, não digitado —
+Contrato de observação: **ator 118, crítico 128**. Ele é derivado, não digitado —
 o `smoke.py` o confere contra o `observation_manager`.
 """
 from __future__ import annotations
@@ -55,8 +55,10 @@ CMD_CAIXA = "caixa_alvo"
 CMD_TWIST = "twist"
 
 # largura esperada da observação. Derivada, e conferida no smoke.
-# (+3 do canal `face_normal_b`, que a cirurgia de checkpoint appenda às colunas)
-OBS_ATOR = 115
+# 112 do esqueleto + 3 do `face_normal_b` (20/08) + 3 do `base_lin_vel` de volta
+# ao ator (20/08, §5.1 revertida). Os canais novos entram sempre POR ÚLTIMO: a
+# cirurgia (`expande_checkpoint`) é um append de colunas.
+OBS_ATOR = 118
 OBS_CRITICO = 128
 
 
@@ -187,9 +189,18 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     ator = cfg.observations["actor"].terms
     critico = cfg.observations["critic"].terms
 
-    # `base_lin_vel` SAI do ator. Num humanoide real ela não é medida de forma
-    # confiável — é por isso que a task de tracking da Unitree se chama
-    # "No-State-Estimation". Ela fica só no crítico, que é descartado.
+    # `base_lin_vel` sai DAQUI (posição 0 do fabricante) e volta no FIM do dict —
+    # o contrato exige canal novo por último, para a cirurgia de checkpoint ser um
+    # append. ⚠ A §5.1 o tinha REMOVIDO de vez ("No-State-Estimation") e foi
+    # revertida em 20/08, com gatilho medido: aquela escola só funciona COM
+    # histórico de observação, e nós tiramos o canal sem pôr o histórico — num
+    # quadro único a velocidade da base é irrecuperável, e 50% do sinal de
+    # locomoção (track_lin, peso 2,0) era função de estado invisível. Medido na
+    # it 5631: 530 iterações com ~30% das transições de andar (o controlador
+    # entregou o dado) e a duração do episódio de locomoção PIOROU (112 -> 26
+    # passos). A receita que volta é a do próprio fabricante: canal + Unoise ±0,5
+    # (SNR ≈ 5) — no deploy ele é alimentado pelo estimador de bordo da Unitree,
+    # e o ruído pesado do treino é a tolerância à imprecisão dele.
     ator.pop("base_lin_vel", None)
 
     # os termos de pé do crítico do fabricante saem: as dimensões deles não são
@@ -232,7 +243,16 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         ),
     }
     ator.update(caixa_ator)
-    # no crítico, copiar caixa_ator mas remover face_normal_b, que entra depois de topo_prateleira
+    # `base_lin_vel` volta ao ator POR ÚLTIMO (§5.1 revertida em 20/08 — ver o
+    # comentário do pop acima), na receita do fabricante: sensor + Unoise ±0,5.
+    ator["base_lin_vel"] = ObservationTermCfg(
+        func=mdp.builtin_sensor,
+        params={"sensor_name": "robot/imu_lin_vel"},
+        noise=Unoise(n_min=-0.5, n_max=0.5),
+    )
+    # no crítico, copiar caixa_ator mas remover face_normal_b, que entra depois de
+    # topo_prateleira. O `base_lin_vel` ruidoso do ator NÃO entra no crítico: ele
+    # já tem a versão LIMPA, privilegiada, na posição 0.
     critico.update({n: t for n, t in caixa_ator.items() if n != "face_normal_b"})
 
     # -------------------------------------------------- 5. crítico privilegiado

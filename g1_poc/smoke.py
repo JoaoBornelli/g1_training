@@ -81,10 +81,18 @@ def main() -> int:
     n_critico = obs["critic"].shape[-1]
     checa(n_ator == OBS_ATOR, f"ator == {OBS_ATOR} (medido {n_ator})")
     checa(n_critico == OBS_CRITICO, f"crítico == {OBS_CRITICO} (medido {n_critico})")
-    checa("base_lin_vel" not in cfg.observations["actor"].terms,
-          "`base_lin_vel` NÃO está no ator (não é medível no robô real)")
+    # ⚠ §5.1 REVERTIDA em 20/08: o canal volta ao ator, POR ÚLTIMO, com Unoise
+    # ±0,5 (receita do fabricante). A escola "sem o canal" exige histórico de
+    # observação, que não temos — medido: 530 iterações com 30% de dados de andar
+    # e a duração do episódio de locomoção caiu de 112 para 26 passos.
+    _ator_terms = list(cfg.observations["actor"].terms)
+    checa(_ator_terms[-1] == "base_lin_vel",
+          f"`base_lin_vel` está no ator, POR ÚLTIMO (medido {_ator_terms[-1]!r}) — "
+          f"canal novo no fim é o contrato da cirurgia")
+    checa(cfg.observations["actor"].terms["base_lin_vel"].noise is not None,
+          "e com ruído (±0,5, a tolerância do estimador de bordo)")
     checa("base_lin_vel" in cfg.observations["critic"].terms,
-          "`base_lin_vel` está no crítico (privilégio legítimo)")
+          "`base_lin_vel` LIMPO está no crítico (privilégio legítimo)")
 
     print("== 5. termos e terminações ==")
     # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a

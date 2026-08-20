@@ -1,18 +1,21 @@
-"""Expande um checkpoint do ator 112/crítico 125 para 115/128 (`face_normal_b`).
+"""Expande um checkpoint para o contrato ATUAL: ator 118 / crítico 128.
+
+Aceita as duas larguras históricas do ator — 112 (esqueleto) e 115
+(`face_normal_b`) — e o crítico 125.
 
     python -m g1_poc.expande_checkpoint --entrada model_5100.pt --saida model_5100_115.pt
     python -m g1_poc.expande_checkpoint --auto-teste
 
 O canal novo é o ÚLTIMO dos dois grupos, de propósito: a cirurgia é um APPEND na
-última dimensão de todo tensor cuja última dimensão é 112 (→115) ou 125 (→128),
-onde quer que ele esteja no checkpoint. Isso cobre, com uma regra só:
+última dimensão de todo tensor cuja última dimensão é 112 ou 115 (→118) ou 125
+(→128), onde quer que ele esteja no checkpoint. Isso cobre, com uma regra só:
 
-    actor_state_dict / mlp.0.weight            [512, 112] -> [512, 115]  zeros
-    actor_state_dict / obs_normalizer._mean    [1, 112]   -> [1, 115]    zeros
-    actor_state_dict / obs_normalizer._var     [1, 112]   -> [1, 115]    UNS
-    actor_state_dict / obs_normalizer._std     [1, 112]   -> [1, 115]    UNS
+    actor_state_dict / mlp.0.weight            [512, 112|115] -> [512, 118]  zeros
+    actor_state_dict / obs_normalizer._mean    [1, 112|115]   -> [1, 118]    zeros
+    actor_state_dict / obs_normalizer._var     [1, 112|115]   -> [1, 118]    UNS
+    actor_state_dict / obs_normalizer._std     [1, 112|115]   -> [1, 118]    UNS
     critic_state_dict / (idem, 125 -> 128)
-    optimizer_state_dict / state / * / exp_avg(_sq)  [512, 112|125] -> zeros
+    optimizer_state_dict / state / * / exp_avg(_sq)  -> zeros
 
 Zeros nas colunas de peso: a política começa IGNORANDO o canal novo e aprende a
 usá-lo. Uns em `_var`/`_std`: variância unitária é o estado neutro do
@@ -25,8 +28,8 @@ normalizador `mean/var/count` — estrutura que NÃO existe no checkpoint do mjl
 — e o auto-teste "passava" sem nunca exercitar a expansão (criava um checkpoint
 já-115 e o recarregava). Medido em 20/08 no Kaggle: "Chaves modificadas:
 (nenhuma)" e o resume morria com size mismatch. O auto-teste de agora PODA um
-checkpoint recém-salvo para 112/125 antes de expandir, e falha se a poda ou a
-expansão tocarem zero tensores.
+checkpoint recém-salvo para as larguras anteriores antes de expandir, e falha se
+a poda ou a expansão tocarem zero tensores.
 """
 from __future__ import annotations
 
@@ -36,8 +39,10 @@ import sys
 
 import torch
 
-# (última dimensão de entrada, última dimensão de saída)
-_REGRAS = ((112, 115), (125, 128))
+# (última dimensão de entrada, última dimensão de saída) — TODA largura histórica
+# do ator migra para a atual: 112 (esqueleto) e 115 (face_normal_b) viram 118
+# (base_lin_vel de volta, §5.1 revertida em 20/08); o crítico ficou em 128.
+_REGRAS = ((112, 118), (115, 118), (125, 128))
 
 
 def _expande_tensor(t: torch.Tensor, velho: int, novo: int, fill: float) -> torch.Tensor:
@@ -91,7 +96,10 @@ def _encolhe(ckpt: dict) -> int:
             if isinstance(v, torch.Tensor) and v.ndim >= 1:
                 if not ("mlp.0.weight" in str(k) or "obs_normalizer._" in str(k)):
                     continue
-                for velho, novo in _REGRAS:
+                # poda para a largura IMEDIATAMENTE anterior (115/125), que é a
+                # migração que o usuário fará; o caminho 112→118 é conferido à
+                # parte, num dict sintético, no auto-teste
+                for velho, novo in ((115, 118), (125, 128)):
                     if v.shape[-1] == novo:
                         obj[k] = v[..., :velho].clone()
                         n += 1
@@ -130,7 +138,7 @@ def _auto_teste() -> int:
     ckpt = torch.load(caminho, map_location="cpu", weights_only=False)
 
     podados = _encolhe(ckpt)
-    print(f"[AUTO-TESTE] poda 115/128 -> 112/125: {podados} tensores")
+    print(f"[AUTO-TESTE] poda para as larguras anteriores (115/125): {podados} tensores")
     assert podados > 0, "a poda não achou tensor nenhum — a estrutura mudou?"
 
     ckpt, mudadas = expande(ckpt)
@@ -143,27 +151,38 @@ def _auto_teste() -> int:
     # os invariantes da cirurgia, medidos no próprio arquivo
     ator = ckpt["actor_state_dict"]
     w = ator["mlp.0.weight"]
-    assert w.shape[-1] == 115 and bool((w[:, 112:] == 0).all()), \
+    assert w.shape[-1] == 118 and bool((w[:, 115:] == 0).all()), \
         "as colunas novas do peso têm de ser ZERO (a política começa ignorando o canal)"
     for k in ("obs_normalizer._var", "obs_normalizer._std"):
         if k in ator:
-            assert bool((ator[k][..., 112:] == 1).all()), f"{k}: as colunas novas têm de ser UM"
+            assert bool((ator[k][..., 115:] == 1).all()), f"{k}: as colunas novas têm de ser UM"
+
+    # o caminho LEGADO 112 -> 118 (checkpoints de antes do face_normal_b), num
+    # dict sintético — barato e fecha a regra que o strip real não exercita
+    fake = {"actor_state_dict": {
+        "mlp.0.weight": torch.zeros(4, 112),
+        "obs_normalizer._std": torch.ones(1, 112),
+    }}
+    fake, m2 = expande(fake)
+    assert fake["actor_state_dict"]["mlp.0.weight"].shape == (4, 118), \
+        f"legado 112 nao migrou para 118: {m2}"
+    print("[AUTO-TESTE] caminho legado 112 -> 118: OK")
 
     caminho_saida = "/tmp/g1_poc_ckpt_expandido.pt"
     torch.save(ckpt, caminho_saida)
 
     # recarrega pelo MESMO caminho do train.py (load default, strict)
     runner.load(caminho_saida)
-    print("[AUTO-TESTE] recarregado no runner 115/128, pelo caminho do train.py — OK")
+    print("[AUTO-TESTE] recarregado no runner 118/128, pelo caminho do train.py — OK")
     return 0
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--entrada", type=str, default=None,
-                   help="checkpoint de entrada (112/125)")
+                   help="checkpoint de entrada (ator 112 ou 115 / crítico 125)")
     p.add_argument("--saida", type=str, default=None,
-                   help="checkpoint de saída (115/128)")
+                   help="checkpoint de saída (ator 118 / crítico 128)")
     p.add_argument("--auto-teste", action="store_true",
                    help="salva um checkpoint real, PODA para 112/125, expande e recarrega")
     args = p.parse_args()

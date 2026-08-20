@@ -197,7 +197,7 @@ Esse par modela melhor o cone de atrito de uma pega. Teste depois da POC, com um
 
 ## 5. Observação
 
-### 5.1 Ator — 115 canais
+### 5.1 Ator — 118 canais
 
 | termo | dim | ruído | origem |
 |---|---:|---|---|
@@ -213,10 +213,24 @@ Esse par modela melhor o cone de atrito de uma pega. Teste depois da POC, com um
 | `dir_alvo` | 3 | — | do repositório |
 | **`caixa_valida`** | **1** | — | **novo** |
 | **`face_normal_b`** | **3** | — | **novo, 20/08** |
+| **`base_lin_vel`** | **3** | **`Unoise ±0,5`** | **`velocity`, DE VOLTA em 20/08** |
 
 `enable_corruption = True`.
 
-⚠ **`face_normal_b` entrou em 20/08, e o contrato foi de 112 para 115.** É a normal ATUAL
+⚠ **REVERSÃO (20/08, com gatilho medido): o `base_lin_vel` volta ao ator.** Esta seção o
+tinha removido seguindo a escola "No-State-Estimation" da Unitree — mas aquela escola só
+funciona **com histórico de observação** (a velocidade vira inferível da sequência), e nós
+tiramos o canal sem pôr o histórico: num quadro único a velocidade da base é
+irrecuperável, e 50% do sinal positivo de locomoção (`track_lin`, peso 2,0) era função de
+estado invisível. O gatilho: it 5631, **530 iterações com ~30% das transições de andar**
+(o controlador da §11 entregou o dado) e a duração do episódio de locomoção PIOROU
+(112 → 26 passos), com até os envs parados caindo. A receita que volta é a do próprio
+fabricante — canal + `Unoise ±0,5` (SNR ≈ 5) — cujo `velocity` anda com ela. No deploy o
+canal é alimentado pelo estimador de velocidade de bordo da Unitree; o ruído pesado do
+treino é a tolerância à imprecisão dele (§21.5).
+
+⚠ **`face_normal_b` entrou em 20/08 (112 → 115), e o `base_lin_vel` voltou no mesmo dia
+(115 → 118) — sempre POR ÚLTIMO, porque a migração de checkpoint é um append.** É a normal ATUAL
 da face alvo, no frame da base — o ator via o DESEJADO (`dir_alvo`) e não via o atual, e a
 orientação da caixa só era recuperável pela diferença dos dois vetores palma→face, dominada
 pela distância. O `reorientar` fecha por `Δθ < 20°`: sem o canal, a coordenada era
@@ -248,8 +262,9 @@ canal depois invalida todos os checkpoints. O bit entra antes do primeiro bloco.
 
 ### 5.2 Crítico — 128 canais
 
-O crítico recebe os 115 canais do ator, sem ruído, mais 13 canais privilegiados
-(`face_normal_b` fica por último também no crítico, depois dos privilegiados):
+O crítico recebe 115 dos 118 canais do ator, sem ruído — o `base_lin_vel` ruidoso do
+ator NÃO entra: o crítico já tem a versão LIMPA, privilegiada — mais 13 canais
+privilegiados (`face_normal_b` fica por último também no crítico):
 
 | termo | dim |
 |---|---:|
@@ -1271,7 +1286,8 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
 
 1. A task registra, e o nome não colide.
 2. O cfg instancia, e 5 passos rodam com 8 envs.
-3. `obs[actor]` tem 112 canais. `obs[critic]` tem 125.
+3. `obs[actor]` tem 118 canais. `obs[critic]` tem 128. E o último termo do ator é o
+   canal mais NOVO — o contrato do append da cirurgia.
 4. Cada coluna de `_step_reward` é finita. Ele nomeia a coluna que falhar.
 5. O comando `caixa_alvo` tem 10 números, e as quatro fatias cobrem tudo sem sobreposição.
 6. Existem 23 termos de recompensa (13 + `self_collisions` + 9) e 4 terminações, e os 9
@@ -1488,6 +1504,11 @@ informar **a que altura a caixa está do chão**. É o único número que não �
 E desde 20/08 a percepção também alimenta o canal `face_normal_b` (§5.1): a normal ATUAL da
 face alvo, no frame da base. Não é medição nova — é a mesma orientação da caixa que já
 preenche `face_alvo`/`dir_alvo` ("os medidos" da §21.2), projetada de volta.
+
+**Segunda exceção (20/08): o `base_lin_vel`.** O ator passa a receber a velocidade linear
+da base, do **estimador de bordo** da Unitree — não é medição direta, e é por isso que o
+treino a suja com `Unoise ±0,5`: a política aprende a usar um sinal com SNR ≈ 5, que é a
+tolerância à imprecisão do estimador real. É a mesma receita do `velocity` do fabricante.
 
 ### 21.6 Combinações que não funcionam
 
