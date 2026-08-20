@@ -1,4 +1,4 @@
-"""Os 5 termos de tarefa do g1_poc (§8.2).
+"""Os 8 termos de tarefa do g1_poc (§8.2).
 
 Os 13 termos de fundação vêm do `velocity` do mjlab, sem uma linha aqui.
 
@@ -8,6 +8,8 @@ Desenho:
     precise_ori = reaching × exp(−Δθ² / 0,40²)
     squeeze     = tanh( min(F_n_esq, F_n_dir) / F_ref )
     unload      = 1 − F_apoio/m·g                    — a PONTE do platô do grasp
+    postura_ereta = rampa2(pelve) × preensão × descarga — condição 3 do fecho
+    sustentacao = rampa(t / 1,0 s)                    — 0,98 s ≡ 0,00 s, agora rampa
     joint_vel_hinge = (|v| − v_max)⁺²
 
 ⚠ O `unload` entrou em 19/08, depois de o bloco 1 rodar 1884 iterações com sucesso
@@ -15,8 +17,9 @@ ZERO. O `squeeze` saturou em 6× `F_ref` (derivada 1e-5) e o robô PRENSAVA a ca
 contra a prateleira — apoio em 138% do peso. Ele soma ao `squeeze`, não o substitui.
 Ver o docstring de `unload`.
 
-Os quatro primeiros multiplicam por `caixa_valida`. **Isto é obrigatório**: com o
-bit em 0 os canais da caixa são zerados, e um vetor zerado dá exp(0) = 1. Sem a
+Os sete primeiros (staged, precise_pos, precise_ori, squeeze, unload, postura_ereta,
+sustentacao) multiplicam por `caixa_valida`. **Isto é obrigatório**: com o bit em 0
+os canais da caixa são zerados, e um vetor zerado dá exp(0) = 1. Sem a
 multiplicação, "não existe caixa" pagaria o valor MÁXIMO.
 """
 from __future__ import annotations
@@ -42,34 +45,54 @@ def _valida(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     return env.command_manager.get_term(command_name).command[:, 9]
 
 
+def _preensao(env: ManagerBasedRlEnv, palm_sensors: tuple[str, ...]) -> torch.Tensor:
+    """[B] bool — as DUAS palmas em contato com a caixa.
+
+    Gate compartilhado por `unload` e `postura_ereta`. Uma palma sozinha não conta:
+    sem preensão bimanual os dois termos pagariam por caminhos que não são erguer.
+    """
+    pega: torch.Tensor | None = None
+    for nome in palm_sensors:
+        found = env.scene[nome].data.found
+        assert found is not None, f"sensor '{nome}' precisa do field 'found'."
+        aqui = (found > 0).any(dim=-1)
+        pega = aqui if pega is None else (pega & aqui)
+    assert pega is not None, "palm_sensors vazio"
+    return pega
+
+
 def _erro_pos_sq(env: ManagerBasedRlEnv, command_name: str, object_name: str):
     obj: Entity = env.scene[object_name]
     alvo = env.command_manager.get_term(command_name).command[:, 0:3]
     return torch.sum(torch.square(alvo - obj.data.root_link_pos_w), dim=-1)
 
 
-def _reaching(
-    env: ManagerBasedRlEnv,
-    object_name: str,
-    lateral_offset: float,
-    std: float,
-    asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
+def _reaching(env, object_name, lateral_offset, std, asset_cfg):
     """O `reaching` BIMANUAL.
 
     O `reaching` do `lift_cube` do mjlab mede UM site (um braço com garra). Aqui
     cada palma mira a SUA face lateral, e a média das duas distâncias entra no
     kernel: uma mão atrasada derruba o gradiente, portanto as duas se aproximam
     juntas. O máximo do termo é a pose PRÉ-GRASP, com as mãos flanqueando a caixa.
+
+    ⚠ O σ é `max(std, distância inicial palma→face do elo)` — `env.poc_reach_inicial`,
+    escrito pelo comando no começo do elo. Com σ fixo o gradiente de aproximação cai
+    1391× entre a prateleira a 0,55 m e a 0,04 m (medido 20/08): os níveis 3+ do
+    currículo viravam sorte. É a MESMA correção que a §8.2 fez no `bringing`.
+    `std` vira o PISO (e o fallback quando o buffer não existe — smoke chama a
+    função fora do laço do env).
     """
     robot: Entity = env.scene[asset_cfg.name]
-    palmas = robot.data.site_pos_w[:, asset_cfg.site_ids]          # [B,2,3]
-    alvos = alvos_das_palmas(env, object_name, lateral_offset)      # [B,2,3]
-    d2 = torch.sum(torch.square(palmas - alvos), dim=-1)           # [B,2]
-    return torch.exp(-d2.mean(dim=-1) / std**2)
+    palmas = robot.data.site_pos_w[:, asset_cfg.site_ids]
+    alvos = alvos_das_palmas(env, object_name, lateral_offset)
+    d2 = torch.sum(torch.square(palmas - alvos), dim=-1)
+    sigma = getattr(env, "poc_reach_inicial", None)
+    if sigma is None:
+        return torch.exp(-d2.mean(dim=-1) / std**2)
+    return torch.exp(-d2.mean(dim=-1) / sigma.clamp(min=std) ** 2)
 
 
-# ----------------------------------------------------------------- os 5 termos
+# ----------------------------------------------------------- os 8 termos
 def staged(
     env: ManagerBasedRlEnv,
     command_name: str,
@@ -240,11 +263,7 @@ def unload(
     peso = (massa * 9.81).clamp(min=1e-3)
     fracao = (1.0 - apoio_z / peso).clamp(0.0, 1.0)
 
-    pega = torch.ones_like(fracao, dtype=torch.bool)
-    for nome in palm_sensors:
-        found = env.scene[nome].data.found
-        assert found is not None, f"sensor '{nome}' precisa do field 'found'."
-        pega &= (found > 0).any(dim=-1)
+    pega = _preensao(env, palm_sensors)
 
     # o repouso é o topo SORTEADO da prateleira, e não uma constante: o `reset_cena`
     # grava `env.poc_topo` por env, e o currículo alarga a faixa no passo 4.
@@ -253,6 +272,70 @@ def unload(
     nao_caiu = obj.data.root_link_pos_w[:, 2] > (repouso - tol_queda)
 
     return fracao * pega.float() * nao_caiu.float() * _valida(env, command_name)
+
+
+def postura_ereta(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    palm_sensors: tuple[str, ...],
+    support_sensor: str,
+    massa_attr: str,
+    pelve_min: float,
+    rampa: float,
+    rampa_fina: float,
+    frac_descarga: float,
+    asset_cfg: SceneEntityCfg = _ROBOT,
+) -> torch.Tensor:
+    """Rampa contínua na altura da pelve, gateada por preensão E descarga (§8.2.3).
+
+    A condição 3 do fecho do `pegar` (§7.2) exige `pelve >= 0,65 m` e nada pagava
+    por ela na coordenada certa: quem precifica a pelve é só a `pose`, a ~0,73/m
+    (o default do G1 é o KNEES_BENT_KEYFRAME, pelve em 0,76 m). O `precise_pos` é
+    INDIFERENTE à pelve abaixo do alvo, e CONTRÁRIO acima (−16,2/m no fecho) —
+    por isso a rampa tem uma parte FINA, íngreme perto de `pelve_min`.
+
+    A rampa em DUAS partes (medido 20/08):
+        fracao = 0,5·clamp((z − (pelve_min − rampa)) / rampa)
+               + 0,5·clamp((z − (pelve_min − rampa_fina)) / rampa_fina)
+    longa 0,20→0,65 (o nível 4 pega com a pelve a 0,267 m — sem ela, zona morta em
+    33% das pegas) e fina 0,57→0,65 (14,7/m com peso 2,0, contra os −16,2/m do
+    `precise_pos` no fecho). Satura em `pelve_min`: a régua não pede mais, e pagar
+    por mais convidaria a ponta dos pés.
+
+    Os DOIS gates, e o que cada um fecha (mesmo idioma do `unload`):
+    - preensão bimanual: antes de ter a caixa, agachar para a pega baixa sai de
+      graça — sem este gate o termo brigaria com o `staged`.
+    - descarga (`F_apoio < frac_descarga·m·g`): sem ele, encostar as palmas e ficar
+      de pé com a caixa APOIADA paga a rampa inteira — +2,0/s exatamente no platô
+      "encosta e para" que o bloco 1 mediu.
+    """
+    robot: Entity = env.scene[asset_cfg.name]
+    z = robot.data.root_link_pos_w[:, 2]
+    f_longa = ((z - (pelve_min - rampa)) / rampa).clamp(0.0, 1.0)
+    f_fina = ((z - (pelve_min - rampa_fina)) / rampa_fina).clamp(0.0, 1.0)
+    fracao = 0.5 * f_longa + 0.5 * f_fina
+
+    f = env.scene[support_sensor].data.force
+    assert f is not None, f"sensor '{support_sensor}' precisa do field 'force'."
+    apoio_z = f[..., 2].abs().sum(dim=-1)
+    peso = (getattr(env, massa_attr) * 9.81).clamp(min=1e-3)
+    descarregada = apoio_z < frac_descarga * peso
+
+    pega = _preensao(env, palm_sensors)
+    return fracao * pega.float() * descarregada.float() * _valida(env, command_name)
+
+
+def sustentacao(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Rampa no TEMPO dentro da condição de fecho (§8.2.4).
+
+    O fecho exige as 4 condições por 1,0 s ININTERRUPTO, e nenhum termo
+    diferenciava 0,98 s de 0,00 s — o degrau que fazia o push (o único fator que
+    degradava o sucesso, medido) decidir o currículo. Esta é a rampa na coordenada
+    que faltava: o cronômetro do próprio comando.
+    """
+    cmd = env.command_manager.get_term(command_name)
+    fracao = (cmd._sustenta / cmd.cfg.sustenta_pegar_s).clamp(0.0, 1.0)
+    return fracao * _valida(env, command_name)
 
 
 def joint_vel_hinge(

@@ -18,7 +18,6 @@ class Cena:
     caixa_meia_aresta: tuple[float, float, float] = (0.10, 0.10, 0.10)
     caixa_massa: float = 1.0
     caixa_xy: tuple[float, float] = (0.32, 0.00)   # borda perto do robô (lição 16/07)
-    caixa_jitter_x: tuple[float, float] = (0.00, 0.20)
     caixa_jitter_y: tuple[float, float] = (-0.18, 0.18)
     caixa_jitter_yaw_deg: float = 15.0
 
@@ -73,6 +72,57 @@ class Alvo:
     botar_topo_piso: float = 0.30    # uma mesa real tem 0.70 a 0.80 m
     botar_topo_teto: float = 0.80
 
+    # folga entre o topo NOVO da prateleira e o fundo da caixa segurada, no
+    # instante em que o `pegar` fecha na cadeia `pegar`->`botar` (§7.3).
+    # ⚠ A §7.3 e a §10.1 se CONTRADIZEM: a §7.3 garante segurança dizendo "o topo
+    # novo fica no máximo em 0,55 m", e a §10.1 manda sortear a colocação em
+    # 0,30-0,80 m. Com a caixa segurada a 0,82 m o fundo dela está em 0,72 m, e uma
+    # laje em 0,80 m nasceria DENTRO da caixa. O teto efetivo é
+    # `fundo_da_caixa - botar_folga_laje`, resolvido por env. Consumido em MACRO 2.
+    botar_folga_laje: float = 0.05
+
+
+@dataclass
+class Celulas:
+    """§10.1 — a célula que cada nível seleciona. Sete níveis, de 0 a 6.
+
+    Três regras da tabela, e elas explicam por que só o PISO varia:
+
+    - o TETO do topo é 0,55 m em todo nível (`Cena.prateleira_topo_teto`). O robô
+      continua treinando a altura que domina.
+    - o PISO da carga é 1 kg em todo nível (`Cena.caixa_massa`). Mesmo motivo.
+    - o nível ACRESCENTA cadeias. Ele não substitui cadeias.
+
+    ⚠ O nível 6 da §10.1 pede rotação no eixo HORIZONTAL, que exige tombar a caixa.
+    É o Risco 1 da §19, e o G1 não tem mão. A célula do 6 fica igual à do 5, e os
+    critérios de aceite da §0 não pedem o 6.
+
+    ⚠ `topo_min[4:] = 0,04` é a MESMA laje de `Cena.prateleira_topo_piso = 0,04` —
+    dois knobs, um número físico. Quem mudar um tem de mudar o outro.
+    """
+    topo_min: tuple[float, ...] = (0.55, 0.45, 0.30, 0.15, 0.04, 0.04, 0.04)
+    carga_max: tuple[float, ...] = (1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0)
+    ang_max_deg: tuple[float, ...] = (0.0, 0.0, 0.0, 45.0, 90.0, 180.0, 180.0)
+    # ⚠ O jitter x da caixa também é da célula (auditoria de travas, 20/08): com o
+    # topo a 0,04 m, poses de pega só existem até x relativo ≈ 0,45 — com o jitter
+    # de 0,20 fixo, 60% dos episódios do nível 4 exigiriam um passo à frente, que o
+    # twist zerado cobra (−0,44/s) e nenhum termo de marcha paga.
+    jitter_x_max: tuple[float, ...] = (0.20, 0.20, 0.20, 0.15, 0.08, 0.08, 0.08)
+    # Fração de cada cadeia, na ordem
+    #   (`pegar`, `reorientar`->`pegar`, `pegar`->`carregar`, `pegar`->`botar`).
+    # Somam 1,0 em cada nível. ⚠ Só a máquina de elo consome isto (MACRO 2); em
+    # MACRO 1 o campo fica declarado e não lido — é a tabela da §10.1 inteira, num
+    # lugar só.
+    cadeias: tuple[tuple[float, float, float, float], ...] = (
+        (1.00, 0.00, 0.00, 0.00),
+        (1.00, 0.00, 0.00, 0.00),
+        (1.00, 0.00, 0.00, 0.00),
+        (0.50, 0.50, 0.00, 0.00),
+        (0.40, 0.25, 0.35, 0.00),
+        (0.30, 0.20, 0.25, 0.25),
+        (0.30, 0.20, 0.25, 0.25),
+    )
+
 
 @dataclass
 class Tolerancia:
@@ -110,6 +160,11 @@ class Recompensa:
 
     # --- tarefa ---
     staged: float = 3.0
+    # ⚠ `reaching_std` virou o PISO do σ, não o σ (20/08). O σ efetivo é
+    # `max(reaching_std, distância inicial palma→face)`, por env, recalculado no
+    # começo do elo — a MESMA correção que a §8.2 fez no `bringing`. Medido: com σ
+    # fixo de 0,20 o gradiente de aproximação cai 1391× entre a prateleira a 0,55
+    # (2,64/m) e a 0,04 (0,0019/m) — os níveis 3+ viravam sorte.
     reaching_std: float = 0.20
     bringing_std_piso: float = 0.10      # σ variável: max(piso, distância comandada)
     precise_pos: float = 2.0
@@ -122,6 +177,35 @@ class Recompensa:
     # guiar; o apoio da prateleira é contínuo e cai antes de a caixa se mover.
     unload: float = 2.0                  # igual ao `precise_pos`: é sinal de TAREFA
     unload_tol_queda: float = 0.03       # 3 cm abaixo do repouso já é queda
+
+    # §8.2.3 — a rampa da pelve, ligada em 20/08.
+    # A condição 3 do fecho do `pegar` exige pelve >= 0,65 m e NADA pagava por ela.
+    # ⚠ A justificativa correta (auditoria 20/08): quem precifica a pelve é só a
+    # `pose`, a ~0,73/m (o default é o KNEES_BENT_KEYFRAME, pelve 0,76). O
+    # `precise_pos` é INDIFERENTE à pelve abaixo do alvo e CONTRÁRIO acima
+    # (−16,2/m no ponto de fecho) — não "paga por agachar", como uma versão
+    # anterior deste pacote afirmou.
+    #
+    # A rampa tem DUAS partes, e cada uma fecha um buraco medido:
+    #   longa (0,20→0,65): sem ela o termo é MORTO em 33% das pegas do nível 4
+    #     (pelve na pega chega a 0,267 m) e a zona 0,20-0,45 não tem gradiente;
+    #   fina (0,57→0,65): sem ela a inclinação é 5/m contra os −16,2/m do
+    #     `precise_pos` no fecho — o robô perderia recompensa ao subir os últimos
+    #     centímetros com os braços rígidos.
+    # Com peso 2,0: 2,2/m na zona longa e 14,7/m na fina.
+    postura_ereta: float = 2.0
+    postura_ereta_rampa: float = 0.45        # a parte longa: 0,20 -> 0,65
+    postura_ereta_rampa_fina: float = 0.08   # a parte fina : 0,57 -> 0,65
+    # ⚠ O gate de DESCARGA (F_apoio < frac·m·g) é anti-hack medido: sem ele,
+    # encostar as palmas e ficar de pé com a caixa APOIADA paga a rampa inteira —
+    # +2,0/s por ficar exatamente no platô que o bloco 1 mediu.
+    postura_ereta_frac_descarga: float = 0.2
+    # §8.2.4 — a rampa da sustentação, ligada em 20/08.
+    # O fecho exige 1,0 s ininterrupto e NENHUM termo diferencia 0,98 s de 0,00 s.
+    # Medido: o push era o único fator que degradava o sucesso, exatamente porque
+    # quebra o cronômetro. Esta é a rampa na coordenada TEMPO-NA-CONDIÇÃO.
+    sustentacao: float = 0.5
+
     joint_vel_hinge: float = -0.01       # cronograma o leva a -1.0
     joint_vel_max: float = 0.5
 
@@ -134,13 +218,16 @@ class Postura:
     """§9 — o quarto regime do `variable_posture`.
 
     Os três dicionários do G1 ficam intocados. Este é o quarto, e ele responde à
-    DEMANDA DA CAIXA, não à velocidade comandada.
+    FORMA do episódio: `caixa_valida = 1` -> `std_manipulando`.
 
     Regra: as juntas do plano sagital abrem, e as laterais ficam apertadas.
+
+    ⚠ Ele já respondeu à DEMANDA da caixa (`peso_dist`, `peso_ang`, `limiar`), e
+    aquilo era um PENHASCO, não um gradiente. Ver o docstring de
+    `postura.postura_manipulacao`. Quem levanta o robô agora é o termo
+    `postura_ereta` (§8.2.3), que é rampa.
     """
-    peso_dist: float = 10.0     # demanda += 10 * ‖caixa − alvo‖
-    peso_ang: float = 6.0       # demanda += 6 * Δθ (rad)
-    limiar: float = 1.5         # = running_threshold do mjlab
+    running_threshold: float = 1.5
 
     std_manipulando: dict = field(default_factory=lambda: {
         r".*knee.*": 1.20,
@@ -216,7 +303,6 @@ class DR:
     push_janela_livre_s: float = 0.5
     # ⚠ base_com fica DESLIGADO: `dr.body_com_offset` corrompe a heap (medido)
     base_com: bool = False
-    carga_kg: tuple[float, float] = (1.0, 1.0)   # o nível a alarga
 
 
 @dataclass
@@ -269,6 +355,25 @@ class Cronograma:
         {"step": 3000 * 24, "weight": -0.25},
     ])
 
+    # §10.3 — o gate por COMPETÊNCIA do twist, ligado em 20/08.
+    # Dois dos três cronogramas por passo global já saíram de fase. O passo global
+    # vira o PISO do degrau; o gatilho é o robô SUSTENTAR o teto atual, medido pela
+    # duração do episódio de LOCOMOÇÃO (um robô que não anda cai em 24 passos; um
+    # que anda chega ao time_out — e é a MESMA grandeza que governa a fatia de
+    # transições).
+    twist_duracao_min_frac: float = 0.60   # sobe com EMA >= 0,60 × episódio cheio
+    twist_desce_frac: float = 0.8          # desce com EMA < 0,8 × alvo (histerese)
+    twist_ema: float = 0.99                # τ ≈ 100 amostras ≈ 4 iterações (medido)
+    # ⚠ Teto de UM degrau a cada N iterações. Sem ele, num warm-start com o passo
+    # global além dos dois degraus e uma política que anda, o estágio saltaria
+    # 0→2 em duas chamadas (0,08 iteração) com a EMA ainda medida nas faixas do
+    # estágio 0 — a re-explosão da it 5099. 12 iterações ≈ 3τ da EMA.
+    twist_iters_entre_degraus: int = 12
+    # ⚠ `poc_estagio_twist` e a EMA NÃO vão para o checkpoint (o runner só salva
+    # `common_step_counter`). Depois de um resume o gate recomeça pessimista
+    # (estágio 0, EMA 0) e se recalibra em ~3τ ≈ 12 iterações. Declarado: é o
+    # comportamento seguro, não um bug.
+
 
 @dataclass
 class Treino:
@@ -283,6 +388,7 @@ class Treino:
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
+    celulas: Celulas = field(default_factory=Celulas)
     tol: Tolerancia = field(default_factory=Tolerancia)
     reward: Recompensa = field(default_factory=Recompensa)
     postura: Postura = field(default_factory=Postura)

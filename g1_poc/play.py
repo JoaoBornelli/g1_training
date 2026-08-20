@@ -81,9 +81,15 @@ def imprime_geometria() -> None:
     print("   c) os pads tocam as FACES da caixa, e não as quinas")
     print("   d) subir o topo para 0,55 m com a caixa a 0,82 m não toca a caixa")
     print("      nem os antebraços (folga esperada: 0,17 m)")
+    print()
+    print("  Tabela de células (§10.1):")
+    cel = k.celulas
+    for n in range(len(cel.topo_min)):
+        print(f"     nível {n}: topo {cel.topo_min[n]:.2f} m, carga até {cel.carga_max[n]:.1f} kg, "
+              f"jitter_x até {cel.jitter_x_max[n]:.2f} m, rotação até {cel.ang_max_deg[n]:.0f}°")
 
 
-def _registra(task_id: str, ajusta) -> str:
+def _registra(task_id: str, ajusta, nivel: int | None = None) -> str:
     """Registra uma task de play com os knobs mutados por `ajusta`.
 
     Os dois cronogramas por passo global (`twist_ranges`, `hinge`, `action_rate`) já
@@ -93,6 +99,9 @@ def _registra(task_id: str, ajusta) -> str:
     k = Knobs()
     ajusta(k)
     env_cfg = make_g1_poc_env_cfg(k, play=True)
+    if nivel is not None:
+        # o termo `nivel` FICA no play; forçar aqui congela a célula
+        env_cfg.curriculum["nivel"].params["nivel_forcado"] = int(nivel)
     register_mjlab_task(
         task_id=task_id,
         env_cfg=env_cfg,
@@ -111,11 +120,13 @@ def _ajusta_manipula(sem_jitter: bool):
 
     `sem_jitter` fixa a caixa em (0,32 ; 0,00), sem giro, e a prateleira em 0,55. É o
     caso NOMINAL: serve para separar "não pega nunca" de "não pega quando está longe".
+
+    ⚠ O jitter x vem da CÉLULA desde 20/08; o campo `cena.caixa_jitter_x` foi removido.
     """
     def ajusta(k: Knobs) -> None:
         k.episodio.frac_locomocao = 0.0
         if sem_jitter:
-            k.cena.caixa_jitter_x = (0.0, 0.0)
+            k.celulas.jitter_x_max = (0.0,) * 7
             k.cena.caixa_jitter_y = (0.0, 0.0)
             k.cena.caixa_jitter_yaw_deg = 0.0
             k.cena.prateleira_jitter_z = 0.0
@@ -162,6 +173,8 @@ def main() -> None:
                    help="--andar: pina a velocidade para frente, em m/s")
     p.add_argument("--giro", type=float, default=None,
                    help="--andar: pina o giro no lugar, em rad/s")
+    p.add_argument("--nivel", type=int, default=None,
+                   help="--pegar/--geometria: força a célula do nível (§10.1); default = promoção por sucesso")
     p.add_argument("--checkpoint", type=str, default=None,
                    help="caminho de um model_*.pt treinado")
     p.add_argument("--envs", type=int, default=1)
@@ -178,26 +191,34 @@ def main() -> None:
         raise SystemExit("--vx e --giro só valem com --andar")
     if args.sem_jitter and args.andar:
         raise SystemExit("--sem-jitter não tem efeito no --andar: a cena é afastada")
+    if args.nivel is not None:
+        if not (0 <= args.nivel <= 6):
+            raise SystemExit("--nivel: 0 <= valor <= 6")
+        if args.andar:
+            raise SystemExit("--nivel não tem efeito com --andar: a mobília é afastada")
     if not args.geometria and not args.checkpoint:
         raise SystemExit("passe --checkpoint CAMINHO, ou use --geometria")
 
     # o id acompanha o cfg: com e sem jitter são cenas DIFERENTES, e o
     # `register_mjlab_task` não sobrescreve.
     sufixo = "-Nominal" if args.sem_jitter else ""
+    if args.nivel is not None:
+        sufixo += f"-N{args.nivel}"
 
     ckpt = None
     if args.geometria:
         if args.checkpoint:
             print("[PLAY] --geometria: o checkpoint é IGNORADO")
         imprime_geometria()
-        task_id = _registra(TASK_MANIPULA + sufixo, _ajusta_manipula(args.sem_jitter))
+        task_id = _registra(TASK_MANIPULA + sufixo, _ajusta_manipula(args.sem_jitter),
+                            nivel=args.nivel)
     else:
         ckpt = pathlib.Path(args.checkpoint).expanduser()
         if not ckpt.is_file():
             raise SystemExit(f"não achei {ckpt}")
         if args.pegar:
             task_id = _registra(TASK_MANIPULA + sufixo,
-                                _ajusta_manipula(args.sem_jitter))
+                                _ajusta_manipula(args.sem_jitter), nivel=args.nivel)
         elif args.andar:
             task_id = _registra(TASK_ANDAR, _ajusta_andar(args.vx, args.giro))
         else:

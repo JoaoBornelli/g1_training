@@ -83,6 +83,11 @@ class CaixaAlvoCommand(CommandTerm):
         self._ang = torch.zeros(self.num_envs, device=self.device)
         self._pendente = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
+        # os sites das palmas, para o σ inicial do `reaching` (§8.2)
+        self._palm_ids, _ = self.robot.find_sites(list(cfg.palm_sites))
+        self.reach_inicial = torch.full(
+            (self.num_envs,), cfg.reaching_std_piso, device=self.device)
+
         # a distância comandada no começo do elo. Ela é o σ do `bringing` (§8.2).
         self.dist_inicial = torch.full(
             (self.num_envs,), cfg.bringing_std_piso, device=self.device)
@@ -100,6 +105,7 @@ class CaixaAlvoCommand(CommandTerm):
         env.poc_twist_zero = torch.ones(
             self.num_envs, dtype=torch.bool, device=self.device)
         env.poc_dist_inicial = self.dist_inicial
+        env.poc_reach_inicial = self.reach_inicial
         env.poc_success = self.episode_success
 
         self.metrics["erro_posicao"] = torch.zeros(self.num_envs, device=self.device)
@@ -172,8 +178,10 @@ class CaixaAlvoCommand(CommandTerm):
         self._command[env_ids, ALVO] = alvo
 
         # --- a face e o giro pedido ---
-        # ESQUELETO: nível 0 pede 0°. `dir_alvo` recebe a normal ATUAL da face,
-        # o que significa "erga sem torcer".
+        # O `pegar` pede SEMPRE "erga sem torcer": `dir_alvo` recebe a normal ATUAL
+        # da face. A rotação da célula do nível (§10.1) pertence ao elo
+        # `reorientar` — pedi-la aqui tornaria as duas cadeias do nível 3 a mesma
+        # tarefa, e o `reorientar` deixaria de ter função.
         self._face_idx[env_ids] = torch.randint(
             0, N_LATERAIS, (n,), device=self.device)
         self._ang[env_ids] = 0.0
@@ -210,6 +218,16 @@ class CaixaAlvoCommand(CommandTerm):
             self._command[ids, ALVO] - self.caixa.data.root_link_pos_w[ids], dim=-1)
         self.dist_inicial[ids] = torch.clamp(d, min=self.cfg.bringing_std_piso)
 
+        # σ do `reaching` = a distância a vencer pelas PALMAS no começo do elo.
+        # Mesma correção que a §8.2 fez no `bringing`: com σ fixo de 0,20 o
+        # gradiente de aproximação cai 1391× entre a prateleira a 0,55 e a 0,04
+        # (medido 20/08) — os níveis 3+ do currículo viravam sorte.
+        from g1_poc.observacoes import alvos_das_palmas
+        palmas = self.robot.data.site_pos_w[ids][:, self._palm_ids]
+        alvos_p = alvos_das_palmas(self._env, "box", self.cfg.lateral_offset)[ids]
+        d_p = torch.norm(palmas - alvos_p, dim=-1).mean(dim=-1)
+        self.reach_inicial[ids] = torch.clamp(d_p, min=self.cfg.reaching_std_piso)
+
         self._pendente[ids] = False
 
     # -------------------------------------------------------------------- update
@@ -240,13 +258,17 @@ class CaixaAlvoCommand(CommandTerm):
             & self.manipula
         )
         dt = self._env.step_dt
-        self._sustenta = torch.where(fecha, self._sustenta + dt,
-                                     torch.zeros_like(self._sustenta))
-        # sucesso TRAVADO. O episódio continua — terminar aqui puniria o sucesso.
-        self.episode_success = torch.maximum(
+        # ⚠ `copy_`, e não atribuição. `torch.where`/`torch.maximum` devolvem tensor
+        # NOVO, e o `__init__` publica `env.poc_success = self.episode_success`. Uma
+        # atribuição religa o atributo e deixa o alias apontando para o tensor velho:
+        # medido em 20/08, `env.poc_success` ficava em zeros para sempre e a
+        # terminação `caixa_largada` nunca disparava.
+        self._sustenta.copy_(torch.where(fecha, self._sustenta + dt,
+                                         torch.zeros_like(self._sustenta)))
+        self.episode_success.copy_(torch.maximum(
             self.episode_success,
             (self._sustenta >= self.cfg.sustenta_pegar_s).float(),
-        )
+        ))
 
     def _update_metrics(self) -> None:
         """⚠ A DECOMPOSIÇÃO DO FECHO é obrigatória, e não enfeite.
@@ -302,13 +324,17 @@ class CaixaAlvoCommand(CommandTerm):
 class CaixaAlvoCommandCfg(CommandTermCfg):
     # faixas do alvo do `pegar`, em MUNDO (x, y, z)
     pegar_range: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
-    frac_locomocao: float = 0.30
     raio_sucesso: float = 0.05
     angulo_sucesso_rad: float = math.radians(20.0)
     sustenta_pegar_s: float = 1.0
     pelve_min: float = 0.65
     inclinacao_max_rad: float = math.radians(20.0)
     bringing_std_piso: float = 0.10
+
+    # σ inicial do `reaching` (§8.2): os sites das palmas e o piso do σ
+    palm_sites: tuple[str, str] = ("left_palm", "right_palm")
+    lateral_offset: float = 0.10
+    reaching_std_piso: float = 0.20
 
     def build(self, env: ManagerBasedRlEnv) -> CaixaAlvoCommand:
         return CaixaAlvoCommand(self, env)

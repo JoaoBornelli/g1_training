@@ -12,13 +12,15 @@ Uma prateleira a 0,04 m exige um agachamento acima de 1,5 rad no joelho. O
 
 É o defeito que o repositório mediu em 17/07: "posture 0,8 briga com o squat".
 
-A solução é um quarto regime, e ele lê a DEMANDA DA CAIXA:
+A solução é um quarto regime, e ele lê a FORMA do episódio, não a demanda da caixa.
 
-    demanda = peso_dist · ‖caixa − alvo‖ + peso_ang · Δθ
+Com a caixa na mão, trocar do regime de standing (σ 0,05) para manipulando (σ 1,0)
+custaria a recompensa inteira: o `pose` é ≈0,93/s (caixa segurada a 0,82 m). Mas o
+penhasco de demanda caía dentro da tolerância da régua: com demanda 1,60 contra
+limiar 1,5, o ângulo travava a 14,2° vs. 20° de aceite. Medido na iteração 5217.
 
-"Demanda" é quanto trabalho falta. O braço fica livre enquanto há trabalho, e a pose
-aperta quando o trabalho acaba — o que dá um GRADIENTE que levanta o robô no fim da
-manobra. É o `hold_still_bonus` do repo, agora de graça.
+O gate agora é simples: existe caixa? Ativa `std_manipulando`. Senão, `std_vel`. Quem
+levanta o robô é o termo `postura_ereta` (§8.2.3), que é RAMPA e não penhasco.
 
 Os três dicionários do G1 ficam INTOCADOS. A marcha validada não muda.
 """
@@ -63,9 +65,6 @@ class postura_manipulacao(variable_posture):  # noqa: N801 (idioma do mjlab)
         asset_cfg: SceneEntityCfg,
         command_name: str,
         caixa_command_name: str,
-        peso_dist: float,
-        peso_ang: float,
-        limiar: float,
         walking_threshold: float = 0.05,
         running_threshold: float = 1.5,
     ) -> torch.Tensor:
@@ -86,18 +85,31 @@ class postura_manipulacao(variable_posture):  # noqa: N801 (idioma do mjlab)
             + self.std_running * m_run
         )
 
-        # --- o quarto regime, pela demanda da caixa ---
-        caixa_cmd = env.command_manager.get_term(caixa_command_name)
-        bit = caixa_cmd.command[:, 9]
-        demanda = (
-            peso_dist * caixa_cmd.erro_pos() + peso_ang * caixa_cmd.erro_ang()
-        ) * bit
-        m_manip = (demanda >= limiar).float().unsqueeze(1)
+        # --- o quarto regime, pela FORMA do episódio ---
+        # ⚠ Ele já foi escolhido por LIMIAR DE DEMANDA
+        # (`demanda = 10·‖caixa−alvo‖ + 6·Δθ`, troca em 1,5), e aquilo era um
+        # PENHASCO, não um gradiente.
+        #
+        # O G1 usa `std_standing = {".*": 0.05}` — 0,05 rad em TODA junta, braços
+        # incluídos (`mjlab/tasks/velocity/config/g1/env_cfgs.py:107`). Com a caixa
+        # segurada a 0,82 m, quatro juntas de braço ficam a ≈0,7 rad do default:
+        #
+        #   std_manipulando (σ ombro/cotovelo 1,00) -> `pose` ≈ 0,93
+        #   standing        (σ 0,05)                -> `pose` ≈ 0,00
+        #
+        # Trocar de regime com a caixa na mão DESTRUÍA o termo inteiro: o robô
+        # pagava ≈0,93/s por TERMINAR a tarefa. E o penhasco caía dentro da
+        # tolerância da régua — a troca exigia Δθ < 13,3° e o sucesso aceita 20°.
+        # Medido na it 5217: demanda 1,60 contra limiar 1,5, Δθ preso em 14,2°.
+        #
+        # A §9.4 afirmava o contrário e foi retificada. Quem levanta o robô agora é
+        # o termo `postura_ereta` (§8.2.3), que é RAMPA e não penhasco.
+        bit = env.command_manager.get_term(caixa_command_name).command[:, 9]
+        m_manip = (bit > 0.5).float().unsqueeze(1)
 
         std = m_manip * self.std_manipulando + (1.0 - m_manip) * std_vel
 
         env.extras["log"]["Metrics/postura_frac_manipulando"] = m_manip.mean()
-        env.extras["log"]["Metrics/postura_demanda_caixa"] = demanda.mean()
 
         q = asset.data.joint_pos[:, asset_cfg.joint_ids]
         q0 = self.default_joint_pos[:, asset_cfg.joint_ids]

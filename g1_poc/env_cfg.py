@@ -10,11 +10,11 @@ O que este arquivo muda:
     3. o comando: `caixa_alvo` (novo, PRIMEIRO) e `twist` (subclasse)
     4. a observação: sai `base_lin_vel` do ator, entram os 5 canais de caixa
     5. o crítico: 13 canais privilegiados
-    6. a `posture` ganha o quarto regime
-    7. os 6 termos de tarefa
+    6. a `posture` ganha o quarto regime (FORMA do episódio)
+    7. os 8 termos de tarefa
     8. as 2 terminações próprias
     9. os 3 eventos de cena
-   10. o currículo em 3 partes
+   10. o currículo em 4 partes: forma, nível, gate por competência, qualidade
 
 Contrato de observação: **ator 112, crítico 125**. Ele é derivado, não digitado —
 o `smoke.py` o confere contra o `observation_manager`.
@@ -124,13 +124,15 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             resampling_time_range=(ep, ep),      # 1 meta por episódio
             debug_vis=True,
             pegar_range=(ka.pegar_x, ka.pegar_y, ka.pegar_z),
-            frac_locomocao=ke.frac_locomocao,
             raio_sucesso=kt.raio_sucesso,
             angulo_sucesso_rad=kt.angulo_sucesso_rad,
             sustenta_pegar_s=kt.sustenta_pegar_s,
             pelve_min=kt.pelve_min,
             inclinacao_max_rad=kt.inclinacao_max_rad,
             bringing_std_piso=kr.bringing_std_piso,
+            palm_sites=C.PALM_SITES,
+            lateral_offset=lateral,
+            reaching_std_piso=kr.reaching_std,
         ),
         CMD_TWIST: TwistPocCfg(
             entity_name="robot",
@@ -221,11 +223,8 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
         "command_name": CMD_TWIST,
         "caixa_command_name": CMD_CAIXA,
-        "peso_dist": kp.peso_dist,
-        "peso_ang": kp.peso_ang,
-        "limiar": kp.limiar,
         "walking_threshold": 0.05,
-        "running_threshold": kp.limiar,
+        "running_threshold": kp.running_threshold,
     }
 
     # os pesos da fundação que o pacote muda em relação ao `velocity`
@@ -289,6 +288,21 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                 "caixa_meia_z": kc.caixa_meia_aresta[2],
                 "tol_queda": kr.unload_tol_queda},
     )
+    # a RAMPA da pelve (§8.2.3): a condição 3 do fecho, que nenhum termo pagava.
+    cfg.rewards["postura_ereta"] = RewardTermCfg(
+        func=R.postura_ereta, weight=kr.postura_ereta,
+        params={"command_name": CMD_CAIXA, "palm_sensors": C.SENSOR_PALMA,
+                "support_sensor": C.SENSOR_APOIO, "massa_attr": "poc_massa",
+                "pelve_min": kt.pelve_min, "rampa": kr.postura_ereta_rampa,
+                "rampa_fina": kr.postura_ereta_rampa_fina,
+                "frac_descarga": kr.postura_ereta_frac_descarga,
+                "asset_cfg": SceneEntityCfg("robot")},
+    )
+    # a RAMPA da sustentação (§8.2.4): 0,98 s e 0,00 s pagavam o mesmo.
+    cfg.rewards["sustentacao"] = RewardTermCfg(
+        func=R.sustentacao, weight=kr.sustentacao,
+        params={"command_name": CMD_CAIXA},
+    )
     cfg.rewards["joint_vel_hinge"] = RewardTermCfg(
         func=R.joint_vel_hinge, weight=kr.joint_vel_hinge,
         params={"max_vel": kr.joint_vel_max,
@@ -343,21 +357,21 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     cfg.events["reset_cena"] = EventTermCfg(
         func=EV.reset_cena, mode="reset",
         params={
-            "topo_piso": kc.prateleira_topo_teto,   # esqueleto: nível 0 = 0,55 fixo
+            "topo_min_por_nivel": k.celulas.topo_min,
             "topo_teto": kc.prateleira_topo_teto,
             "jitter_z": kc.prateleira_jitter_z,
             "meia_z": kc.prateleira_meia_z,
             "caixa_meia_z": kc.caixa_meia_aresta[2],
             "caixa_xy": kc.caixa_xy,
             "prateleira_xy": kc.prateleira_xy,
-            "jitter_x": kc.caixa_jitter_x,
+            "jitter_x_max_por_nivel": k.celulas.jitter_x_max,
             "jitter_y": kc.caixa_jitter_y,
             "jitter_yaw_deg": kc.caixa_jitter_yaw_deg,
         },
     )
     cfg.events["carga_caixa"] = EventTermCfg(
         func=EV.carga_caixa, mode="reset",
-        params={"faixa_kg": kd.carga_kg, "massa_base": kc.caixa_massa},
+        params={"carga_max_por_nivel": k.celulas.carga_max, "massa_base": kc.caixa_massa},
     )
     cfg.events["afasta_cena"] = EventTermCfg(
         func=EV.afasta_cena, mode="reset",
@@ -369,24 +383,28 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     # -------------------------------------------------- 10. currículo
     cr = k.cronograma
     cfg.curriculum = {
-        # A — a forma do episódio. TEM de ser currículo: os eventos leem
-        # `env.poc_manipula`, e no reset o currículo roda antes deles.
+        # ⚠ ORDEM: `twist_ranges` e `nivel` leem a forma do episódio que ACABOU, e
+        # `forma` a SOBRESCREVE com o sorteio do episódio novo. Com `nivel` depois
+        # de `forma` (o bug), a promoção era gateada pela forma do episódio
+        # SEGUINTE: p_up = 0,7·p, o ponto fixo saía de 0,5 para 0,714, e um bloco
+        # com frac_locomocao = 0,85 limitaria nivel_medio a 0,214 mesmo com
+        # manipulação perfeita. Os eventos leem a forma NOVA e rodam DEPOIS de todo o
+        # currículo, portanto não são afetados.
+        "twist_ranges": CurriculumTermCfg(
+            func=CU.twist_por_competencia,
+            params={"command_name": CMD_TWIST, "velocity_stages": cr.locomocao,
+                    "duracao_min_frac": cr.twist_duracao_min_frac,
+                    "desce_frac": cr.twist_desce_frac, "ema": cr.twist_ema,
+                    "iters_entre_degraus": cr.twist_iters_entre_degraus},
+        ),
+        "nivel": CurriculumTermCfg(
+            func=CU.nivel_caixa,
+            params={"command_name": CMD_CAIXA, "nivel_forcado": None},
+        ),
         "forma": CurriculumTermCfg(
             func=CU.sorteia_forma,
             params={"frac_locomocao": ke.frac_locomocao},
         ),
-        # A — o nível por env, no molde do `terrain_levels_vel`
-        "nivel": CurriculumTermCfg(
-            func=CU.nivel_caixa,
-            params={"command_name": CMD_CAIXA},
-        ),
-        # B — as faixas do twist, por passo global
-        "twist_ranges": CurriculumTermCfg(
-            func=mdp.commands_vel,
-            params={"command_name": CMD_TWIST, "velocity_stages": cr.locomocao},
-        ),
-        # C — a qualidade de movimento, por passo global.
-        # Regra de leitura: NÃO olhe para a pose antes de 1500 iterações.
         "hinge": CurriculumTermCfg(
             func=envs_mdp.reward_curriculum,
             params={"reward_name": "joint_vel_hinge", "stages": cr.hinge},

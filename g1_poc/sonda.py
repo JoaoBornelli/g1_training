@@ -71,16 +71,25 @@ def main() -> int:
                    help="devolve o `push_robot` (1-3 s), que o play remove")
     p.add_argument("--com-ruido", action="store_true",
                    help="devolve o `Unoise` da observação, que o play desliga")
+    p.add_argument("--nivel", type=int, default=None,
+                   help="força a célula do nível (§10.1); default = promoção por sucesso")
     p.add_argument("--device", type=str, default="cpu")
     args = p.parse_args()
+
+    if args.nivel is not None:
+        if not (0 <= args.nivel <= 6):
+            raise SystemExit("--nivel: 0 <= valor <= 6")
 
     ckpt = pathlib.Path(args.checkpoint).expanduser()
     if not ckpt.is_file():
         raise SystemExit(f"não achei {ckpt}")
 
     sem_jitter = not args.com_jitter
-    task_id = _registra(TASK_MANIPULA + ("-Nominal" if sem_jitter else ""),
-                        _ajusta_manipula(sem_jitter))
+    sufixo = "-Nominal" if sem_jitter else ""
+    if args.nivel is not None:
+        sufixo += f"-N{args.nivel}"
+    task_id = _registra(TASK_MANIPULA + sufixo,
+                        _ajusta_manipula(sem_jitter), nivel=args.nivel)
 
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
@@ -124,7 +133,8 @@ def main() -> int:
     peso = massa * 9.81
     caixa_z0 = float(base.scene["box"].data.root_link_pos_w[0, 2])
 
-    print(f"\nmassa da caixa = {massa:.2f} kg   peso = {peso:.2f} N")
+    nivel_str = f"   nível = {args.nivel}" if args.nivel is not None else ""
+    print(f"\nmassa da caixa = {massa:.2f} kg   peso = {peso:.2f} N{nivel_str}")
     print(f"F_ref = m·g/(2μ) = {f_ref:.2f} N   (μ = {mu})")
     print(f"caixa nasce em z = {caixa_z0:.3f} m   alvo z = "
           f"{float(cmd.command[0, 2]):.3f} m\n")

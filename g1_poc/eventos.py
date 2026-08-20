@@ -7,9 +7,16 @@ inserção):
     2. carga_caixa   sorteia a carga e a aplica como força externa
     3. afasta_cena   sobe a mobília 5 m nos envs da forma de LOCOMOÇÃO
 
-⚠ Todos leem `env.poc_manipula`, que é escrito pelo CURRÍCULO. No mjlab a ordem no
-reset é currículo → eventos → comando. Portanto o currículo é o único lugar de onde
-os eventos conseguem ler a forma do episódio.
+⚠ Todos leem `env.poc_manipula`, que é escrito pelo CURRÍCULO. `reset_cena` e
+`carga_caixa` também leem `env.poc_nivel`, escrito pelo mesmo currículo, que roda
+inteiro antes dos eventos — o `getattr` com `None` é defesa, não necessidade
+(medido em 20/08).
+
+⚠ NÃO toque no `afasta_cena`. Medido em 20/08: a caixa afastada fica apoiada na
+laje a 5 m (z = 5,099 após 120 passos, mesmo com 5 kg de wrench).
+
+No mjlab a ordem no reset é currículo → eventos → comando. Portanto o currículo é
+o único lugar de onde os eventos conseguem ler a forma do episódio.
 """
 from __future__ import annotations
 
@@ -36,21 +43,22 @@ def _forma(env: ManagerBasedRlEnv, env_ids: torch.Tensor) -> torch.Tensor:
 def reset_cena(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,
-    topo_piso: float,
+    topo_min_por_nivel: tuple[float, ...],
     topo_teto: float,
     jitter_z: float,
     meia_z: float,
     caixa_meia_z: float,
     caixa_xy: tuple[float, float],
     prateleira_xy: tuple[float, float],
-    jitter_x: tuple[float, float],
+    jitter_x_max_por_nivel: tuple[float, ...],
     jitter_y: tuple[float, float],
     jitter_yaw_deg: float,
 ) -> None:
     """Põe a prateleira na altura sorteada, e a caixa em repouso em cima dela.
 
-    A altura é sorteada na faixa `[topo_piso, topo_teto]`. No esqueleto a faixa é
-    degenerada (nível 0 → 0,55 fixo); o currículo a alarga no passo 4.
+    A altura (PISO) é sorteada por CÉLULA do nível; o TETO é 0,55 m em todos os
+    níveis (§10.1). O jitter x também vem da célula do nível. O jitter z e o y
+    são fixos.
 
     Grava `env.poc_topo` — o crítico o observa, e o `botar` o usará.
     """
@@ -60,10 +68,21 @@ def reset_cena(
     mesa: Entity = env.scene["table"]
     origem = env.scene.env_origins[env_ids]
 
-    # --- a altura do topo ---
-    topo = topo_piso + (topo_teto - topo_piso) * torch.rand(n, device=dev)
+    # --- a altura do topo, pela CÉLULA do nível (§10.1) ---
+    # Só o PISO da faixa desce com o nível; o teto é 0,55 m em todos. No nível 0 a
+    # faixa é degenerada em 0,55 — a cena de antes da tabela, número por número.
+    # ⚠ `poc_nivel` já existe aqui mesmo no primeiro reset (o currículo roda
+    # inteiro ANTES dos eventos); o `getattr` é defensivo, não necessário.
+    nivel = getattr(env, "poc_nivel", None)
+    if nivel is None:
+        piso = torch.full((n,), topo_min_por_nivel[0], device=dev)
+        jx_max = torch.full((n,), jitter_x_max_por_nivel[0], device=dev)
+    else:
+        piso = torch.tensor(topo_min_por_nivel, device=dev)[nivel[env_ids]]
+        jx_max = torch.tensor(jitter_x_max_por_nivel, device=dev)[nivel[env_ids]]
+    topo = piso + (topo_teto - piso) * torch.rand(n, device=dev)
     topo = topo + (2.0 * torch.rand(n, device=dev) - 1.0) * jitter_z
-    topo = topo.clamp(min=topo_piso)
+    topo = torch.maximum(topo, piso)
     if not hasattr(env, "poc_topo"):
         env.poc_topo = torch.zeros(env.num_envs, device=dev)
     env.poc_topo[env_ids] = topo
@@ -77,7 +96,8 @@ def reset_cena(
     mesa.write_mocap_pose_to_sim(pose_mesa, env_ids=env_ids)
 
     # --- a caixa, em repouso no topo ---
-    dx = jitter_x[0] + (jitter_x[1] - jitter_x[0]) * torch.rand(n, device=dev)
+    # o jitter x APERTA com o nível: no topo a 0,04 m o alcance acaba em ~0,45 m
+    dx = jx_max * torch.rand(n, device=dev)
     dy = jitter_y[0] + (jitter_y[1] - jitter_y[0]) * torch.rand(n, device=dev)
     yaw_max = math.radians(jitter_yaw_deg)
     yaw = (2.0 * torch.rand(n, device=dev) - 1.0) * yaw_max
@@ -96,7 +116,7 @@ def reset_cena(
 def carga_caixa(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,
-    faixa_kg: tuple[float, float],
+    carga_max_por_nivel: tuple[float, ...],
     massa_base: float,
 ) -> None:
     """Sorteia a carga da caixa e a aplica como FORÇA EXTERNA vertical.
@@ -115,7 +135,13 @@ def carga_caixa(
 
     if not hasattr(env, "poc_massa"):
         env.poc_massa = torch.full((env.num_envs,), massa_base, device=dev)
-    kg = faixa_kg[0] + (faixa_kg[1] - faixa_kg[0]) * torch.rand(n, device=dev)
+    # o TETO vem da célula do nível; o PISO é sempre `massa_base` (§10.1)
+    nivel = getattr(env, "poc_nivel", None)
+    if nivel is None:
+        teto = torch.full((n,), carga_max_por_nivel[0], device=dev)
+    else:
+        teto = torch.tensor(carga_max_por_nivel, device=dev)[nivel[env_ids]]
+    kg = massa_base + (teto - massa_base).clamp(min=0.0) * torch.rand(n, device=dev)
     env.poc_massa[env_ids] = kg
 
     forcas = torch.zeros(n, 1, 3, device=dev)
