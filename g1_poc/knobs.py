@@ -197,7 +197,22 @@ class DR:
     encoder_bias: tuple[float, float] = (-0.015, 0.015)
     # atrito da CAIXA, por episódio (mode="reset"), compartilhado entre as palmas
     caixa_friction: tuple[float, float] = (0.8, 1.2)
-    push_intervalo_s: tuple[float, float] = (1.0, 3.0)
+    # ⚠ Era (1.0, 3.0) e foi para (10.0, 20.0) em 19/08, medido pela sonda.
+    #
+    # O fecho do `pegar` exige `sustenta_pegar_s = 1,0 s` = 50 passos ININTERRUPTOS.
+    # Com o intervalo em 1-3 s o push chegava a cada 50-150 passos, portanto o sucesso
+    # dependia de sortear o intervalo longo. Medido no `model_5100`, o push sozinho —
+    # sem ruído nem jitter — derrubava as quatro condições juntas de 63,4% para 29,3%
+    # e a sustentação de 11,18 s para 4,28 s, e era o ÚNICO dos três fatores do treino
+    # que degradava (ruído e jitter ficaram dentro da variação amostral).
+    #
+    # O cronômetro é POR ENV (`is_global_time = False`). Com o episódio de 20 s e o
+    # intervalo em (10, 20), o número esperado de empurrões por episódio é 20/15 = 1,3:
+    # tipicamente UM, no máximo dois. O robô continua tendo de se recuperar de push —
+    # o que ele não precisa mais é sobreviver a um a cada meio fecho.
+    push_intervalo_s: tuple[float, float] = (10.0, 20.0)
+    # ⚠ knob MORTO: nada em g1_poc o lê. Fica declarado porque a janela livre depois do
+    # push é a mitigação natural se (10, 20) ainda colidir com o `sustenta`.
     push_janela_livre_s: float = 0.5
     # ⚠ base_com fica DESLIGADO: `dr.body_com_offset` corrompe a heap (medido)
     base_com: bool = False
