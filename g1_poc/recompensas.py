@@ -1,15 +1,16 @@
-"""Os 8 termos de tarefa do g1_poc (§8.2).
+"""Os 9 termos de tarefa do g1_poc (§8.2).
 
 Os 13 termos de fundação vêm do `velocity` do mjlab, sem uma linha aqui.
 
 Desenho:
     staged      = reaching × (1 + bringing)          — o anti-hack é a FORMA
     precise_pos = exp(−‖caixa − alvo‖² / 0,05²)
-    precise_ori = reaching × exp(−Δθ² / 0,40²)
+    precise_ori = reaching × exp(−Δθ² / σ²)          — σ variável por elo
     squeeze     = tanh( min(F_n_esq, F_n_dir) / F_ref )
     unload      = 1 − F_apoio/m·g                    — a PONTE do platô do grasp
     postura_ereta = rampa2(pelve) × preensão × descarga — condição 3 do fecho
-    sustentacao = rampa(t / 1,0 s)                    — 0,98 s ≡ 0,00 s, agora rampa
+    sustentacao = rampa(t / alvo_elo)                 — alvo por elo, 1,0/0,5 s
+    load        = clamp(F_apoio/m·g)                 — espelho do unload, só botar
     joint_vel_hinge = (|v| − v_max)⁺²
 
 ⚠ O `unload` entrou em 19/08, depois de o bloco 1 rodar 1884 iterações com sucesso
@@ -17,8 +18,8 @@ ZERO. O `squeeze` saturou em 6× `F_ref` (derivada 1e-5) e o robô PRENSAVA a ca
 contra a prateleira — apoio em 138% do peso. Ele soma ao `squeeze`, não o substitui.
 Ver o docstring de `unload`.
 
-Os sete primeiros (staged, precise_pos, precise_ori, squeeze, unload, postura_ereta,
-sustentacao) multiplicam por `caixa_valida`. **Isto é obrigatório**: com o bit em 0
+Os oito primeiros (staged, precise_pos, precise_ori, squeeze, unload, postura_ereta,
+sustentacao, load) multiplicam por `caixa_valida`. **Isto é obrigatório**: com o bit em 0
 os canais da caixa são zerados, e um vetor zerado dá exp(0) = 1. Sem a
 multiplicação, "não existe caixa" pagaria o valor MÁXIMO.
 """
@@ -146,11 +147,17 @@ def precise_ori(
     No nível 0 o `dir_alvo` é a normal ATUAL, portanto o termo pede "erga sem
     torcer". É isto que substitui o `box_shake`: erguer torto deixa de pagar, em
     vez de custar.
+
+    ⚠ Com σ fixo de 0,40 rad, 90° dá 2,0e-7 — o `reorientar` dos níveis 4+ era
+    sorte; mesmo idioma do `bringing`/`reaching`.
     """
     cmd = env.command_manager.get_term(command_name)
     theta = cmd.erro_ang()
     reaching = _reaching(env, object_name, lateral_offset, reaching_std, asset_cfg)
-    return reaching * torch.exp(-torch.square(theta) / std**2) * _valida(env, command_name)
+    sigma = getattr(env, "poc_ori_inicial", None)
+    if sigma is None:
+        sigma = torch.full_like(theta, std)
+    return reaching * torch.exp(-torch.square(theta) / sigma.clamp(min=std) ** 2) * _valida(env, command_name)
 
 
 def squeeze(
@@ -219,7 +226,11 @@ def squeeze(
     # F_ref = m·g / (2·μ). A massa é POR ENV (a DR de carga a sorteia).
     massa = getattr(env, massa_attr)
     f_ref = (massa * 9.81 / (2.0 * mu)).clamp(min=1e-3)
-    return torch.tanh(f_min / f_ref) * _valida(env, command_name)
+    resultado = torch.tanh(f_min / f_ref) * _valida(env, command_name)
+    # ⚠ Fora do `botar`: apertar durante o `botar` paga contra soltar (−1,0/s medido).
+    elo = getattr(env, "poc_elo", None)
+    fora_botar = torch.ones_like(resultado) if elo is None else (elo != 3).float()
+    return resultado * fora_botar
 
 
 def unload(
@@ -271,7 +282,45 @@ def unload(
     repouso = env.poc_topo + caixa_meia_z
     nao_caiu = obj.data.root_link_pos_w[:, 2] > (repouso - tol_queda)
 
-    return fracao * pega.float() * nao_caiu.float() * _valida(env, command_name)
+    # ⚠ SÓ no elo `pegar` (20/08). Nos outros a caixa já saiu da prateleira, e no
+    # `botar` este termo é o OPOSTO do fecho (F_apoio >= 0,8·m·g): ligado lá, pagaria
+    # 2,0/s para NÃO botar. A máscara vem antes de qualquer mexida em `poc_topo`.
+    elo = getattr(env, "poc_elo", None)
+    no_pegar = torch.ones_like(fracao) if elo is None else (elo == 0).float()
+    return fracao * pega.float() * nao_caiu.float() * no_pegar * _valida(env, command_name)
+
+
+def load(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    object_name: str,
+    support_sensor: str,
+    massa_attr: str,
+    raio_sucesso: float,
+    raio_mult: float,
+) -> torch.Tensor:
+    """`clamp(F_apoio/m·g)` — o espelho do `unload`, SÓ no elo `botar` (§8.2.5).
+
+    Sem ele o `botar` não tem quem pague por soltar: `squeeze` e `unload` apontam
+    contra, e com as máscaras deles o saldo vira exatamente ZERO — o fecho
+    (`F_apoio >= 0,8·m·g`) seria descoberto por sorte. Medido: satisfazer a 3ª
+    condição custava −3,0/s antes das máscaras.
+
+    O gate de posição (`erro < 2·raio`) fecha o hack de largar a caixa em qualquer
+    lugar do tampo. Sem gate de preensão, de propósito: soltar É o objetivo, e o
+    termo continua pagando depois do fecho — é o estado colocado que mais paga.
+    """
+    elo = getattr(env, "poc_elo", None)
+    if elo is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    f = env.scene[support_sensor].data.force
+    assert f is not None
+    apoio_z = f[..., 2].abs().sum(dim=-1)
+    peso = (getattr(env, massa_attr) * 9.81).clamp(min=1e-3)
+    fracao = (apoio_z / peso).clamp(0.0, 1.0)
+    err = torch.sqrt(_erro_pos_sq(env, command_name, object_name))
+    perto = (err < raio_mult * raio_sucesso).float()
+    return fracao * perto * (elo == 3).float() * _valida(env, command_name)
 
 
 def postura_ereta(
@@ -332,9 +381,12 @@ def sustentacao(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     diferenciava 0,98 s de 0,00 s — o degrau que fazia o push (o único fator que
     degradava o sucesso, medido) decidir o currículo. Esta é a rampa na coordenada
     que faltava: o cronômetro do próprio comando.
+
+    O denominador é o alvo do ELO corrente, não uma constante — senão os elos de
+    0,5 s pagariam só metade da rampa.
     """
     cmd = env.command_manager.get_term(command_name)
-    fracao = (cmd._sustenta / cmd.cfg.sustenta_pegar_s).clamp(0.0, 1.0)
+    fracao = (cmd._sustenta / cmd._sust_alvo.clamp(min=1e-6)).clamp(0.0, 1.0)
     return fracao * _valida(env, command_name)
 
 

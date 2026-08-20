@@ -8,15 +8,16 @@ O que este arquivo muda:
     1. terreno plano, e a mobília entra na cena
     2. os sensores de contato
     3. o comando: `caixa_alvo` (novo, PRIMEIRO) e `twist` (subclasse)
-    4. a observação: sai `base_lin_vel` do ator, entram os 5 canais de caixa
+    4. a observação: sai `base_lin_vel` do ator, entram os 5 canais de caixa + `face_normal_b`
     5. o crítico: 13 canais privilegiados
     6. a `posture` ganha o quarto regime (FORMA do episódio)
-    7. os 8 termos de tarefa
+    7. os 9 termos de tarefa
     8. as 2 terminações próprias
     9. os 3 eventos de cena
    10. o currículo em 4 partes: forma, nível, gate por competência, qualidade
+   11. a máquina de elo (§7)
 
-Contrato de observação: **ator 112, crítico 125**. Ele é derivado, não digitado —
+Contrato de observação: **ator 115, crítico 128**. Ele é derivado, não digitado —
 o `smoke.py` o confere contra o `observation_manager`.
 """
 from __future__ import annotations
@@ -54,8 +55,9 @@ CMD_CAIXA = "caixa_alvo"
 CMD_TWIST = "twist"
 
 # largura esperada da observação. Derivada, e conferida no smoke.
-OBS_ATOR = 112
-OBS_CRITICO = 125
+# (+3 do canal `face_normal_b`, que a cirurgia de checkpoint appenda às colunas)
+OBS_ATOR = 115
+OBS_CRITICO = 128
 
 
 def _g1_pesos_de_postura(cfg) -> dict:
@@ -133,6 +135,25 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             palm_sites=C.PALM_SITES,
             lateral_offset=lateral,
             reaching_std_piso=kr.reaching_std,
+            cadeias=k.celulas.cadeias,
+            ang_max_deg=k.celulas.ang_max_deg,
+            sustenta_outros_s=kt.sustenta_outros_s,
+            carregar_s=kt.carregar_s,
+            fracao_apoio_botar=kt.fracao_apoio_botar,
+            peito_b=ka.peito_b,
+            botar_x=ka.botar_x,
+            botar_y=ka.botar_y,
+            botar_topo_piso=ka.botar_topo_piso,
+            botar_topo_teto=ka.botar_topo_teto,
+            botar_folga_laje=ka.botar_folga_laje,
+            caixa_meia_z=kc.caixa_meia_aresta[2],
+            prateleira_meia_z=kc.prateleira_meia_z,
+            prateleira_xy=kc.prateleira_xy,
+            afasta_z=kc.afasta_z,
+            support_sensor=C.SENSOR_APOIO,
+            precise_ori_std_piso=kr.precise_ori_std,
+            frac_twist_livre=ke.frac_twist_livre_manipula,
+            twist_livre_nivel_min=ke.twist_livre_nivel_min,
         ),
         CMD_TWIST: TwistPocCfg(
             entity_name="robot",
@@ -197,9 +218,14 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             func=OBS.fatia_comando,
             params={"command_name": CMD_CAIXA, "lo": 9, "hi": 10},
         ),
+        "face_normal_b": ObservationTermCfg(
+            func=OBS.face_normal_b,
+            params={"command_name": CMD_CAIXA, "object_name": "box"},
+        ),
     }
     ator.update(caixa_ator)
-    critico.update({n: t for n, t in caixa_ator.items()})
+    # no crítico, copiar caixa_ator mas remover face_normal_b, que entra depois de topo_prateleira
+    critico.update({n: t for n, t in caixa_ator.items() if n != "face_normal_b"})
 
     # -------------------------------------------------- 5. crítico privilegiado
     critico["base_lin_vel"] = ObservationTermCfg(
@@ -212,6 +238,10 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         func=OBS.vel_caixa, params={"object_name": "box"})
     critico["topo_prateleira"] = ObservationTermCfg(
         func=OBS.topo_prateleira, params={"meia_z": kc.prateleira_meia_z})
+    critico["face_normal_b"] = ObservationTermCfg(
+        func=OBS.face_normal_b,
+        params={"command_name": CMD_CAIXA, "object_name": "box"},
+    )
 
     # -------------------------------------------------- 6. postura, 4º regime
     pose = cfg.rewards["pose"]
@@ -302,6 +332,13 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     cfg.rewards["sustentacao"] = RewardTermCfg(
         func=R.sustentacao, weight=kr.sustentacao,
         params={"command_name": CMD_CAIXA},
+    )
+    # o ESPELHO do unload, só no elo `botar` (§8.2.5)
+    cfg.rewards["load"] = RewardTermCfg(
+        func=R.load, weight=kr.load,
+        params={"command_name": CMD_CAIXA, "object_name": "box",
+                "support_sensor": C.SENSOR_APOIO, "massa_attr": "poc_massa",
+                "raio_sucesso": kt.raio_sucesso, "raio_mult": kr.load_raio_mult},
     )
     cfg.rewards["joint_vel_hinge"] = RewardTermCfg(
         func=R.joint_vel_hinge, weight=kr.joint_vel_hinge,
@@ -403,7 +440,10 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         ),
         "forma": CurriculumTermCfg(
             func=CU.sorteia_forma,
-            params={"frac_locomocao": ke.frac_locomocao},
+            params={"frac_locomocao": ke.frac_locomocao,
+                    "frac_loco_min": ke.frac_loco_min,
+                    "frac_loco_max": ke.frac_loco_max,
+                    "ema": ke.forma_ema},
         ),
         "hinge": CurriculumTermCfg(
             func=envs_mdp.reward_curriculum,

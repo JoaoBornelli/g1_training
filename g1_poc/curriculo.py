@@ -2,7 +2,9 @@
 
 Quatro partes, e a separação é deliberada:
 
-    A · adaptativa, por env   — o que a TAREFA pede. Adapta por sucesso.
+    A · adaptativa, por env   — DOIS adaptativos: a FORMA (por duração medida,
+                                controlador de `sorteia_forma`) e o NÍVEL (por
+                                sucesso, `nivel_caixa`).
     B · agendada, por passo   — as faixas do twist. Gate por COMPETÊNCIA (§10.3).
     C · agendada, por passo   — a qualidade de movimento. `mdp.reward_curriculum`.
     D · tabela de células     — altura, carga, jitter, rotação por nível (§10.1).
@@ -36,8 +38,14 @@ def sorteia_forma(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,
     frac_locomocao: float,
+    frac_loco_min: float,
+    frac_loco_max: float,
+    ema: float,
 ) -> dict[str, torch.Tensor]:
     """Sorteia a forma do episódio e escreve `env.poc_manipula`.
+
+    Desde 20/08 é um CONTROLADOR: `frac_locomocao` é a fatia de TRANSIÇÕES alvo,
+    e o sorteio é resolvido a partir das durações medidas (ver knobs.Episodio).
 
     ⚠ Isto tem de ser um termo de CURRÍCULO, e não um evento nem um comando. No
     reset a ordem do mjlab é currículo → eventos → comando. O `afasta_cena` e o
@@ -50,7 +58,7 @@ def sorteia_forma(
 
         0,30 × 24 passos / (0,30 × 24 + 0,70 × 961) = 1,06%
 
-    O sorteio é `Episodio.frac_locomocao`; esta métrica é o resultado.
+    É exatamente o laço que o controlador quebra: ele fixa a fatia no alvo.
 
     ⚠ Este termo SOBRESCREVE `env.poc_manipula` com a forma do episódio NOVO.
     Quem precisa da forma do episódio que ACABOU (`nivel`, `twist_ranges`) tem de
@@ -58,13 +66,57 @@ def sorteia_forma(
     `forma`, a promoção era gateada pela forma do episódio SEGUINTE — `p_up`
     caía de p para 0,7·p, e um episódio de LOCOMOÇÃO rebaixava o nível em 70%
     das vezes.
+
+    ⚠ A EMA daqui INCLUI os envs parados; a do `twist_por_competencia` os exclui.
+    São filtros diferentes para perguntas diferentes — não unificar.
     """
     if not hasattr(env, "poc_manipula"):
         env.poc_manipula = torch.ones(
             env.num_envs, dtype=torch.bool, device=env.device)
+        # as durações nascem NEUTRAS (episódio cheio): o sorteio começa no alvo e
+        # se ajusta por medição em ~τ. Nascer pessimista (24) despejaria locomoção
+        # antes de existir amostra.
+        env.poc_dur_loco = torch.full((), float(env.max_episode_length),
+                                      device=env.device)
+        env.poc_dur_manip = torch.full((), float(env.max_episode_length),
+                                       device=env.device)
+
+    # --- mede as durações dos episódios que ACABARAM (a forma ainda é a antiga:
+    # este termo lê ANTES de sobrescrever; episode_length_buf zera só no fim) ---
+    if len(env_ids) > 0:
+        antiga = env.poc_manipula[env_ids]
+        loco = env_ids[~antiga]
+        manip = env_ids[antiga]
+        if len(loco) > 0:
+            amostra = env.episode_length_buf[loco].float().mean()
+            env.poc_dur_loco = ema * env.poc_dur_loco + (1.0 - ema) * amostra
+        if len(manip) > 0:
+            amostra = env.episode_length_buf[manip].float().mean()
+            env.poc_dur_manip = ema * env.poc_dur_manip + (1.0 - ema) * amostra
+
+    # --- o controlador: f = alvo·Tm / (Tl·(1−alvo) + alvo·Tm) ---
+    # Fixa a FATIA DE TRANSIÇÕES em `frac_locomocao` resolvendo o sorteio a partir
+    # das durações medidas. Tl = 24 e Tm = 961 dão f = 0,945; Tl = Tm dá f = alvo.
+    # Sem integrador: o mapa é estático e as EMAs dão a inércia — não oscila.
+    alvo = frac_locomocao
+    tl = float(env.poc_dur_loco)
+    tm = float(env.poc_dur_manip)
+    f = alvo * tm / max(tl * (1.0 - alvo) + alvo * tm, 1e-6)
+    # ⚠ o clamp só vale no MEIO: o play pina o alvo em 0 ou 1, e a álgebra sai
+    # exata nos extremos (alvo 0 → f = 0; alvo 1 → f = 1). Clampar ali devolveria
+    # 10% de locomoção ao `--pegar` e o viewer abriria sem mobília.
+    if 0.0 < alvo < 1.0:
+        f = min(max(f, frac_loco_min), frac_loco_max)
+
     sorteio = torch.rand(len(env_ids), device=env.device)
-    env.poc_manipula[env_ids] = sorteio >= frac_locomocao
-    return {"frac_manipula_pop": env.poc_manipula.float().mean()}
+    env.poc_manipula[env_ids] = sorteio >= f
+    dev = env.device
+    return {
+        "frac_manipula_pop": env.poc_manipula.float().mean(),
+        "frac_loco_sorteio": torch.tensor(f, device=dev),
+        "dur_loco_ema": torch.tensor(tl, device=dev),
+        "dur_manip_ema": torch.tensor(tm, device=dev),
+    }
 
 
 def nivel_caixa(env, env_ids, command_name, nivel_forcado: int | None = None):
@@ -165,6 +217,8 @@ def twist_por_competencia(
     vale a duração final. Medido.
     ⚠ Os envs PARADOS (`is_standing_env`) saem da EMA: ficar de pé até o time_out
     entregaria 8% do alvo sem andar. Os de giro no lugar CONTAM — girar é andar.
+    ⚠ A EMA daqui EXCLUI os parados; a do `sorteia_forma` os inclui. São filtros
+    diferentes para perguntas diferentes — não unificar.
     ⚠ A EMA nasce PESSIMISTA (zero) e é tensor no device (uma sync por reset já
     basta para o degrau; 48 syncs/iteração não).
     ⚠ Nada disto vai para o checkpoint: depois de um resume o gate recomeça em

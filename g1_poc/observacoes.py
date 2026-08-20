@@ -137,3 +137,25 @@ def topo_prateleira(env: ManagerBasedRlEnv, meia_z: float) -> torch.Tensor:
     """
     mesa: Entity = env.scene["table"]
     return (mesa.data.root_link_pos_w[:, 2] + meia_z).unsqueeze(-1)
+
+
+def face_normal_b(env: ManagerBasedRlEnv, command_name: str, object_name: str) -> torch.Tensor:
+    """[B,3] — a normal ATUAL da face alvo, no frame da BASE.
+
+    O ator vê o DESEJADO (`dir_alvo`) e não via o ATUAL: a orientação da caixa só
+    era recuperável pela diferença dos dois vetores palma→face, dominada pela
+    distância. O `reorientar` fecha por `Δθ < 20°` e o `precise_ori` paga por Δθ —
+    sem este canal a coordenada é invisível (auditoria T18, 20/08).
+
+    No deploy a percepção JÁ entrega esta grandeza: é a mesma orientação medida que
+    preenche `face_alvo`/`dir_alvo` (§21.2, "os medidos").
+
+    Zera com `caixa_valida = 0`, como os outros canais de caixa.
+    """
+    cmd = env.command_manager.get_term(command_name)
+    obj = env.scene[object_name]
+    robot = env.scene["robot"]
+    face_b = cmd.command[:, 3:6]                                   # face, frame da caixa
+    normal_w = quat_apply(obj.data.root_link_quat_w, face_b)
+    normal_base = quat_apply_inverse(robot.data.root_link_quat_w, normal_w)
+    return normal_base * cmd.command[:, 9:10]

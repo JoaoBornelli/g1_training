@@ -73,12 +73,17 @@ def main() -> int:
                    help="devolve o `Unoise` da observação, que o play desliga")
     p.add_argument("--nivel", type=int, default=None,
                    help="força a célula do nível (§10.1); default = promoção por sucesso")
+    p.add_argument("--cadeia", type=int, default=None,
+                   help="força a cadeia (0 pegar, 1 reorientar→pegar, 2 pegar→carregar, 3 pegar→botar)")
     p.add_argument("--device", type=str, default="cpu")
     args = p.parse_args()
 
     if args.nivel is not None:
         if not (0 <= args.nivel <= 6):
             raise SystemExit("--nivel: 0 <= valor <= 6")
+    if args.cadeia is not None:
+        if not (0 <= args.cadeia <= 3):
+            raise SystemExit("--cadeia: 0 <= valor <= 3")
 
     ckpt = pathlib.Path(args.checkpoint).expanduser()
     if not ckpt.is_file():
@@ -88,8 +93,11 @@ def main() -> int:
     sufixo = "-Nominal" if sem_jitter else ""
     if args.nivel is not None:
         sufixo += f"-N{args.nivel}"
+    if args.cadeia is not None:
+        sufixo += f"-C{args.cadeia}"
     task_id = _registra(TASK_MANIPULA + sufixo,
-                        _ajusta_manipula(sem_jitter), nivel=args.nivel)
+                        _ajusta_manipula(sem_jitter), nivel=args.nivel,
+                        cadeia=args.cadeia)
 
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper

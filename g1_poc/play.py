@@ -89,7 +89,8 @@ def imprime_geometria() -> None:
               f"jitter_x até {cel.jitter_x_max[n]:.2f} m, rotação até {cel.ang_max_deg[n]:.0f}°")
 
 
-def _registra(task_id: str, ajusta, nivel: int | None = None) -> str:
+def _registra(task_id: str, ajusta, nivel: int | None = None,
+              cadeia: int | None = None) -> str:
     """Registra uma task de play com os knobs mutados por `ajusta`.
 
     Os dois cronogramas por passo global (`twist_ranges`, `hinge`, `action_rate`) já
@@ -102,6 +103,9 @@ def _registra(task_id: str, ajusta, nivel: int | None = None) -> str:
     if nivel is not None:
         # o termo `nivel` FICA no play; forçar aqui congela a célula
         env_cfg.curriculum["nivel"].params["nivel_forcado"] = int(nivel)
+    if cadeia is not None:
+        # o CommandManager NÃO deepcopia o cfg — mutar antes do registro vale
+        env_cfg.commands["caixa_alvo"].cadeia_forcada = int(cadeia)
     register_mjlab_task(
         task_id=task_id,
         env_cfg=env_cfg,
@@ -175,6 +179,8 @@ def main() -> None:
                    help="--andar: pina o giro no lugar, em rad/s")
     p.add_argument("--nivel", type=int, default=None,
                    help="--pegar/--geometria: força a célula do nível (§10.1); default = promoção por sucesso")
+    p.add_argument("--cadeia", type=int, default=None,
+                   help="--pegar: força a cadeia (0 pegar, 1 reorientar→pegar, 2 pegar→carregar, 3 pegar→botar)")
     p.add_argument("--checkpoint", type=str, default=None,
                    help="caminho de um model_*.pt treinado")
     p.add_argument("--envs", type=int, default=1)
@@ -196,6 +202,11 @@ def main() -> None:
             raise SystemExit("--nivel: 0 <= valor <= 6")
         if args.andar:
             raise SystemExit("--nivel não tem efeito com --andar: a mobília é afastada")
+    if args.cadeia is not None:
+        if not (0 <= args.cadeia <= 3):
+            raise SystemExit("--cadeia: 0 <= valor <= 3")
+        if not args.pegar:
+            raise SystemExit("--cadeia exige --pegar")
     if not args.geometria and not args.checkpoint:
         raise SystemExit("passe --checkpoint CAMINHO, ou use --geometria")
 
@@ -204,6 +215,8 @@ def main() -> None:
     sufixo = "-Nominal" if args.sem_jitter else ""
     if args.nivel is not None:
         sufixo += f"-N{args.nivel}"
+    if args.cadeia is not None:
+        sufixo += f"-C{args.cadeia}"
 
     ckpt = None
     if args.geometria:
@@ -211,14 +224,15 @@ def main() -> None:
             print("[PLAY] --geometria: o checkpoint é IGNORADO")
         imprime_geometria()
         task_id = _registra(TASK_MANIPULA + sufixo, _ajusta_manipula(args.sem_jitter),
-                            nivel=args.nivel)
+                            nivel=args.nivel, cadeia=args.cadeia)
     else:
         ckpt = pathlib.Path(args.checkpoint).expanduser()
         if not ckpt.is_file():
             raise SystemExit(f"não achei {ckpt}")
         if args.pegar:
             task_id = _registra(TASK_MANIPULA + sufixo,
-                                _ajusta_manipula(args.sem_jitter), nivel=args.nivel)
+                                _ajusta_manipula(args.sem_jitter),
+                                nivel=args.nivel, cadeia=args.cadeia)
         elif args.andar:
             task_id = _registra(TASK_ANDAR, _ajusta_andar(args.vx, args.giro))
         else:

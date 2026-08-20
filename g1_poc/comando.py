@@ -13,11 +13,8 @@
 ORDEM IMPORTA no dict de comandos: `caixa_alvo` vem PRIMEIRO, porque ele resolve
 `env.poc_twist_zero`, e o `twist` lê esse buffer no mesmo passo.
 
-ESTADO DESTE ARQUIVO — ESQUELETO (passo 2 da §17):
-    um elo só, `pegar`; sem cadeia; sem nível; a prateleira não se move.
-    A forma do episódio (30% locomoção / 70% manipulação) JÁ está aqui, porque o
-    bit `caixa_valida` depende dela e o smoke o verifica.
-    As cadeias e o currículo entram no passo 4, depois do portão do passo 3.
+A máquina de elo (§7): cadeia sorteada pela célula do nível; elo avança sem reset
+de episódio; prateleira se move no fecho do pegar (§7.3); sucesso trava no último elo.
 """
 from __future__ import annotations
 
@@ -54,6 +51,13 @@ FACE_AXES = (
     (0.0, 0.0, 1.0), (0.0, 0.0, -1.0),
 )
 N_LATERAIS = 4
+
+# --- os elos e as cadeias (§7) ---
+PEGAR, REORIENTAR, CARREGAR, BOTAR = 0, 1, 2, 3
+# elos de cada cadeia, com -1 de padding. A ordem das cadeias é a de
+# `knobs.Celulas.cadeias`: (pegar, reorientar->pegar, pegar->carregar, pegar->botar).
+ELOS_DA_CADEIA = ((PEGAR, -1), (REORIENTAR, PEGAR), (PEGAR, CARREGAR), (PEGAR, BOTAR))
+N_ELOS = (1, 2, 2, 2)
 
 
 def _rot_z(v: torch.Tensor, ang: torch.Tensor) -> torch.Tensor:
@@ -99,9 +103,33 @@ class CaixaAlvoCommand(CommandTerm):
         # a forma do episódio. `manipula` é o inverso de `locomocao`.
         self.manipula = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
+        # --- a máquina de elo (§7) ---
+        self._cadeia = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._elo_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._elo_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._elo_t = torch.zeros(self.num_envs, device=self.device)
+        self.pegou = torch.zeros(self.num_envs, device=self.device)
+        self._twist_livre = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # σ variável do `precise_ori`: Δθ inicial do elo, com piso
+        self.ori_inicial = torch.full(
+            (self.num_envs,), cfg.precise_ori_std_piso, device=self.device)
+        self._elos_tab = torch.tensor(ELOS_DA_CADEIA, dtype=torch.long, device=self.device)
+        self._n_elos = torch.tensor(N_ELOS, dtype=torch.long, device=self.device)
+        self._cadeias_tab = torch.tensor(cfg.cadeias, device=self.device)      # [7,4]
+        self._ang_max = torch.deg2rad(torch.tensor(cfg.ang_max_deg, device=self.device))
+        # o alvo de sustentação POR ELO (1,0 s no pegar; 0,5 s nos demais). Nasce
+        # com o valor do pegar — antes do 1º reset nenhum termo o lê, mas zero aqui
+        # explodiria a divisão do `sustentacao`.
+        self._sust_alvo = torch.full(
+            (self.num_envs,), cfg.sustenta_pegar_s, device=self.device)
+
         # buffers que outros managers leem. Existem ANTES do 1º reset, porque as
         # recompensas leem `env.poc_valida` no primeiro passo.
         env.poc_valida = self._command[:, VALIDA].squeeze(-1)
+        # ⚠ publicados UMA vez e atualizados IN-PLACE — a lição do alias poc_success
+        env.poc_elo = self._elo_id
+        env.poc_pegou = self.pegou
+        env.poc_ori_inicial = self.ori_inicial
         env.poc_twist_zero = torch.ones(
             self.num_envs, dtype=torch.bool, device=self.device)
         env.poc_dist_inicial = self.dist_inicial
@@ -113,6 +141,9 @@ class CaixaAlvoCommand(CommandTerm):
         self.metrics["no_alvo"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["episode_success"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["frac_manipula"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["cadeia"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["elo"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["pegou"] = torch.zeros(self.num_envs, device=self.device)
 
     # ------------------------------------------------------------------ leitura
     @property
@@ -164,6 +195,35 @@ class CaixaAlvoCommand(CommandTerm):
             manipula = forma[env_ids]
         self.manipula[env_ids] = manipula
 
+        # --- a cadeia do episódio, pela célula do nível (§10.1) ---
+        # ⚠ o FORÇADO vence sempre, mesmo sem `poc_nivel` (play/sonda/smoke)
+        nivel = getattr(self._env, "poc_nivel", None)
+        if self.cfg.cadeia_forcada is not None:
+            # atalho de MEDIÇÃO (play/sonda/smoke); no treino fica None
+            self._cadeia[env_ids] = int(self.cfg.cadeia_forcada)
+        elif nivel is None:
+            self._cadeia[env_ids] = 0
+        else:
+            probs = self._cadeias_tab[nivel[env_ids]]
+            self._cadeia[env_ids] = torch.multinomial(probs, 1).squeeze(-1)
+        self._elo_idx[env_ids] = 0
+        self._elo_id[env_ids] = self._elos_tab[self._cadeia[env_ids], 0]
+        self._elo_t[env_ids] = 0.0
+        self.pegou[env_ids] = 0.0
+        self._sust_alvo[env_ids] = torch.where(
+            self._elo_id[env_ids] == PEGAR,
+            torch.full_like(self._sust_alvo[env_ids], self.cfg.sustenta_pegar_s),
+            torch.full_like(self._sust_alvo[env_ids], self.cfg.sustenta_outros_s))
+        # "segure e ande" AUTOMÁTICO: só a partir de `twist_livre_nivel_min` (um
+        # nível antes de o `carregar` abrir). Nada de bloco manual.
+        if nivel is None:
+            alto = torch.zeros(n, dtype=torch.bool, device=self.device)
+        else:
+            alto = nivel[env_ids] >= self.cfg.twist_livre_nivel_min
+        self._twist_livre[env_ids] = (
+            (torch.rand(n, device=self.device) < self.cfg.frac_twist_livre)
+            & manipula & alto)
+
         # --- o alvo do elo `pegar`, em MUNDO ---
         # Altura ABSOLUTA. Agachar não move este alvo, portanto o robô tem de
         # ficar de pé. É a decisão central do ADR-0001, e ela está certa.
@@ -184,7 +244,17 @@ class CaixaAlvoCommand(CommandTerm):
         # tarefa, e o `reorientar` deixaria de ter função.
         self._face_idx[env_ids] = torch.randint(
             0, N_LATERAIS, (n,), device=self.device)
-        self._ang[env_ids] = 0.0
+        # o giro depende do primeiro elo: PEGAR (cadeias 0,2,3) → 0; REORIENTAR (cadeia 1) → sorteado
+        pegar_mask = self._elo_id[env_ids] == PEGAR
+        reori_mask = self._elo_id[env_ids] == REORIENTAR
+        if nivel is not None:
+            ang_max = self._ang_max[nivel[env_ids]]
+            self._ang[env_ids] = torch.where(
+                pegar_mask,
+                torch.zeros_like(self._ang[env_ids]),
+                (2.0 * torch.rand(n, device=self.device) - 1.0) * ang_max)
+        else:
+            self._ang[env_ids] = 0.0
 
         # --- o bit ---
         self._command[env_ids, 9] = manipula.float()
@@ -205,6 +275,11 @@ class CaixaAlvoCommand(CommandTerm):
         if not bool(self._pendente.any()):
             return
         ids = self._pendente.nonzero().flatten()
+
+        # o alvo do `reorientar` é a posição ATUAL da caixa (§7.1) — pose fresca
+        reori = ids[self._elo_id[ids] == REORIENTAR]
+        if len(reori) > 0:
+            self._command[reori, ALVO] = self.caixa.data.root_link_pos_w[reori]
 
         face_b = torch.tensor(FACE_AXES, device=self.device)[self._face_idx[ids]]
         normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], face_b)
@@ -228,6 +303,10 @@ class CaixaAlvoCommand(CommandTerm):
         d_p = torch.norm(palmas - alvos_p, dim=-1).mean(dim=-1)
         self.reach_inicial[ids] = torch.clamp(d_p, min=self.cfg.reaching_std_piso)
 
+        # σ do `precise_ori` = o Δθ a vencer no começo do elo, com piso (§8.2)
+        self.ori_inicial[ids] = torch.clamp(
+            self.erro_ang()[ids], min=self.cfg.precise_ori_std_piso)
+
         self._pendente[ids] = False
 
     # -------------------------------------------------------------------- update
@@ -247,28 +326,166 @@ class CaixaAlvoCommand(CommandTerm):
         self._command[:, DIR] = torch.where(
             zero, torch.zeros_like(self._command[:, DIR]), self._command[:, DIR])
 
-        # o twist é zero nos elos de manipulação (ESQUELETO: o único elo é `pegar`)
-        self._env.poc_twist_zero = self.manipula.clone()
+        # --- o alvo do `carregar` é do CORPO, recalculado a cada passo (§7.1) ---
+        carrega = (self._elo_id == CARREGAR) & self.manipula
+        if bool(carrega.any()):
+            ids_c = carrega.nonzero().flatten()
+            peito = torch.tensor(self.cfg.peito_b, device=self.device).expand(len(ids_c), 3)
+            alvo_c = (self.robot.data.root_link_pos_w[ids_c]
+                      + quat_apply(self.robot.data.root_link_quat_w[ids_c], peito))
+            self._command[ids_c, ALVO] = alvo_c
 
-        # --- o fecho do elo `pegar`: 4 condições, sustentadas ---
-        fecha = (
-            (self.erro_pos() < self.cfg.raio_sucesso)
-            & (self.erro_ang() < self.cfg.angulo_sucesso_rad)
-            & self.de_pe()
-            & self.manipula
-        )
+        # o twist é zero nos elos de manipulação, EXCETO no `carregar` e nos envs
+        # "segure e ande" (frac_twist_livre)
+        self._env.poc_twist_zero.copy_(
+            self.manipula & ~carrega & ~self._twist_livre)
+
+        # --- o fecho, condição a condição, POR ELO (§7.2) ---
+        perto = self.erro_pos() < self.cfg.raio_sucesso
+        alinhado = self.erro_ang() < self.cfg.angulo_sucesso_rad
+        de_pe = self.de_pe()
+        f_apoio = self._env.scene[self.cfg.support_sensor].data.force
+        apoio_z = f_apoio[..., 2].abs().sum(dim=-1)
+        massa = getattr(self._env, "poc_massa", None)
+        if massa is None:
+            apoiada = torch.zeros_like(perto)
+        else:
+            peso = (massa * 9.81).clamp(min=1e-3)
+            apoiada = apoio_z >= self.cfg.fracao_apoio_botar * peso
+
+        fecha = torch.zeros_like(perto)
+        e = self._elo_id
+        fecha |= (e == PEGAR) & perto & alinhado & de_pe
+        fecha |= (e == REORIENTAR) & perto & alinhado
+        fecha |= (e == CARREGAR) & perto
+        fecha |= (e == BOTAR) & perto & alinhado & apoiada
+        fecha &= self.manipula
+
         dt = self._env.step_dt
-        # ⚠ `copy_`, e não atribuição. `torch.where`/`torch.maximum` devolvem tensor
-        # NOVO, e o `__init__` publica `env.poc_success = self.episode_success`. Uma
-        # atribuição religa o atributo e deixa o alias apontando para o tensor velho:
-        # medido em 20/08, `env.poc_success` ficava em zeros para sempre e a
-        # terminação `caixa_largada` nunca disparava.
+        self._elo_t += dt
+        # ⚠ copy_, nunca atribuição: env.poc_success/poc_pegou são aliases in-place
         self._sustenta.copy_(torch.where(fecha, self._sustenta + dt,
                                          torch.zeros_like(self._sustenta)))
+
+        sustentado = self._sustenta >= self._sust_alvo
+        # o `carregar` fecha por TEMPO, sustentado: elo_t >= 6 s E perto por 0,5 s.
+        # Um fecho INSTANTÂNEO com no_alvo ~57% seria uma moeda, e o nível viraria
+        # passeio sem deriva (auditoria T16).
+        sustentado &= (e != CARREGAR) | (self._elo_t >= self.cfg.carregar_s)
+
+        ultimo = self._elo_idx + 1 >= self._n_elos[self._cadeia]
+        fecha_elo = sustentado & self.manipula
+
+        # o elo que fechou era `pegar`? arma a `caixa_largada` e o §7.3
+        fechou_pegar = fecha_elo & (e == PEGAR)
+        self.pegou.copy_(torch.maximum(self.pegou, fechou_pegar.float()))
+
+        avanca = fecha_elo & ~ultimo
+        if bool(avanca.any()):
+            self._avanca_elo(avanca.nonzero().flatten())
+
+        # sucesso TRAVADO no fecho do ÚLTIMO elo. O episódio continua (§7.5).
         self.episode_success.copy_(torch.maximum(
-            self.episode_success,
-            (self._sustenta >= self.cfg.sustenta_pegar_s).float(),
-        ))
+            self.episode_success, (fecha_elo & ultimo).float()))
+
+    def _avanca_elo(self, ids: torch.Tensor) -> None:
+        """Escreve o elo seguinte no comando, SEM reset (§7.5) e SEM resample.
+
+        ⚠ Não usa `_resample_command`: aquele zera `episode_success` e sorteia
+        cadeia nova. E não usa `_pendente`: aqui as poses JÁ estão frescas — o
+        `_update_command` roda depois do `sim.forward()` do step.
+
+        §7.3 — a prateleira se move quando o `pegar` fecha: +5 m na cadeia
+        `carregar` (o chão fica livre para andar); topo NOVO na cadeia `botar`
+        (a faixa é a da COLOCAÇÃO, 0,30-0,80, com teto efetivo no fundo da caixa
+        menos a folga — a §7.3 prometia 0,55 e a §10.1 manda 0,80; sem o teto
+        efetivo a laje nasceria DENTRO da caixa). Só a MESA se move: a caixa está
+        nas mãos. A escrita de mocap vale a partir do passo seguinte.
+        """
+        n = len(ids)
+        dev = self.device
+        self._elo_idx[ids] += 1
+        novo = self._elos_tab[self._cadeia[ids], self._elo_idx[ids]]
+        self._elo_id[ids] = novo
+        self._elo_t[ids] = 0.0
+        self._sustenta[ids] = 0.0
+        self._sust_alvo[ids] = torch.where(
+            novo == PEGAR,
+            torch.full((n,), self.cfg.sustenta_pegar_s, device=dev),
+            torch.full((n,), self.cfg.sustenta_outros_s, device=dev))
+        origem = self._env.scene.env_origins[ids]
+
+        # --- PEGAR (2º elo da cadeia `reorientar`): alvo de mundo, "erga sem torcer"
+        m = (novo == PEGAR).nonzero().flatten()
+        if len(m) > 0:
+            i = ids[m]
+            r = self.cfg.pegar_range
+            lo = torch.tensor([r[0][0], r[1][0], r[2][0]], device=dev)
+            hi = torch.tensor([r[0][1], r[1][1], r[2][1]], device=dev)
+            alvo = lo + (hi - lo) * torch.rand(len(i), 3, device=dev)
+            alvo[:, 0] += origem[m][:, 0]
+            alvo[:, 1] += origem[m][:, 1]
+            self._command[i, ALVO] = alvo
+            self._ang[i] = 0.0
+
+        # --- CARREGAR: mesa +5 m; o alvo do corpo é escrito a cada passo
+        m = (novo == CARREGAR).nonzero().flatten()
+        if len(m) > 0:
+            i = ids[m]
+            pose = torch.zeros(len(i), 7, device=dev)
+            pose[:, 0] = origem[m][:, 0] + self.cfg.prateleira_xy[0]
+            pose[:, 1] = origem[m][:, 1] + self.cfg.prateleira_xy[1]
+            pose[:, 2] = self.cfg.afasta_z - self.cfg.prateleira_meia_z
+            pose[:, 3] = 1.0
+            self.prateleira.write_mocap_pose_to_sim(pose, env_ids=i)
+            if hasattr(self._env, "poc_topo"):
+                self._env.poc_topo[i] = self.cfg.afasta_z
+            self._ang[i] = 0.0
+
+        # --- BOTAR: topo novo + alvo lateral em cima dele
+        m = (novo == BOTAR).nonzero().flatten()
+        if len(m) > 0:
+            i = ids[m]
+            fundo = self.caixa.data.root_link_pos_w[i, 2] - self.cfg.caixa_meia_z
+            teto = torch.clamp(fundo - self.cfg.botar_folga_laje,
+                               max=self.cfg.botar_topo_teto)
+            piso = torch.full_like(teto, self.cfg.botar_topo_piso)
+            teto = torch.maximum(teto, piso)   # nunca inverte a faixa
+            topo = piso + (teto - piso) * torch.rand(len(i), device=dev)
+            pose = torch.zeros(len(i), 7, device=dev)
+            pose[:, 0] = origem[m][:, 0] + self.cfg.prateleira_xy[0]
+            pose[:, 1] = origem[m][:, 1] + self.cfg.prateleira_xy[1]
+            pose[:, 2] = topo - self.cfg.prateleira_meia_z
+            pose[:, 3] = 1.0
+            self.prateleira.write_mocap_pose_to_sim(pose, env_ids=i)
+            if hasattr(self._env, "poc_topo"):
+                self._env.poc_topo[i] = topo
+            bx = self.cfg.botar_x
+            by = self.cfg.botar_y
+            alvo = torch.zeros(len(i), 3, device=dev)
+            alvo[:, 0] = origem[m][:, 0] + bx[0] + (bx[1] - bx[0]) * torch.rand(len(i), device=dev)
+            alvo[:, 1] = origem[m][:, 1] + by[0] + (by[1] - by[0]) * torch.rand(len(i), device=dev)
+            alvo[:, 2] = topo + self.cfg.caixa_meia_z
+            self._command[i, ALVO] = alvo
+            self._ang[i] = 0.0
+
+        # dir_alvo, σ do bringing, do reaching e do ori — contra a pose FRESCA
+        face_b = torch.tensor(FACE_AXES, device=dev)[self._face_idx[ids]]
+        normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], face_b)
+        dir_w = _rot_z(normal_w, self._ang[ids])
+        self._dir_w[ids] = dir_w / dir_w.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        self._command[ids, FACE] = face_b
+        d = torch.norm(self._command[ids, ALVO]
+                       - self.caixa.data.root_link_pos_w[ids], dim=-1)
+        self.dist_inicial[ids] = torch.clamp(d, min=self.cfg.bringing_std_piso)
+        palmas = self.robot.data.site_pos_w[ids][:, self._palm_ids]
+        from g1_poc.observacoes import alvos_das_palmas
+        alvos_p = alvos_das_palmas(self._env, "box", self.cfg.lateral_offset)[ids]
+        self.reach_inicial[ids] = torch.clamp(
+            torch.norm(palmas - alvos_p, dim=-1).mean(dim=-1),
+            min=self.cfg.reaching_std_piso)
+        self.ori_inicial[ids] = torch.clamp(
+            self.erro_ang()[ids], min=self.cfg.precise_ori_std_piso)
 
     def _update_metrics(self) -> None:
         """⚠ A DECOMPOSIÇÃO DO FECHO é obrigatória, e não enfeite.
@@ -307,6 +524,9 @@ class CaixaAlvoCommand(CommandTerm):
         # separa "nunca fecha" de "fecha e perde": se `fecha_todas` for alto e isto
         # ficar perto de zero, o problema é ESTABILIDADE, não a condição.
         self.metrics["sustenta_s"] = self._sustenta * v
+        self.metrics["cadeia"] = self._cadeia.float() * v
+        self.metrics["elo"] = self._elo_id.float() * v
+        self.metrics["pegou"] = self.pegou * v
 
     def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
         for i in visualizer.get_env_indices(self.num_envs):
@@ -335,6 +555,31 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
     palm_sites: tuple[str, str] = ("left_palm", "right_palm")
     lateral_offset: float = 0.10
     reaching_std_piso: float = 0.20
+
+    # --- a máquina de elo (§7) ---
+    cadeias: tuple = ((1.0, 0.0, 0.0, 0.0),) * 7   # frações por nível; o env_cfg passa a tabela
+    ang_max_deg: tuple[float, ...] = (0.0,) * 7    # rotação do `reorientar`, por nível
+    sustenta_outros_s: float = 0.5
+    carregar_s: float = 6.0
+    fracao_apoio_botar: float = 0.80
+    peito_b: tuple[float, float, float] = (0.25, 0.0, 0.15)
+    botar_x: tuple[float, float] = (0.30, 0.40)
+    botar_y: tuple[float, float] = (-0.12, 0.12)
+    botar_topo_piso: float = 0.30
+    botar_topo_teto: float = 0.80
+    botar_folga_laje: float = 0.05
+    caixa_meia_z: float = 0.10
+    prateleira_meia_z: float = 0.02
+    prateleira_xy: tuple[float, float] = (0.50, 0.00)
+    afasta_z: float = 5.0
+    support_sensor: str = "apoio_caixa"
+    precise_ori_std_piso: float = 0.40
+    # atalhos de MEDIÇÃO (play/sonda/smoke): força a cadeia; None = sorteio por nível
+    cadeia_forcada: int | None = None
+    # fração dos envs de manipulação com o twist LIBERADO ("segure e ande")
+    frac_twist_livre: float = 0.0
+    # o "segure e ande" só liga a partir deste nível (um antes do `carregar`)
+    twist_livre_nivel_min: int = 3
 
     def build(self, env: ManagerBasedRlEnv) -> CaixaAlvoCommand:
         return CaixaAlvoCommand(self, env)

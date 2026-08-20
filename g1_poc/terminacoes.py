@@ -37,9 +37,9 @@ def caixa_largada(
 ) -> torch.Tensor:
     """A caixa caiu, ou ela escapou das duas palmas.
 
-    ⚠ Só vale DEPOIS de o elo `pegar` fechar. Antes disso a caixa está na
-    prateleira e longe das mãos de propósito — terminar ali encerraria o episódio
-    no primeiro passo.
+    Gateada por elo (§7):
+    - `caiu` dispara em qualquer elo, desde a PREENSÃO;
+    - `escapou` dispara só nos elos de SEGURAR, e só até a cadeia fechar.
     """
     obj: Entity = env.scene[object_name]
     robot: Entity = env.scene[asset_cfg.name]
@@ -48,8 +48,23 @@ def caixa_largada(
     dist = torch.norm(palmas - caixa.unsqueeze(1), dim=-1)       # [B,2]
     caiu = caixa[:, 2] < z_min
     escapou = (dist > dist_max).all(dim=-1)
-    ja_pegou = getattr(env, "poc_success", torch.zeros_like(caiu, dtype=torch.float)) > 0.5
-    return (caiu | escapou) & ja_pegou
+
+    # armas por ramo (20/08):
+    #   `caiu`    — desde a PREENSÃO (poc_pegou), sempre: a caixa no chão é falha
+    #               em qualquer elo, e depois do sucesso também (largar o que se
+    #               ergueu desfaz a tarefa e o episódio acaba SEM bootstrap).
+    #   `escapou` — só nos elos de SEGURAR (pegar/carregar) e só até a cadeia
+    #               fechar: no `botar` afastar as mãos é o objetivo, e depois do
+    #               sucesso a caixa fica na prateleira longe das palmas por
+    #               construção.
+    pegou = getattr(env, "poc_pegou", None)
+    if pegou is None:
+        return torch.zeros_like(caiu)
+    sucesso = getattr(env, "poc_success", torch.zeros_like(caiu, dtype=torch.float))
+    elo = getattr(env, "poc_elo", torch.zeros_like(caiu, dtype=torch.long))
+    armada_caiu = pegou > 0.5
+    armada_escapou = (pegou > 0.5) & (elo != 3) & (sucesso < 0.5)
+    return (caiu & armada_caiu) | (escapou & armada_escapou)
 
 
 def contato_ilegal(

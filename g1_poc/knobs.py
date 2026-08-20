@@ -170,6 +170,9 @@ class Recompensa:
     precise_pos: float = 2.0
     precise_pos_std: float = 0.05
     precise_ori: float = 1.0
+    # σ variável do `precise_ori` (mesmo idioma do bringing/reaching): piso 0,40 rad,
+    # teto = Δθ inicial do elo. Com σ fixo, 90° dá 2,0e-7 — o `reorientar` dos
+    # níveis 4+ era sorte.
     precise_ori_std: float = 0.40
     squeeze: float = 1.0
     squeeze_mu: float = 0.8              # μ pessimista da faixa de DR
@@ -205,6 +208,16 @@ class Recompensa:
     # Medido: o push era o único fator que degradava o sucesso, exatamente porque
     # quebra o cronômetro. Esta é a rampa na coordenada TEMPO-NA-CONDIÇÃO.
     sustentacao: float = 0.5
+
+    # §8.2.5 — `load`, o espelho do `unload`, SÓ no elo `botar` (20/08).
+    # O fecho do `botar` exige F_apoio >= 0,8·m·g, e os termos de segurar apontam
+    # todos contra soltar: medido, satisfazer a 3ª condição custava −3,0/s e pagava
+    # ZERO — o `botar` fecharia por sorte. `load = clamp(F_apoio/m·g)` é a mesma
+    # grandeza contínua do `unload`, invertida, gateada por "perto do alvo".
+    load: float = 2.0
+    # o gate de posição do `load`: 2× o raio de sucesso. Sem ele, LARGAR a caixa em
+    # qualquer lugar do tampo pagaria o máximo.
+    load_raio_mult: float = 2.0
 
     joint_vel_hinge: float = -0.01       # cronograma o leva a -1.0
     joint_vel_max: float = 0.5
@@ -275,7 +288,25 @@ class Comando:
 @dataclass
 class Episodio:
     duracao_s: float = 20.0
-    frac_locomocao: float = 0.30    # 30% locomoção / 70% manipulação
+    # ⚠ Desde 20/08 isto é a FATIA DE TRANSIÇÕES alvo, e não o sorteio. O sorteio é
+    # resolvido pelo controlador em `curriculo.sorteia_forma`, a partir das durações
+    # MEDIDAS: f = alvo·T_manip / (T_loco·(1−alvo) + alvo·T_manip). Com o episódio
+    # de andar morrendo em 24 passos, 30% de sorteio davam 1,06% dos dados — e o
+    # bloco manual de "frac 0,85" que consertava isso era exatamente a configuração
+    # manual que o usuário vetou. O controlador despeja episódios de andar enquanto
+    # eles são curtos e relaxa sozinho para ~0,30 quando a marcha amadurece.
+    frac_locomocao: float = 0.30
+    # clamps do sorteio: nunca menos de 10% nem mais de 95% de locomoção
+    frac_loco_min: float = 0.10
+    frac_loco_max: float = 0.95
+    forma_ema: float = 0.99
+    # "segure e ande": fração dos envs de manipulação com o twist LIBERADO, ATIVA
+    # SÓ a partir de `twist_livre_nivel_min`. Automático: o env começa a treinar
+    # andar-segurando um nível ANTES de o `carregar` abrir (nível 4), fechando o
+    # vão de distribuição (0,00% das transições tinham twist ≠ 0 com caixa válida)
+    # sem bloco manual.
+    frac_twist_livre_manipula: float = 0.30
+    twist_livre_nivel_min: int = 3
 
 
 @dataclass

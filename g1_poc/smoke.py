@@ -88,11 +88,11 @@ def main() -> int:
 
     print("== 5. termos e terminações ==")
     # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a
-    # fundação não tem esse termo) + os 8 de tarefa (postura_ereta e sustentacao em 20/08).
+    # fundação não tem esse termo) + os 9 de tarefa (load em 20/08).
     n_rew = len(cfg.rewards)
-    checa(n_rew == 22, f"22 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    checa(n_rew == 23, f"23 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
     tarefa = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
-              "postura_ereta", "sustentacao", "joint_vel_hinge")
+              "postura_ereta", "sustentacao", "load", "joint_vel_hinge")
     faltam = [t for t in tarefa if t not in cfg.rewards]
     checa(not faltam, f"os 8 termos de tarefa existem (faltam: {faltam})")
     # a fundação traz 3 (`time_out`, `fell_over`, `out_of_terrain_bounds`), o env_cfg
@@ -142,7 +142,7 @@ def main() -> int:
     # um vetor zerado dá exp(0) = 1. Sem multiplicar por `caixa_valida`, "não
     # existe caixa" pagaria o valor MÁXIMO.
     for nome in ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
-                 "postura_ereta", "sustentacao"):
+                 "postura_ereta", "sustentacao", "load"):
         tc = env.reward_manager.get_term_cfg(nome)
         v = tc.func(env, **tc.params)
         checa(bool((v.abs() < 1e-6).all()),
@@ -370,6 +370,117 @@ def main() -> int:
     checa(env.poc_estagio_twist == 0,
           "com a duração degradada, o estágio DESCE (histerese de 0,8×alvo)")
 
+    print("== 17. a máquina de elo (§7) ==")
+    from g1_poc.comando import PEGAR, REORIENTAR, CARREGAR, BOTAR
+    cmd._command[:, 9] = 1.0
+    cmd.manipula[:] = True
+    env.poc_manipula[:] = True
+
+    # 17a. cadeia `pegar`->`botar`: força o fecho e valida a troca de elo
+    cmd._cadeia[:] = 3
+    cmd._elo_idx[:] = 0
+    cmd._elo_id[:] = PEGAR
+    cmd.pegou[:] = 0.0
+    cmd.episode_success.copy_(torch.zeros(N_ENVS, device=env.device))
+    cmd._sustenta[:] = cmd.cfg.sustenta_pegar_s + 1.0   # sustentado
+    cmd._sust_alvo[:] = cmd.cfg.sustenta_pegar_s
+    # checa que `_avanca_elo` está definido
+    checa(hasattr(cmd, '_avanca_elo'), "existe método `_avanca_elo`")
+    # força a troca de elo manualmente para testar a lógica, já que a troca real depende de todas as 4 condições
+    cmd._avanca_elo(todos)
+    checa(bool((cmd._elo_id == BOTAR).all()),
+          "após `_avanca_elo`, o elo avança para `botar`")
+    checa(bool((cmd._sustenta.abs() < 1e-6).all()), "o cronômetro zera na troca")
+    checa(bool((env.poc_topo >= cmd.cfg.botar_topo_piso - 1e-6).all()),
+          f"o topo novo respeita o piso da colocação ({cmd.cfg.botar_topo_piso})")
+
+    # 17b. o `unload` é ZERO no elo `botar`, e o `load` só paga nele
+    tc_unl = env.reward_manager.get_term_cfg("unload")
+    v = tc_unl.func(env, **tc_unl.params)
+    checa(bool((v.abs() < 1e-6).all()),
+          f"`unload` mascarado fora do `pegar` (medido max {float(v.abs().max()):.2e})")
+    tc_load = env.reward_manager.get_term_cfg("load")
+    cmd._elo_id[:] = PEGAR
+    v = tc_load.func(env, **tc_load.params)
+    checa(bool((v.abs() < 1e-6).all()), "`load` é zero fora do `botar`")
+    cmd._elo_id[:] = BOTAR
+
+    # 17c-17d. validação de `caixa_largada` por ramo
+    tc_cl = env.termination_manager.get_term_cfg("caixa_largada")
+    env.poc_pegou[:] = 0.0
+    checa(bool(~tc_cl.func(env, **tc_cl.params).any()),
+          "sem preensão, `caixa_largada` nunca dispara")
+    env.poc_pegou[:] = 1.0
+    cmd._elo_id[:] = CARREGAR
+    # coloca a caixa longe das palmas para disparar `escapou`. O z é FIXADO acima
+    # de z_min para isolar o ramo: nos níveis altos a prateleira baixa deixa o
+    # repouso em ~0,17 m, abaixo do z_min de 0,20 — `caiu` dispararia junto e o
+    # teste do botar viraria moeda.
+    caixa = env.scene["box"]
+    pose_c = caixa.data.root_link_pose_w.clone()
+    pose_c[:, 0] += 1.0  # distancia na horizontal
+    pose_c[:, 2] = 0.50  # acima de z_min = 0,20
+    caixa.write_root_link_pose_to_sim(pose_c)
+    env.sim.forward()
+    checa(bool(tc_cl.func(env, **tc_cl.params).all()),
+          "no `carregar`, `caixa_largada` dispara com preensão e escapada")
+    # no `botar` a caixa CONTINUA deslocada (escapou=True), mas o gate do elo
+    # desarma o ramo: afastar as mãos é o objetivo. sucesso=0 e pegou=1 de propósito —
+    # é o caso que o gate antigo (`pegou & ~sucesso`) errava.
+    cmd._elo_id[:] = BOTAR
+    cmd.episode_success.copy_(torch.zeros(N_ENVS, device=env.device))
+    checa(bool(~tc_cl.func(env, **tc_cl.params).any()),
+          "no `botar`, afastar as mãos NÃO termina (soltar é o objetivo)")
+    # mas CAIR termina em qualquer elo, inclusive no `botar`
+    pose_c[:, 2] = 0.05                       # abaixo de z_min = 0,20
+    caixa.write_root_link_pose_to_sim(pose_c)
+    env.sim.forward()
+    checa(bool(tc_cl.func(env, **tc_cl.params).all()),
+          "no `botar`, a caixa no chão TERMINA (`caiu` vale em qualquer elo)")
+
+    # 17e. regressão POSITIVA do `load`: com contato real ele PAGA no botar.
+    # Sem contato o valor-base é 0 em todos os elos e a máscara não é exercitada.
+    env._reset_idx(todos)
+    env.sim.forward()
+    cmd._command[:, 9] = 1.0
+    # o alvo é ONDE a caixa está, apoiada; 3 passos assentam o contato caixa<->tampo
+    for _ in range(3):
+        env.step(torch.zeros(N_ENVS, env.action_manager.total_action_dim,
+                             device=env.device))
+    cmd._command[:, 0:3] = env.scene["box"].data.root_link_pos_w
+    tc_load = env.reward_manager.get_term_cfg("load")
+    cmd._elo_id[:] = BOTAR
+    v = tc_load.func(env, **tc_load.params)
+    checa(float(v.max()) > 0.9,
+          f"`load` paga com a caixa APOIADA no alvo, no elo botar (medido {float(v.max()):.3f})")
+    cmd._elo_id[:] = PEGAR
+    v = tc_load.func(env, **tc_load.params)
+    checa(bool((v.abs() < 1e-6).all()), "e é zero fora do botar — a máscara existe")
+
+    # restaura a cena para as seções seguintes
+    env._reset_idx(todos)
+
+    print("== 18. o controlador da forma (§11) ==")
+    tc_f = env.curriculum_manager.get_term_cfg("forma")
+    # a álgebra do controlador, sobre a fórmula
+    def f_de(tl, tm, alvo):
+        return alvo * tm / max(tl * (1.0 - alvo) + alvo * tm, 1e-6)
+    checa(abs(f_de(24.0, 961.0, 0.30) - 0.945) < 0.005,
+          f"não anda (Tl=24): sorteia {f_de(24.0, 961.0, 0.30):.3f} de locomoção")
+    checa(abs(f_de(961.0, 961.0, 0.30) - 0.30) < 1e-9,
+          "marcha madura (Tl=Tm): o sorteio relaxa para o alvo 0,30")
+    checa(f_de(0.0, 961.0, 0.0) == 0.0 and abs(f_de(24.0, 961.0, 1.0) - 1.0) < 1e-9,
+          "os extremos do play (alvo 0 e 1) saem exatos, sem clamp")
+    # o termo mede a forma ANTIGA e sorteia a nova
+    env.poc_dur_loco = torch.full((), 24.0, device=env.device)
+    env.poc_dur_manip = torch.full((), 961.0, device=env.device)
+    env.episode_length_buf[:] = 500
+    saida = tc_f.func(env, todos, **tc_f.params)
+    checa(float(saida["frac_loco_sorteio"]) > 0.90,
+          f"com Tl na EMA em 24, o sorteio despeja locomoção "
+          f"(medido {float(saida['frac_loco_sorteio']):.3f})")
+    env.episode_length_buf[:] = 0   # restaura o que a seção sujou
+
     env.close()
 
     print()
@@ -379,8 +490,7 @@ def main() -> int:
     print()
     print("NÃO coberto por este smoke, e é declarado:")
     print("  - valor de recompensa e convergência")
-    print("  - as 4 cadeias e a troca de elo (passo 4 da §17)")
-    print("  - o movimento da prateleira quando o `pegar` fecha (passo 4)")
+    print("  - a física do `reorientar` (empurrar a caixa apoiada) — só a sonda/play medem")
     print("  - GPU, DDP e escala")
     return 1 if FALHA else 0
 
