@@ -67,6 +67,10 @@ def main() -> int:
                    help="usa o jitter do treino; o default é o caso NOMINAL")
     p.add_argument("--envs", type=int, default=8,
                    help="as forças saem do env 0; o fecho é agregado sobre todos")
+    p.add_argument("--com-push", action="store_true",
+                   help="devolve o `push_robot` (1-3 s), que o play remove")
+    p.add_argument("--com-ruido", action="store_true",
+                   help="devolve o `Unoise` da observação, que o play desliga")
     p.add_argument("--device", type=str, default="cpu")
     args = p.parse_args()
 
@@ -85,6 +89,21 @@ def main() -> int:
     env_cfg = load_env_cfg(task_id)
     env_cfg.scene.num_envs = args.envs
     agent_cfg = load_rl_cfg(task_id)
+
+    # ⚠ O `play=True` remove o `push_robot` e desliga o `Unoise`. Isso torna a sonda
+    # OTIMISTA em relação ao treino, e a diferença não é pequena: o fecho exige 50
+    # passos seguidos e o push chega a cada 50-150. Estas flags devolvem cada um, uma
+    # por vez, para atribuir a queda do `episode_success` a uma causa e não a um palpite.
+    if args.com_push:
+        from g1_poc.env_cfg import make_g1_poc_env_cfg
+        from g1_poc.knobs import Knobs
+        treino = make_g1_poc_env_cfg(Knobs())         # o cfg de TREINO tem o push
+        env_cfg.events["push_robot"] = treino.events["push_robot"]
+        print("[SONDA] push_robot DEVOLVIDO:",
+              env_cfg.events["push_robot"].interval_range_s, "s")
+    if args.com_ruido:
+        env_cfg.observations["actor"].enable_corruption = True
+        print("[SONDA] Unoise da observação DEVOLVIDO")
 
     base = ManagerBasedRlEnv(cfg=env_cfg, device=args.device)
     env = RslRlVecEnvWrapper(base, clip_actions=agent_cfg.clip_actions)
@@ -115,10 +134,14 @@ def main() -> int:
 
     pico_f = 0.0
     pico_subida = 0.0
-    # ⚠ O apoio é lido pela MEDIANA, e não pelo mínimo: o passo inicial (e todo passo
-    # de reset) mede 0 N porque ainda não há contato, e um mínimo global de 0,00 N daí
-    # levaria a "ele descarregou a caixa" quando ele nunca descarregou. A mediana
-    # descreve o estado sustentado, que é o que decide.
+    # ⚠ NÃO filtrar o apoio zero, e não usar o mínimo. As duas coisas já mentiram aqui:
+    #   - o MÍNIMO global pega o passo de reset (0 N por falta de contato) e diz
+    #     "descarregou" quando nunca descarregou;
+    #   - filtrar `apoio > 0` descarta justamente os passos com a caixa NO AR, que são
+    #     os bons, e a mediana sobra sobre os poucos passos de contato. Medido: a tabela
+    #     mostrava 0% em todo passo e o resumo dizia 800% do peso.
+    # A mediana sobre TODOS os passos descreve o estado sustentado, e a fração de passos
+    # descarregados é o que diz se ele ergueu.
     apoios: list[float] = []
     pico_acao = 0.0
 
@@ -151,8 +174,7 @@ def main() -> int:
         pico_f = max(pico_f, f_min)
         pico_subida = max(pico_subida, subida)
         pico_acao = max(pico_acao, float(acao.abs().max()))
-        if apoio_z > 0.0:          # 0 exato = sem contato (reset), não é descarga
-            apoios.append(apoio_z)
+        apoios.append(apoio_z)
 
         # --- o fecho, condição por condição ---
         perto = cmd.erro_pos() < cmd.cfg.raio_sucesso
@@ -198,14 +220,24 @@ def main() -> int:
     print(f"\n== resumo de {args.passos} passos ==")
     print(f"  aperto MÁXIMO (o mín das duas palmas) : {pico_f:.2f} N = "
           f"{pico_f/f_ref:.0%} de F_ref")
+    descarregado = sum(1 for a in apoios if a < 0.10 * peso) / max(len(apoios), 1)
     print(f"  apoio MEDIANO da prateleira           : {apoio_med:.2f} N = "
           f"{apoio_med/peso:.0%} do peso")
+    print(f"  passos com a caixa DESCARREGADA       : {descarregado:.1%} "
+          f"(apoio < 10% do peso)")
     print(f"  subida MÁXIMA da caixa                : {pico_subida*100:.1f} cm")
     print(f"  |ação| máximo                         : {pico_acao:.2f}")
     print(f"  `squeeze` no pico = tanh({pico_f/f_ref:.2f})       : {tanh_sat:.5f}   "
           f"(derivada {1-tanh_sat**2:.1e})")
     print("\n  leitura:")
-    if apoio_med > 1.05 * peso:
+    # ⚠ A subida vem ANTES da prensa. Se a caixa está no ar, o apoio alto de alguns
+    # passos é o contato inicial, e não escora — foi assim que a versão anterior
+    # acusou "ele prensa" com a caixa 16 cm acima do repouso.
+    if pico_subida > 0.05 and descarregado > 0.5:
+        print(f"   - ELE ERGUE a caixa ({pico_subida*100:.1f} cm) e a mantém "
+              f"descarregada em {descarregado:.0%} dos passos.")
+        print("     O elo de FORÇA está resolvido. O que sobra é o fecho, abaixo.")
+    elif apoio_med > 1.05 * peso:
         print("   - ELE PRENSA A CAIXA CONTRA A PRATELEIRA. O apoio está ACIMA do peso,")
         print("     portanto a resultante vertical que ele aplica aponta para BAIXO. Não")
         print("     é falta de aperto nem escorregamento: é o hack de usar a caixa como")
