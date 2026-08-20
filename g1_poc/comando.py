@@ -249,12 +249,42 @@ class CaixaAlvoCommand(CommandTerm):
         )
 
     def _update_metrics(self) -> None:
+        """⚠ A DECOMPOSIÇÃO DO FECHO é obrigatória, e não enfeite.
+
+        No fim do bloco 2 o `no_alvo` chegou a 57% e o `erro_posicao` a 0,0488 — abaixo
+        do raio de sucesso — com `episode_success` em 0,0060. Com as métricas antigas
+        não havia como saber qual das outras três condições bloqueava: o ângulo era
+        reportado só como MÉDIA (14,2°, que passa na média e não diz a fração), e o
+        `de_pe` e a sustentação não eram medidos de forma alguma.
+
+        É o mesmo instrumento que faltou no g1_multitask, onde `cond_fisica = 0,0000`
+        com todos os fatores aparentemente satisfeitos travou o diagnóstico.
+        """
         self._resolver()
-        self.metrics["erro_posicao"] = self.erro_pos() * self.valida
-        self.metrics["erro_angulo_deg"] = torch.rad2deg(self.erro_ang()) * self.valida
-        self.metrics["no_alvo"] = (self.erro_pos() < self.cfg.raio_sucesso).float() * self.valida
+        v = self.valida
+        perto = self.erro_pos() < self.cfg.raio_sucesso
+        alinhado = self.erro_ang() < self.cfg.angulo_sucesso_rad
+        de_pe = self.de_pe()
+
+        self.metrics["erro_posicao"] = self.erro_pos() * v
+        self.metrics["erro_angulo_deg"] = torch.rad2deg(self.erro_ang()) * v
+        self.metrics["no_alvo"] = perto.float() * v
         self.metrics["episode_success"] = self.episode_success
         self.metrics["frac_manipula"] = self.manipula.float()
+
+        # os três fatores que faltavam, cada um como FRAÇÃO
+        self.metrics["fecha_angulo"] = alinhado.float() * v
+        self.metrics["fecha_de_pe"] = de_pe.float() * v
+        self.metrics["fecha_todas"] = (perto & alinhado & de_pe).float() * v
+        # `de_pe` tem duas partes e o `upright` já cobre a inclinação; a altura da pelve
+        # é a que ninguém observava, e agachar para pegar é o que a derruba.
+        # ⚠ SEM `× valida`: esta é uma altura em metros, para comparar direto com
+        # `pelve_min = 0,65`. Multiplicar por `valida` misturaria zeros dos envs sem
+        # caixa e puxaria a média para baixo — 0,768 apareceria como 0,576.
+        self.metrics["pelve_z"] = self.robot.data.root_link_pos_w[:, 2]
+        # separa "nunca fecha" de "fecha e perde": se `fecha_todas` for alto e isto
+        # ficar perto de zero, o problema é ESTABILIDADE, não a condição.
+        self.metrics["sustenta_s"] = self._sustenta * v
 
     def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
         for i in visualizer.get_env_indices(self.num_envs):
