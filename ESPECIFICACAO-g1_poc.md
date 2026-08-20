@@ -327,6 +327,14 @@ corpo. Esta distinção vem do ADR-0001 e ela está correta.
 O alvo do `pegar` é uma altura absoluta. Agachar não o move. Portanto o robô tem de ficar de
 pé para fechar o elo.
 
+⚠ **Nota (20/08) sobre o `reorientar`.** Girar a caixa **em mão** é geometricamente
+impossível: o cubo tem 0,20 m de lado, a diagonal a 45° mede 0,283 m, e as duas palmas
+paralelas teriam de abrir 8,3 cm no meio do giro — a preensão se perde. A solução compatível
+com este desenho é **empurrar a caixa APOIADA**: o alvo do elo é a posição ATUAL da caixa, as
+2 condições não exigem erguer, e o torque de escorregamento medido é ≈ 0,49 N·m para 1 kg
+(dois empurrões de 90° fazem 180°). Registrado para a máquina de elo (MACRO 2), junto com o
+canal de orientação da caixa que o ator ainda não tem.
+
 ### 7.2 As condições de fecho
 
 **`pegar` — 4 condições, durante 1,0 s:**
@@ -408,11 +416,11 @@ O treino **não** faz reset entre elos. O robô, a caixa e as velocidades contin
 
 ---
 
-## 8. Recompensas — 20 termos
+## 8. Recompensas — 22 termos
 
-São **13 da fundação + `self_collisions` + 6 de tarefa**. O `self_collisions` não existe
+São **13 da fundação + `self_collisions` + 8 de tarefa**. O `self_collisions` não existe
 no `velocity_env_cfg` do mjlab: o `env_cfg` o CRIA, sobre o sensor `auto_colisao`.
-Portanto 13 + 1 + 6 = 20, e o `smoke.py` confere o número.
+Portanto 13 + 1 + 8 = 22, e o `smoke.py` confere o número.
 
 Os pesos são por segundo. O mjlab divide o `dt` de volta.
 
@@ -450,7 +458,7 @@ Os cinco termos de marcha se auto-gateiam pelo comando. Eles multiplicam por
 
 **Este auto-gate substitui toda a máquina de gates por tarefa.**
 
-### 8.2 Tarefa — 6 termos
+### 8.2 Tarefa — 8 termos
 
 | termo | peso | forma | origem |
 |---|---:|---|---|
@@ -459,19 +467,30 @@ Os cinco termos de marcha se auto-gateiam pelo comando. Eles multiplicam por
 | `precise_ori` | +1,0 | `reaching × exp(−Δθ² / 0,40²)` | novo |
 | **`squeeze`** | **+1,0** | `tanh( min(F_n_esq , F_n_dir) / F_ref )` | **novo** |
 | **`unload`** | **+2,0** | `clamp(1 − F_apoio/m·g) × preensão × não_caiu` | **§8.5, ligado 19/08** |
+| **`postura_ereta`** | **+2,0** | `rampa2(pelve) × preensão × descarga` | **§8.2.3, ligado 20/08** |
+| **`sustentacao`** | **+0,5** | `clamp(t_fecho / 1,0 s)` | **§8.2.4, ligado 20/08** |
 | `joint_vel_hinge` | −0,01 | `(\|v\| − 0,5)⁺²`, cronograma | `manipulation` |
 
 O `unload` estava **em reserva** na §8.5, com o gatilho "se o `squeeze` subir e o
 `precise_pos` não seguir". O gatilho disparou no bloco 1 e ele subiu para cá. Ver
 §8.2.2.
 
-**`reaching` é bimanual.** O `reaching` do mjlab mede um site só. Use o `reaching_kernel` do
-repositório: ele mede as duas palmas contra as duas faces laterais, com
+**`reaching` é bimanual, e o σ é POR ELO.** O `reaching` do mjlab mede um site só. Use o
+`reaching_kernel` do repositório: ele mede as duas palmas contra as duas faces laterais, com
 `lateral_offset = 0,10 m`.
 
 ```
-reaching = exp( −média(‖palma_E − face_E‖² , ‖palma_D − face_D‖²) / 0,20² )
+σ_reach  = max( 0,20 ; distância inicial palma→face, no começo do elo )
+reaching = exp( −média(‖palma_E − face_E‖² , ‖palma_D − face_D‖²) / σ_reach² )
 ```
+
+⚠ **O σ fixo de 0,20 m foi trocado em 20/08, por medição.** Com ele o gradiente de
+aproximação cai **1391×** entre a prateleira a 0,55 m (2,64/m) e a 0,04 m (0,0019/m):
+a mesma pose de robô que vê a caixa alta com d = 0,374 m vê a caixa baixa com d = 0,681 m,
+e `exp(−0,681²/0,20²) = 1,85e-5` — os níveis 3+ do currículo viravam sorte, com um vale de
+−0,84/s (o `upright` e a `pose` cobram pelo agachamento) e um farol de 1,85e-5 do outro
+lado. É a MESMA correção que esta seção já fez no `bringing`, uma coordenada antes. O
+comando grava `env.poc_reach_inicial` no começo do elo, contra a pose fresca.
 
 **`bringing` tem σ variável.** O σ do mjlab é fixo em 0,30 m. No nível 0 a caixa sobe 0,17 m,
 e um σ de 0,30 m já está saturado.
@@ -486,14 +505,16 @@ Esta é a única função do mjlab que a especificação modifica.
 **A estrutura multiplicativa é o anti-hack.** O `bringing` só paga através do `reaching`.
 Levar a caixa ao alvo sem as mãos nela não paga.
 
-**Os cinco termos de tarefa multiplicam por `caixa_valida`.**
+**Os sete termos de tarefa multiplicam por `caixa_valida`.**
 
 ```
-staged      ×= caixa_valida
-precise_pos ×= caixa_valida
-precise_ori ×= caixa_valida
-squeeze     ×= caixa_valida
-unload      ×= caixa_valida
+staged        ×= caixa_valida
+precise_pos   ×= caixa_valida
+precise_ori   ×= caixa_valida
+squeeze       ×= caixa_valida
+unload        ×= caixa_valida
+postura_ereta ×= caixa_valida
+sustentacao   ×= caixa_valida
 ```
 
 Só o `joint_vel_hinge` fica fora: ele é qualidade de movimento, e vale com caixa ou sem.
@@ -590,37 +611,114 @@ recriaria o degrau que este termo existe para remover: o apoio cai enquanto a al
 não mudou, e é nessa faixa que está o gradiente que falta. O repouso é `env.poc_topo` por
 env — não uma constante —, porque o currículo alarga a faixa da prateleira no passo 4.
 
+### 8.2.3 `postura_ereta` — a rampa da pelve, ligada em 20/08
+
+A condição 3 do fecho do `pegar` (§7.2) exige `pelve ≥ 0,65 m`, e **nada pagava por ela na
+coordenada certa**. Medido na iteração 5217 do bloco 2: `pelve_z = 0,6345` — 1,5 cm abaixo
+do critério — com `erro_posicao = 0,0106` e só 34% dos envs de manipulação de pé
+(`fecha_de_pe / frac_manipula`). A caixa chegava ao alvo; o robô não se levantava.
+
+**A atribuição correta, retificada em 20/08.** Uma versão anterior deste pacote afirmou que
+"o `precise_pos` paga por agachar". Está invertido: o alvo é uma altitude ACIMA do repouso
+da caixa, então subir com a caixa na mão *aproxima* do alvo. O `precise_pos` é INDIFERENTE
+à pelve abaixo do alvo e CONTRÁRIO acima dele (−16,2/m no ponto de fecho — subir mais
+afasta a caixa do alvo, a menos que os braços compensem). Quem precifica a pelve é só a
+`pose`, a ≈ 0,73/m (o default do G1 é o `KNEES_BENT_KEYFRAME`, pelve em 0,76 m). O platô
+era **ausência de incentivo**, não incentivo contrário.
+
+**A forma — rampa em DUAS partes:**
+
+```
+fracao = 0,5·clamp( (z − 0,20) / 0,45 )  +  0,5·clamp( (z − 0,57) / 0,08 )
+postura_ereta = fracao × preensão_bimanual × descarga × caixa_valida
+```
+
+Cada parte fecha um buraco medido:
+
+- **longa (0,20 → 0,65)**: no nível 4 a pega acontece com a pelve a até 0,267 m. Uma rampa
+  que começasse em 0,45 seria MORTA em 33% das pegas do nível 4 — zona sem gradiente
+  exatamente onde a subida é a maior.
+- **fina (0,57 → 0,65)**: dá 14,7/m (com peso 2,0) nos últimos centímetros, contra os
+  −16,2/m do `precise_pos` no fecho. Sem ela a inclinação seria 5/m, e subir os 1,5 cm que
+  faltavam custaria −0,22/s líquido com os braços rígidos.
+
+A rampa **satura em 0,65**: a régua não pede mais, e pagar por mais convidaria a ponta dos
+pés.
+
+**Os dois gates, e o que cada um fecha:**
+
+| gate | sem ele |
+|---|---|
+| preensão bimanual | agachar para a pega baixa pagaria multa implícita: o termo brigaria com o `staged` na fase de aproximação |
+| descarga (`F_apoio < 0,2·m·g`) | encostar as palmas e ficar de pé com a caixa APOIADA paga a rampa inteira — +2,0/s exatamente no platô "encosta e para" que o bloco 1 mediu |
+
+No nível 0 a geometria permite pegar de pé (pelve até 0,739), portanto sem o gate de
+descarga o termo seria um bônus do platô. Com ele, o estado "encosta e para" ganha **zero**
+dos termos novos.
+
+### 8.2.4 `sustentacao` — a rampa do cronômetro, ligada em 20/08
+
+O fecho exige as 4 condições por **1,0 s ininterrupto**, e nenhum termo diferenciava 0,98 s
+de 0,00 s. Medido no `model_5100`: dos três fatores do treino que o play remove (push,
+ruído, jitter), o push era o ÚNICO que degradava o sucesso — 63,4% → 29,3% nas quatro
+condições — precisamente porque ele quebra o cronômetro.
+
+```
+sustentacao = clamp( t_nas_4_condições / 1,0 s ) × caixa_valida
+```
+
+`t` é o `_sustenta` do próprio comando — o MESMO cronômetro do fecho, não um paralelo. Ele
+zera quando qualquer condição cai, portanto o termo é uma rampa na coordenada
+TEMPO-NA-CONDIÇÃO e paga 0,5/s enquanto o robô segura o fecho. Peso 0,5: é lapidação, não
+tarefa.
+
 ### 8.3 O gradiente de incentivo
 
-Nível 0. Alvo em (0,25 ; 0,00 ; 0,82). A caixa em repouso está a 0,18 m dele. `twist` em zero.
+⚠ **Esta tabela foi refeita em 20/08.** A auditoria de incentivos mediu três premissas
+erradas na versão anterior: a distância inicial caixa→alvo é **d₀ = 0,256 m** (não 0,18 —
+medido em 16 envs), o `squeeze` no estado B vale `tanh(1) = 0,76` (não 1,00), e a fundação
+no instante do reset vale 5,74/s (a entrega do navegador da §11.1 custa 0,50/s ali). Os
+valores abaixo são **calculados sobre os knobs de 20/08** (22 termos, σ do `bringing` =
+0,256), com a fundação ≈ 5,9/s em regime.
 
-| estado do robô | `staged` | `precise_pos` | `precise_ori` | `squeeze` | fundação | **total/s** |
-|---|---:|---:|---:|---:|---:|---:|
-| A · mãos longe | 0,19 | 0,00 | 0,05 | 0,00 | 6,0 | **6,2** |
-| B · mãos na caixa, caixa parada | 4,06 | 0,00 | 0,99 | 1,00 | 6,0 | **12,1** |
-| C · meio do percurso | 5,28 | 0,07 | 0,99 | 1,00 | 6,0 | **13,3** |
-| D · caixa no alvo | 5,94 | 2,00 | 0,99 | 1,00 | 6,0 | **14,9** |
+Nível 0. Alvo em (0,25 ; 0,00 ; 0,82). `twist` em zero.
 
-A recompensa cresce de A até D sem vale.
+| estado do robô | `staged` | `precise_pos` | `precise_ori` | `squeeze` | `unload` | `postura_ereta` | `sustentacao` | fundação | **total/s** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A · mãos longe | 1,51 | 0,00 | 0,37 | 0,00 | 0,00 | 0,00 | 0,00 | 6,0 | **7,9** |
+| B · mãos na caixa, caixa APOIADA | 4,09 | 0,00 | 1,00 | 0,76 | 0,00 | **0,00** | 0,00 | 5,9 | **11,8** |
+| C · meio do percurso, caixa no ar | 5,32 | 0,00 | 0,98 | 0,96 | 2,00 | 1,26 | 0,00 | 5,9 | **16,4** |
+| D · caixa no alvo, de pé, fecho sustentado | 5,98 | 1,91 | 1,00 | 0,76 | 2,00 | 2,00 | 0,50 | 5,9 | **20,1** |
+
+A recompensa cresce de A até D sem vale — e o degrau maior continua sendo A→B, que o
+`reaching` com σ por elo guia em qualquer altura de prateleira.
 
 O retorno do episódio de 20 s:
 
 | comportamento | retorno |
 |---|---:|
-| encosta e para (estado B por 18 s) | ≈ **229** |
-| ergue em 4 s e segura (estado D por 16 s) | ≈ **300** |
+| encosta e para (estado B por 18 s) | ≈ **228** |
+| ergue em 4 s e segura (estado D por 16 s) | ≈ **369** |
 
-**Erguer paga 31% mais no episódio.** Parar no estado B deixa 71 pontos na mesa.
+**Erguer paga ≈ 60% mais no episódio** (a versão anterior, sem `unload` nem os termos de
+20/08, dizia 31%). E o estado B — o platô exato em que o bloco 1 parou — **não ganha nada**
+dos dois termos novos: o gate de descarga do `postura_ereta` e o cronômetro zerado da
+`sustentacao` valem zero ali.
 
-Compare com hoje: o ADR-0001 mediu 1,07 de sinal de tarefa no estado B, de um orçamento de
-4,00. E o `box_at_peito` foi **retirado** do `pegar`. Portanto nenhum termo pagava por a caixa
-**estar** num lugar.
+Compare com o treino antigo: o ADR-0001 mediu 1,07 de sinal de tarefa no estado B, de um
+orçamento de 4,00. E o `box_at_peito` foi **retirado** do `pegar`. Portanto nenhum termo
+pagava por a caixa **estar** num lugar.
 
-Três garantias, e elas são de aritmética:
+Quatro garantias, e elas são de aritmética:
 
-1. A recompensa é monótona de A até D. Não existe vale.
+1. A recompensa é monótona de A até D. Não existe vale — no nível 0. ⚠ No nível 4 a
+   auditoria mediu um vale de −0,84/s na fase de agachar (o `upright` e a `pose` cobram);
+   quem faz a travessia pagar é o `reaching` com σ por elo (3,24/m lá, contra 0,0019/m com
+   o σ fixo antigo).
 2. A derivada em relação à força de aperto é positiva de 0 N a `F_ref`.
-3. Chegar ao alvo e **ficar** lá é o estado que mais paga.
+3. A derivada em relação à altura da pelve é positiva de 0,20 m a 0,65 m, com a caixa
+   erguida nas mãos.
+4. Chegar ao alvo e **ficar** lá é o estado que mais paga.
 
 Uma coisa que a aritmética **não** garante: que a política encontre a solução. Isso é
 exploração. A evidência de que é possível é a skill Lift, que ergueu 5 kg nesta mesma cena.
@@ -680,18 +778,19 @@ Este é o defeito que o repositório mediu em 17/07: *"posture 0,8 briga com o s
 
 ### 9.2 A solução
 
-Acrescente um quarto regime. Ele lê a **demanda da caixa**, e não a velocidade.
+Acrescente um quarto regime. Ele lê a **forma do episódio**, e não a velocidade.
 
 ```
-demanda_caixa = 10 · ‖caixa − alvo‖ + 6 · Δθ            (Δθ em radianos)
-
-demanda_caixa ≥ 1,5   →  std_manipulando
-demanda_caixa < 1,5   →  os 3 regimes do mjlab, pela velocidade comandada
+caixa_valida = 1   →  std_manipulando, do começo ao fim do episódio
+caixa_valida = 0   →  os 3 regimes do mjlab, pela velocidade comandada
 ```
 
 Os três dicionários do G1 ficam intocados. A marcha validada não muda.
 
-Custo: cerca de 10 linhas, numa subclasse de `variable_posture`.
+⚠ **A versão anterior escolhia o regime por LIMIAR DE DEMANDA**
+(`demanda = 10·‖caixa−alvo‖ + 6·Δθ`, troca em 1,5) **e foi retificada em 20/08** — ver a
+§9.4. O gate pela forma é o mesmo bit `caixa_valida` que os termos de tarefa já usam:
+observável, determinístico, e idêntico entre treino e deploy.
 
 ### 9.3 Os valores de `std_manipulando`
 
@@ -714,18 +813,26 @@ apertadas.**
 
 O robô agacha e alcança. O robô não abre as pernas para os lados.
 
-### 9.4 O gradiente que levanta o robô
+### 9.4 ⚠ RETIFICAÇÃO (20/08): a troca por demanda era um penhasco, não um gradiente
 
-A demanda cai a zero quando a caixa chega ao alvo.
+Esta seção afirmava: "a demanda cai a zero quando a caixa chega ao alvo, o regime volta a
+`standing`, e a `pose` puxa o robô para a pose de pé". **A aritmética nega.** O
+`std_standing` do G1 é 0,05 rad em TODA junta, braços incluídos. Com a caixa segurada a
+0,82 m, quatro juntas de braço ficam a ≈ 0,7 rad do default:
 
-| momento | demanda | regime | σ do joelho |
-|---|---:|---|---:|
-| a caixa está na prateleira baixa | alta | `std_manipulando` | 1,20 |
-| a caixa chega ao alvo | ≈ 0 | `standing` | 0,05 |
+| regime | `pose` (peso 1,0) |
+|---|---:|
+| `std_manipulando` (σ ombro/cotovelo = 1,00) | **≈ 0,93** |
+| `standing` (σ = 0,05) | **≈ 0,00** |
 
-O robô agacha para pegar. Depois a `pose` o puxa para a pose de pé.
+Trocar de regime com a caixa na mão destruía o termo inteiro: o robô pagava **≈ 0,93/s por
+terminar a tarefa**. E o penhasco caía dentro da tolerância da régua — com os pesos 10 e 6,
+a troca exigia `Δθ < 13,3°` e o sucesso aceita `Δθ < 20°`. Medido na iteração 5217:
+demanda 1,60 contra limiar 1,5, com o ângulo estacionado em 14,2° — exatamente dentro da
+banda em que o elo fecha sem pisar o penhasco.
 
-Isto é um gradiente, e não um critério. O robô não precisa descobrir que deve levantar.
+Quem levanta o robô agora é o `postura_ereta` (§8.2.3), que é rampa. O regime da `pose`
+passou a ser escolhido pela forma do episódio (§9.2), e não muda no meio da manobra.
 
 ---
 
@@ -754,6 +861,25 @@ Três regras da tabela:
   domina.
 - O **mínimo** da carga continua 1 kg em todos os níveis. O mesmo motivo.
 - O nível **acrescenta** cadeias. Ele não substitui cadeias.
+
+**Estado (20/08): altura, carga e jitter IMPLEMENTADOS; rotação e cadeias, não.** O
+`reset_cena` e o `carga_caixa` leem `env.poc_nivel` e resolvem a célula por env
+(`knobs.Celulas`). A célula também carrega o **jitter x da caixa** (0,20 nos níveis 0–2,
+0,08 nos ≥ 4): com o topo a 0,04 m as poses de pega só existem até x relativo ≈ 0,45, e o
+jitter fixo de 0,20 deixaria 60% dos episódios do nível 4 fora de alcance — com o twist
+zerado cobrando 0,44/s pelo passo à frente que nenhum termo de marcha paga. A ROTAÇÃO da
+célula pertence ao elo `reorientar` (MACRO 2): pedi-la no `pegar` tornaria as duas cadeias
+do nível 3 a mesma tarefa.
+
+⚠ **Bug consertado em 20/08, por ORDEM de dict.** O termo `nivel` vinha DEPOIS de `forma`
+no currículo, e `sorteia_forma` sobrescreve `env.poc_manipula` — a promoção era gateada
+pela forma do episódio **SEGUINTE**, sorteada de forma independente. Efeito, por simulação:
+`p_up = 0,7·p` (o ponto fixo saía de 0,5 para 0,714; nível médio 1,07 em p = 0,5, não
+3,0), e um episódio de locomoção rebaixava o nível em 70% das vezes — um bloco com
+`frac_locomocao = 0,85` teria teto de `nivel_medio = 0,214` mesmo com manipulação
+perfeita. A regra que fica: **quem lê a forma do episódio que ACABOU (`nivel`,
+`twist_ranges`) vem ANTES de `forma`; os eventos leem a forma NOVA e rodam depois de todo o
+currículo.** O smoke confere a ordem e a regressão.
 
 Na cadeia `pegar` → `botar` o treino sorteia **duas** alturas, e elas usam faixas **diferentes**:
 
@@ -785,6 +911,12 @@ Duas propriedades:
    nos casos fáceis. Não existe piso a escolher.
 
 Só os episódios de manipulação movem o nível.
+
+⚠ **O portão do passo 2 da §17 é `nivel_medio ≥ 1,0`, e não "sair de zero".** "Sair de
+zero" já vale hoje com p = 0,006 (`nivel_medio = 0,0042` ≈ 17 envs de 4096 no nível 1) —
+não distingue nada. E `nivel_max` satura em 6 com UM env sortudo. O log carrega o
+histograma (`nivel_frac_0`, `nivel_frac_3mais`) além da média, porque é ele que diz onde a
+POPULAÇÃO está.
 
 ### 10.2 Parte B — a locomoção, por passo global
 
@@ -822,9 +954,25 @@ episódios de manipulação de 961 passos contra 3 de locomoção de 24, andar r
 formas têm tempo de vida parecido.
 
 **Isto é o mesmo defeito de fase do `hinge`.** Dois dos três cronogramas por passo
-global já saíram de fase, o que reforça a dívida registrada na §10.3: gatear por
-COMPETÊNCIA. Aqui o gate natural é o `error_vel_xy` ou o `peak_height_mean` — só abrir
-o teto seguinte quando o robô rastrear o teto atual.
+global já saíram de fase, o que motivou o gate por COMPETÊNCIA — **implementado em
+20/08** (`curriculo.twist_por_competencia`, no lugar do `mdp.commands_vel`):
+
+- **o sinal é a DURAÇÃO do episódio de locomoção** (EMA, `ema = 0,99`, τ ≈ 4 iterações):
+  um robô que não anda cai em 24 passos, um que anda chega ao `time_out` — e é a MESMA
+  grandeza que governa a fatia de transições, portanto é a que precisa subir. Os envs
+  PARADOS (`is_standing_env`) ficam fora da EMA: de pé até o time_out entregaria 8% do
+  alvo sem andar. Os de giro no lugar contam — girar é andar.
+- **sobe** quando o passo global passou o degrau **e** a EMA ≥ 0,60 × episódio cheio
+  (600 passos). O degrau global vira o PISO, não o gatilho.
+- **desce** quando a EMA cai abaixo de 0,8 × alvo — sem a descida, uma degradação depois
+  do degrau prenderia o robô de novo no comando impossível.
+- **teto de 1 degrau a cada 12 iterações** (≈ 3τ da EMA). Sem ele, um warm-start com o
+  passo global além dos dois degraus e uma política que anda saltaria 0→2 em duas chamadas
+  (0,08 iteração), com a EMA ainda medida nas faixas do estágio 0 — a re-explosão da
+  it 5099.
+- ⚠ o estado do gate (`poc_estagio_twist`, EMA) **não vai para o checkpoint** (o runner só
+  persiste `common_step_counter`). Depois de um resume ele recomeça pessimista e recalibra
+  em ~12 iterações. Declarado: é o comportamento seguro.
 
 ⚠ Adiar o cronograma **não basta** para o robô aprender a andar: ele tira o comando
 impossível do caminho, o que é pré-requisito, mas 1,1% de dados continua pouco. O
@@ -873,10 +1021,13 @@ passo 6, o **último**, e o freio chegou cinco passos adiantado.
 no passo 1500 × 24. Os dois podem coincidir. Se o sucesso cair nesse ponto, adie o aperto até o
 nível médio da população passar de 4.
 
-**A correção estrutural, ainda não feita:** gatear a pose por **competência** em vez de por
-passo global — apertar só quando o `episode_success` passar de um limiar. Isso resolve a classe
-do problema; adiar o degrau resolve esta instância. Enquanto o gate não existir, todo bloco que
-passe de 10 000 iterações precisa reconferir a fase.
+**A correção estrutural: FEITA para o twist (20/08, ver §10.2), pendente para a pose.** O
+`hinge` e o `action_rate` continuam por passo global — a dívida agora é estender o mesmo
+gate a eles no passo 6 da §17 (refino de pose), com o `episode_success` como sinal. Os
+números que a exigem: o `hinge` a −1,00 custa −4,00/s e o `action_rate` a −0,25 custa
+−2,20/s — cada um sozinho supera o maior sinal de tarefa do pacote (+2,0/s). Enquanto o
+gate não existir para eles, todo bloco que passe de 10 000 iterações precisa reconferir a
+fase.
 
 ---
 
@@ -943,6 +1094,16 @@ O `time_out = True` é obrigatório. Sem ele o rsl_rl trata o fim do tempo como 
 
 O `caixa_largada` só vale depois de o elo `pegar` fechar.
 
+⚠ **A `caixa_largada` NUNCA disparou até 20/08, por um bug de alias.** O comando publicava
+`env.poc_success = self.episode_success` e depois REATRIBUÍA o atributo
+(`self.episode_success = torch.maximum(...)` devolve tensor novo) — o alias ficava
+apontando para o tensor velho, congelado em zeros, já na primeira chamada. A terminação
+lia sempre 0. Consertado com escrita in-place (`copy_`). Consequências: (a) o `nivel_caixa`
+nunca foi afetado — ele lê `cmd.episode_success` direto; (b) a partir do primeiro bloco
+pós-conserto a terminação passa a valer de verdade, e largar a caixa depois do sucesso
+termina o episódio SEM bootstrap de valor (só `time_out` recebe `γ·V` no rsl_rl) — vigiar
+`Episode_Termination/caixa_largada` na primeira leitura.
+
 ---
 
 ## 13. PPO
@@ -981,7 +1142,7 @@ Três notas:
 | `mjlab/envs/mdp` | `reward_curriculum`, `termination_curriculum`, `write_external_wrench_to_sim`, `geom_friction` |
 | `g1_training/common` | `robot.py` (os pads), `box.py` (a caixa e a prateleira mocap), `reaching_kernel` bimanual com `lateral_offset`, `apply_box_payload`, `nonfinite_state`, o fix broadcast-safe de `reset_joints_by_offset` |
 | `g1_multitask` | `erro_angulo_deg`, `FACE_AXES`, `de_pe`, o portão de assinatura de checkpoint do `runner.py` |
-| novo | `CaixaAlvoCommand` (o alvo, o bit `caixa_valida` e a cadeia), o quarto regime da `postura`, o nível por env, o σ variável do `bringing` |
+| novo | `CaixaAlvoCommand` (o alvo, o bit `caixa_valida` e a cadeia), o quarto regime da `postura`, o nível por env com a tabela de células, os σ variáveis do `bringing` e do `reaching`, `postura_ereta`, `sustentacao`, `twist_por_competencia` |
 
 ---
 
@@ -1013,11 +1174,12 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
 3. `obs[actor]` tem 112 canais. `obs[critic]` tem 125.
 4. Cada coluna de `_step_reward` é finita. Ele nomeia a coluna que falhar.
 5. O comando `caixa_alvo` tem 10 números, e as quatro fatias cobrem tudo sem sobreposição.
-6. Existem 20 termos de recompensa (13 + `self_collisions` + 6) e 4 terminações, e os 6
+6. Existem 22 termos de recompensa (13 + `self_collisions` + 8) e 4 terminações, e os 8
    termos de tarefa existem por nome.
 7. Os cinco termos de marcha valem zero quando o `twist` é zero.
 8. Com `caixa_valida = 0`: os quatro canais da caixa são zero, **e** `staged`, `precise_pos`,
-   `precise_ori`, `squeeze` e `unload` são zero. Este teste é o mais importante da lista.
+   `precise_ori`, `squeeze`, `unload`, `postura_ereta` e `sustentacao` são zero. Este teste
+   é o mais importante da lista.
    ⚠ Ele é feito chamando a FUNÇÃO com os params do manager. Dois motivos, e os dois já
    deram falso resultado: o `observation_manager.compute()` devolve o `_obs_buffer`
    CACHEADO do passo anterior (`observation_manager.py:311`), e o ruído `Unoise` entra
@@ -1028,8 +1190,10 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
 9. A prateleira está no grupo de geom 2.
 10. As quatro cadeias montam, e cada elo escreve um alvo diferente.
 11. A transição de elo não faz reset: a pose do robô e a pose da caixa continuam.
-12. O nível sobe com `episode_success = 1` e desce com 0.
-13. O quarto regime da postura ativa quando `demanda_caixa ≥ 1,5`.
+12. O nível sobe com `episode_success = 1` e desce com 0 — usando a forma do episódio que
+    ACABOU (a regressão do bug de 20/08: `nivel` e `twist_ranges` vêm ANTES de `forma`).
+13. O quarto regime da postura ativa quando a forma é manipulação; em locomoção valem os
+    três regimes de velocidade do mjlab.
 14. A prateleira se move quando o `pegar` fecha, e a folga vertical é positiva.
 15. O `squeeze` cresce quando a força normal de palma cresce, e vale zero com uma palma só.
 16. O `squeeze` **não** cresce quando a caixa é apertada para baixo contra a prateleira.
@@ -1038,6 +1202,16 @@ Um treino deve ser reproduzível por `git diff` de um arquivo de config.
     e a medição de campo é a `sonda.py` — o smoke não pega comportamento.
 17. O episódio **não** termina quando o último elo fecha. O `episode_success` fica travado em 1.
 18. O elo `botar` não fecha enquanto a prateleira carregar menos de 80% do peso.
+19. A tabela de células (§10.1): o nível 0 é NO-OP (topo 0,55 ± jitter, carga 1 kg), cada
+    nível respeita a sua célula, e promover 0→4 baixa a prateleira e sobe a carga.
+20. As rampas dos termos de 20/08: `postura_ereta` sem preensão é zero, a rampa em duas
+    partes tem os valores esperados nas quatro alturas de referência, e a parte fina é
+    íngreme; `sustentacao` paga meio cronômetro como metade.
+21. O gate por competência do twist SEGURA com o passo global acima do degrau e a duração
+    baixa, SOBE com a duração no alvo, respeita o teto de 1 degrau por 12 iterações, e
+    DESCE com a duração degradada.
+
+Os itens 10, 11, 14, 17 e 18 pertencem à máquina de elo (MACRO 2) e ainda não têm teste.
 
 ---
 
@@ -1087,7 +1261,7 @@ dela de x = 0,50 m para x = 0,60 m.
 |---|---|---|
 | 1 | O nível 6 gira a caixa no eixo horizontal. O robô não tem mãos. Tombar a caixa pode exigir mãos. | Aceite o nível 6 como opcional. Os critérios da §0 não o exigem. |
 | 2 | A carga de 5 kg com a inércia de 1 kg. A DR endurece a estática, e não a dinâmica. | Declarado. A skill Lift ergueu 5 kg com o mesmo mecanismo. |
-| 3 | A prateleira a 0,04 m fica à frente do tronco no agachamento. O `contato_ilegal` pode travar o nível 4. | Suba o piso para 0,15 m, ou mova o centro para x = 0,60 m. |
+| 3 | ⚠ INVERTIDO por medição (FK, 20/08): o pico de `contato_ilegal` é no topo **0,30 m** (nível 2), com 20–25% das poses de pega intersectando a laje — ela fica na altura da coxa. A 0,04 m ela é um degrau e o corpo passa por cima (0–3%). É oscilação estável do nível, não trava. | Contingência do NÍVEL 2: se a escada estacionar em `nivel_medio ≈ 2` com `Episode_Termination/contato_ilegal` alto, mova o centro da prateleira de x = 0,50 para x = 0,60 (arrasta `caixa_xy` junto — mudança de geometria, um bloco próprio). |
 | 4 | O pulso é mole: 1,68 N·m/rad, limite de 5 N·m. A palma inclina sob carga, e o contato plano vira linha. | Meça `Metrics/` da força de palma. Se a pega falhar por inclinação, aumente a espessura do pad. |
 | 5 | ~~A troca do gate `_grasp` booleano por `squeeze` contínuo mais forma multiplicativa não está validada para um humanoide bimanual.~~ **MATERIALIZOU-SE no bloco 1.** O `squeeze` saturou em 647% de `F_ref` (derivada 1e-5) e o robô prensou a caixa contra o tampo: apoio em 138% do peso, sucesso zero em 1884 iterações. | A mitigação era esta e funcionou como escrita: entrou **um** termo da §8.5, o `unload` (§8.2.2). O que resta na reserva continua valendo, e a régua de campo é a `sonda.py`. |
 | 6 | O `cone = pyramidal` modela pior o cone de atrito de uma pega. | Teste `elliptic` com `impratio = 10` depois da POC, com uma terminação `nonfinite` de rede — a criar, ela não existe (§12). |
