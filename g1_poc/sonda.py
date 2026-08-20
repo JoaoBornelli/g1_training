@@ -155,6 +155,7 @@ def main() -> int:
     pico_sustenta = 0.0
     fechos = 0
     sust_ant = torch.zeros(args.envs, device=args.device)
+    pico_por_env = torch.zeros(args.envs, device=args.device)
     pelves: list[float] = []
 
     for i in range(1, args.passos + 1):
@@ -206,6 +207,7 @@ def main() -> int:
                 causa["inclinado"] += 1
         fechos += int(((sust_ant == 0) & (sust > 0)).sum())
         sust_ant = sust
+        pico_por_env = torch.maximum(pico_por_env, sust)
 
         if i % args.cada == 0:
             print(f"{i:>6} {fe:>7.2f} {fd:>7.2f} {f_min/f_ref:>11.0%} "
@@ -214,6 +216,7 @@ def main() -> int:
 
     apoios.sort()
     apoio_med = apoios[len(apoios) // 2] if apoios else float("nan")
+    sustenta_por_env = [round(float(x), 2) for x in pico_por_env]
     tanh_sat = float(torch.tanh(torch.tensor(pico_f / f_ref)))
 
     print("-" * 74)
@@ -274,8 +277,17 @@ def main() -> int:
         print(f"  {rotulo:24s} {n[k]/total:6.1%}")
     print(f"\n  pelve média              {sum(pelves)/len(pelves):.3f} m   "
           f"(mínimo exigido {cmd.cfg.pelve_min:.2f})")
+    # ⚠ O `episode_success` do PRÓPRIO comando é o número comparável com o treino, e
+    # é ele que o currículo lê para promover o nível. Os agregados abaixo já mentiram
+    # três vezes nesta sonda (mínimo, filtro do zero, e o máximo): um env sortudo entre
+    # oito leva a "ele fecha" quando sete nunca fecharam. Fração, não extremo.
+    print(f"  episode_success          {float(cmd.episode_success.mean()):.3f}   "
+          f"<- comparável com o log do treino")
+    print(f"  envs que JÁ fecharam     {float((cmd.episode_success > 0.5).float().mean()):.1%} "
+          f"de {args.envs}")
+    print(f"  sustentação por env      {sustenta_por_env}")
     print(f"  sustentação MÁXIMA       {pico_sustenta:.2f} s de "
-          f"{cmd.cfg.sustenta_pegar_s:.1f} exigidos")
+          f"{cmd.cfg.sustenta_pegar_s:.1f} exigidos  (de UM env, não da média)")
     print(f"  fechos iniciados         {fechos}")
     if sum(causa.values()):
         print("  quando o cronômetro zerou, quem caiu:")
@@ -283,13 +295,20 @@ def main() -> int:
             if c:
                 print(f"    {k:14s} {c:4d}  ({c/sum(causa.values()):.0%})")
 
+    frac_fechou = float((cmd.episode_success > 0.5).float().mean())
     print("\n  leitura:")
     if n["todas"] == 0:
         pior = min(("perto", "alinhado", "alto", "reto"), key=lambda k: n[k])
         print(f"   - as quatro NUNCA coincidem. A mais rara é `{pior}` "
               f"({n[pior]/total:.1%}); é ela que bloqueia.")
-    elif pico_sustenta >= cmd.cfg.sustenta_pegar_s:
-        print("   - ele FECHA o elo. O sucesso existe; o que falta é frequência.")
+    elif frac_fechou >= 0.5:
+        print(f"   - {frac_fechou:.0%} dos envs FECHARAM o elo. Se o treino loga "
+              f"`episode_success` muito abaixo disto, a diferença NÃO está na")
+        print("     política — está no que o play remove (push, ruído) ou na forma.")
+    elif frac_fechou > 0.0:
+        print(f"   - só {frac_fechou:.0%} dos envs fecharam, e o máximo de "
+              f"{pico_sustenta:.2f} s vem de UM env.")
+        print("     Os outros nunca sustentaram 1 s. É frequência, não capacidade.")
     elif causa:
         dom = max(causa, key=causa.get)
         print(f"   - ele fecha e PERDE. O cronômetro chegou a {pico_sustenta:.2f} s de "
