@@ -227,10 +227,26 @@ class Cronograma:
     24 é o `num_steps_per_env`, portanto `1000 * 24` = 1000 iterações.
     """
     it = 24
+    # ⚠ Os degraus estavam em 1000 e 2500 e foram para 8000 e 12000 em 19/08.
+    #
+    # A §10.2 justificava o passo 0 nas faixas de hoje com "a locomoção do treino atual
+    # já funciona" — premissa de WARM-START de uma política que andava. O bloco 1 rodou
+    # do ZERO (`resume=False`), então ela nunca valeu, e o cronograma avançou dois
+    # estágios por passo global sem o robô ter dado um passo: na it 5099 ele recebia
+    # comando de 2,0 m/s e 1,5 rad/s com `peak_height_mean = 2,7 mm`.
+    #
+    # Cair em meio segundo com esse comando não é falha de aprendizado — é o comando ser
+    # impossível. E o tempo de vida do episódio governa a fatia de dados: com o episódio
+    # de andar em 24 passos contra 961 da manipulação, andar fica com 1,1% das
+    # transições, porque o sorteio 70/30 é por EPISÓDIO e o PPO aprende de PASSO.
+    #
+    # Mesmo defeito de fase do `hinge`: cronograma por passo global contra um progresso
+    # que não aconteceu. Dois dos três cronogramas já saíram de fase — ver a dívida do
+    # gate por competência na §10.3.
     locomocao: list = field(default_factory=lambda: [
-        {"step": 0,          "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.3, 0.3), "ang_vel_z": (-0.5, 0.5)},
-        {"step": 1000 * 24,  "lin_vel_x": (-0.8, 1.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-        {"step": 2500 * 24,  "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-1.5, 1.5)},
+        {"step": 0,           "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.3, 0.3), "ang_vel_z": (-0.5, 0.5)},
+        {"step": 8000 * 24,   "lin_vel_x": (-0.8, 1.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
+        {"step": 12000 * 24,  "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-1.5, 1.5)},
     ])
     # ⚠ O degrau de −1,00 estava em 3000 e foi para 10000 em 19/08, medido.
     # Na iteração 3080 ele bateu e o `joint_vel_hinge` + `action_rate_l2` passaram a

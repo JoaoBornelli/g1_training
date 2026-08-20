@@ -793,10 +793,43 @@ Use `mdp.commands_vel` do mjlab.
 | passo | `lin_vel_x` | `lin_vel_y` | `ang_vel_z` |
 |---|---|---|---|
 | 0 | (−0,5 ; 1,0) | (−0,3 ; 0,3) | (−0,5 ; 0,5) |
-| 1000 × 24 | (−0,8 ; 1,5) | (−0,5 ; 0,5) | (−1,0 ; 1,0) |
-| 2500 × 24 | (−1,0 ; 2,0) | (−0,6 ; 0,6) | (−1,5 ; 1,5) |
+| **8 000 × 24** | (−0,8 ; 1,5) | (−0,5 ; 0,5) | (−1,0 ; 1,0) |
+| **12 000 × 24** | (−1,0 ; 2,0) | (−0,6 ; 0,6) | (−1,5 ; 1,5) |
 
-A locomoção do treino atual já funciona. O passo 0 pode começar nas faixas de hoje.
+⚠ **Os degraus estavam em 1000 e 2500, e a premissa que os justificava era falsa.**
+Esta seção dizia "a locomoção do treino atual já funciona; o passo 0 pode começar nas
+faixas de hoje" — o que pressupõe **warm-start de uma política que anda**. O bloco 1
+rodou do ZERO (`resume = False`), portanto o robô nunca teve marcha alguma, e o
+cronograma avançou dois estágios sozinho: na iteração 5099 ele recebia comando de
+**2,0 m/s e 1,5 rad/s** com `peak_height_mean = 2,7 mm` — ou seja, arrastando os pés.
+
+Cair em meio segundo com esse comando não é falha de aprendizado; é o comando ser
+impossível. E isso se realimenta, porque **a fatia de dados de locomoção é governada
+pelo tempo de vida do episódio, não pelo sorteio**:
+
+| duração do episódio de andar | transições de locomoção |
+|---|---:|
+| 24 passos (0,5 s — medido) | **1,1%** |
+| 100 passos | 4,3% |
+| 400 passos | 15,1% |
+| 961 (igual à manipulação) | **30,0%** |
+
+O `frac_locomocao = 0,30` é por **EPISÓDIO** e o PPO aprende de **PASSO**. Com 7
+episódios de manipulação de 961 passos contra 3 de locomoção de 24, andar recebe
+`72 / 6.799` = 1,1% do gradiente — e os termos de marcha (`foot_clearance`,
+`foot_swing_height`, `foot_slip`) são gateados por comando, logo valem **zero** nos
+99% em que o twist está zerado. O sorteio só entrega os 30% prometidos quando as duas
+formas têm tempo de vida parecido.
+
+**Isto é o mesmo defeito de fase do `hinge`.** Dois dos três cronogramas por passo
+global já saíram de fase, o que reforça a dívida registrada na §10.3: gatear por
+COMPETÊNCIA. Aqui o gate natural é o `error_vel_xy` ou o `peak_height_mean` — só abrir
+o teto seguinte quando o robô rastrear o teto atual.
+
+⚠ Adiar o cronograma **não basta** para o robô aprender a andar: ele tira o comando
+impossível do caminho, o que é pré-requisito, mas 1,1% de dados continua pouco. O
+rompimento do laço exige um bloco com `frac_locomocao = 1,0`, e ali o risco é
+esquecimento do `pegar` — mensurável em segundos com a `sonda.py`.
 
 ### 10.3 Parte C — a qualidade de movimento, por passo global
 
