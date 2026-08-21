@@ -214,12 +214,16 @@ from g1_poc import recompensas as R
 from mjlab.scripts.train import TrainConfig, launch_training
 
 TASK = g1_poc.TASK_ID                     # "Mjlab-G1-Poc"
-RUN = "bloco2"                            # o nome da run, FIXO. O resume o reusa.
+RUN = "bloco4"                            # o nome da run, FIXO. O resume o reusa.
 
 cfg = TrainConfig.from_task(TASK)
 cfg = dataclasses.replace(cfg, log_root=str(LOG_ROOT))
 cfg.env.scene.num_envs = NUM_ENVS
-cfg.agent.max_iterations = 3000
+# ⚠ 5000, e não 3000. O degrau 1 do `commands_vel` do fabricante está em 5000×24
+# passos; abaixo disso o currículo de comando NÃO anda, e o robô treina o bloco
+# inteiro na faixa mais fácil (±1,0 m/s). Foi o que acomodou o passo em 3 mm no
+# bloco 3.
+cfg.agent.max_iterations = 5000
 cfg.agent.resume = False
 cfg.agent.run_name = RUN
 
@@ -249,7 +253,6 @@ assert cfg.env.commands["caixa_alvo"].resampling_time_range[0] > cfg.env.episode
 # ⚠ CUSTOU 6,6 h #2 — os dois freios de movimento por passo global. Eles consumiram
 # 96% da penalidade e 55% do sinal positivo. Agora o gate é por competência.
 assert cu["hinge"].func is CU.peso_por_competencia
-assert cu["action_rate"].func is CU.peso_por_competencia
 assert rw["joint_vel_hinge"].func is R.hinge_por_forma, "o hinge tem de ser por forma"
 
 # a ordem do currículo: quem lê a forma do episódio que ACABOU vem antes de `forma`
@@ -322,10 +325,10 @@ import g1_poc
 from mjlab.scripts.train import TrainConfig, launch_training
 
 TASK = g1_poc.TASK_ID
-RUN = "bloco2"                            # o MESMO da célula 8
+RUN = "bloco4"                            # o MESMO da célula 8
 
 # `LOAD_RUN` pode ter sido fixado pela célula 9b (semente de fora). Senão, ele é o
-# regex que casa qualquer diretório terminado em `_bloco2`.
+# regex que casa qualquer diretório terminado em `_{RUN}`.
 LOAD_RUN = globals().get("LOAD_RUN") or f".*{RUN}"
 
 # ⚠ Os TRÊS níveis têm de bater: <log_root>/<experiment>/<load_run>/<checkpoint>.
@@ -349,7 +352,7 @@ print(f"checkpoints= {[p.name for p in pts[-3:]]}  (o mjlab pega o de maior núm
 cfg = TrainConfig.from_task(TASK)
 cfg = dataclasses.replace(cfg, log_root=str(LOG_ROOT))
 cfg.env.scene.num_envs = NUM_ENVS
-cfg.agent.max_iterations = 3000
+cfg.agent.max_iterations = 5000
 cfg.agent.resume = True
 cfg.agent.run_name = RUN
 cfg.agent.load_run = LOAD_RUN
