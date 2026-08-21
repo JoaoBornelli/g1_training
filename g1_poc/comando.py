@@ -7,8 +7,12 @@
     [9:10] `caixa_valida` — 0 ou 1
 
 `TwistPoc` — o `UniformVelocityCommand` do mjlab, com dois acréscimos:
-    (a) o twist é forçado a zero nos elos de manipulação;
+    (a) o twist é forçado a zero nos elos de manipulação, EXCETO no `carregar`;
     (b) metade dos envs PARADOS recebe giro no lugar.
+
+Andar com a caixa aparece na cadeia `pegar` -> `carregar`, e em nenhum outro lugar. O
+`_avanca_elo` sobe a mobília 5 m no fecho do `pegar` (§7.3): o robô pega, a mesa sai,
+e ele anda livre.
 
 ORDEM IMPORTA no dict de comandos: `caixa_alvo` vem PRIMEIRO, porque ele resolve
 `env.poc_twist_zero`, e o `twist` lê esse buffer no mesmo passo.
@@ -114,7 +118,6 @@ class CaixaAlvoCommand(CommandTerm):
         self._elo_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._elo_t = torch.zeros(self.num_envs, device=self.device)
         self.pegou = torch.zeros(self.num_envs, device=self.device)
-        self._twist_livre = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # σ variável do `precise_ori`: Δθ inicial do elo, com piso
         self.ori_inicial = torch.full(
             (self.num_envs,), cfg.precise_ori_std_piso, device=self.device)
@@ -225,15 +228,6 @@ class CaixaAlvoCommand(CommandTerm):
             self._elo_id[env_ids] == PEGAR,
             torch.full_like(self._sust_alvo[env_ids], self.cfg.sustenta_pegar_s),
             torch.full_like(self._sust_alvo[env_ids], self.cfg.sustenta_outros_s))
-        # "segure e ande" AUTOMÁTICO: só a partir de `twist_livre_nivel_min` (um
-        # nível antes de o `carregar` abrir). Nada de bloco manual.
-        if nivel is None:
-            alto = torch.zeros(n, dtype=torch.bool, device=self.device)
-        else:
-            alto = nivel[env_ids] >= self.cfg.twist_livre_nivel_min
-        self._twist_livre[env_ids] = (
-            (torch.rand(n, device=self.device) < self.cfg.frac_twist_livre)
-            & manipula & alto)
 
         # --- o alvo do elo `pegar`, em MUNDO ---
         # Altura ABSOLUTA. Agachar não move este alvo, portanto o robô tem de
@@ -374,14 +368,20 @@ class CaixaAlvoCommand(CommandTerm):
                       + quat_apply(self.robot.data.root_link_quat_w[ids_c], peito))
             self._command[ids_c, ALVO] = alvo_c
 
-        # o twist é zero nos elos de manipulação, EXCETO no `carregar` e nos envs
-        # "segure e ande" (frac_twist_livre)
-        # ⚠ O `aguardando` entra com OR, e vence o `carrega` e o `twist_livre`: na
-        # janela de espera "parado" quer dizer velocidade linear E angular zero, sem
-        # exceção. O `TwistPoc._update_command` aplica isto DEPOIS do `super()`,
-        # portanto vence também o `heading_command`.
+        # O twist é zero em TODO elo de manipulação, exceto no `carregar`.
+        #
+        # ⚠ Não existe mais exceção além dessa. O `frac_twist_livre` saiu em 21/08:
+        # ele liberava o twist com a prateleira ainda na frente do robô, a 0,25 m, e
+        # sem exigir a preensão. Andar com a caixa aparece na cadeia
+        # `pegar` -> `carregar`, onde o `_avanca_elo` sobe a mobília 5 m no fecho do
+        # `pegar` (§7.3) — o robô pega, a mesa sai, e ele anda livre.
+        #
+        # ⚠ O `aguardando` entra com OR, e vence o `carrega`: na janela de espera
+        # "parado" quer dizer velocidade linear E angular zero, sem exceção. O
+        # `TwistPoc._update_command` aplica isto DEPOIS do `super()`, portanto vence
+        # também o `heading_command`.
         self._env.poc_twist_zero.copy_(
-            (self.manipula & ~carrega & ~self._twist_livre) | aguardando)
+            (self.manipula & ~carrega) | aguardando)
 
         # --- o fecho, condição a condição, POR ELO (§7.2) ---
         perto = self.erro_pos() < self.cfg.raio_sucesso
@@ -635,12 +635,8 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
     precise_ori_std_piso: float = 0.40
     # atalhos de MEDIÇÃO (play/sonda/smoke): força a cadeia; None = sorteio por nível
     cadeia_forcada: int | None = None
-    # fração dos envs de manipulação com o twist LIBERADO ("segure e ande")
-    frac_twist_livre: float = 0.0
     # §11.2 — a janela de espera, em segundos. Sorteada por episódio.
     espera_s: tuple[float, float] = (0.3, 1.0)
-    # o "segure e ande" só liga a partir deste nível (um antes do `carregar`)
-    twist_livre_nivel_min: int = 3
 
     def build(self, env: ManagerBasedRlEnv) -> CaixaAlvoCommand:
         return CaixaAlvoCommand(self, env)

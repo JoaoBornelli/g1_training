@@ -162,8 +162,6 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             afasta_z=kc.afasta_z,
             support_sensor=C.SENSOR_APOIO,
             precise_ori_std_piso=kr.precise_ori_std,
-            frac_twist_livre=ke.frac_twist_livre_manipula,
-            twist_livre_nivel_min=ke.twist_livre_nivel_min,
             # §11.2 — a janela de espera. Todo episódio começa PARADO.
             espera_s=kcm.espera_s,
         ),

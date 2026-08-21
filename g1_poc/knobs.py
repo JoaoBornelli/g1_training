@@ -406,13 +406,30 @@ class Episodio:
     dur_loco_alvo: float = 600.0         # passos: sobreviver 12 s dos 20 s
     # histerese: desce com sinal >= limiar; sobe com sinal < 0,8·limiar
     alvo_desce_frac: float = 0.80
-    # "segure e ande": fração dos envs de manipulação com o twist LIBERADO, ATIVA
-    # SÓ a partir de `twist_livre_nivel_min`. Automático: o env começa a treinar
-    # andar-segurando um nível ANTES de o `carregar` abrir (nível 4), fechando o
-    # vão de distribuição (0,00% das transições tinham twist ≠ 0 com caixa válida)
-    # sem bloco manual.
-    frac_twist_livre_manipula: float = 0.30
-    twist_livre_nivel_min: int = 3
+    # ⚠ O "segure e ande" antecipado (`frac_twist_livre`) SAIU em 21/08. Ele liberava
+    # o twist em 30% dos envs de manipulação a partir do nível 3, para fechar um vão
+    # de distribuição: antes do nível 4 nenhuma transição tem twist ≠ 0 com caixa
+    # válida.
+    #
+    # O vão era real. A solução estava errada, e a geometria mostra por que:
+    #
+    #     borda perto da prateleira   x = 0,20 m
+    #     robô no reset da manipulação x ≈ −0,05 m
+    #     vão                          0,25 m
+    #     vx comandado no nível 3      até 1,0 m/s
+    #     tempo até o contato          ~0,25 s
+    #
+    # E o `contato_ilegal` dispara com 50 N na pelve, no tronco ou na coxa. Portanto
+    # esses envs morriam de cara, contra a própria mesa.
+    #
+    # Duas falhas somadas: o gate não exigia `pegou`, portanto o twist liberava ANTES
+    # de haver caixa na mão; e a mobília não saía. Isso é o oposto do `carregar` de
+    # verdade, que só fica ativo DEPOIS do fecho do `pegar` e cuja transição sobe a
+    # prateleira 5 m (§7.3). O atalho passava por cima do único mecanismo que torna
+    # andar-carregando possível.
+    #
+    # Andar com a caixa aparece na cadeia `pegar` -> `carregar`, e em nenhum outro
+    # lugar. O robô pega, a mesa sai, e ele anda livre.
 
 
 @dataclass
