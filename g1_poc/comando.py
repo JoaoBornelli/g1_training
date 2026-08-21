@@ -714,6 +714,26 @@ class TwistPoc(UniformVelocityCommand):
         if anterior is not None:
             ids = (anterior & ~zero).nonzero().flatten()
             if len(ids) > 0:
+                # ⚠ GUARDA OBRIGATÓRIA. O `_resample_command` do fabricante tem um
+                # efeito colateral que só é seguro NO RESET:
+                #
+                #     init_vel_mask = r.uniform_(0,1) < cfg.init_velocity_prob
+                #     ...
+                #     self.robot.write_root_state_to_sim(root_state, init_vel_env_ids)
+                #
+                # Ele ESCREVE a velocidade da base no sim, para casar com o comando
+                # sorteado. Este sorteio aqui roda no MEIO do episódio. Com
+                # `init_velocity_prob > 0` ele teleportaria a velocidade de um robô
+                # em pé no fim da janela de espera, e de um robô com a caixa na mão
+                # na abertura do `carregar` — que a derrubaria.
+                #
+                # O default do mjlab é 0,0 e nada no `velocity` nem no cfg do G1 o
+                # muda. Portanto hoje o caminho está morto. Este assert existe para
+                # que ele não reviva em silêncio.
+                assert self.cfg.init_velocity_prob == 0.0, (
+                    "init_velocity_prob > 0 é incompatível com o sorteio na borda: "
+                    "o _resample_command do fabricante escreve a velocidade da base "
+                    "no sim, e aqui isso aconteceria no meio do episódio")
                 self._resample(ids)
                 # No `carregar` o comando NUNCA é zero: o elo existe para treinar
                 # andar com a caixa. Fora dele (a saída da janela de espera) vale a

@@ -615,6 +615,9 @@ def main() -> int:
     cmd._resample_command(todos)
     cmd._espera[:] = 0.40                 # dentro da janela
     cmd._update_command(); tw._update_command()
+    checa(tw.cfg.init_velocity_prob == 0.0,
+          "`init_velocity_prob` é 0: o sorteio na borda roda no MEIO do episódio, e "
+          "o `_resample_command` do fabricante escreveria a velocidade da base no sim")
     checa(bool((tw.command.abs().sum(dim=-1) < 1e-9).all()),
           "na janela de espera o comando é zero nos três eixos")
     cmd._espera[:] = 0.0                  # a janela acabou

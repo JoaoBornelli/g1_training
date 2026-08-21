@@ -315,12 +315,14 @@ def peso_por_competencia(
 
     | termo | sinal | por quê |
     |---|---|---|
-    | `action_rate_l2` | `duracao_loco` | ele suprime a marcha, e quem não anda cai em 24 passos |
     | `joint_vel_hinge` | `nivel_medio` | desde 21/08 ele só vale na manipulação |
 
-    ⚠ Tem de vir DEPOIS de `twist_ranges` e de `nivel` no dict de currículo: o
-    `nivel_medio` é
-    o buffer que o `nivel_caixa` escreve.
+    ⚠ O `action_rate_l2` SAIU desta tabela em 21/08. O fabricante roda −0,10 fixo,
+    sem cronograma, e a medida da it 488 fecha o caso: a −0,10 e σ 0,54 o termo já
+    cobra −1,49/s, que é o piso de ruído. Só o `hinge` continua aqui.
+
+    ⚠ Tem de vir DEPOIS de `nivel` no dict de currículo: o `nivel_medio` é o buffer
+    que o `nivel_caixa` escreve.
 
     ⚠ Nada disto vai para o checkpoint. Depois de um resume o gate recomeça no
     estágio 0 e recalibra. É o comportamento seguro: um freio recomeça SOLTO, e não

@@ -177,7 +177,11 @@ class Recompensa:
     soft_landing: float = -1e-5
     body_ang_vel: float = -0.05
     angular_momentum: float = -0.02
-    action_rate: float = -0.10           # cronograma o leva a -0.25
+    # ⚠ FIXO no valor do fabricante. O cronograma que o levava a −0,25 saiu em
+    # 21/08: a medida da it 488 mostrou que a −0,10 e σ 0,54 o termo já cobra
+    # −1,49/s, que é o PISO de ruído (0,10 × 2σ² × 29 = 1,69/s). Multiplicar por
+    # 2,5 taxaria EXPLORAÇÃO, e não tremor.
+    action_rate: float = -0.10
     # ⚠ 21/08: VOLTOU ao valor do fabricante (−1,0). O −10,0 vinha de
     # `manipulation`/`tracking` e é dez vezes o `velocity_env_cfg.py:317`. Andar
     # precisa de amplitude no quadril e no joelho; uma penalidade forte de limite
@@ -461,6 +465,13 @@ class DR:
 
 @dataclass
 class Cronograma:
+    """⚠ 21/08: este bloco encolheu. Saíram `action_rate` (o fabricante roda −0,10
+    fixo), os quatro knobs do gate do twist (voltou o `commands_vel` por passo
+    global) e o par `freio_ar_*` (o sinal `duracao_loco` deixou de ter produtor).
+
+    Um knob sem consumidor é pior que nenhum: alguém religa `freio_ar_sinal` e lê
+    zero para sempre. Sobraram `locomocao`, `hinge` e os quatro `freio_hinge_*`.
+    """
     """§10.2 e §10.3 — os dois cronogramas por passo global.
 
     Os passos estão em `common_step_counter`, que conta 1 por passo de env.
@@ -513,44 +524,8 @@ class Cronograma:
         {"step": 1500 * 24,  "weight": -0.10},
         {"step": 10000 * 24, "weight": -1.00},
     ])
-    # ⚠ 21/08: o cronograma do `action_rate` SAIU. O fabricante roda −0,10 fixo,
-    # para sempre, e produz uma marcha boa. O degrau para −0,25 era meu, e a
-    # medição da it 488 fecha o caso: a −0,10 e σ 0,54 o termo já cobra −1,49/s,
-    # que é o PISO de ruído (0,10 × 2σ² × 29 = 1,69/s). Multiplicar por 2,5 taxaria
-    # exploração, e não tremor.
-    #
-    # A lista fica vazia de propósito: quem quiser o freio de volta tem de
-    # justificar com medida, e não reativar um cronograma esquecido.
-    action_rate: list = field(default_factory=list)
 
-    # §10.3 — o gate por COMPETÊNCIA do twist, ligado em 20/08.
-    # Dois dos três cronogramas por passo global já saíram de fase. O passo global
-    # vira o PISO do degrau; o gatilho é o robô SUSTENTAR o teto atual, medido pela
-    # duração do episódio de LOCOMOÇÃO (um robô que não anda cai em 24 passos; um
-    # que anda chega ao time_out — e é a MESMA grandeza que governa a fatia de
-    # transições).
-    twist_duracao_min_frac: float = 0.60   # sobe com EMA >= 0,60 × episódio cheio
-    twist_desce_frac: float = 0.8          # desce com EMA < 0,8 × alvo (histerese)
-    twist_ema: float = 0.99                # τ ≈ 100 amostras ≈ 4 iterações (medido)
-    # ⚠ Teto de UM degrau a cada N iterações. Sem ele, num warm-start com o passo
-    # global além dos dois degraus e uma política que anda, o estágio saltaria
-    # 0→2 em duas chamadas (0,08 iteração) com a EMA ainda medida nas faixas do
-    # estágio 0 — a re-explosão da it 5099. 12 iterações ≈ 3τ da EMA.
-    twist_iters_entre_degraus: int = 12
 
-    # §10.3 — o gate por COMPETÊNCIA dos dois FREIOS DE MOVIMENTO, ligado em 21/08.
-    # O passo global continua sendo o PISO do degrau; o gatilho é a competência da
-    # habilidade que cada freio ameaça.
-    #
-    #   action_rate_l2   -> duração do episódio de LOCOMOÇÃO (ele suprime a marcha)
-    #   joint_vel_hinge  -> nível médio da população  (desde 21/08 ele só vale na
-    #                       manipulação, portanto a marcha não é a habilidade em risco)
-    #
-    # O bloco 1 mediu o custo de não ter este gate: na it 3080 os dois freios
-    # consumiram 100% do sinal positivo, e na it 5000 ainda custavam −6,08/s contra
-    # +11,6/s. A §17 põe refino de pose no passo 6, e o freio chegava no passo 1.
-    freio_ar_sinal: str = "duracao_loco"
-    freio_ar_alvo: float = 0.60          # fração do episódio cheio, igual ao twist
     freio_hinge_sinal: str = "nivel_medio"
     freio_hinge_alvo: float = 3.0        # metade da tabela de células dominada
     freio_desce_frac: float = 0.8        # histerese, igual ao twist
