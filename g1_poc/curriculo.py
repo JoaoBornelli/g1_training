@@ -190,6 +190,91 @@ def _metricas_nivel(env) -> dict[str, torch.Tensor]:
     }
 
 
+def peso_por_competencia(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    reward_name: str,
+    stages: list,
+    sinal: str,
+    alvo: float,
+    desce_frac: float,
+    iters_entre_degraus: int,
+) -> dict[str, torch.Tensor]:
+    """Aperta o peso de um termo só quando a habilidade que ele ameaça EXISTE.
+
+    Substitui o `mdp.reward_curriculum` nos dois freios de movimento. Ele avança por
+    passo global e só por isso — e o bloco 1 mostrou o que isso custa. Este é o
+    mesmo desenho do `twist_por_competencia`: **o passo global é o PISO do degrau, e
+    o gatilho é a competência medida.**
+
+    Por que o defeito é de FASE, e não de valor:
+
+    - it 3080: o `hinge` bateu −1,00 e os dois freios passaram a consumir 99,1% de
+      todas as penalidades e 100% do sinal positivo. A recompensa líquida virou
+      −0,03. No mesmo passo o `contato_ilegal` foi de 6,4% para 17,5% das
+      terminações: com movimento caro, escorar o tronco na prateleira economiza
+      esforço.
+    - it 5000: com o `hinge` recuado para −0,10 e o `action_rate` em −0,25, os dois
+      ainda custavam −6,08/s contra +11,6/s de todo o positivo.
+    - A §17 põe "refino de pose" no passo 6, o ÚLTIMO. O freio chegava cinco passos
+      adiantado, porque o cronograma não sabe em que passo o treino está.
+
+    **Cada freio é gateado pela competência da habilidade que ELE ameaça:**
+
+    | termo | sinal | por quê |
+    |---|---|---|
+    | `action_rate_l2` | `duracao_loco` | ele suprime a marcha, e quem não anda cai em 24 passos |
+    | `joint_vel_hinge` | `nivel_medio` | desde 21/08 ele só vale na manipulação |
+
+    ⚠ Tem de vir DEPOIS de `twist_ranges` e de `nivel` no dict de currículo: o
+    `duracao_loco` é a EMA que o `twist_por_competencia` mantém, e o `nivel_medio` é
+    o buffer que o `nivel_caixa` escreve.
+
+    ⚠ Nada disto vai para o checkpoint. Depois de um resume o gate recomeça no
+    estágio 0 e recalibra. É o comportamento seguro: um freio recomeça SOLTO, e não
+    apertado.
+    """
+    if not hasattr(env, "poc_estagio_peso"):
+        env.poc_estagio_peso = {}
+        env.poc_peso_ultimo_degrau = {}
+    est = env.poc_estagio_peso.get(reward_name, 0)
+    ultimo = env.poc_peso_ultimo_degrau.get(reward_name, 0)
+
+    if sinal == "duracao_loco":
+        medido = float(getattr(env, "poc_duracao_loco", torch.zeros(())))
+        limiar = alvo * env.max_episode_length
+    elif sinal == "nivel_medio":
+        nivel = getattr(env, "poc_nivel", None)
+        medido = 0.0 if nivel is None else float(nivel.float().mean())
+        limiar = alvo
+    else:
+        raise ValueError(f"sinal desconhecido: {sinal!r}")
+
+    passo = env.common_step_counter
+    pode = passo - ultimo >= iters_entre_degraus * 24
+    if (pode and est + 1 < len(stages)
+            and passo >= stages[est + 1]["step"]
+            and medido >= limiar):
+        est += 1
+        ultimo = passo
+    elif pode and est > 0 and medido < desce_frac * limiar:
+        est -= 1
+        ultimo = passo
+    env.poc_estagio_peso[reward_name] = est
+    env.poc_peso_ultimo_degrau[reward_name] = ultimo
+
+    term_cfg = env.reward_manager.get_term_cfg(reward_name)
+    term_cfg.weight = stages[est]["weight"]
+
+    dev = env.device
+    return {
+        "weight": torch.tensor(float(term_cfg.weight), device=dev),
+        "estagio": torch.tensor(float(est), device=dev),
+        "sinal_medido": torch.tensor(medido, device=dev),
+        "sinal_limiar": torch.tensor(float(limiar), device=dev),
+    }
+
+
 def twist_por_competencia(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,

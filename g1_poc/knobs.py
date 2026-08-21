@@ -428,6 +428,24 @@ class Cronograma:
     # 0→2 em duas chamadas (0,08 iteração) com a EMA ainda medida nas faixas do
     # estágio 0 — a re-explosão da it 5099. 12 iterações ≈ 3τ da EMA.
     twist_iters_entre_degraus: int = 12
+
+    # §10.3 — o gate por COMPETÊNCIA dos dois FREIOS DE MOVIMENTO, ligado em 21/08.
+    # O passo global continua sendo o PISO do degrau; o gatilho é a competência da
+    # habilidade que cada freio ameaça.
+    #
+    #   action_rate_l2   -> duração do episódio de LOCOMOÇÃO (ele suprime a marcha)
+    #   joint_vel_hinge  -> nível médio da população  (desde 21/08 ele só vale na
+    #                       manipulação, portanto a marcha não é a habilidade em risco)
+    #
+    # O bloco 1 mediu o custo de não ter este gate: na it 3080 os dois freios
+    # consumiram 100% do sinal positivo, e na it 5000 ainda custavam −6,08/s contra
+    # +11,6/s. A §17 põe refino de pose no passo 6, e o freio chegava no passo 1.
+    freio_ar_sinal: str = "duracao_loco"
+    freio_ar_alvo: float = 0.60          # fração do episódio cheio, igual ao twist
+    freio_hinge_sinal: str = "nivel_medio"
+    freio_hinge_alvo: float = 3.0        # metade da tabela de células dominada
+    freio_desce_frac: float = 0.8        # histerese, igual ao twist
+    freio_iters_entre_degraus: int = 12
     # ⚠ `poc_estagio_twist` e a EMA NÃO vão para o checkpoint (o runner só salva
     # `common_step_counter`). Depois de um resume o gate recomeça pessimista
     # (estágio 0, EMA 0) e se recalibra em ~3τ ≈ 12 iterações. Declarado: é o

@@ -25,7 +25,6 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
@@ -477,13 +476,23 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                     "frac_loco_max": ke.frac_loco_max,
                     "ema": ke.forma_ema},
         ),
+        # C — os dois freios de movimento. Gate por COMPETÊNCIA, e não por passo
+        # global (§10.3). ⚠ Vêm DEPOIS de `twist_ranges` e de `nivel`: o
+        # `duracao_loco` é a EMA que o twist mantém, e o `nivel_medio` é o buffer que
+        # o `nivel` escreve. Cada freio é gateado pela habilidade que ELE ameaça.
         "hinge": CurriculumTermCfg(
-            func=envs_mdp.reward_curriculum,
-            params={"reward_name": "joint_vel_hinge", "stages": cr.hinge},
+            func=CU.peso_por_competencia,
+            params={"reward_name": "joint_vel_hinge", "stages": cr.hinge,
+                    "sinal": cr.freio_hinge_sinal, "alvo": cr.freio_hinge_alvo,
+                    "desce_frac": cr.freio_desce_frac,
+                    "iters_entre_degraus": cr.freio_iters_entre_degraus},
         ),
         "action_rate": CurriculumTermCfg(
-            func=envs_mdp.reward_curriculum,
-            params={"reward_name": "action_rate_l2", "stages": cr.action_rate},
+            func=CU.peso_por_competencia,
+            params={"reward_name": "action_rate_l2", "stages": cr.action_rate,
+                    "sinal": cr.freio_ar_sinal, "alvo": cr.freio_ar_alvo,
+                    "desce_frac": cr.freio_desce_frac,
+                    "iters_entre_degraus": cr.freio_iters_entre_degraus},
         ),
     }
 
