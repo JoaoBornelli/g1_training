@@ -368,9 +368,13 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                 "support_sensor": C.SENSOR_APOIO, "massa_attr": "poc_massa",
                 "raio_sucesso": kt.raio_sucesso, "raio_mult": kr.load_raio_mult},
     )
+    # dobradiça de velocidade POR FORMA e POR GRUPO DE JUNTA (§8.2.6).
+    # Na locomoção o termo é ZERO — exatamente o que o fabricante faz, que não tem
+    # este termo. Na manipulação o teto é por junta: perna larga, braço apertado.
     cfg.rewards["joint_vel_hinge"] = RewardTermCfg(
-        func=R.joint_vel_hinge, weight=kr.joint_vel_hinge,
-        params={"max_vel": kr.joint_vel_max,
+        func=R.hinge_por_forma, weight=kr.joint_vel_hinge,
+        params={"max_vel_manipulando": kr.joint_vel_max_manipulando,
+                "caixa_command_name": CMD_CAIXA,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     )
 

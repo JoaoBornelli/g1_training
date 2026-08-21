@@ -30,8 +30,10 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
+from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.string import resolve_matching_names_values
 
 from g1_poc.observacoes import alvos_das_palmas
 
@@ -390,19 +392,65 @@ def sustentacao(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     return fracao * _valida(env, command_name)
 
 
-def joint_vel_hinge(
-    env: ManagerBasedRlEnv, max_vel: float, asset_cfg: SceneEntityCfg = _ROBOT
-) -> torch.Tensor:
-    """Penalidade de DOBRADIÇA sobre a velocidade de junta.
+class hinge_por_forma:  # noqa: N801 (idioma do mjlab)
+    """Dobradiça de velocidade de junta, POR FORMA e POR GRUPO DE JUNTA (§8.2.6).
 
-    Grátis abaixo de `max_vel`; quadrática acima. É a forma do
-    `joint_velocity_hinge_penalty` do `lift_cube`, reescrita aqui para não importar
-    `mjlab.tasks.manipulation`, que registra tasks como efeito colateral.
+    Grátis abaixo do teto; quadrática acima. A forma vem do
+    `joint_velocity_hinge_penalty` do `lift_cube`.
 
-    O currículo aperta o PESO deste termo, de −0,01 para −1,00. É aqui que a
-    qualidade de pose se conserta, e é DEPOIS da tarefa.
+    ⚠ A versão anterior tinha `max_vel = 0,5 rad/s` no corpo TODO, nas duas formas.
+    Três fatos a condenam, e o bloco 1 mediu o efeito:
+
+    1. **A tarefa `velocity` do mjlab NÃO tem este termo.** Nenhum. A marcha
+       validada do G1 roda sem ele. O termo veio do `lift_cube`, que é um braço YAM
+       de 6 DoF sobre uma mesa — não há marcha para atrapalhar lá.
+    2. **0,5 rad/s é uma ordem de grandeza abaixo da marcha.** Os limites de
+       velocidade das juntas do G1 são 20 a 37 rad/s. Um joelho em fase de balanço
+       passa de 0,5 rad/s sem esforço, portanto o termo cobrava exatamente o balanço.
+    3. **O repositório já tinha resolvido isso, e de outro jeito.** A skill Lift usava
+       `arm_vel = −0,002` com escopo `.*(shoulder|elbow|wrist).*` — NUNCA a perna. O
+       comentário dela: *"NÃO inclui perna — ela precisa de velocidade pra
+       agachar/equilibrar."*
+
+    Medido na it 5000 do bloco 1: o termo custava **−2,77/s**, e com o
+    `action_rate_l2` somava 96% de toda a penalidade e 55% do sinal positivo. A
+    assinatura no comportamento é `peak_height_mean = 0,0042` — **o pé subia 4 mm.**
+    Sem fase de balanço não há passo, e o episódio de locomoção morria em 35 passos.
+
+    O desenho novo:
+
+    - **Locomoção (bit = 0): o termo é ZERO.** Exatamente o que o fabricante faz.
+    - **Manipulação (bit = 1): teto POR GRUPO DE JUNTA.** O plano sagital da perna
+      fica largo (agachar e levantar saem de graça); o braço fica apertado, para o
+      movimento ser controlado; as juntas laterais ficam no meio.
+
+    A regra em uma frase: **o que a tarefa exige mover fica livre; o que ela não
+    exige, custa.**
     """
-    robot: Entity = env.scene[asset_cfg.name]
-    v = robot.data.joint_vel[:, asset_cfg.joint_ids]
-    excesso = (v.abs() - max_vel).clamp_min(0.0)
-    return torch.square(excesso).sum(dim=-1)
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        asset: Entity = env.scene[asset_cfg.name]
+        _, joint_names = asset.find_joints(asset_cfg.joint_names)
+        _, _, tetos = resolve_matching_names_values(
+            data=cfg.params["max_vel_manipulando"],
+            list_of_strings=joint_names,
+        )
+        self.max_vel = torch.tensor(tetos, device=env.device, dtype=torch.float32)
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        max_vel_manipulando,
+        caixa_command_name: str,
+        asset_cfg: SceneEntityCfg = _ROBOT,
+    ) -> torch.Tensor:
+        del max_vel_manipulando  # resolvido no __init__
+        robot: Entity = env.scene[asset_cfg.name]
+        v = robot.data.joint_vel[:, asset_cfg.joint_ids]
+        excesso = (v.abs() - self.max_vel).clamp_min(0.0)
+        custo = torch.square(excesso).sum(dim=-1)
+        bit = env.command_manager.get_term(caixa_command_name).command[:, 9]
+        env.extras["log"]["Metrics/hinge_excesso_manip"] = (
+            excesso.sum(dim=-1) * bit).mean()
+        return custo * bit

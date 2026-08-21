@@ -220,7 +220,35 @@ class Recompensa:
     load_raio_mult: float = 2.0
 
     joint_vel_hinge: float = -0.01       # cronograma o leva a -1.0
-    joint_vel_max: float = 0.5
+    # ⚠ O `joint_vel_max = 0,5` único, no corpo todo e nas duas formas, SAIU em
+    # 21/08. Ele custava −2,77/s no bloco 1, e a assinatura era
+    # `peak_height_mean = 0,0042` — o pé subia 4 mm, portanto não havia passo. A
+    # tarefa `velocity` do mjlab não tem este termo, e a skill Lift o tinha só nos
+    # braços (`arm_vel`, escopo `.*(shoulder|elbow|wrist).*`).
+    #
+    # Agora o teto é POR JUNTA e o termo vale só na MANIPULAÇÃO. Na locomoção ele é
+    # zero — exatamente o que o fabricante faz.
+    #
+    # A regra dos números: o plano sagital da perna precisa de velocidade para
+    # agachar e para levantar, portanto fica largo. O braço tem de se mover de forma
+    # CONTROLADA, portanto fica apertado. As juntas laterais não têm por que se
+    # mover rápido em nenhuma das duas coisas.
+    #
+    # ⚠ A cobertura tem de ser TOTAL e sem sobreposição: 29 juntas, e o
+    # `resolve_matching_names` recusa padrão que não casa e nome casado duas vezes.
+    #   perna 12 · cintura 3 · braço 14 = 29
+    joint_vel_max_manipulando: dict = field(default_factory=lambda: {
+        r".*knee.*": 6.0,          # agachar fundo e levantar
+        r".*hip_pitch.*": 6.0,     # idem
+        r".*ankle_pitch.*": 6.0,   # acompanha o agachamento
+        r".*hip_roll.*": 4.0,      # equilíbrio lateral
+        r".*hip_yaw.*": 4.0,
+        r".*ankle_roll.*": 4.0,
+        r".*waist.*": 3.0,         # o tronco inclina e gira, mas sem safanão
+        r".*shoulder.*": 2.0,      # o braço é a tarefa, e tem de ser CONTROLADO
+        r".*elbow.*": 2.0,
+        r".*wrist.*": 2.0,
+    })
 
     # o alvo de cada palma é a face lateral da caixa (não o centro)
     lateral_offset: float | None = None   # None = caixa_meia_aresta[1]
