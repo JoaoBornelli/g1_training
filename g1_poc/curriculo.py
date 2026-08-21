@@ -69,12 +69,24 @@ def _alvo_locomocao(
     if balanco is None:
         return piso_inicial
 
+    passo_g = int(env.common_step_counter)
     if not hasattr(env, "poc_alvo_loco"):
         env.poc_alvo_loco = float(piso_inicial)
-        # o relógio começa na carência, e não em zero
-        env.poc_alvo_ultimo = int(balanco["iters_min"]) * 24
+        # ⚠ A carência é medida a partir de QUANDO O BALANÇO COMEÇOU, e nunca de um
+        # passo global absoluto. Custou o smoke de 21/08, e o bug era real no treino:
+        #
+        # num RESUME o `common_step_counter` volta do checkpoint, mas o
+        # `poc_alvo_loco` e as EMAs NÃO — o runner só salva o contador. Retomando na
+        # iteração 3000 o contador vale 72000, qualquer carência absoluta já estaria
+        # vencida, e o balanço desceria no primeiro reset com a `dur_loco_ema` ainda
+        # no valor NEUTRO de 1000 passos. Ou seja: exatamente o falso positivo que a
+        # carência existe para impedir, e pior, num ponto do treino em que ninguém
+        # olharia mais para ela.
+        env.poc_alvo_inicio = passo_g
+        env.poc_alvo_ultimo = passo_g
 
-    passo_g = int(env.common_step_counter)
+    if passo_g - env.poc_alvo_inicio < int(balanco["iters_min"]) * 24:
+        return env.poc_alvo_loco
     if passo_g - env.poc_alvo_ultimo < int(balanco["iters_entre_degraus"]) * 24:
         return env.poc_alvo_loco
 

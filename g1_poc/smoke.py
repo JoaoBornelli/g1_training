@@ -99,7 +99,9 @@ def main() -> int:
     # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a
     # fundação não tem esse termo) + os 9 de tarefa (load em 20/08).
     n_rew = len(cfg.rewards)
-    checa(n_rew == 23, f"23 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    checa(n_rew == 24, f"24 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    # 13 de fundação (`velocity`) + 9 de tarefa + 2 de freio (`joint_vel_hinge`,
+    # `giro_indevido`). O `giro_indevido` entrou em 21/08 — ver a §8.3.
     tarefa = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
               "postura_ereta", "sustentacao", "load", "joint_vel_hinge")
     faltam = [t for t in tarefa if t not in cfg.rewards]
@@ -301,8 +303,15 @@ def main() -> int:
     ordem_ev = list(cfg.events)
     checa(ordem_ev.index("reset_cena") < ordem_ev.index("afasta_cena"),
           "`reset_cena` roda antes de `afasta_cena`")
-    checa(cfg.rewards["dof_pos_limits"].weight == -10.0,
-          f"`dof_pos_limits` == −10 (medido {cfg.rewards['dof_pos_limits'].weight})")
+    # ⚠ Este assert INVERTEU em 21/08. Ele guardava o −10,0 que vinha de
+    # `manipulation`/`tracking`, e esse valor é dez vezes o do fabricante
+    # (`velocity_env_cfg.py:317`). Andar precisa de amplitude no quadril e no
+    # joelho; uma penalidade forte de limite empurra as juntas para o meio da faixa
+    # e ACHATA o balanço. O `peak_height_mean` entre 0,007 e 0,023 no bloco 2 é
+    # consistente com isso. Agora o guarda é contra voltar a endurecê-lo sem medida.
+    checa(cfg.rewards["dof_pos_limits"].weight == -1.0,
+          f"`dof_pos_limits` == −1 (o valor do fabricante; medido "
+          f"{cfg.rewards['dof_pos_limits'].weight})")
 
     print("== 14. a tabela de células (§10.1) ==")
     cel = k.celulas
@@ -460,6 +469,13 @@ def main() -> int:
     env._reset_idx(todos)
     env.sim.forward()
     cmd._command[:, 9] = 1.0
+    # ⚠ 21/08: escrever o bit à mão não basta mais. O `_update_command` o RECALCULA
+    # todo passo como `manipula & ~aguardando` (§11.2), e o `env.step` abaixo passa
+    # por ele. Com o `frac_locomocao` default agora em 1,0 a forma sorteada é
+    # locomoção, o bit voltaria a 0 e o `load` mediria 0,000. A forma e a janela têm
+    # de ser fixadas junto com o bit.
+    cmd.manipula[:] = True
+    cmd._espera[:] = 0.0
     # o alvo é ONDE a caixa está, apoiada; 3 passos assentam o contato caixa<->tampo
     for _ in range(3):
         env.step(torch.zeros(N_ENVS, env.action_manager.total_action_dim,
@@ -501,40 +517,77 @@ def main() -> int:
     print("== 19. o balanço automático de forma (§10.4) ==")
     balanco = tc_f.params["balanco"]
     checa(balanco is not None, "o balanço está LIGADO no treino (auto_balanco=True)")
+    checa(Knobs().episodio.frac_locomocao == 1.0,
+          f"o bloco começa em locomoção PURA (default medido "
+          f"{Knobs().episodio.frac_locomocao})")
     if balanco is not None:
-        alvo0 = float(env.poc_alvo_loco)
-        checa(abs(alvo0 - 1.0) < 1e-9,
-              f"o alvo nasce em locomoção PURA (medido {alvo0:.3f})")
-        # a carência: com competência perfeita, ANTES de `iters_min` nada desce
-        env.poc_dur_loco = torch.full((), 900.0, device=env.device)
-        env.poc_erro_giro_ema = 0.05
-        env.common_step_counter = (balanco["iters_min"] - 1) * 24
-        CU._alvo_locomocao(env, 1.0, balanco)
-        checa(abs(float(env.poc_alvo_loco) - 1.0) < 1e-9,
+        # ⚠ Testado numa STUB, e não no `env`. Custou as três falhas de 21/08: as
+        # seções 16 e 18 mexem em `common_step_counter` e nas EMAs para exercitar o
+        # gate do twist, e o `poc_alvo_ultimo` do balanço fica preso num passo global
+        # alto. Qualquer teste que mexa no contador depois disso volta atrás no tempo
+        # e cai no retorno antecipado — os checks passariam ou falhariam por
+        # contaminação, e não pelo que eles medem.
+        #
+        # `_alvo_locomocao` é função PURA sobre quatro atributos. Uma stub isola.
+        import types
+        P = balanco["passo"]
+        IM, ID = balanco["iters_min"] * 24, balanco["iters_entre_degraus"] * 24
+
+        def stub(dur, giro, passo):
+            e = types.SimpleNamespace(common_step_counter=passo,
+                                      poc_dur_loco=dur, poc_erro_giro_ema=giro)
+            CU._alvo_locomocao(e, 1.0, balanco)   # cria o estado
+            return e
+
+        # nasce em locomoção pura, e a carência é relativa ao INÍCIO
+        e = stub(900.0, 0.05, 0)
+        checa(abs(e.poc_alvo_loco - 1.0) < 1e-9,
+              f"o alvo nasce em locomoção PURA (medido {e.poc_alvo_loco:.3f})")
+        e.common_step_counter = IM - 24
+        CU._alvo_locomocao(e, 1.0, balanco)
+        checa(abs(e.poc_alvo_loco - 1.0) < 1e-9,
               "a carência segura o 1º degrau: a `dur_loco_ema` nasce NEUTRA em 1000")
-        # passada a carência, com os DOIS sinais bons, ele desce um degrau
-        env.common_step_counter = (balanco["iters_min"] + balanco["iters_entre_degraus"]) * 24
-        CU._alvo_locomocao(env, 1.0, balanco)
-        desceu = float(env.poc_alvo_loco)
-        checa(abs(desceu - (1.0 - balanco["passo"])) < 1e-9,
+        # ⚠ o mesmo teste com o contador ALTO no primeiro contato: é o caso do
+        # RESUME, e é o bug que o smoke de 21/08 pegou
+        e2 = stub(1000.0, 0.05, 3000 * 24)
+        e2.common_step_counter += ID * 2
+        CU._alvo_locomocao(e2, 1.0, balanco)
+        checa(abs(e2.poc_alvo_loco - 1.0) < 1e-9,
+              "num RESUME (contador alto, EMA neutra) a carência AINDA segura")
+
+        # passada a carência, com os dois sinais bons, desce um degrau
+        e.common_step_counter = IM + ID
+        CU._alvo_locomocao(e, 1.0, balanco)
+        desceu = e.poc_alvo_loco
+        checa(abs(desceu - (1.0 - P)) < 1e-9,
               f"com dur=900 e giro=0,05 ele desce um degrau (medido {desceu:.3f})")
+
         # UM sinal ruim basta para SUBIR de volta — a assimetria é o ponto
-        env.poc_erro_giro_ema = 10.0
-        env.common_step_counter += balanco["iters_entre_degraus"] * 24 * 2
-        CU._alvo_locomocao(env, 1.0, balanco)
-        checa(float(env.poc_alvo_loco) > desceu,
-              "com o erro de giro estourado ele DEVOLVE chão para a locomoção")
-        # e os dois sinais têm de passar juntos: dur boa + giro ruim não desce
-        env.poc_alvo_loco = 0.60
-        env.common_step_counter += balanco["iters_entre_degraus"] * 24 * 2
-        CU._alvo_locomocao(env, 1.0, balanco)
-        checa(float(env.poc_alvo_loco) >= 0.60,
-              "dur boa com giro ruim NÃO desce: os dois sinais são conjuntivos")
+        e.poc_erro_giro_ema = 10.0
+        e.common_step_counter += ID * 2
+        CU._alvo_locomocao(e, 1.0, balanco)
+        checa(e.poc_alvo_loco > desceu,
+              f"com o erro de giro estourado ele DEVOLVE chão "
+              f"(medido {e.poc_alvo_loco:.3f})")
+
+        # e os dois sinais são CONJUNTIVOS para descer
+        e.poc_alvo_loco = 0.60
+        e.common_step_counter += ID * 2
+        CU._alvo_locomocao(e, 1.0, balanco)
+        checa(e.poc_alvo_loco >= 0.60,
+              f"dur boa com giro ruim NÃO desce (medido {e.poc_alvo_loco:.3f})")
+
+        # o piso é respeitado
+        e3 = stub(900.0, 0.05, 0)
+        e3.poc_alvo_loco = balanco["alvo_min"]
+        e3.common_step_counter = IM + ID * 4
+        CU._alvo_locomocao(e3, 1.0, balanco)
+        checa(abs(e3.poc_alvo_loco - balanco["alvo_min"]) < 1e-9,
+              f"e o piso {balanco['alvo_min']:.2f} não é furado")
+
         # sem balanço a fatia é a constante de antes (é o modo do play)
         checa(CU._alvo_locomocao(env, 0.42, None) == 0.42,
               "`balanco=None` devolve a fatia FIXA — é o que o play usa")
-        env.poc_alvo_loco = 1.0
-        env.common_step_counter = 0
 
     print("== 20. a janela de espera (§11.2) ==")
     lo, hi = cmd.cfg.espera_s
