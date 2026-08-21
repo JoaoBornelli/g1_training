@@ -398,8 +398,13 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     if not kd.base_com:
         cfg.events.pop("base_com", None)
     cfg.events["reset_base"].params["pose_range"] = kc.reset_base_pose
-    # §11.1 — a entrega do navegador: o robô chega andando, não parado.
-    cfg.events["reset_base"].params["velocity_range"] = kc.reset_base_vel_manipulacao
+    # ⚠ O `reset_base` é GLOBAL, portanto a velocidade residual NÃO vai aqui. Ela
+    # existe para treinar a entrega do navegador, que só antecede um elo de
+    # manipulação (§11.1). Até 21/08 ela era global: TODO episódio nascia com um
+    # empurrão, inclusive os de locomoção, e o controlador de forma sorteia 91% de
+    # locomoção quando ela está morrendo — o empurrão caía 91% das vezes na
+    # habilidade que não funcionava. Ver o evento `entrega_do_navegador`.
+    cfg.events["reset_base"].params["velocity_range"] = {}
     # ⚠ O `push_robot` NÃO existe no modo play: o próprio cfg do G1 o remove
     # (`config/g1/env_cfgs.py:169`). Portanto ele precisa de guarda — sem ela o
     # registro da task quebra, porque o `__init__` monta o cfg de play também.
@@ -421,7 +426,15 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         },
     )
 
-    # ordem: cena -> carga -> afasta. O `afasta` tem de vir por último.
+    # §11.1 — a entrega do navegador, SÓ na forma de manipulação. No robô real o
+    # navegador entrega um robô com velocidade e com erro de rumo; um episódio de
+    # locomoção começa do zero, como no `velocity` do fabricante.
+    cfg.events["entrega_do_navegador"] = EventTermCfg(
+        func=EV.entrega_do_navegador, mode="reset",
+        params={"faixa": kc.reset_base_vel_manipulacao},
+    )
+
+    # ordem: entrega -> cena -> carga -> afasta. O `afasta` tem de vir por último.
     cfg.events["reset_cena"] = EventTermCfg(
         func=EV.reset_cena, mode="reset",
         params={

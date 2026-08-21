@@ -202,3 +202,45 @@ def afasta_cena(
     pose_caixa[:, 3] = 1.0
     caixa.write_root_link_pose_to_sim(pose_caixa, env_ids=ids)
     caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev), env_ids=ids)
+
+
+def entrega_do_navegador(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    faixa: dict,
+) -> None:
+    """Dá velocidade residual de base SÓ aos envs da forma de manipulação (§11.1).
+
+    ⚠ Antes de 21/08 isto vivia no `velocity_range` do `reset_base`, que é GLOBAL.
+    Portanto TODO episódio nascia com um empurrão, inclusive os de locomoção, e
+    desde a iteração 0, com uma política que ainda não anda.
+
+    E o controlador de forma amplifica o erro: com a locomoção morrendo em 35
+    passos, ele sorteia 91% de locomoção para equalizar a fatia de transições
+    (correto, e medido: `frac_loco_sorteio = 0,9128`). Portanto o empurrão caía 91%
+    das vezes justamente na habilidade que não funcionava.
+
+    A §11.1 sempre pediu o contrário: a velocidade residual existe para treinar a
+    ENTREGA DO NAVEGADOR, que só acontece antes de um elo de manipulação. No robô
+    real o navegador entrega um robô com velocidade e com erro de rumo; um episódio
+    de locomoção começa do zero, como no `velocity` do fabricante.
+
+    Roda DEPOIS do `reset_base` (ordem do dict): ele põe a pose e zera a velocidade,
+    e este termo a reescreve onde é devido.
+    """
+    manipula = _forma(env, env_ids)
+    ids = env_ids[manipula]
+    if len(ids) == 0:
+        return
+    n = len(ids)
+    dev = env.device
+    robot: Entity = env.scene["robot"]
+
+    vel = torch.zeros(n, 6, device=dev)
+    for i, chave in enumerate(("x", "y", "z")):
+        lo, hi = faixa.get(chave, (0.0, 0.0))
+        vel[:, i] = lo + (hi - lo) * torch.rand(n, device=dev)
+    for i, chave in enumerate(("roll", "pitch", "yaw")):
+        lo, hi = faixa.get(chave, (0.0, 0.0))
+        vel[:, 3 + i] = lo + (hi - lo) * torch.rand(n, device=dev)
+    robot.write_root_link_velocity_to_sim(vel, env_ids=ids)
