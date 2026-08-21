@@ -16,6 +16,7 @@ import torch
 import g1_poc  # noqa: F401  (registra a task)
 from g1_poc import cena as C
 from g1_poc.comando import COMANDO_DIM, ALVO, FACE, DIR, VALIDA
+from g1_poc import curriculo as CU
 from g1_poc.curriculo import NIVEL_MAX
 from g1_poc.env_cfg import OBS_ATOR, OBS_CRITICO, make_g1_poc_env_cfg
 from g1_poc.knobs import Knobs
@@ -496,6 +497,87 @@ def main() -> int:
           f"com Tl na EMA em 24, o sorteio despeja locomoção "
           f"(medido {float(saida['frac_loco_sorteio']):.3f})")
     env.episode_length_buf[:] = 0   # restaura o que a seção sujou
+
+    print("== 19. o balanço automático de forma (§10.4) ==")
+    balanco = tc_f.params["balanco"]
+    checa(balanco is not None, "o balanço está LIGADO no treino (auto_balanco=True)")
+    if balanco is not None:
+        alvo0 = float(env.poc_alvo_loco)
+        checa(abs(alvo0 - 1.0) < 1e-9,
+              f"o alvo nasce em locomoção PURA (medido {alvo0:.3f})")
+        # a carência: com competência perfeita, ANTES de `iters_min` nada desce
+        env.poc_dur_loco = torch.full((), 900.0, device=env.device)
+        env.poc_erro_giro_ema = 0.05
+        env.common_step_counter = (balanco["iters_min"] - 1) * 24
+        CU._alvo_locomocao(env, 1.0, balanco)
+        checa(abs(float(env.poc_alvo_loco) - 1.0) < 1e-9,
+              "a carência segura o 1º degrau: a `dur_loco_ema` nasce NEUTRA em 1000")
+        # passada a carência, com os DOIS sinais bons, ele desce um degrau
+        env.common_step_counter = (balanco["iters_min"] + balanco["iters_entre_degraus"]) * 24
+        CU._alvo_locomocao(env, 1.0, balanco)
+        desceu = float(env.poc_alvo_loco)
+        checa(abs(desceu - (1.0 - balanco["passo"])) < 1e-9,
+              f"com dur=900 e giro=0,05 ele desce um degrau (medido {desceu:.3f})")
+        # UM sinal ruim basta para SUBIR de volta — a assimetria é o ponto
+        env.poc_erro_giro_ema = 10.0
+        env.common_step_counter += balanco["iters_entre_degraus"] * 24 * 2
+        CU._alvo_locomocao(env, 1.0, balanco)
+        checa(float(env.poc_alvo_loco) > desceu,
+              "com o erro de giro estourado ele DEVOLVE chão para a locomoção")
+        # e os dois sinais têm de passar juntos: dur boa + giro ruim não desce
+        env.poc_alvo_loco = 0.60
+        env.common_step_counter += balanco["iters_entre_degraus"] * 24 * 2
+        CU._alvo_locomocao(env, 1.0, balanco)
+        checa(float(env.poc_alvo_loco) >= 0.60,
+              "dur boa com giro ruim NÃO desce: os dois sinais são conjuntivos")
+        # sem balanço a fatia é a constante de antes (é o modo do play)
+        checa(CU._alvo_locomocao(env, 0.42, None) == 0.42,
+              "`balanco=None` devolve a fatia FIXA — é o que o play usa")
+        env.poc_alvo_loco = 1.0
+        env.common_step_counter = 0
+
+    print("== 20. a janela de espera (§11.2) ==")
+    lo, hi = cmd.cfg.espera_s
+    checa(hi > 0.0, f"a janela existe no treino ({lo:g}-{hi:g} s)")
+    env._reset_idx(todos)
+    # força TODO env a manipular, para o bit poder ser 1 depois da espera
+    env.poc_manipula[:] = True
+    cmd._resample_command(todos)
+    cmd._espera[:] = 0.40
+    cmd._update_command()
+    checa(bool(env.poc_aguardando.all()), "dentro da janela, todos aguardam")
+    checa(bool((cmd.command[:, 9] < 0.5).all()),
+          "o BIT vai a 0 na espera — os nove termos de tarefa se desligam sozinhos")
+    checa(bool(env.poc_twist_zero.all()),
+          "o twist é zerado: `parado` é velocidade linear E angular zero")
+    checa(bool((cmd._sustenta < 1e-9).all()),
+          "o cronômetro de sustentação NÃO acumula na espera")
+    t_elo = cmd._elo_t.clone()
+    cmd._update_command()
+    checa(bool((cmd._elo_t - t_elo).abs().max() < 1e-9),
+          "o cronômetro do elo também congela (senão o `carregar` ganharia 1 s)")
+    # passada a janela, o objetivo chega
+    cmd._espera[:] = 0.0
+    cmd._update_command()
+    checa(not bool(env.poc_aguardando.any()), "fora da janela, ninguém aguarda")
+    checa(bool((cmd.command[:, 9] > 0.5).all()),
+          "e o BIT vai a 1: a descontinuidade É o sinal de que o objetivo chegou")
+    env._reset_idx(todos)
+
+    print("== 21. o giro indevido (§8.3) ==")
+    tc_g = env.reward_manager.get_term_cfg("giro_indevido")
+    checa(tc_g.weight < 0.0, f"é penalidade (peso {tc_g.weight:+.3f})")
+    twist = env.command_manager.get_term("twist")
+    twist.vel_command_b[:, 2] = 0.0          # ninguém pediu giro
+    v_sem = tc_g.func(env, **tc_g.params)
+    twist.vel_command_b[:, 2] = 1.0          # agora o giro FOI pedido
+    v_com = tc_g.func(env, **tc_g.params)
+    checa(bool((v_com.abs() < 1e-9).all()),
+          "com giro PEDIDO o termo é zero — não briga com o `track_angular_velocity`")
+    checa(float(v_sem.sum()) >= 0.0 and bool((v_sem >= 0.0).all()),
+          "sem giro pedido ele é um quadrático em ωz, sempre >= 0")
+    checa(hasattr(env, "poc_erro_giro_ema"),
+          "e ele é o ÚNICO produtor de `poc_erro_giro_ema`, que o balanço lê")
 
     env.close()
 
