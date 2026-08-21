@@ -1,0 +1,26 @@
+# Dependências do g1_poc no Google Colab, pinadas no que roda local.
+#
+# `torch` NÃO está aqui, e o motivo é DIFERENTE do da Kaggle.
+#
+# Na Kaggle a imagem traz um build de torch casado com o CUDA da imagem, e deixar o
+# pip trocá-lo é o jeito mais rápido de perder a GPU. No Colab os wheels de torch do
+# PyPI já vêm com o CUDA embutido, portanto atualizar é seguro — mas exige
+# **reiniciar o runtime** depois, porque o torch registra operadores C++ no import e
+# `importlib.reload` não desfaz isso.
+#
+# Regra: não instale torch por aqui. A célula 5 confere a versão e diz o que fazer se
+# ela for menor que 2.7.0, que é o mínimo do mjlab.
+#
+# O mjlab declara o resto da árvore (incluindo `rsl-rl-lib==5.4.0` exato). Os pins
+# abaixo são o que roda local, para a sessão do Colab não pegar outra versão sem você
+# saber.
+mjlab==1.5.1
+mujoco==3.10.0
+mujoco-warp==3.10.0.2
+warp-lang==1.15.0
+rsl-rl-lib==5.4.0
+tensordict==0.13.0
+tyro==1.0.15
+tensorboard==2.21.0
+scipy>=1.15
+numpy<2.5
