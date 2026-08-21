@@ -604,6 +604,30 @@ def main() -> int:
           "e o BIT vai a 1: a descontinuidade É o sinal de que o objetivo chegou")
     env._reset_idx(todos)
 
+    print("== 20b. o comando é SORTEADO na borda de abertura ==")
+    # ⚠ Sem isto o comando é ZERO exatamente quando ele passa a valer: a linha
+    # `vel_command_b[zero] = 0.0` é escrita NO LUGAR e destrói o sorteio, e o timer
+    # do twist só volta em 3 a 8 s. O `carregar` fecha em 6 s.
+    env._reset_idx(todos)
+    tw = env.command_manager.get_term("twist")
+    cmd = env.command_manager.get_term("caixa_alvo")
+    env.poc_manipula[:] = False           # locomoção: o twist manda
+    cmd._resample_command(todos)
+    cmd._espera[:] = 0.40                 # dentro da janela
+    cmd._update_command(); tw._update_command()
+    checa(bool((tw.command.abs().sum(dim=-1) < 1e-9).all()),
+          "na janela de espera o comando é zero nos três eixos")
+    cmd._espera[:] = 0.0                  # a janela acabou
+    cmd._update_command(); tw._update_command()
+    checa(float(tw.command.abs().sum(dim=-1).max()) > 1e-6,
+          f"e na saída da janela ele é SORTEADO, não fica em zero "
+          f"(máx medido {float(tw.command.abs().sum(dim=-1).max()):.3f})")
+    n_zero = int((tw.command.abs().sum(dim=-1) < 1e-9).sum())
+    checa(n_zero <= max(1, N_ENVS // 4),
+          f"e a maioria recebe comando não nulo ({n_zero}/{N_ENVS} em zero — "
+          f"os `standing` do fabricante)")
+    env._reset_idx(todos)
+
     print("== 21. PARIDADE da locomoção com o fabricante ==")
     # ⚠ Esta seção é o guarda-corpo pedido em 21/08: a locomoção tem de ser
     # EXATAMENTE o `velocity` do fabricante, com UMA mudança — a janela de espera.

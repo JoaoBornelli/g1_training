@@ -645,11 +645,13 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
 class TwistPoc(UniformVelocityCommand):
     """O twist do mjlab, com dois acréscimos.
 
-    (a) ZERO nos elos de manipulação. Aplicado DEPOIS do `super()`, portanto vence
-        o sorteio de standing e de heading.
+    (a) ZERO nos elos de manipulação e na janela de espera. Aplicado DEPOIS do
+        `super()`, portanto vence o sorteio de standing e de heading.
     (b) GIRO NO LUGAR: metade dos envs parados recebe vx = vy = 0 e |ωz| ≥ piso.
         Sem isto os envs parados nunca giram, e o robô não aprende a girar no
         lugar. (Acréscimo do g1_multitask, e ele fica.)
+    (c) SORTEIO NA BORDA em que o zero de (a) é liberado. Sem ele o comando fica em
+        zero justamente quando ele passa a valer — ver o comentário longo abaixo.
     """
 
     cfg: TwistPocCfg
@@ -680,10 +682,53 @@ class TwistPoc(UniformVelocityCommand):
 
     def _update_command(self) -> None:
         super()._update_command()
-        # (a) zero nos elos de manipulação
         zero = getattr(self._env, "poc_twist_zero", None)
-        if zero is not None:
-            self.vel_command_b[zero] = 0.0
+        if zero is None:
+            return
+
+        # (c) SORTEIO NA BORDA DE ABERTURA (21/08). Sem isto o comando é ZERO
+        # exatamente quando ele deveria começar a valer.
+        #
+        # A linha `vel_command_b[zero] = 0.0` abaixo é escrita NO LUGAR, todo passo.
+        # Ela não mascara o comando: ela o DESTRÓI. Portanto, quando o portão abre, o
+        # buffer contém zero, e só volta a ter valor no próximo resample do timer —
+        # `resampling_time_range = (3, 8) s`.
+        #
+        # Isso quebrava duas coisas de uma vez:
+        #
+        # 1. O elo `carregar`. Ele fecha em 6 s, e o timer pode levar 8 s. Portanto
+        #    boa parte da fase de carregar rodava com comando zero. E com comando
+        #    zero o `track_linear_velocity` paga o MÁXIMO por ficar parado: o robô
+        #    era premiado por não andar, no único elo que existe para ensinar a andar
+        #    com a caixa.
+        #
+        # 2. A janela de espera (§11.2). Ela zera o twist nos primeiros 0,3-1,0 s de
+        #    TODO episódio, inclusive os de locomoção. Sem o sorteio na borda, o
+        #    episódio saía da janela e continuava com comando zero por até 8 s dos
+        #    20 s. O contrato "começa em zero, DEPOIS recebe o alvo da run" não
+        #    estava acontecendo.
+        #
+        # O `_resample` também reinicia o `time_left`, portanto o comando novo ganha
+        # uma janela cheia de 3 a 8 s.
+        anterior = getattr(self, "_zero_anterior", None)
+        if anterior is not None:
+            ids = (anterior & ~zero).nonzero().flatten()
+            if len(ids) > 0:
+                self._resample(ids)
+                # No `carregar` o comando NUNCA é zero: o elo existe para treinar
+                # andar com a caixa. Fora dele (a saída da janela de espera) vale a
+                # distribuição do fabricante, com os 10% de `standing`.
+                elo = getattr(self._env, "poc_elo", None)
+                if elo is not None:
+                    carrega = ids[elo[ids] == CARREGAR]
+                    if len(carrega) > 0:
+                        self.is_standing_env[carrega] = False
+        self._zero_anterior = zero.clone()
+
+        # (a) zero nos elos de manipulação e na janela de espera.
+        # ⚠ Vem DEPOIS do sorteio: os ids da borda não estão em `zero`, portanto o
+        # comando recém-sorteado não é apagado.
+        self.vel_command_b[zero] = 0.0
 
 
 @dataclass(kw_only=True)
