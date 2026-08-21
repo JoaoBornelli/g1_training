@@ -99,9 +99,9 @@ def main() -> int:
     # 13 da fundação do `velocity` + `self_collisions`, que o env_cfg CRIA (a
     # fundação não tem esse termo) + os 9 de tarefa (load em 20/08).
     n_rew = len(cfg.rewards)
-    checa(n_rew == 24, f"24 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
-    # 13 de fundação (`velocity`) + 9 de tarefa + 2 de freio (`joint_vel_hinge`,
-    # `giro_indevido`). O `giro_indevido` entrou em 21/08 — ver a §8.3.
+    checa(n_rew == 23, f"23 termos de recompensa (medido {n_rew}: {sorted(cfg.rewards)})")
+    # 14 de fundação (`velocity` do G1) + 9 de tarefa. Nenhum termo inventado no
+    # eixo da locomoção — a §21 confere isso contra o cfg do fabricante.
     tarefa = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
               "postura_ereta", "sustentacao", "load", "joint_vel_hinge")
     faltam = [t for t in tarefa if t not in cfg.rewards]
@@ -282,9 +282,9 @@ def main() -> int:
     checa("forma" in cfg.curriculum and "nivel" in cfg.curriculum,
           "os termos `forma` e `nivel` existem")
     ordem = list(cfg.curriculum)
-    checa(ordem.index("twist_ranges") < ordem.index("forma")
+    checa(ordem.index("command_vel") < ordem.index("forma")
           and ordem.index("nivel") < ordem.index("forma"),
-          f"`twist_ranges` e `nivel` vêm ANTES de `forma` (ordem: {ordem}) — os dois "
+          f"`nivel` vem ANTES de `forma` (ordem: {ordem}) — ele "
           f"leem a forma do episódio que ACABOU, e `forma` a sobrescreve. Medido "
           f"20/08: com `nivel` depois, p_up = 0,7·p e locomoção rebaixava o nível")
     checa("hinge" in cfg.curriculum,
@@ -370,31 +370,20 @@ def main() -> int:
     checa(bool((env.poc_nivel == 3).all()),
           "episódio de LOCOMOÇÃO não move o nível (nem para baixo)")
 
-    print("== 16. o gate por competência do twist (§10.3) ==")
-    tc_tw = env.curriculum_manager.get_term_cfg("twist_ranges")
-    degrau = k.cronograma.locomocao[1]["step"]
-    env.common_step_counter = degrau + k.cronograma.twist_iters_entre_degraus * 24 + 1
-    env.poc_estagio_twist = 0
-    env.poc_duracao_loco = torch.zeros((), device=env.device)
-    env.poc_twist_ultimo_degrau = 0
-    tc_tw.func(env, todos, **tc_tw.params)
-    checa(env.poc_estagio_twist == 0,
-          "passo global acima do degrau mas duração baixa: o estágio SEGURA")
-    tw_cfg = env.command_manager.get_term("twist").cfg
-    checa(tuple(tw_cfg.ranges.lin_vel_x) == tuple(k.cronograma.locomocao[0]["lin_vel_x"]),
-          f"e a faixa fica no estágio 0 (medido {tw_cfg.ranges.lin_vel_x})")
-    env.poc_duracao_loco = torch.tensor(float(env.max_episode_length), device=env.device)
-    tc_tw.func(env, todos, **tc_tw.params)
-    checa(env.poc_estagio_twist == 1,
-          "com a duração no alvo, o estágio SOBE")
-    tc_tw.func(env, todos, **tc_tw.params)
-    checa(env.poc_estagio_twist == 1,
-          "e NÃO sobe de novo na mesma janela (teto de 1 degrau por 12 iterações)")
-    env.common_step_counter += k.cronograma.twist_iters_entre_degraus * 24 + 1
-    env.poc_duracao_loco = torch.tensor(0.0, device=env.device)
-    tc_tw.func(env, todos, **tc_tw.params)
-    checa(env.poc_estagio_twist == 0,
-          "com a duração degradada, o estágio DESCE (histerese de 0,8×alvo)")
+    print("== 16. o currículo de comando é o do fabricante ==")
+    tc_cv = env.curriculum_manager.get_term_cfg("command_vel")
+    from mjlab.tasks.velocity import mdp as vel_mdp
+    checa(tc_cv.func is vel_mdp.commands_vel,
+          "o termo é o `commands_vel` do mjlab, e não um gate próprio")
+    checa("twist_ranges" not in env.curriculum_manager.active_terms,
+          "o gate por competência do twist SAIU (era invenção de 21/08)")
+    checa("action_rate" not in env.curriculum_manager.active_terms,
+          "o cronograma do `action_rate` SAIU: o fabricante roda −0,10 fixo")
+    est = tc_cv.params["velocity_stages"]
+    checa([e["step"] for e in est] == [0, 5000 * 24, 10000 * 24],
+          f"os degraus são os do fabricante (medido {[e['step'] for e in est]})")
+    checa(est[0]["lin_vel_x"] == (-1.0, 1.0) and est[0]["ang_vel_z"] == (-0.5, 0.5),
+          "e o degrau 0 é (−1,0; 1,0) / (−0,5; 0,5)")
 
     print("== 17. a máquina de elo (§7) ==")
     from g1_poc.comando import PEGAR, REORIENTAR, CARREGAR, BOTAR
@@ -533,14 +522,13 @@ def main() -> int:
         P = balanco["passo"]
         IM, ID = balanco["iters_min"] * 24, balanco["iters_entre_degraus"] * 24
 
-        def stub(dur, giro, passo):
-            e = types.SimpleNamespace(common_step_counter=passo,
-                                      poc_dur_loco=dur, poc_erro_giro_ema=giro)
+        def stub(dur, passo):
+            e = types.SimpleNamespace(common_step_counter=passo, poc_dur_loco=dur)
             CU._alvo_locomocao(e, 1.0, balanco)   # cria o estado
             return e
 
         # nasce em locomoção pura, e a carência é relativa ao INÍCIO
-        e = stub(900.0, 0.05, 0)
+        e = stub(900.0, 0)
         checa(abs(e.poc_alvo_loco - 1.0) < 1e-9,
               f"o alvo nasce em locomoção PURA (medido {e.poc_alvo_loco:.3f})")
         e.common_step_counter = IM - 24
@@ -549,7 +537,7 @@ def main() -> int:
               "a carência segura o 1º degrau: a `dur_loco_ema` nasce NEUTRA em 1000")
         # ⚠ o mesmo teste com o contador ALTO no primeiro contato: é o caso do
         # RESUME, e é o bug que o smoke de 21/08 pegou
-        e2 = stub(1000.0, 0.05, 3000 * 24)
+        e2 = stub(1000.0, 3000 * 24)
         e2.common_step_counter += ID * 2
         CU._alvo_locomocao(e2, 1.0, balanco)
         checa(abs(e2.poc_alvo_loco - 1.0) < 1e-9,
@@ -560,25 +548,24 @@ def main() -> int:
         CU._alvo_locomocao(e, 1.0, balanco)
         desceu = e.poc_alvo_loco
         checa(abs(desceu - (1.0 - P)) < 1e-9,
-              f"com dur=900 e giro=0,05 ele desce um degrau (medido {desceu:.3f})")
+              f"com dur=900 ele desce um degrau (medido {desceu:.3f})")
 
-        # UM sinal ruim basta para SUBIR de volta — a assimetria é o ponto
-        e.poc_erro_giro_ema = 10.0
+        # a duração degradada faz SUBIR de volta — a assimetria é o ponto
+        e.poc_dur_loco = 100.0
         e.common_step_counter += ID * 2
         CU._alvo_locomocao(e, 1.0, balanco)
         checa(e.poc_alvo_loco > desceu,
-              f"com o erro de giro estourado ele DEVOLVE chão "
+              f"com a duração degradada ele DEVOLVE chão "
               f"(medido {e.poc_alvo_loco:.3f})")
 
-        # e os dois sinais são CONJUNTIVOS para descer
-        e.poc_alvo_loco = 0.60
-        e.common_step_counter += ID * 2
-        CU._alvo_locomocao(e, 1.0, balanco)
-        checa(e.poc_alvo_loco >= 0.60,
-              f"dur boa com giro ruim NÃO desce (medido {e.poc_alvo_loco:.3f})")
+        # ⚠ o segundo sinal (erro de giro) SAIU em 21/08: número chutado, e ele
+        # travou a rampa por 390 iterações com o yaw comprovadamente bom
+        checa("erro_giro_alvo" not in balanco,
+              "o balanço tem UM sinal só, como o `terrain_levels_vel` do fabricante")
 
         # o piso é respeitado
-        e3 = stub(900.0, 0.05, 0)
+        e3 = stub(900.0, 0)
+        e3.poc_dur_loco = 900.0
         e3.poc_alvo_loco = balanco["alvo_min"]
         e3.common_step_counter = IM + ID * 4
         CU._alvo_locomocao(e3, 1.0, balanco)
@@ -617,20 +604,68 @@ def main() -> int:
           "e o BIT vai a 1: a descontinuidade É o sinal de que o objetivo chegou")
     env._reset_idx(todos)
 
-    print("== 21. o giro indevido (§8.3) ==")
-    tc_g = env.reward_manager.get_term_cfg("giro_indevido")
-    checa(tc_g.weight < 0.0, f"é penalidade (peso {tc_g.weight:+.3f})")
-    twist = env.command_manager.get_term("twist")
-    twist.vel_command_b[:, 2] = 0.0          # ninguém pediu giro
-    v_sem = tc_g.func(env, **tc_g.params)
-    twist.vel_command_b[:, 2] = 1.0          # agora o giro FOI pedido
-    v_com = tc_g.func(env, **tc_g.params)
-    checa(bool((v_com.abs() < 1e-9).all()),
-          "com giro PEDIDO o termo é zero — não briga com o `track_angular_velocity`")
-    checa(float(v_sem.sum()) >= 0.0 and bool((v_sem >= 0.0).all()),
-          "sem giro pedido ele é um quadrático em ωz, sempre >= 0")
-    checa(hasattr(env, "poc_erro_giro_ema"),
-          "e ele é o ÚNICO produtor de `poc_erro_giro_ema`, que o balanço lê")
+    print("== 21. PARIDADE da locomoção com o fabricante ==")
+    # ⚠ Esta seção é o guarda-corpo pedido em 21/08: a locomoção tem de ser
+    # EXATAMENTE o `velocity` do fabricante, com UMA mudança — a janela de espera.
+    # Ela existe para que o próximo desvio bem-intencionado seja pego aqui, e não
+    # 1200 iterações depois num painel.
+    from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
+    fab = unitree_g1_flat_env_cfg(play=False)
+
+    FUNDACAO = ("track_linear_velocity", "track_angular_velocity", "upright", "pose",
+                "body_ang_vel", "angular_momentum", "dof_pos_limits", "action_rate_l2",
+                "air_time", "foot_clearance", "foot_swing_height", "foot_slip",
+                "soft_landing", "self_collisions")
+    difs = [n for n in FUNDACAO
+            if cfg.rewards[n].weight != fab.rewards[n].weight]
+    checa(not difs, f"os {len(FUNDACAO)} pesos de fundação batem com o fabricante "
+                    f"(divergem: {difs})")
+
+    checa(cfg.actions["joint_pos"].scale == fab.actions["joint_pos"].scale,
+          "a escala de ação é o `G1_ACTION_SCALE` puro (o ×0,8 saiu em 21/08)")
+
+    tw, tw_f = cfg.commands["twist"], fab.commands["twist"]
+    difs = [c for c in ("rel_standing_envs", "rel_heading_envs", "rel_forward_envs",
+                        "heading_command", "heading_control_stiffness",
+                        "resampling_time_range")
+            if getattr(tw, c) != getattr(tw_f, c)]
+    checa(not difs, f"os parâmetros do twist batem (divergem: {difs})")
+    difs = [c for c in ("lin_vel_x", "lin_vel_y", "ang_vel_z")
+            if tuple(getattr(tw.ranges, c)) != tuple(getattr(tw_f.ranges, c))]
+    checa(not difs, f"as faixas do twist batem (divergem: {difs})")
+
+    cv, cv_f = cfg.curriculum["command_vel"], fab.curriculum["command_vel"]
+    checa(cv.func is cv_f.func and
+          cv.params["velocity_stages"] == cv_f.params["velocity_stages"],
+          "o currículo de comando é o mesmo termo e a mesma tabela")
+
+    difs = [n for n in fab.terminations if n not in cfg.terminations]
+    checa(not difs, f"nenhuma terminação do fabricante foi removida (faltam: {difs})")
+
+    # o que SOBRA em relação ao fabricante. Tudo aqui é da CAIXA, e tudo é mascarado
+    # pelo bit `caixa_valida` — portanto na locomoção o valor é exatamente zero.
+    TAREFA = {"staged", "precise_pos", "precise_ori", "squeeze", "unload", "load",
+              "postura_ereta", "sustentacao", "joint_vel_hinge"}
+    extras = set(cfg.rewards) - set(fab.rewards)
+    checa(extras == TAREFA,
+          f"os únicos termos EXTRA são os 9 da caixa (medido {sorted(extras)})")
+
+    extras_ev = set(cfg.events) - set(fab.events)
+    checa(extras_ev == {"caixa_friction", "entrega_do_navegador", "reset_cena",
+                        "carga_caixa", "afasta_cena"},
+          f"os eventos extra são só de cena/caixa (medido {sorted(extras_ev)})")
+    faltam_ev = set(fab.events) - set(cfg.events)
+    checa(faltam_ev == {"base_com"},
+          f"o ÚNICO evento do fabricante removido é o `base_com` "
+          f"(dr.body_com_offset corrompe a heap) — medido {sorted(faltam_ev)}")
+
+    extras_cu = set(cfg.curriculum) - set(fab.curriculum)
+    checa(extras_cu == {"nivel", "forma", "hinge"},
+          f"o currículo extra é só da caixa e da forma (medido {sorted(extras_cu)})")
+
+    # A ÚNICA mudança deliberada na locomoção
+    checa(cfg.commands["caixa_alvo"].espera_s[1] > 0.0,
+          "e a UMA mudança deliberada existe: a janela de espera (§11.2)")
 
     env.close()
 

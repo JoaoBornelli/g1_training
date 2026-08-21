@@ -33,12 +33,20 @@ PASSOS_CHEIOS = MAX_EP_S / DT   # 1000
 
 # A escada de corte (§17). Pare o bloco se uma linha falhar.
 #   (iteração, chave, comparador, alvo, o que significa falhar)
+#
+# ⚠ 21/08: o `peak_height_mean >= 0,02` SAIU da escada e virou aviso na seção de
+# marcha. Ele é padrão de QUALIDADE de marcha, e esta POC mede VIABILIDADE — um robô
+# estável a 0,4 m/s serve para pegar a caixa. Medido no bloco 3: 3 mm de elevação com
+# `slip_velocity` 0,09 (o pé não escorrega) e `landing_force` 165 N (existe impacto),
+# ou seja passos curtos e rasos, e não arrasto. Cortar o bloco por isso seria cortar
+# por um alvo que a POC não pediu.
+#
+# ⚠ E o `erro_giro_ema` saiu junto, com o termo que o produzia. A `razao_giro` fica:
+# ela é a mesma pergunta, medida com dois números que o fabricante já loga.
 ESCADA = [
     (200, "Policy/mean_noise_std", ">=", 0.85,
      "as penalidades ainda dominam; algum termo ficou pesado"),
-    (1000, "Metrics/peak_height_mean", ">=", 0.02,
-     "NÃO existe fase de balanço. A causa não são os freios — pare e investigue "
-     "autoridade de tornozelo e `escala_acao_mult`"),
+
     (1000, "Curriculum/forma/dur_loco_ema", ">=", 150.0,
      "a locomoção não sai do lugar"),
     (2000, "Curriculum/forma/dur_loco_ema", ">=", 600.0,
@@ -52,10 +60,7 @@ ESCADA = [
     # duração, e não tinha portão de giro; o número que explicava o colapso estava
     # no log 1000 iterações antes de alguém olhar.
     (400, "Derivado/razao_giro", ">=", 0.10,
-     "o yaw não é rastreado. É o eixo com UM guardião só (o fabricante exclui o z "
-     "do `body_ang_vel`) — pare e confira `giro_indevido` e o yaw ±3,14 do reset"),
-    (1000, "Curriculum/forma/erro_giro_ema", "<=", 0.30,
-     "o erro de giro não fecha, e o balanço de forma nunca vai liberar a caixa"),
+     "o yaw não é rastreado — confira o yaw ±3,14 do reset da locomoção"),
     (3000, "Derivado/sucesso_manipulacao", ">=", 0.30,
      "os consertos machucaram a manipulação; o `model_5000` do bloco 1 fazia 0,37"),
 ]
@@ -245,7 +250,7 @@ def analisa(v: dict[str, float]) -> None:
                          ("Metrics/slip_velocity_mean", "escorregão (m/s)", None),
                          ("Curriculum/forma/dur_loco_ema", "duração loco (passos)", 150.0),
                          ("Curriculum/forma/dur_manip_ema", "duração manip (passos)", None),
-                         ("Curriculum/twist_ranges/estagio", "estágio do twist", None)):
+                         ("Curriculum/command_vel/lin_vel_x_max", "teto de vx (m/s)", None)):
         if k in v:
             marca = ""
             if alvo is not None:
@@ -256,7 +261,9 @@ def analisa(v: dict[str, float]) -> None:
     print()
     print("  GATES POR COMPETÊNCIA")
     print("  " + "-" * 52)
-    for nome in ("hinge", "action_rate", "twist_ranges"):
+    # ⚠ 21/08: só o `hinge` sobrou. O gate do twist e o do `action_rate` saíram —
+    # o fabricante usa `commands_vel` por passo global e `action_rate_l2 = −0,10` fixo.
+    for nome in ("hinge",):
         med = v.get(f"Curriculum/{nome}/sinal_medido")
         lim = v.get(f"Curriculum/{nome}/sinal_limiar")
         peso = v.get(f"Curriculum/{nome}/weight")
@@ -285,7 +292,6 @@ def analisa(v: dict[str, float]) -> None:
         print("      (pesos iguais e σ maior no giro: com rastreio comparável")
         print("       esta razão fica perto de 1. No bloco 2 deu 0,020.)")
     for k, rot, alvo, maior_e_melhor in (
-            ("Curriculum/forma/erro_giro_ema", "erro de giro (rad/s)", 0.30, False),
             ("Metrics/giro_wz_abs", "|ωz| médio (rad/s)", None, False),
             ("Metrics/giro_frac_sem_comando", "fração sem comando de giro", None, True)):
         if k in v:
@@ -386,7 +392,7 @@ DEMO = {
     "Metrics/slip_velocity_mean": 0.0934,
     "Curriculum/forma/dur_loco_ema": 35.2659,
     "Curriculum/forma/dur_manip_ema": 860.8481,
-    "Curriculum/twist_ranges/estagio": 0.0,
+    "Curriculum/command_vel/lin_vel_x_max": 1.0,
     "Curriculum/hinge/weight": -0.1000,
     "Curriculum/action_rate/weight": -0.2500,
 }
@@ -419,7 +425,7 @@ DEMO_GIRO = {
     "Metrics/caixa_alvo/fecha_todas": 0.0001,
     "Curriculum/forma/dur_loco_ema": 10.7137,
     "Curriculum/forma/dur_manip_ema": 866.3829,
-    "Curriculum/twist_ranges/estagio": 0.0,
+    "Curriculum/command_vel/lin_vel_x_max": 1.0,
     "Curriculum/nivel/nivel_medio": 0.0,
 }
 

@@ -5,22 +5,22 @@ Quatro partes, e a separação é deliberada:
     A · adaptativa, por env   — DOIS adaptativos: a FORMA (por duração medida,
                                 controlador de `sorteia_forma`) e o NÍVEL (por
                                 sucesso, `nivel_caixa`).
-    B · agendada, por passo   — as faixas do twist. Gate por COMPETÊNCIA (§10.3).
+    B · agendada, por passo   — as faixas do twist. É o `mdp.commands_vel` do
+                                fabricante, por PASSO GLOBAL, sem gate (21/08).
     C · agendada, por passo   — a qualidade de movimento. `mdp.reward_curriculum`.
     D · tabela de células     — altura, carga, jitter, rotação por nível (§10.1).
 
 O que a tarefa pede pode adaptar por sucesso. O quão LIMPO o movimento tem de ser
 não pode: apertar sempre baixa o sucesso.
 
-ORDEM IMPORTA no dict de currículo: `twist_ranges` e `nivel` leem a forma do
-episódio que ACABOU, e vêm ANTES de `forma`; `sorteia_forma` a sobrescreve com o
-sorteio do episódio novo. Os eventos leem a forma NOVA e rodam DEPOIS de todo o
+ORDEM IMPORTA no dict de currículo: `nivel` lê a forma do episódio que ACABOU, e vem
+ANTES de `forma`; `sorteia_forma` a sobrescreve com o sorteio do episódio novo. Os eventos leem a forma NOVA e rodam DEPOIS de todo o
 currículo, portanto não são afetados. (Bug medido 20/08: com `nivel` depois de
 `forma`, a promoção era gateada pela forma do episódio SEGUINTE.)
 
-ESTADO DESTE ARQUIVO — passo 4 da §17:
-    tabela de células ligada (§10.1), gate por competência no lugar de `commands_vel`,
-    faltam as cadeias (MACRO 2).
+ESTADO DESTE ARQUIVO — 21/08:
+    tabela de células ligada (§10.1); o eixo da LOCOMOÇÃO voltou ao fabricante
+    (`commands_vel`, sem gate próprio, sem cronograma de `action_rate`).
 """
 from __future__ import annotations
 
@@ -52,14 +52,27 @@ def _alvo_locomocao(
     caindo a 11 na it 700, com `peak_height_mean` indo de 0,024 a 0,0069 no mesmo
     intervalo — e nada devolveu chão para a locomoção. Aqui devolve.
 
-    Dois sinais, e os DOIS têm de passar para descer:
+    UM sinal, e é a duração do episódio de locomoção:
 
-        dur_loco_ema     >= dur_loco_alvo      (sobrevive ao episódio)
-        erro_giro_ema    <= erro_giro_alvo     (controla o próprio yaw)
+        dur_loco_ema >= dur_loco_alvo      (o robô sobrevive ao episódio)
 
-    Basta UM piorar além da histerese para subir. O `erro_giro_ema` é mantido pela
-    recompensa `giro_indevido`, que roda todo passo; o `getattr` pessimista de 1e3
-    cobre o primeiro reset, onde ela ainda não escreveu nada.
+    ⚠ Em 21/08 havia um SEGUNDO sinal, `erro_giro_ema <= 0,30`, e ele saiu. Duas
+    razões, e as duas importam:
+
+    1. O número era chutado. `|ωz − ωz_cmd|` é um erro INSTANTÂNEO, e numa marcha
+       normal o tronco contra-rotaciona a cada passada — o piso desse número é a
+       oscilação da própria marcha, e não a qualidade do rastreio. Medido: ele ficou
+       plano em 0,587 por 390 iterações enquanto a `razao_giro` marcava 0,373
+       (dezoito vezes o bloco 2). Dois sinais diziam que o yaw estava bem; só o meu
+       limiar dizia que não, e ele travava a rampa para sempre.
+
+    2. O fabricante promove por UM sinal. O `terrain_levels_vel` mede a distância
+       caminhada e mais nada. Um portão com dois sinais conjuntivos foi invenção
+       minha, e a invenção é que quebrou.
+
+    A `razao_giro` continua existindo, mas onde ela deve estar: como portão de
+    LEITURA no `leitura.py`. Um número que um humano confere não é maquinaria no
+    laço de treino.
 
     ⚠ A carência `iters_min` não é opcional. A `dur_loco_ema` nasce NEUTRA em
     `max_episode_length` (1000 passos, ver `sorteia_forma`), portanto ela já passa o
@@ -91,16 +104,14 @@ def _alvo_locomocao(
         return env.poc_alvo_loco
 
     dur = float(env.poc_dur_loco)
-    giro = float(getattr(env, "poc_erro_giro_ema", 1e3))
     dur_alvo = float(balanco["dur_loco_alvo"])
-    giro_alvo = float(balanco["erro_giro_alvo"])
     frac = float(balanco["desce_frac"])
     mn, mx = float(balanco["alvo_min"]), float(balanco["alvo_max"])
     passo = float(balanco["passo"])
 
-    apto = (dur >= dur_alvo) and (giro <= giro_alvo)
-    # histerese: o retorno exige piorar 25% além do limiar (1/0,8), e não só cruzá-lo
-    caiu = (dur < frac * dur_alvo) or (giro > giro_alvo / frac)
+    apto = dur >= dur_alvo
+    # histerese: o retorno exige cair 20% abaixo do limiar, e não só cruzá-lo
+    caiu = dur < frac * dur_alvo
 
     if apto and env.poc_alvo_loco > mn:
         env.poc_alvo_loco = max(mn, env.poc_alvo_loco - passo)
@@ -139,14 +150,12 @@ def sorteia_forma(
     É exatamente o laço que o controlador quebra: ele fixa a fatia no alvo.
 
     ⚠ Este termo SOBRESCREVE `env.poc_manipula` com a forma do episódio NOVO.
-    Quem precisa da forma do episódio que ACABOU (`nivel`, `twist_ranges`) tem de
-    vir ANTES dele no dict de currículo. Medido 20/08: com `nivel` depois de
+    Quem precisa da forma do episódio que ACABOU (`nivel`) tem de vir ANTES dele no
+    dict de currículo. Medido 20/08: com `nivel` depois de
     `forma`, a promoção era gateada pela forma do episódio SEGUINTE — `p_up`
     caía de p para 0,7·p, e um episódio de LOCOMOÇÃO rebaixava o nível em 70%
     das vezes.
 
-    ⚠ A EMA daqui INCLUI os envs parados; a do `twist_por_competencia` os exclui.
-    São filtros diferentes para perguntas diferentes — não unificar.
     """
     if not hasattr(env, "poc_manipula"):
         env.poc_manipula = torch.ones(
@@ -199,8 +208,6 @@ def sorteia_forma(
         # o alvo é o número que o balanço move. Sem ele no log não há como saber se
         # a rampa andou, e foi essa cegueira que custou o bloco 2.
         "alvo_loco": torch.tensor(alvo, device=dev),
-        "erro_giro_ema": torch.tensor(
-            float(getattr(env, "poc_erro_giro_ema", 0.0)), device=dev),
     }
 
 
@@ -289,7 +296,7 @@ def peso_por_competencia(
 
     Substitui o `mdp.reward_curriculum` nos dois freios de movimento. Ele avança por
     passo global e só por isso — e o bloco 1 mostrou o que isso custa. Este é o
-    mesmo desenho do `twist_por_competencia`: **o passo global é o PISO do degrau, e
+    Desenho: **o passo global é o PISO do degrau, e
     o gatilho é a competência medida.**
 
     Por que o defeito é de FASE, e não de valor:
@@ -312,7 +319,7 @@ def peso_por_competencia(
     | `joint_vel_hinge` | `nivel_medio` | desde 21/08 ele só vale na manipulação |
 
     ⚠ Tem de vir DEPOIS de `twist_ranges` e de `nivel` no dict de currículo: o
-    `duracao_loco` é a EMA que o `twist_por_competencia` mantém, e o `nivel_medio` é
+    `nivel_medio` é
     o buffer que o `nivel_caixa` escreve.
 
     ⚠ Nada disto vai para o checkpoint. Depois de um resume o gate recomeça no
@@ -325,10 +332,10 @@ def peso_por_competencia(
     est = env.poc_estagio_peso.get(reward_name, 0)
     ultimo = env.poc_peso_ultimo_degrau.get(reward_name, 0)
 
-    if sinal == "duracao_loco":
-        medido = float(getattr(env, "poc_duracao_loco", torch.zeros(())))
-        limiar = alvo * env.max_episode_length
-    elif sinal == "nivel_medio":
+    # ⚠ O sinal `duracao_loco` SAIU em 21/08, junto com o `twist_por_competencia`
+    # que o produzia e com o gate do `action_rate` que o consumia. Deixar um sinal
+    # sem produtor é convite a religá-lo lendo zero para sempre.
+    if sinal == "nivel_medio":
         nivel = getattr(env, "poc_nivel", None)
         medido = 0.0 if nivel is None else float(nivel.float().mean())
         limiar = alvo
@@ -360,81 +367,11 @@ def peso_por_competencia(
     }
 
 
-def twist_por_competencia(
-    env: ManagerBasedRlEnv,
-    env_ids: torch.Tensor,
-    command_name: str,
-    velocity_stages: list,
-    duracao_min_frac: float,
-    desce_frac: float,
-    ema: float,
-    iters_entre_degraus: int,
-) -> dict[str, torch.Tensor]:
-    """Avança as faixas do twist só quando o robô SUSTENTA o teto atual (§10.3).
-
-    Substitui o `mdp.commands_vel`, que avança por passo global e só por isso —
-    na it 5099 o robô recebia 2,0 m/s com `peak_height_mean = 2,7 mm`. O sinal de
-    competência é a DURAÇÃO do episódio de locomoção: direto (quem não anda cai em
-    24 passos) e é a MESMA grandeza que governa a fatia de transições.
-
-    Regra: sobe quando (passo global >= degrau) E (EMA >= duracao_min_frac ×
-    episódio cheio) E (passou `iters_entre_degraus` desde o último degrau);
-    DESCE quando EMA < desce_frac × alvo. O degrau global é PISO, não gatilho.
-
-    ⚠ ANTES de `forma` no dict: `sorteia_forma` sobrescreve `env.poc_manipula`, e
-    aqui precisamos da forma do episódio que ACABOU.
-    ⚠ `episode_length_buf[env_ids]` só zera no FIM do `_reset_idx` — aqui ainda
-    vale a duração final. Medido.
-    ⚠ Os envs PARADOS (`is_standing_env`) saem da EMA: ficar de pé até o time_out
-    entregaria 8% do alvo sem andar. Os de giro no lugar CONTAM — girar é andar.
-    ⚠ A EMA daqui EXCLUI os parados; a do `sorteia_forma` os inclui. São filtros
-    diferentes para perguntas diferentes — não unificar.
-    ⚠ A EMA nasce PESSIMISTA (zero) e é tensor no device (uma sync por reset já
-    basta para o degrau; 48 syncs/iteração não).
-    ⚠ Nada disto vai para o checkpoint: depois de um resume o gate recomeça em
-    (0, 0) e recalibra em ~3τ ≈ 12 iterações. Seguro por construção.
-    """
-    if not hasattr(env, "poc_estagio_twist"):
-        env.poc_estagio_twist = 0
-        env.poc_duracao_loco = torch.zeros((), device=env.device)
-        env.poc_twist_ultimo_degrau = 0
-
-    manipula = getattr(env, "poc_manipula", None)
-    if manipula is not None and len(env_ids) > 0:
-        loco = env_ids[~manipula[env_ids]]
-        if len(loco) > 0:
-            parado = env.command_manager.get_term(command_name).is_standing_env
-            loco = loco[~parado[loco]]
-        if len(loco) > 0:
-            amostra = env.episode_length_buf[loco].float().mean()
-            env.poc_duracao_loco = ema * env.poc_duracao_loco + (1.0 - ema) * amostra
-
-    alvo = duracao_min_frac * env.max_episode_length
-    dur = float(env.poc_duracao_loco)
-    est = env.poc_estagio_twist
-    passo = env.common_step_counter
-    pode = passo - env.poc_twist_ultimo_degrau >= iters_entre_degraus * 24
-    if (pode and est + 1 < len(velocity_stages)
-            and passo >= velocity_stages[est + 1]["step"]
-            and dur >= alvo):
-        est += 1
-        env.poc_twist_ultimo_degrau = passo
-    elif pode and est > 0 and dur < desce_frac * alvo:
-        est -= 1
-        env.poc_twist_ultimo_degrau = passo
-    env.poc_estagio_twist = est
-
-    cfg = env.command_manager.get_term(command_name).cfg
-    estagio = velocity_stages[est]
-    for chave in ("lin_vel_x", "lin_vel_y", "ang_vel_z"):
-        if estagio.get(chave) is not None:
-            setattr(cfg.ranges, chave, estagio[chave])
-
-    dev = env.device
-    return {
-        "estagio": torch.tensor(float(est), device=dev),
-        "duracao_loco_ema": torch.tensor(dur, device=dev),
-        "duracao_alvo": torch.tensor(alvo, device=dev),
-        "lin_vel_x_max": torch.tensor(cfg.ranges.lin_vel_x[1], device=dev),
-        "ang_vel_z_max": torch.tensor(cfg.ranges.ang_vel_z[1], device=dev),
-    }
+# ⚠ `twist_por_competencia` SAIU em 21/08. Ele era um gate por competência sobre as
+# faixas do twist, com degraus em 8000 e 12000 iterações — invenção minha.
+#
+# O fabricante usa `mdp.commands_vel`: por PASSO GLOBAL, degraus em 0, 5000 e 10000,
+# sem gate nenhum (`velocity_env_cfg.py:393-407`). O `env_cfg` chama aquele agora.
+#
+# Com ele saiu o buffer `env.poc_duracao_loco`, que só o gate do `action_rate` lia — e
+# aquele gate saiu junto, porque o fabricante roda `action_rate_l2 = −0,10` fixo.

@@ -254,7 +254,7 @@ assert rw["joint_vel_hinge"].func is R.hinge_por_forma, "o hinge tem de ser por 
 
 # a ordem do currículo: quem lê a forma do episódio que ACABOU vem antes de `forma`
 ordem = list(cu)
-assert ordem.index("twist_ranges") < ordem.index("forma")
+assert ordem.index("command_vel") < ordem.index("forma")
 assert ordem.index("nivel") < ordem.index("forma")
 assert ordem.index("forma") < ordem.index("hinge")
 
@@ -268,8 +268,16 @@ assert list(e).index("reset_base") < list(e).index("entrega_do_navegador")
 #   1. o yaw do reset volta ao ±3,14 do fabricante NA LOCOMOÇÃO
 assert e["reset_base"].params["faixa_loco"]["yaw"][1] > 3.0
 assert e["reset_base"].params["faixa_manipula"]["yaw"][1] < 0.5
-#   2. existe cerca no yaw quando ninguém pede giro
-assert rw["giro_indevido"].func is R.giro_indevido and rw["giro_indevido"].weight < 0
+#   2. a locomoção é a do FABRICANTE: nenhum termo inventado, escala de ação pura
+from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
+_fab = unitree_g1_flat_env_cfg(play=False)
+assert set(rw) - set(_fab.rewards) == {
+    "staged", "precise_pos", "precise_ori", "squeeze", "unload", "load",
+    "postura_ereta", "sustentacao", "joint_vel_hinge"}, "termo inventado na locomoção"
+assert cfg.env.actions["joint_pos"].scale == _fab.actions["joint_pos"].scale
+assert cu["command_vel"].params["velocity_stages"] == \
+    _fab.curriculum["command_vel"].params["velocity_stages"]
+assert "action_rate" not in cu and "twist_ranges" not in cu
 #   3. a janela de espera: todo episódio começa PARADO
 assert cfg.env.commands["caixa_alvo"].espera_s[1] > 0.0
 #   4. o balanço de forma começa em locomoção PURA e desce por competência

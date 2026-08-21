@@ -35,6 +35,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
+from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
@@ -379,21 +380,6 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     )
 
-    # §8.3 — o giro indevido. O fabricante exclui o z do `body_ang_vel` DE
-    # PROPÓSITO (`# Don't penalize z-angular velocity.`), porque o yaw é o eixo
-    # comandado. O efeito colateral é que o yaw fica com UM guardião só, e foi por
-    # ali que o bloco 2 escapou: ωz real de ~1,5 rad/s com comando ZERO.
-    #
-    # Este termo fecha a cerca apenas onde não há conflito — quando ninguém pediu
-    # giro. E é o único produtor de `env.poc_erro_giro_ema`, que o balanço de forma
-    # lê como segundo sinal de competência (§10.4).
-    cfg.rewards["giro_indevido"] = RewardTermCfg(
-        func=R.giro_indevido, weight=kr.giro_indevido,
-        params={"twist_command_name": CMD_TWIST,
-                "limiar_cmd": kr.giro_limiar_cmd,
-                "ema": kr.giro_ema},
-    )
-
     # -------------------------------------------------- 8. terminações
     cfg.terminations.pop("out_of_terrain_bounds", None)
     cfg.terminations["fell_over"].params["limit_angle"] = k.term.fell_over_rad
@@ -501,12 +487,16 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         # com frac_locomocao = 0,85 limitaria nivel_medio a 0,214 mesmo com
         # manipulação perfeita. Os eventos leem a forma NOVA e rodam DEPOIS de todo o
         # currículo, portanto não são afetados.
-        "twist_ranges": CurriculumTermCfg(
-            func=CU.twist_por_competencia,
-            params={"command_name": CMD_TWIST, "velocity_stages": cr.locomocao,
-                    "duracao_min_frac": cr.twist_duracao_min_frac,
-                    "desce_frac": cr.twist_desce_frac, "ema": cr.twist_ema,
-                    "iters_entre_degraus": cr.twist_iters_entre_degraus},
+        # ⚠ 21/08: VOLTOU a ser o `commands_vel` do fabricante, por PASSO GLOBAL.
+        # O gate por competência que estava aqui era invenção minha, e com ele saíram
+        # os degraus em 8000/12000 (os do fabricante são 0/5000/10000).
+        #
+        # ⚠ Declarado: com `max_iterations = 3000` o degrau 1 (5000) nunca dispara,
+        # portanto o comando não endurece dentro de um bloco curto. É assim no
+        # fabricante também — ele treina muito mais que 3000 iterações.
+        "command_vel": CurriculumTermCfg(
+            func=vel_mdp.commands_vel,
+            params={"command_name": CMD_TWIST, "velocity_stages": cr.locomocao},
         ),
         "nivel": CurriculumTermCfg(
             func=CU.nivel_caixa,
@@ -527,7 +517,6 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                         "iters_entre_degraus": ke.alvo_iters_entre_degraus,
                         "iters_min": ke.alvo_iters_min,
                         "dur_loco_alvo": ke.dur_loco_alvo,
-                        "erro_giro_alvo": ke.erro_giro_alvo,
                         "desce_frac": ke.alvo_desce_frac,
                     }},
         ),
@@ -539,13 +528,6 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             func=CU.peso_por_competencia,
             params={"reward_name": "joint_vel_hinge", "stages": cr.hinge,
                     "sinal": cr.freio_hinge_sinal, "alvo": cr.freio_hinge_alvo,
-                    "desce_frac": cr.freio_desce_frac,
-                    "iters_entre_degraus": cr.freio_iters_entre_degraus},
-        ),
-        "action_rate": CurriculumTermCfg(
-            func=CU.peso_por_competencia,
-            params={"reward_name": "action_rate_l2", "stages": cr.action_rate,
-                    "sinal": cr.freio_ar_sinal, "alvo": cr.freio_ar_alvo,
                     "desce_frac": cr.freio_desce_frac,
                     "iters_entre_degraus": cr.freio_iters_entre_degraus},
         ),
@@ -567,7 +549,9 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
         cfg.events.pop("randomize_terrain", None)
         # os dois cronogramas por passo global saem; `forma` e `nivel` FICAM, porque
         # o `afasta_cena` e o comando leem `env.poc_manipula`.
-        cfg.curriculum.pop("twist_ranges", None)
+        # ⚠ o `command_vel` TEM de sair no play: ele reescreve `ranges` a cada
+        # reset a partir da tabela, e apagaria o `--vx`/`--giro` pinados.
+        cfg.curriculum.pop("command_vel", None)
         cfg.curriculum.pop("hinge", None)
         cfg.curriculum.pop("action_rate", None)
 

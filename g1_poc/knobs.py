@@ -39,7 +39,10 @@ class Cena:
     afasta_z: float = 5.0
 
     # --- ação ---
-    escala_acao_mult: float = 0.8
+    # ⚠ 21/08: VOLTOU a 1,0. O 0,8 cortava 20% da autoridade de junta contra o
+    # `G1_ACTION_SCALE` do fabricante, e autoridade é exatamente o que uma fase de
+    # balanço precisa. Nenhuma medida justificava o corte.
+    escala_acao_mult: float = 1.0
 
     # --- reset da base ---
     # A pose de reset é POR FORMA desde 21/08, e o motivo é o defeito central do
@@ -181,25 +184,6 @@ class Recompensa:
     # empurra as juntas para o meio da faixa e ACHATA o balanço. O
     # `peak_height_mean` entre 0,007 e 0,023 é consistente com isso.
     dof_pos_limits: float = -1.0
-    # §8.3 — GIRO INDEVIDO (21/08). Penaliza ωz² quando ninguém pediu giro.
-    #
-    # O `body_angular_velocity_penalty` do fabricante exclui o z DE PROPÓSITO — o
-    # comentário no fonte é literal: `# Don't penalize z-angular velocity.` A razão
-    # é boa: o yaw é o eixo COMANDADO. Consequência não intencional: o yaw fica com
-    # UM único guardião (`track_angular_velocity`, peso 2,0, σ 0,707). Os outros
-    # eixos da base têm dois ou três termos.
-    #
-    # Foi por ali que o bloco 2 escapou: ωz real ~1,5 rad/s com comando ZERO. Este
-    # termo fecha a cerca só onde é seguro — quando |ωz_cmd| < limiar ninguém pediu
-    # giro, portanto girar é erro puro. Cobre a janela de espera, os envs
-    # `standing` e TODO env de manipulação (twist forçado a zero).
-    #
-    # Dimensionamento: a ωz = 1,5 rad/s custa 0,5·2,25·0,02 = 0,0225/passo, contra
-    # 0,040/passo que o `track_ang` deixa de pagar. Mesma ordem. A ωz = 0,2 (ruído
-    # normal) custa 0,0004/passo — desprezível, como um quadrático deve ser.
-    giro_indevido: float = -0.5
-    giro_limiar_cmd: float = 0.05        # |ωz_cmd| abaixo disto = "ninguém pediu"
-    giro_ema: float = 0.99               # τ ≈ 100 amostras, igual às outras EMAs
     self_collisions: float = -1.0
 
     # --- tarefa ---
@@ -420,10 +404,6 @@ class Episodio:
     alvo_iters_min: int = 200
     # os dois sinais de competência da locomoção. Os DOIS têm de passar.
     dur_loco_alvo: float = 600.0         # passos: sobreviver 12 s dos 20 s
-    # `|ωz − ωz_cmd|` médio, em rad/s. É o sinal que o bloco 2 não tinha: o
-    # `track_angular_velocity` marcou 0,0054 contra 0,275 do linear — 51× de
-    # diferença COM PESO IGUAL — desde a it 187, e ninguém olhou.
-    erro_giro_alvo: float = 0.30
     # histerese: desce com sinal >= limiar; sobe com sinal < 0,8·limiar
     alvo_desce_frac: float = 0.80
     # "segure e ande": fração dos envs de manipulação com o twist LIBERADO, ATIVA
@@ -487,13 +467,18 @@ class Cronograma:
     # que não aconteceu. Dois dos três cronogramas já saíram de fase — ver a dívida do
     # gate por competência na §10.3.
     locomocao: list = field(default_factory=lambda: [
-        # ⚠ O `lin_vel_y` do degrau 0 subiu de ±0,3 para ±1,0 em 21/08: é o valor do
-        # fabricante (`velocity_env_cfg.py:189`), e a tabela SOBRESCREVE a faixa do
-        # cfg em todo reset — portanto mudar só o knob `Comando.lin_vel_y` não teria
-        # efeito nenhum no treino.
-        {"step": 0,           "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.5, 0.5)},
-        {"step": 8000 * 24,   "lin_vel_x": (-1.5, 2.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
-        {"step": 12000 * 24,  "lin_vel_x": (-2.0, 3.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
+        # ⚠ 21/08: esta é a tabela do fabricante, copiada de
+        # `velocity_env_cfg.py:403-405`, byte por byte. Os degraus em 8000 e 12000
+        # eram meus e saíram. O mecanismo também voltou: `mdp.commands_vel`, por
+        # PASSO GLOBAL, sem gate por competência.
+        #
+        # ⚠ Consequência a declarar: com `max_iterations = 3000` o degrau 1 (5000)
+        # nunca dispara. Isso é o fabricante, e não um defeito — ele treina muito
+        # mais que 3000 iterações. Para ver o currículo de comando andar, o bloco
+        # precisa de >= 5000 iterações.
+        {"step": 0,           "lin_vel_x": (-1.0, 1.0), "ang_vel_z": (-0.5, 0.5)},
+        {"step": 5000 * 24,   "lin_vel_x": (-1.5, 2.0), "ang_vel_z": (-0.7, 0.7)},
+        {"step": 10000 * 24,  "lin_vel_x": (-2.0, 3.0)},
     ])
     # ⚠ O degrau de −1,00 estava em 3000 e foi para 10000 em 19/08, medido.
     # Na iteração 3080 ele bateu e o `joint_vel_hinge` + `action_rate_l2` passaram a
@@ -511,10 +496,15 @@ class Cronograma:
         {"step": 1500 * 24,  "weight": -0.10},
         {"step": 10000 * 24, "weight": -1.00},
     ])
-    action_rate: list = field(default_factory=lambda: [
-        {"step": 0,         "weight": -0.10},
-        {"step": 3000 * 24, "weight": -0.25},
-    ])
+    # ⚠ 21/08: o cronograma do `action_rate` SAIU. O fabricante roda −0,10 fixo,
+    # para sempre, e produz uma marcha boa. O degrau para −0,25 era meu, e a
+    # medição da it 488 fecha o caso: a −0,10 e σ 0,54 o termo já cobra −1,49/s,
+    # que é o PISO de ruído (0,10 × 2σ² × 29 = 1,69/s). Multiplicar por 2,5 taxaria
+    # exploração, e não tremor.
+    #
+    # A lista fica vazia de propósito: quem quiser o freio de volta tem de
+    # justificar com medida, e não reativar um cronograma esquecido.
+    action_rate: list = field(default_factory=list)
 
     # §10.3 — o gate por COMPETÊNCIA do twist, ligado em 20/08.
     # Dois dos três cronogramas por passo global já saíram de fase. O passo global

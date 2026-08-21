@@ -93,9 +93,9 @@ def _registra(task_id: str, ajusta, nivel: int | None = None,
               cadeia: int | None = None) -> str:
     """Registra uma task de play com os knobs mutados por `ajusta`.
 
-    Os dois cronogramas por passo global (`twist_ranges`, `hinge`, `action_rate`) já
-    saem no `play=True`, portanto as faixas do `Comando` valem como escritas aqui — no
-    treino o `mdp.commands_vel` as sobrescreveria.
+    O `command_vel` e o gate do `hinge` saem no `play=True`. Portanto as faixas do
+    `Comando` valem como escritas aqui — no treino o `mdp.commands_vel` do fabricante
+    as sobrescreveria a cada reset, e o `--vx`/`--giro` não teria efeito.
     """
     k = Knobs()
     ajusta(k)
