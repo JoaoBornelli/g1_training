@@ -163,6 +163,8 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             precise_ori_std_piso=kr.precise_ori_std,
             frac_twist_livre=ke.frac_twist_livre_manipula,
             twist_livre_nivel_min=ke.twist_livre_nivel_min,
+            # §11.2 — a janela de espera. Todo episódio começa PARADO.
+            espera_s=kcm.espera_s,
         ),
         CMD_TWIST: TwistPocCfg(
             entity_name="robot",
@@ -377,6 +379,21 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     )
 
+    # §8.3 — o giro indevido. O fabricante exclui o z do `body_ang_vel` DE
+    # PROPÓSITO (`# Don't penalize z-angular velocity.`), porque o yaw é o eixo
+    # comandado. O efeito colateral é que o yaw fica com UM guardião só, e foi por
+    # ali que o bloco 2 escapou: ωz real de ~1,5 rad/s com comando ZERO.
+    #
+    # Este termo fecha a cerca apenas onde não há conflito — quando ninguém pediu
+    # giro. E é o único produtor de `env.poc_erro_giro_ema`, que o balanço de forma
+    # lê como segundo sinal de competência (§10.4).
+    cfg.rewards["giro_indevido"] = RewardTermCfg(
+        func=R.giro_indevido, weight=kr.giro_indevido,
+        params={"twist_command_name": CMD_TWIST,
+                "limiar_cmd": kr.giro_limiar_cmd,
+                "ema": kr.giro_ema},
+    )
+
     # -------------------------------------------------- 8. terminações
     cfg.terminations.pop("out_of_terrain_bounds", None)
     cfg.terminations["fell_over"].params["limit_angle"] = k.term.fell_over_rad
@@ -397,14 +414,27 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
     # em GPU). Perde-se ±2,5 cm de CoM no torso — gap declarado.
     if not kd.base_com:
         cfg.events.pop("base_com", None)
-    cfg.events["reset_base"].params["pose_range"] = kc.reset_base_pose
+    # ⚠ 21/08: o `reset_base` passa a ser POR FORMA. Na locomoção o yaw volta ao
+    # ±3,14 do fabricante (a mobília está a 5 m, não há com que alinhar o rumo); na
+    # manipulação ele fica em ±0,2, porque a mobília tem pose absoluta. O ±0,2
+    # global era o motivo de o canal de yaw nunca ser exercitado — ver o docstring
+    # de `EV.reset_base_por_forma`.
+    #
+    # A função troca (não é mais `mdp.reset_root_state_uniform` direto), mas ela
+    # chama o do fabricante duas vezes em subconjuntos disjuntos. A matemática é a
+    # mesma.
+    cfg.events["reset_base"] = EventTermCfg(
+        func=EV.reset_base_por_forma, mode="reset",
+        params={"faixa_loco": kc.reset_base_pose_loco,
+                "faixa_manipula": kc.reset_base_pose_manipula},
+    )
     # ⚠ O `reset_base` é GLOBAL, portanto a velocidade residual NÃO vai aqui. Ela
     # existe para treinar a entrega do navegador, que só antecede um elo de
     # manipulação (§11.1). Até 21/08 ela era global: TODO episódio nascia com um
     # empurrão, inclusive os de locomoção, e o controlador de forma sorteia 91% de
     # locomoção quando ela está morrendo — o empurrão caía 91% das vezes na
     # habilidade que não funcionava. Ver o evento `entrega_do_navegador`.
-    cfg.events["reset_base"].params["velocity_range"] = {}
+    # (a `velocity_range` já é `{}` dentro do `reset_base_por_forma`, por assinatura)
     # ⚠ O `push_robot` NÃO existe no modo play: o próprio cfg do G1 o remove
     # (`config/g1/env_cfgs.py:169`). Portanto ele precisa de guarda — sem ela o
     # registro da task quebra, porque o `__init__` monta o cfg de play também.
@@ -487,7 +517,19 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             params={"frac_locomocao": ke.frac_locomocao,
                     "frac_loco_min": ke.frac_loco_min,
                     "frac_loco_max": ke.frac_loco_max,
-                    "ema": ke.forma_ema},
+                    "ema": ke.forma_ema,
+                    # §10.4 — o balanço automático. `None` devolve a fatia fixa de
+                    # antes, e é o que o `play` usa para pinar 0,0 ou 1,0.
+                    "balanco": None if not ke.auto_balanco else {
+                        "alvo_min": ke.alvo_loco_min,
+                        "alvo_max": ke.alvo_loco_max,
+                        "passo": ke.alvo_passo,
+                        "iters_entre_degraus": ke.alvo_iters_entre_degraus,
+                        "iters_min": ke.alvo_iters_min,
+                        "dur_loco_alvo": ke.dur_loco_alvo,
+                        "erro_giro_alvo": ke.erro_giro_alvo,
+                        "desce_frac": ke.alvo_desce_frac,
+                    }},
         ),
         # C — os dois freios de movimento. Gate por COMPETÊNCIA, e não por passo
         # global (§10.3). ⚠ Vêm DEPOIS de `twist_ranges` e de `nivel`: o

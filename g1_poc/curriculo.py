@@ -34,6 +34,71 @@ if TYPE_CHECKING:
 NIVEL_MAX = 6
 
 
+def _alvo_locomocao(
+    env: ManagerBasedRlEnv,
+    piso_inicial: float,
+    balanco: dict | None,
+) -> float:
+    """A fatia de locomoção alvo, como ESTADO (§10.4).
+
+    Sem `balanco` ela é a constante de antes — é o modo que o `play` usa para pinar
+    0,0 (`--pegar`) ou 1,0 (`--andar`).
+
+    Com `balanco` ela começa em `piso_inicial` (1,0 = locomoção pura, a caixa não
+    existe) e desce até `alvo_min` por competência. E SOBE de volta quando a
+    competência cai.
+
+    A assimetria é o ponto. O bloco 2 mediu `dur_loco_ema` subindo a 65 na it 260 e
+    caindo a 11 na it 700, com `peak_height_mean` indo de 0,024 a 0,0069 no mesmo
+    intervalo — e nada devolveu chão para a locomoção. Aqui devolve.
+
+    Dois sinais, e os DOIS têm de passar para descer:
+
+        dur_loco_ema     >= dur_loco_alvo      (sobrevive ao episódio)
+        erro_giro_ema    <= erro_giro_alvo     (controla o próprio yaw)
+
+    Basta UM piorar além da histerese para subir. O `erro_giro_ema` é mantido pela
+    recompensa `giro_indevido`, que roda todo passo; o `getattr` pessimista de 1e3
+    cobre o primeiro reset, onde ela ainda não escreveu nada.
+
+    ⚠ A carência `iters_min` não é opcional. A `dur_loco_ema` nasce NEUTRA em
+    `max_episode_length` (1000 passos, ver `sorteia_forma`), portanto ela já passa o
+    limiar de 600 na iteração 0 com dado que não existe. Sem carência o balanço
+    desceria 12 degraus antes da primeira medida real.
+    """
+    if balanco is None:
+        return piso_inicial
+
+    if not hasattr(env, "poc_alvo_loco"):
+        env.poc_alvo_loco = float(piso_inicial)
+        # o relógio começa na carência, e não em zero
+        env.poc_alvo_ultimo = int(balanco["iters_min"]) * 24
+
+    passo_g = int(env.common_step_counter)
+    if passo_g - env.poc_alvo_ultimo < int(balanco["iters_entre_degraus"]) * 24:
+        return env.poc_alvo_loco
+
+    dur = float(env.poc_dur_loco)
+    giro = float(getattr(env, "poc_erro_giro_ema", 1e3))
+    dur_alvo = float(balanco["dur_loco_alvo"])
+    giro_alvo = float(balanco["erro_giro_alvo"])
+    frac = float(balanco["desce_frac"])
+    mn, mx = float(balanco["alvo_min"]), float(balanco["alvo_max"])
+    passo = float(balanco["passo"])
+
+    apto = (dur >= dur_alvo) and (giro <= giro_alvo)
+    # histerese: o retorno exige piorar 25% além do limiar (1/0,8), e não só cruzá-lo
+    caiu = (dur < frac * dur_alvo) or (giro > giro_alvo / frac)
+
+    if apto and env.poc_alvo_loco > mn:
+        env.poc_alvo_loco = max(mn, env.poc_alvo_loco - passo)
+        env.poc_alvo_ultimo = passo_g
+    elif caiu and env.poc_alvo_loco < mx:
+        env.poc_alvo_loco = min(mx, env.poc_alvo_loco + passo)
+        env.poc_alvo_ultimo = passo_g
+    return env.poc_alvo_loco
+
+
 def sorteia_forma(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,
@@ -41,6 +106,7 @@ def sorteia_forma(
     frac_loco_min: float,
     frac_loco_max: float,
     ema: float,
+    balanco: dict | None = None,
 ) -> dict[str, torch.Tensor]:
     """Sorteia a forma do episódio e escreve `env.poc_manipula`.
 
@@ -98,7 +164,9 @@ def sorteia_forma(
     # Fixa a FATIA DE TRANSIÇÕES em `frac_locomocao` resolvendo o sorteio a partir
     # das durações medidas. Tl = 24 e Tm = 961 dão f = 0,945; Tl = Tm dá f = alvo.
     # Sem integrador: o mapa é estático e as EMAs dão a inércia — não oscila.
-    alvo = frac_locomocao
+    # ⚠ o alvo é ESTADO desde 21/08 (§10.4), e é resolvido DEPOIS das EMAs deste
+    # passo — o balanço lê `poc_dur_loco` acabado de atualizar.
+    alvo = _alvo_locomocao(env, frac_locomocao, balanco)
     tl = float(env.poc_dur_loco)
     tm = float(env.poc_dur_manip)
     f = alvo * tm / max(tl * (1.0 - alvo) + alvo * tm, 1e-6)
@@ -116,6 +184,11 @@ def sorteia_forma(
         "frac_loco_sorteio": torch.tensor(f, device=dev),
         "dur_loco_ema": torch.tensor(tl, device=dev),
         "dur_manip_ema": torch.tensor(tm, device=dev),
+        # o alvo é o número que o balanço move. Sem ele no log não há como saber se
+        # a rampa andou, e foi essa cegueira que custou o bloco 2.
+        "alvo_loco": torch.tensor(alvo, device=dev),
+        "erro_giro_ema": torch.tensor(
+            float(getattr(env, "poc_erro_giro_ema", 0.0)), device=dev),
     }
 
 

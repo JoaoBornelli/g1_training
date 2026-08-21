@@ -128,6 +128,10 @@ def _ajusta_manipula(sem_jitter: bool):
     ⚠ O jitter x vem da CÉLULA desde 20/08; o campo `cena.caixa_jitter_x` foi removido.
     """
     def ajusta(k: Knobs) -> None:
+        # ⚠ `auto_balanco = False` é obrigatório desde 21/08. Com ele ligado o
+        # `frac_locomocao` é só o PISO INICIAL de um controlador (§10.4) e o alvo
+        # andaria durante o play — o modo deixaria de ser determinístico.
+        k.episodio.auto_balanco = False
         k.episodio.frac_locomocao = 0.0
         if sem_jitter:
             k.celulas.jitter_x_max = (0.0,) * 7
@@ -152,8 +156,14 @@ def _ajusta_andar(vx: float | None, giro: float | None):
        pedida. É o que faria um `--giro` fixo não girar.
     """
     def ajusta(k: Knobs) -> None:
+        # ver a nota do `_ajusta_manipula`: o balanço automático sai no play
+        k.episodio.auto_balanco = False
         k.episodio.frac_locomocao = 1.0
         k.comando.rel_standing = 0.0
+        # ⚠ A janela de espera (§11.2) SAI do play. Ela existe para o treino; num
+        # viewer de 1 env ela é 1 s de robô imóvel antes de qualquer coisa
+        # acontecer, e o `--vx` pinado pareceria não funcionar.
+        k.comando.espera_s = (0.0, 0.0)
         if vx is not None or giro is not None:
             k.comando.lin_vel_x = (vx or 0.0, vx or 0.0)
             k.comando.lin_vel_y = (0.0, 0.0)
@@ -166,7 +176,7 @@ def _ajusta_andar(vx: float | None, giro: float | None):
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--geometria", action="store_true",
-                   help="imprime os números da §18 e abre a cena, sem política")
+                   help="imprime os números da §18 e abre a cena, com AÇÃO ZERO")
     p.add_argument("--pegar", action="store_true",
                    help="só a forma de manipulação: a caixa está lá e o twist é zero")
     p.add_argument("--andar", action="store_true",
@@ -247,7 +257,24 @@ def main() -> None:
 
     print(f"[PLAY] task {task_id}")
     if args.geometria:
-        print("[PLAY] GEOMETRIA — ação zero; o que você vê é a pose padrão no PD")
+        # ⚠ Texto corrigido em 21/08. O anterior dizia "o que você vê é a pose
+        # padrão no PD", e isso sugeria que o robô deveria ficar DE PÉ. Não deveria.
+        #
+        # Ação zero com `use_default_offset=True` dá alvo = pose padrão. Mas um PD
+        # de ÂNGULO FIXO não equilibra um bípede: equilibrar exige modular o torque
+        # de tornozelo em resposta ao CoM, e um alvo fixo não modula nada. Somado ao
+        # reset, que nasce o robô 1 a 5 cm acima do chão, o impulso do pouso
+        # inclina e não há recuperação.
+        #
+        # Portanto "mole e cai" aqui é o ESPERADO, e não indica cena quebrada. O que
+        # este modo prova é outra coisa, e ela é útil: se NÃO houver seta de ωz, a
+        # cena não injeta giro — atrito assimétrico, qvel de keyframe e wrench
+        # desbalanceado ficam descartados, e um giro observado no `--andar` é da
+        # POLÍTICA. Foi assim que o giro do bloco 2 foi isolado em 21/08.
+        print("[PLAY] GEOMETRIA — ação zero (alvo = pose padrão).")
+        print("[PLAY]   Cair aqui é ESPERADO: PD de ângulo fixo não equilibra.")
+        print("[PLAY]   O que se mede aqui é se a CENA injeta giro. Sem seta de ωz,")
+        print("[PLAY]   qualquer giro visto no --andar é da política.")
     if args.geometria or args.pegar:
         print("[PLAY] frac_locomocao = 0 — a cena NUNCA é afastada, o twist é zero")
         print("[PLAY] caixa em x = 0,32 FIXO (caso nominal)" if args.sem_jitter

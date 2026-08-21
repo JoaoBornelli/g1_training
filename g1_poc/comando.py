@@ -103,6 +103,11 @@ class CaixaAlvoCommand(CommandTerm):
         # a forma do episódio. `manipula` é o inverso de `locomocao`.
         self.manipula = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
+        # §11.2 — a JANELA DE ESPERA, em segundos restantes. Nasce em zero: antes do
+        # primeiro resample nenhum episódio existe, e um valor positivo aqui faria
+        # o passo 0 nascer aguardando sem ter sorteado nada.
+        self._espera = torch.zeros(self.num_envs, device=self.device)
+
         # --- a máquina de elo (§7) ---
         self._cadeia = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._elo_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -135,12 +140,18 @@ class CaixaAlvoCommand(CommandTerm):
         env.poc_dist_inicial = self.dist_inicial
         env.poc_reach_inicial = self.reach_inicial
         env.poc_success = self.episode_success
+        # §11.2 — quem está na janela de espera. Publicado UMA vez, atualizado
+        # in-place (a lição do alias `poc_success`).
+        env.poc_aguardando = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device)
 
         self.metrics["erro_posicao"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["erro_angulo_deg"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["no_alvo"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["episode_success"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["frac_manipula"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["aguardando"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["espera_s"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["cadeia"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["elo"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["pegou"] = torch.zeros(self.num_envs, device=self.device)
@@ -259,6 +270,12 @@ class CaixaAlvoCommand(CommandTerm):
         # --- o bit ---
         self._command[env_ids, 9] = manipula.float()
 
+        # --- §11.2 — a janela de espera, SORTEADA ---
+        # Fixa seria aprendível como "conte N passos e depois mova". Sorteada, a
+        # política tem de LER o canal de comando — que é o que o deploy exige.
+        lo, hi = self.cfg.espera_s
+        self._espera[env_ids] = lo + (hi - lo) * torch.rand(n, device=self.device)
+
         # zera o sucesso e o cronômetro de sustentação
         self.episode_success[env_ids] = 0.0
         self._sustenta[env_ids] = 0.0
@@ -313,6 +330,28 @@ class CaixaAlvoCommand(CommandTerm):
     def _update_command(self) -> None:
         self._resolver()
 
+        # --- §11.2 — a janela de espera ---
+        #
+        # O contrato durante a espera é UM: "fique parado, e não existe tarefa".
+        # Ele é entregue pelo BIT em zero, que já é o canal que significa isso.
+        # Com o bit em zero as três fatias de caixa são zeradas pelo bloco logo
+        # abaixo, e os NOVE termos de tarefa se desligam sozinhos — todos eles
+        # multiplicam por `caixa_valida` (ver o docstring de `recompensas`).
+        # Portanto a janela custa uma linha e não um canal novo: o contrato de
+        # observação fica em 118 e o `expande_checkpoint` não é necessário.
+        #
+        # ⚠ O invariante "bit 0 ⟺ caixa a 5 m" fica RELAXADO durante a espera: nos
+        # envs de manipulação a mobília já está posicionada. Isto é seguro porque
+        # nada depende do invariante nesse intervalo — o twist é zero (o robô não
+        # anda para dentro da mesa) e o `reaching` está desligado (não há prêmio de
+        # graça). Na borda da espera o bit vai 0→1 com a caixa já no lugar, e essa
+        # descontinuidade É o sinal de "o objetivo chegou".
+        dt = self._env.step_dt
+        self._espera.sub_(dt).clamp_(min=0.0)
+        aguardando = self._espera > 0.0
+        self._env.poc_aguardando.copy_(aguardando)
+        self._command[:, 9] = (self.manipula & ~aguardando).float()
+
         # `dir_alvo` da OBS: o alvo vive em MUNDO e a obs é egocêntrica, portanto
         # a conversão é por passo. Sem isto a política veria o vetor do spawn, que
         # deixa de apontar para o lugar certo assim que o robô gira.
@@ -337,8 +376,12 @@ class CaixaAlvoCommand(CommandTerm):
 
         # o twist é zero nos elos de manipulação, EXCETO no `carregar` e nos envs
         # "segure e ande" (frac_twist_livre)
+        # ⚠ O `aguardando` entra com OR, e vence o `carrega` e o `twist_livre`: na
+        # janela de espera "parado" quer dizer velocidade linear E angular zero, sem
+        # exceção. O `TwistPoc._update_command` aplica isto DEPOIS do `super()`,
+        # portanto vence também o `heading_command`.
         self._env.poc_twist_zero.copy_(
-            self.manipula & ~carrega & ~self._twist_livre)
+            (self.manipula & ~carrega & ~self._twist_livre) | aguardando)
 
         # --- o fecho, condição a condição, POR ELO (§7.2) ---
         perto = self.erro_pos() < self.cfg.raio_sucesso
@@ -359,10 +402,14 @@ class CaixaAlvoCommand(CommandTerm):
         fecha |= (e == REORIENTAR) & perto & alinhado
         fecha |= (e == CARREGAR) & perto
         fecha |= (e == BOTAR) & perto & alinhado & apoiada
-        fecha &= self.manipula
+        # ⚠ o fecho é CONGELADO na janela de espera. Sem isto o `pegar` poderia
+        # fechar antes de ser pedido, e o `sustenta` acumularia contra um objetivo
+        # que a política nem viu.
+        fecha &= self.manipula & ~aguardando
 
-        dt = self._env.step_dt
-        self._elo_t += dt
+        # o cronômetro do elo também não corre na espera: o `carregar` fecha por
+        # TEMPO (`elo_t >= carregar_s`), e contar a espera ali daria 1 s de graça.
+        self._elo_t += dt * (~aguardando).float()
         # ⚠ copy_, nunca atribuição: env.poc_success/poc_pegou são aliases in-place
         self._sustenta.copy_(torch.where(fecha, self._sustenta + dt,
                                          torch.zeros_like(self._sustenta)))
@@ -513,7 +560,15 @@ class CaixaAlvoCommand(CommandTerm):
         # ler o metric apagava o sucesso do log (foi o rastro que denunciou o wipe
         # do resample na it 5306: `pegou` 0,97 com `episode_success` 0,00).
         self.metrics["episode_success"] = self.episode_success.clone()
-        self.metrics["frac_manipula"] = self.manipula.float()
+        # ⚠ 21/08: o divisor da desdiluição é `v`, e NÃO `self.manipula`. Ele tem de
+        # ser EXATAMENTE a máscara que multiplica os outros metrics, senão a divisão
+        # não condiciona nada. Com a janela de espera (§11.2) os dois deixaram de
+        # coincidir: durante a espera `manipula` é 1 e `valida` é 0, e um episódio
+        # que morre dentro da janela entraria no divisor sem entrar no numerador —
+        # puxando todo número desdiluído para baixo.
+        self.metrics["frac_manipula"] = v
+        self.metrics["aguardando"] = self._env.poc_aguardando.float()
+        self.metrics["espera_s"] = self._espera.clone()
 
         # os três fatores que faltavam, cada um como FRAÇÃO
         self.metrics["fecha_angulo"] = alinhado.float() * v
@@ -582,6 +637,8 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
     cadeia_forcada: int | None = None
     # fração dos envs de manipulação com o twist LIBERADO ("segure e ande")
     frac_twist_livre: float = 0.0
+    # §11.2 — a janela de espera, em segundos. Sorteada por episódio.
+    espera_s: tuple[float, float] = (0.3, 1.0)
     # o "segure e ande" só liga a partir deste nível (um antes do `carregar`)
     twist_livre_nivel_min: int = 3
 

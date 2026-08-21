@@ -26,7 +26,11 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
+from mjlab.envs import mdp as envs_mdp
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
+
+_ROBOT_CFG = SceneEntityCfg("robot")
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -244,3 +248,47 @@ def entrega_do_navegador(
         lo, hi = faixa.get(chave, (0.0, 0.0))
         vel[:, 3 + i] = lo + (hi - lo) * torch.rand(n, device=dev)
     robot.write_root_link_velocity_to_sim(vel, env_ids=ids)
+
+
+def reset_base_por_forma(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    faixa_loco: dict,
+    faixa_manipula: dict,
+    asset_cfg: SceneEntityCfg = _ROBOT_CFG,
+) -> None:
+    """O `reset_base` do fabricante, com faixa de pose POR FORMA (21/08).
+
+    Substitui `cfg.events["reset_base"]`. Ele não reimplementa nada: chama o
+    `reset_root_state_uniform` do mjlab DUAS vezes, em subconjuntos disjuntos, com
+    faixas diferentes. Portanto a matemática, a soma de `env_origins` e o
+    tratamento de base flutuante continuam sendo os do fabricante.
+
+    Motivo, e é o defeito central do bloco 2:
+
+    O fabricante sorteia `yaw: (-3.14, 3.14)` — o CÍRCULO INTEIRO. Com
+    `heading_command=True` e `rel_heading_envs = 0,30`, o ωz comandado vem do erro
+    de rumo. Com ±3,14 esse erro cobre toda a faixa, e o robô TEM de aprender a
+    girar desde a iteração 0.
+
+    Nós sorteávamos ±0,2 rad, porque a mobília tem pose ABSOLUTA e o robô precisa
+    nascer olhando para ela. Consequência: o erro de rumo era sempre minúsculo, o
+    `track_angular_velocity` era satisfeito sem fazer nada, e o canal de yaw nunca
+    foi exercitado. Medido na it 1216: ωz real de ~1,5 rad/s com comando ZERO, e
+    `track_angular_velocity` 51× abaixo do linear COM PESO IGUAL.
+
+    Na LOCOMOÇÃO o `afasta_cena` sobe a mobília 5 m. Não existe nada com que
+    alinhar o rumo. Portanto ali o ±3,14 é de graça — e é a receita do fabricante,
+    que já está comprovada.
+
+    ⚠ Este termo tem de vir ANTES do `entrega_do_navegador` no dict de eventos. O
+    `reset_root_state_uniform` zera a velocidade da base, e a entrega a reescreve.
+    Trocar a ordem apagaria a entrega em silêncio.
+    """
+    manipula = _forma(env, env_ids)
+    for ids, faixa in ((env_ids[~manipula], faixa_loco),
+                       (env_ids[manipula], faixa_manipula)):
+        if len(ids) == 0:
+            continue
+        envs_mdp.reset_root_state_uniform(
+            env, ids, pose_range=faixa, velocity_range={}, asset_cfg=asset_cfg)

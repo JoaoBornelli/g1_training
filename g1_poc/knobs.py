@@ -42,8 +42,28 @@ class Cena:
     escala_acao_mult: float = 0.8
 
     # --- reset da base ---
-    reset_base_pose: dict = field(default_factory=lambda: {
+    # A pose de reset é POR FORMA desde 21/08, e o motivo é o defeito central do
+    # bloco 2.
+    #
+    # O fabricante sorteia `yaw: (-3.14, 3.14)` — o CÍRCULO INTEIRO
+    # (`velocity_env_cfg.py:209`). Com `heading_command=True` e
+    # `rel_heading = 0,30`, o ωz comandado vem do erro de rumo. Com ±3,14 esse erro
+    # cobre toda a faixa e o robô TEM de aprender a girar desde a iteração 0.
+    #
+    # Nós sorteávamos ±0,2 rad, porque a mobília tem pose ABSOLUTA e o robô precisa
+    # nascer olhando para ela. Consequência: o erro de rumo era sempre minúsculo, o
+    # `track_angular_velocity` era satisfeito sem fazer nada, e o canal de yaw
+    # nunca foi exercitado. Quando a política derivou para o giro, ela não tinha
+    # autoridade nenhuma para sair.
+    #
+    # Na LOCOMOÇÃO a mobília sobe 5 m (`afasta_cena`). Não existe nada com que
+    # alinhar o rumo. Portanto ali o ±3,14 é de graça, e é a receita do fabricante.
+    reset_base_pose_manipula: dict = field(default_factory=lambda: {
         "x": (-0.10, 0.00), "y": (-0.10, 0.10), "z": (0.01, 0.05), "yaw": (-0.2, 0.2),
+    })
+    reset_base_pose_loco: dict = field(default_factory=lambda: {
+        "x": (-0.50, 0.50), "y": (-0.50, 0.50), "z": (0.01, 0.05),
+        "yaw": (-3.14159, 3.14159),
     })
     # §11.1 — a entrega do navegador: o robô chega andando, não parado.
     reset_base_vel_manipulacao: dict = field(default_factory=lambda: {
@@ -155,7 +175,31 @@ class Recompensa:
     body_ang_vel: float = -0.05
     angular_momentum: float = -0.02
     action_rate: float = -0.10           # cronograma o leva a -0.25
-    dof_pos_limits: float = -10.0        # valor de `manipulation` e `tracking`
+    # ⚠ 21/08: VOLTOU ao valor do fabricante (−1,0). O −10,0 vinha de
+    # `manipulation`/`tracking` e é dez vezes o `velocity_env_cfg.py:317`. Andar
+    # precisa de amplitude no quadril e no joelho; uma penalidade forte de limite
+    # empurra as juntas para o meio da faixa e ACHATA o balanço. O
+    # `peak_height_mean` entre 0,007 e 0,023 é consistente com isso.
+    dof_pos_limits: float = -1.0
+    # §8.3 — GIRO INDEVIDO (21/08). Penaliza ωz² quando ninguém pediu giro.
+    #
+    # O `body_angular_velocity_penalty` do fabricante exclui o z DE PROPÓSITO — o
+    # comentário no fonte é literal: `# Don't penalize z-angular velocity.` A razão
+    # é boa: o yaw é o eixo COMANDADO. Consequência não intencional: o yaw fica com
+    # UM único guardião (`track_angular_velocity`, peso 2,0, σ 0,707). Os outros
+    # eixos da base têm dois ou três termos.
+    #
+    # Foi por ali que o bloco 2 escapou: ωz real ~1,5 rad/s com comando ZERO. Este
+    # termo fecha a cerca só onde é seguro — quando |ωz_cmd| < limiar ninguém pediu
+    # giro, portanto girar é erro puro. Cobre a janela de espera, os envs
+    # `standing` e TODO env de manipulação (twist forçado a zero).
+    #
+    # Dimensionamento: a ωz = 1,5 rad/s custa 0,5·2,25·0,02 = 0,0225/passo, contra
+    # 0,040/passo que o `track_ang` deixa de pagar. Mesma ordem. A ωz = 0,2 (ruído
+    # normal) custa 0,0004/passo — desprezível, como um quadrático deve ser.
+    giro_indevido: float = -0.5
+    giro_limiar_cmd: float = 0.05        # |ωz_cmd| abaixo disto = "ninguém pediu"
+    giro_ema: float = 0.99               # τ ≈ 100 amostras, igual às outras EMAs
     self_collisions: float = -1.0
 
     # --- tarefa ---
@@ -305,12 +349,33 @@ class Comando:
     rel_heading: float = 0.30
     rel_forward: float = 0.20
     heading_stiffness: float = 0.5
-    lin_vel_x: tuple[float, float] = (-0.5, 1.0)
-    lin_vel_y: tuple[float, float] = (-0.3, 0.3)
+    # ±1,0 é o valor do fabricante (`velocity_env_cfg.py:188`)
+    lin_vel_x: tuple[float, float] = (-1.0, 1.0)
+    # ±1,0 é o valor do fabricante (`velocity_env_cfg.py:189`). O ±0,3 daqui saiu
+    # em 21/08: ele estreitava o comando lateral sem nenhum motivo medido, e a
+    # marcha lateral é parte do que o `velocity` treina.
+    lin_vel_y: tuple[float, float] = (-1.0, 1.0)
     ang_vel_z: tuple[float, float] = (-0.5, 0.5)
     # metade dos envs PARADOS recebe giro no lugar; sem isto eles nunca giram
     frac_giro_no_standing: float = 0.5
     piso_giro_rad_s: float = 0.15
+    # §11.2 — A JANELA DE ESPERA (21/08). Todo episódio começa PARADO, e o
+    # objetivo chega depois.
+    #
+    # Motivo medido: o `rel_standing_envs = 0,10` do fabricante escolhe 10% dos
+    # envs e dá comando zero pelo EPISÓDIO INTEIRO. Portanto 10% das amostras
+    # treinam "parado para sempre", 90% treinam "mover desde o passo 0", e a
+    # TRANSIÇÃO parado→mover não existe no dado. No bloco 2 o robô girava a
+    # ~1,5 rad/s COM COMANDO ZERO — ele nunca foi obrigado a ficar parado.
+    #
+    # A janela põe "parado" em 100% dos episódios, e sempre no começo. Ficar de
+    # pé deixa de ser caso especial e passa a ser a base.
+    #
+    # A duração é SORTEADA de propósito: uma janela fixa é aprendível como "conte
+    # 25 passos e depois mova", o que funciona no treino e falha no deploy, onde a
+    # ordem chega em tempo arbitrário. Sorteada, a política tem de LER o canal de
+    # comando.
+    espera_s: tuple[float, float] = (0.3, 1.0)
 
 
 @dataclass
@@ -323,11 +388,44 @@ class Episodio:
     # bloco manual de "frac 0,85" que consertava isso era exatamente a configuração
     # manual que o usuário vetou. O controlador despeja episódios de andar enquanto
     # eles são curtos e relaxa sozinho para ~0,30 quando a marcha amadurece.
-    frac_locomocao: float = 0.30
+    # ⚠ 21/08: isto virou o PISO INICIAL do balanço automático, e não mais a fatia
+    # fixa. Com `auto_balanco = True` ele começa em 1,0 (locomoção pura, a caixa
+    # não existe) e DESCE por competência até `alvo_loco_min`. Com
+    # `auto_balanco = False` ele é a fatia fixa de antes — é o modo que o `play`
+    # usa para pinar 0,0 (`--pegar`) ou 1,0 (`--andar`).
+    frac_locomocao: float = 1.00
     # clamps do sorteio: nunca menos de 10% nem mais de 95% de locomoção
     frac_loco_min: float = 0.10
     frac_loco_max: float = 0.95
     forma_ema: float = 0.99
+
+    # --- §10.4 — O BALANÇO AUTOMÁTICO DE FORMA (21/08) ---
+    #
+    # O problema medido no bloco 2: com 0,30 fixo desde a iteração 0, a locomoção
+    # e a manipulação competiram por uma MLP só antes de existir marcha. A
+    # `dur_loco_ema` subiu a 65 na it 260 e caiu a 11 na it 700, e NADA reagiu. O
+    # `peak_height_mean` foi de 0,024 a 0,0069 no mesmo intervalo.
+    #
+    # O balanço não serve para CHEGAR na manipulação. Serve para NÃO PERDER a
+    # marcha quando ela chegar. Por isso ele é assimétrico: lento para avançar,
+    # rápido para defender.
+    auto_balanco: bool = True
+    alvo_loco_min: float = 0.30          # o destino: 30% de locomoção
+    alvo_loco_max: float = 1.00          # o teto: locomoção pura
+    alvo_passo: float = 0.02             # 1,00 -> 0,30 são 35 degraus
+    alvo_iters_entre_degraus: int = 12   # >= 420 iterações na rampa inteira
+    # ⚠ Carência antes do PRIMEIRO degrau. Sem ela o balanço desceria na iteração
+    # 12: a `dur_loco_ema` nasce NEUTRA em 1000 passos (ver `sorteia_forma`) e o
+    # limiar é 600, portanto o portão abre com dado que ainda não existe.
+    alvo_iters_min: int = 200
+    # os dois sinais de competência da locomoção. Os DOIS têm de passar.
+    dur_loco_alvo: float = 600.0         # passos: sobreviver 12 s dos 20 s
+    # `|ωz − ωz_cmd|` médio, em rad/s. É o sinal que o bloco 2 não tinha: o
+    # `track_angular_velocity` marcou 0,0054 contra 0,275 do linear — 51× de
+    # diferença COM PESO IGUAL — desde a it 187, e ninguém olhou.
+    erro_giro_alvo: float = 0.30
+    # histerese: desce com sinal >= limiar; sobe com sinal < 0,8·limiar
+    alvo_desce_frac: float = 0.80
     # "segure e ande": fração dos envs de manipulação com o twist LIBERADO, ATIVA
     # SÓ a partir de `twist_livre_nivel_min`. Automático: o env começa a treinar
     # andar-segurando um nível ANTES de o `carregar` abrir (nível 4), fechando o
@@ -389,9 +487,13 @@ class Cronograma:
     # que não aconteceu. Dois dos três cronogramas já saíram de fase — ver a dívida do
     # gate por competência na §10.3.
     locomocao: list = field(default_factory=lambda: [
-        {"step": 0,           "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.3, 0.3), "ang_vel_z": (-0.5, 0.5)},
-        {"step": 8000 * 24,   "lin_vel_x": (-0.8, 1.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-        {"step": 12000 * 24,  "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-1.5, 1.5)},
+        # ⚠ O `lin_vel_y` do degrau 0 subiu de ±0,3 para ±1,0 em 21/08: é o valor do
+        # fabricante (`velocity_env_cfg.py:189`), e a tabela SOBRESCREVE a faixa do
+        # cfg em todo reset — portanto mudar só o knob `Comando.lin_vel_y` não teria
+        # efeito nenhum no treino.
+        {"step": 0,           "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.5, 0.5)},
+        {"step": 8000 * 24,   "lin_vel_x": (-1.5, 2.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
+        {"step": 12000 * 24,  "lin_vel_x": (-2.0, 3.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
     ])
     # ⚠ O degrau de −1,00 estava em 3000 e foi para 10000 em 19/08, medido.
     # Na iteração 3080 ele bateu e o `joint_vel_hinge` + `action_rate_l2` passaram a

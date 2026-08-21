@@ -454,3 +454,69 @@ class hinge_por_forma:  # noqa: N801 (idioma do mjlab)
         env.extras["log"]["Metrics/hinge_excesso_manip"] = (
             excesso.sum(dim=-1) * bit).mean()
         return custo * bit
+
+
+def giro_indevido(
+    env: ManagerBasedRlEnv,
+    twist_command_name: str,
+    limiar_cmd: float,
+    ema: float,
+    asset_cfg: SceneEntityCfg = _ROBOT,
+) -> torch.Tensor:
+    """ωz² onde NINGUÉM pediu giro (§8.3). E mantém a EMA do erro de giro.
+
+    O fabricante exclui o z do `body_angular_velocity_penalty` DE PROPÓSITO. O
+    comentário no fonte dele é literal:
+
+        ang_vel_xy = ang_vel[:, :2]  # Don't penalize z-angular velocity.
+
+    A razão é boa: o yaw é o eixo COMANDADO, e penalizá-lo brigaria com o
+    `track_angular_velocity`. A consequência não intencional é que o yaw fica com
+    UM guardião só, contra dois ou três em todos os outros eixos da base.
+
+    Foi por ali que o bloco 2 escapou. Medido no play da it 1216: ωz real de
+    ~1,5 rad/s com o comando pinado em ZERO, e `track_angular_velocity` a 0,0054
+    contra 0,275 do linear — 51× de diferença COM PESO IGUAL (2,0 nos dois) e com
+    tolerância MAIOR no giro (σ 0,707 contra 0,500). Só um erro grande e permanente
+    produz isso.
+
+    O gate resolve o conflito: quando `|ωz_cmd| < limiar` ninguém pediu giro,
+    portanto girar é erro puro e penalizar não briga com nada. Isso cobre
+
+        · a janela de espera (§11.2), onde o twist é zerado por construção;
+        · os envs `standing` do fabricante (`rel_standing_envs`);
+        · TODO env de manipulação, onde `poc_twist_zero` força o twist a zero.
+
+    ⚠ Este termo também é o ÚNICO produtor de `env.poc_erro_giro_ema`, que o
+    balanço automático de forma lê como segundo sinal de competência (§10.4). A EMA
+    é do erro de RASTREIO (`|ωz − ωz_cmd|`), e não do gate — ela tem de medir a
+    autoridade de yaw também quando o giro É pedido. Ela é filtrada nos envs de
+    LOCOMOÇÃO: nos de manipulação o comando é zero por construção, e incluí-los
+    misturaria duas perguntas.
+    """
+    robot: Entity = env.scene[asset_cfg.name]
+    wz = robot.data.root_link_ang_vel_b[:, 2]
+    cmd_wz = env.command_manager.get_term(twist_command_name).command[:, 2]
+
+    erro = (wz - cmd_wz).abs()
+    manipula = getattr(env, "poc_manipula", None)
+    if manipula is None:
+        loco = torch.ones_like(erro, dtype=torch.bool)
+    else:
+        loco = ~manipula
+    if bool(loco.any()):
+        amostra = erro[loco].mean()
+        anterior = getattr(env, "poc_erro_giro_ema", None)
+        if anterior is None:
+            # nasce PESSIMISTA: o balanço só desce com dado medido, nunca com o
+            # otimismo do primeiro passo
+            env.poc_erro_giro_ema = float(amostra)
+        else:
+            env.poc_erro_giro_ema = ema * anterior + (1.0 - ema) * float(amostra)
+
+    livre = (cmd_wz.abs() < limiar_cmd).float()
+    env.extras["log"]["Metrics/erro_giro_ema"] = torch.tensor(
+        float(getattr(env, "poc_erro_giro_ema", 0.0)), device=env.device)
+    env.extras["log"]["Metrics/giro_frac_sem_comando"] = livre.mean()
+    env.extras["log"]["Metrics/giro_wz_abs"] = wz.abs().mean()
+    return torch.square(wz) * livre
