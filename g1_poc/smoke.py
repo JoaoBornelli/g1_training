@@ -501,7 +501,94 @@ def main() -> int:
     checa(float(saida["frac_loco_sorteio"]) > 0.90,
           f"com Tl na EMA em 24, o sorteio despeja locomoção "
           f"(medido {float(saida['frac_loco_sorteio']):.3f})")
+    # ⚠ O NOME é contrato com a `leitura.ESCADA`, que lê
+    # `Curriculum/forma/razao_marcha_ema`. Um typo aqui não levanta erro: a linha da
+    # escada leria `None` e imprimiria "ainda não vence" para sempre, e o portão do
+    # andar ficaria inerte em silêncio. Já aconteceu com `--cadeia` (no-op) e com
+    # `freio_ar_sinal` (sinal sem produtor).
+    from g1_poc.leitura import ESCADA as _ESCADA
+    checa("razao_marcha_ema" in saida,
+          "o controlador loga `razao_marcha_ema` — o sinal do portão vai para o log")
+    _chaves = {c for _, c, *_ in _ESCADA}
+    checa("Curriculum/forma/razao_marcha_ema" in _chaves,
+          "e a ESCADA mede a marcha por esse número, com o prefixo do manager")
     env.episode_length_buf[:] = 0   # restaura o que a seção sujou
+
+    print("== 18b. a razão de marcha: o PRODUTOR (§10.4) ==")
+    # ⚠ Este é o sinal do portão desde 24/08. O teste é da ARITMÉTICA da razão, na
+    # subclasse que a produz — o portão que a consome é a seção 19.
+    tw = env.command_manager.get_term("twist")
+    checa("marcha_erro" in tw.metrics and "marcha_demanda" in tw.metrics,
+          "as duas somas vivem em `metrics`, portanto o `CommandTerm.reset` as zera "
+          "por env DEPOIS de o currículo ler (env:554 contra command:581)")
+
+    # ⚠ O `root_link_lin_vel_b` é @property e RECOMPUTA a cada acesso
+    # (`entity/data.py:594-597`). Escrever nele em teste vai para um temporário e é
+    # descartado em silêncio — o check passaria lendo a velocidade real, que é ~0, e
+    # o teste de "rastreio perfeito" mediria a coisa errada. Por isso a velocidade
+    # entra por uma stub do `robot`, e não por escrita no buffer.
+    import types as _t
+    _robot_real = tw.robot
+
+    def razao_de(cmd_xy, cmd_yaw, v_xy, passos):
+        """Roda o acumulador `passos` vezes com comando e velocidade fixos."""
+        tw.metrics["marcha_erro"][:] = 0.0
+        tw.metrics["marcha_demanda"][:] = 0.0
+        tw.vel_command_b[:, 0] = cmd_xy[0]
+        tw.vel_command_b[:, 1] = cmd_xy[1]
+        tw.vel_command_b[:, 2] = cmd_yaw
+        lin = torch.zeros(N_ENVS, 3, device=env.device)
+        lin[:, 0], lin[:, 1] = v_xy[0], v_xy[1]
+        ang = torch.zeros(N_ENVS, 3, device=env.device)
+        tw.robot = _t.SimpleNamespace(data=_t.SimpleNamespace(
+            root_link_lin_vel_b=lin, root_link_ang_vel_b=ang))
+        try:
+            for _ in range(passos):
+                tw._update_metrics()
+        finally:
+            tw.robot = _robot_real
+        erro = float(tw.metrics["marcha_erro"].sum())
+        dem = float(tw.metrics["marcha_demanda"].sum())
+        return None if dem <= 1e-6 else max(0.0, min(1.0, 1.0 - erro / dem))
+
+    r_parado = razao_de((1.0, 0.0), 0.0, (0.0, 0.0), 10)
+    checa(r_parado is not None and r_parado < 1e-6,
+          f"comando 1 m/s e robô IMÓVEL dá razão 0 (medido {r_parado})")
+    r_perfeito = razao_de((1.0, 0.0), 0.0, (1.0, 0.0), 10)
+    checa(r_perfeito is not None and r_perfeito > 1.0 - 1e-6,
+          f"rastreio perfeito dá razão 1 (medido {r_perfeito})")
+    r_meio = razao_de((1.0, 0.0), 0.0, (0.5, 0.0), 10)
+    checa(r_meio is not None and abs(r_meio - 0.5) < 1e-6,
+          f"metade da velocidade comandada dá exatamente 0,50, que é o limiar do "
+          f"fabricante (medido {r_meio})")
+
+    # ⚠ A ADIMENSIONALIDADE é o motivo de a razão existir. Com o `commands_vel` do
+    # fabricante as faixas alargam na iteração 5000 (±1,0 -> −1,5 ; 2,0). Um limiar
+    # em m/s endureceria em silêncio naquele degrau; a razão não se move.
+    r_dobro = razao_de((2.0, 0.0), 0.0, (1.0, 0.0), 10)
+    checa(r_dobro is not None and abs(r_dobro - r_meio) < 1e-6,
+          "e ela é ADIMENSIONAL: 1 de 2 m/s dá a mesma razão que 0,5 de 1 m/s, "
+          "portanto o degrau de faixa da it 5000 não move o limiar")
+
+    # o gate de comando ativo: passo parado não entra em NENHUM dos dois somatórios
+    r_nulo = razao_de((0.0, 0.0), 0.0, (0.3, 0.0), 10)
+    checa(r_nulo is None,
+          "com comando ZERO os dois somatórios ficam vazios: a deriva do robô parado "
+          "não é contada como marcha ruim, e `is_standing_env` sai sozinho")
+    limiar = tw.cfg.marcha_limiar_cmd
+    checa(abs(limiar - 0.05) < 1e-9,
+          f"o limiar de comando ativo é o `command_threshold` do fabricante "
+          f"({limiar:g})")
+
+    # o giro no lugar CONTA como comando ativo, e ele não tem demanda linear
+    r_giro = razao_de((0.0, 0.0), 0.5, (0.0, 0.0), 10)
+    checa(r_giro is None,
+          "o giro no lugar é ativo mas tem demanda linear zero — ele não polui a "
+          "razão, que é de marcha LINEAR")
+
+    tw.metrics["marcha_erro"][:] = 0.0
+    tw.metrics["marcha_demanda"][:] = 0.0
+    env._reset_idx(todos)
 
     print("== 19. o balanço automático de forma (§10.4) ==")
     balanco = tc_f.params["balanco"]
@@ -522,40 +609,68 @@ def main() -> int:
         P = balanco["passo"]
         IM, ID = balanco["iters_min"] * 24, balanco["iters_entre_degraus"] * 24
 
-        def stub(dur, passo):
-            e = types.SimpleNamespace(common_step_counter=passo, poc_dur_loco=dur)
+        def stub(razao, passo):
+            e = types.SimpleNamespace(common_step_counter=passo,
+                                      poc_razao_marcha=razao)
             CU._alvo_locomocao(e, 1.0, balanco)   # cria o estado
             return e
 
+        R_ALVO = balanco["razao_marcha_alvo"]
+
+        # ⚠ 24/08: O SINAL DO PORTÃO É A RAZÃO DE MARCHA, E NÃO A DURAÇÃO.
+        # Este é o teste da causa raiz de "pega a caixa e nunca anda". A duração mede
+        # SOBREVIVÊNCIA, e ficar de pé sobrevive: com o sinal antigo, um robô imóvel
+        # marcava 1000 passos contra um limiar de 600 e o portão ABRIA sem marcha.
+        checa("dur_loco_alvo" not in balanco,
+              "a DURAÇÃO saiu do portão: ela mede sobreviver, não andar")
+        checa("razao_marcha_alvo" in balanco,
+              f"o sinal é a razão de marcha, alvo {R_ALVO:.2f}")
+        e_parado = stub(0.0, 0)
+        e_parado.common_step_counter = IM + ID * 40
+        for _ in range(40):
+            e_parado.common_step_counter += ID
+            CU._alvo_locomocao(e_parado, 1.0, balanco)
+        checa(abs(e_parado.poc_alvo_loco - 1.0) < 1e-9,
+              f"o robô PARADO (razão 0) não abre o portão nem em 40 degraus de "
+              f"folga — medido {e_parado.poc_alvo_loco:.3f}, era aqui que o treino "
+              f"entregava a locomoção")
+
         # nasce em locomoção pura, e a carência é relativa ao INÍCIO
-        e = stub(900.0, 0)
+        e = stub(1.0, 0)
         checa(abs(e.poc_alvo_loco - 1.0) < 1e-9,
               f"o alvo nasce em locomoção PURA (medido {e.poc_alvo_loco:.3f})")
         e.common_step_counter = IM - 24
         CU._alvo_locomocao(e, 1.0, balanco)
         checa(abs(e.poc_alvo_loco - 1.0) < 1e-9,
-              "a carência segura o 1º degrau: a `dur_loco_ema` nasce NEUTRA em 1000")
+              "a carência segura o 1º degrau mesmo com a razão saturada")
         # ⚠ o mesmo teste com o contador ALTO no primeiro contato: é o caso do
         # RESUME, e é o bug que o smoke de 21/08 pegou
-        e2 = stub(1000.0, 3000 * 24)
+        e2 = stub(1.0, 3000 * 24)
         e2.common_step_counter += ID * 2
         CU._alvo_locomocao(e2, 1.0, balanco)
         checa(abs(e2.poc_alvo_loco - 1.0) < 1e-9,
-              "num RESUME (contador alto, EMA neutra) a carência AINDA segura")
+              "num RESUME (contador alto) a carência AINDA segura")
 
-        # passada a carência, com os dois sinais bons, desce um degrau
+        # passada a carência, com o sinal bom, desce um degrau
         e.common_step_counter = IM + ID
         CU._alvo_locomocao(e, 1.0, balanco)
         desceu = e.poc_alvo_loco
         checa(abs(desceu - (1.0 - P)) < 1e-9,
-              f"com dur=900 ele desce um degrau (medido {desceu:.3f})")
+              f"com a razão em 1,0 ele desce um degrau (medido {desceu:.3f})")
 
-        # a duração degradada faz SUBIR de volta — a assimetria é o ponto
-        e.poc_dur_loco = 100.0
+        # o limiar morde na direção certa: logo abaixo do alvo não desce
+        e_baixo = stub(R_ALVO * 0.9, 0)
+        e_baixo.common_step_counter = IM + ID
+        CU._alvo_locomocao(e_baixo, 1.0, balanco)
+        checa(abs(e_baixo.poc_alvo_loco - 1.0) < 1e-9,
+              f"uma razão de {R_ALVO * 0.9:.3f}, abaixo do alvo, NÃO desce")
+
+        # a razão degradada faz SUBIR de volta — a assimetria é o ponto
+        e.poc_razao_marcha = R_ALVO * 0.5
         e.common_step_counter += ID * 2
         CU._alvo_locomocao(e, 1.0, balanco)
         checa(e.poc_alvo_loco > desceu,
-              f"com a duração degradada ele DEVOLVE chão "
+              f"com a marcha degradada ele DEVOLVE chão "
               f"(medido {e.poc_alvo_loco:.3f})")
 
         # ⚠ o segundo sinal (erro de giro) SAIU em 21/08: número chutado, e ele
@@ -564,8 +679,7 @@ def main() -> int:
               "o balanço tem UM sinal só, como o `terrain_levels_vel` do fabricante")
 
         # o piso é respeitado
-        e3 = stub(900.0, 0)
-        e3.poc_dur_loco = 900.0
+        e3 = stub(1.0, 0)
         e3.poc_alvo_loco = balanco["alvo_min"]
         e3.common_step_counter = IM + ID * 4
         CU._alvo_locomocao(e3, 1.0, balanco)

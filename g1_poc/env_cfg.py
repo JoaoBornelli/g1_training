@@ -182,6 +182,7 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
             ),
             frac_giro_no_standing=kcm.frac_giro_no_standing,
             piso_giro_rad_s=kcm.piso_giro_rad_s,
+            marcha_limiar_cmd=kcm.marcha_limiar_cmd,
         ),
     }
 
@@ -506,6 +507,8 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                     "frac_loco_min": ke.frac_loco_min,
                     "frac_loco_max": ke.frac_loco_max,
                     "ema": ke.forma_ema,
+                    # o produtor da razão de marcha é o próprio twist
+                    "twist_command_name": CMD_TWIST,
                     # §10.4 — o balanço automático. `None` devolve a fatia fixa de
                     # antes, e é o que o `play` usa para pinar 0,0 ou 1,0.
                     "balanco": None if not ke.auto_balanco else {
@@ -514,7 +517,7 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
                         "passo": ke.alvo_passo,
                         "iters_entre_degraus": ke.alvo_iters_entre_degraus,
                         "iters_min": ke.alvo_iters_min,
-                        "dur_loco_alvo": ke.dur_loco_alvo,
+                        "razao_marcha_alvo": ke.razao_marcha_alvo,
                         "desce_frac": ke.alvo_desce_frac,
                     }},
         ),

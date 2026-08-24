@@ -52,9 +52,35 @@ def _alvo_locomocao(
     caindo a 11 na it 700, com `peak_height_mean` indo de 0,024 a 0,0069 no mesmo
     intervalo — e nada devolveu chão para a locomoção. Aqui devolve.
 
-    UM sinal, e é a duração do episódio de locomoção:
+    UM sinal, e é a razão de marcha dos envs de locomoção:
 
-        dur_loco_ema >= dur_loco_alvo      (o robô sobrevive ao episódio)
+        razao_marcha_ema >= razao_marcha_alvo     (o robô move como mandado)
+
+    ⚠ **O sinal era a DURAÇÃO do episódio até 24/08, e aquilo media a coisa errada.**
+    A duração mede sobrevivência, e ficar de pé sobrevive: um robô imóvel marca 1000
+    passos contra um limiar de 600, portanto ele PASSAVA o portão sem nunca ter
+    andado. A fatia descia 0,02 a cada 12 iterações até 0,30, e a manipulação ficava
+    com 70% das transições com a marcha inexistente. E o caminho de volta exigia
+    `dur < 480`, ou seja o robô voltar a CAIR: "parou de andar" era invisível ao
+    controlador, e só "começou a cair" era visível. É a causa medida de "o robô pega
+    a caixa no nível 1 e nunca aprende a andar".
+
+    O docstring desta função já citava o fabricante como base e usava outra grandeza.
+    O `terrain_levels_vel` promove por DISTÂNCIA ANDADA
+    (`velocity/mdp/curriculums.py:42-48`) e rebaixa quem anda menos de metade da
+    distância comandada (`:52-54`). Duração de episódio não aparece lá. A regra "um
+    sinal só" estava certa; a grandeza estava trocada.
+
+    A razão de marcha é a mesma fração do fabricante, com a ordem de integração
+    trocada — metade da VELOCIDADE comandada, em vez de metade da DISTÂNCIA
+    comandada. Ela é adimensional, portanto o limiar não se move quando o
+    `commands_vel` alarga as faixas na iteração 5000. Quem a produz é o
+    `TwistPoc._update_metrics`; quem a monta é o `sorteia_forma`.
+
+    ⚠ Sinal TROCADO, e não acrescentado. Um portão com dois sinais conjuntivos foi
+    invenção que já quebrou uma vez (o `erro_giro_ema`, abaixo). A sobrevivência sai
+    do portão inteira: ela continua no log, e continua governando a fatia de
+    transições pelo tempo de vida, que é outro trabalho.
 
     ⚠ Em 21/08 havia um SEGUNDO sinal, `erro_giro_ema <= 0,30`, e ele saiu. Duas
     razões, e as duas importam:
@@ -74,10 +100,12 @@ def _alvo_locomocao(
     LEITURA no `leitura.py`. Um número que um humano confere não é maquinaria no
     laço de treino.
 
-    ⚠ A carência `iters_min` não é opcional. A `dur_loco_ema` nasce NEUTRA em
-    `max_episode_length` (1000 passos, ver `sorteia_forma`), portanto ela já passa o
-    limiar de 600 na iteração 0 com dado que não existe. Sem carência o balanço
-    desceria 12 degraus antes da primeira medida real.
+    ⚠ A carência `iters_min` FICA, e agora ela é cinto e não corda. A
+    `razao_marcha_ema` nasce PESSIMISTA em 0,0 (ver `sorteia_forma`), portanto ela
+    reprova o portão na iteração 0 por construção — era exatamente a estreia NEUTRA
+    da `dur_loco_ema` em 1000 passos que fazia o portão abrir com dado que não
+    existia. Um sinal que nasce reprovando não precisa de carência; a carência
+    continua aqui porque ela custa nada e cobre o caso de resume.
     """
     if balanco is None:
         return piso_inicial
@@ -103,15 +131,15 @@ def _alvo_locomocao(
     if passo_g - env.poc_alvo_ultimo < int(balanco["iters_entre_degraus"]) * 24:
         return env.poc_alvo_loco
 
-    dur = float(env.poc_dur_loco)
-    dur_alvo = float(balanco["dur_loco_alvo"])
+    razao = float(env.poc_razao_marcha)
+    razao_alvo = float(balanco["razao_marcha_alvo"])
     frac = float(balanco["desce_frac"])
     mn, mx = float(balanco["alvo_min"]), float(balanco["alvo_max"])
     passo = float(balanco["passo"])
 
-    apto = dur >= dur_alvo
+    apto = razao >= razao_alvo
     # histerese: o retorno exige cair 20% abaixo do limiar, e não só cruzá-lo
-    caiu = dur < frac * dur_alvo
+    caiu = razao < frac * razao_alvo
 
     if apto and env.poc_alvo_loco > mn:
         env.poc_alvo_loco = max(mn, env.poc_alvo_loco - passo)
@@ -129,6 +157,7 @@ def sorteia_forma(
     frac_loco_min: float,
     frac_loco_max: float,
     ema: float,
+    twist_command_name: str,
     balanco: dict | None = None,
 ) -> dict[str, torch.Tensor]:
     """Sorteia a forma do episódio e escreve `env.poc_manipula`.
@@ -167,6 +196,12 @@ def sorteia_forma(
                                       device=env.device)
         env.poc_dur_manip = torch.full((), float(env.max_episode_length),
                                        device=env.device)
+        # ⚠ A razão de marcha nasce PESSIMISTA, e a assimetria com as durações acima
+        # é deliberada. As durações governam a FATIA (um erro ali só desafina o
+        # sorteio por ~τ); a razão governa o PORTÃO, e um portão que nasce aprovando
+        # entrega a locomoção antes de existir marcha. Foi exatamente o que a
+        # `dur_loco_ema` neutra em 1000 passos fez até 24/08.
+        env.poc_razao_marcha = torch.zeros((), device=env.device)
 
     # --- mede as durações dos episódios que ACABARAM (a forma ainda é a antiga:
     # este termo lê ANTES de sobrescrever; episode_length_buf zera só no fim) ---
@@ -177,6 +212,20 @@ def sorteia_forma(
         if len(loco) > 0:
             amostra = env.episode_length_buf[loco].float().mean()
             env.poc_dur_loco = ema * env.poc_dur_loco + (1.0 - ema) * amostra
+            # --- a razão de marcha, só dos envs de LOCOMOÇÃO que acabaram ---
+            #
+            # ⚠ Os dois somatórios são POPULACIONAIS antes da divisão, e não uma
+            # média de razões por env. Um env que recebeu comando quase zero pelo
+            # episódio inteiro tem demanda ≈ 0 e razão indefinida; ele pesaria igual
+            # a um env que recebeu 1 m/s numa média de razões. Somar os dois lados e
+            # dividir uma vez pondera cada env pela demanda que ele de fato recebeu.
+            twist = env.command_manager.get_term(twist_command_name)
+            erro = float(twist.metrics["marcha_erro"][loco].sum())
+            demanda = float(twist.metrics["marcha_demanda"][loco].sum())
+            if demanda > 1e-6:
+                amostra_r = max(0.0, min(1.0, 1.0 - erro / demanda))
+                env.poc_razao_marcha = (ema * env.poc_razao_marcha
+                                        + (1.0 - ema) * amostra_r)
         if len(manip) > 0:
             amostra = env.episode_length_buf[manip].float().mean()
             env.poc_dur_manip = ema * env.poc_dur_manip + (1.0 - ema) * amostra
@@ -205,6 +254,11 @@ def sorteia_forma(
         "frac_loco_sorteio": torch.tensor(f, device=dev),
         "dur_loco_ema": torch.tensor(tl, device=dev),
         "dur_manip_ema": torch.tensor(tm, device=dev),
+        # ⚠ O sinal do PORTÃO desde 24/08. É o único número do log que mede andar
+        # separado por forma: o `Metrics/peak_height_mean` do fabricante é média
+        # GLOBAL e os envs de manipulação, com o pé plantado por desenho, dominam a
+        # população viva (`frac_manipula_pop` mediu 0,96-0,99 no bloco 1).
+        "razao_marcha_ema": env.poc_razao_marcha.clone(),
         # o alvo é o número que o balanço move. Sem ele no log não há como saber se
         # a rampa andou, e foi essa cegueira que custou o bloco 2.
         "alvo_loco": torch.tensor(alvo, device=dev),

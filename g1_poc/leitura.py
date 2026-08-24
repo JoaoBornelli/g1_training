@@ -47,10 +47,18 @@ ESCADA = [
     (200, "Policy/mean_noise_std", ">=", 0.85,
      "as penalidades ainda dominam; algum termo ficou pesado"),
 
+    # ⚠ A duração é portão de SOBREVIVÊNCIA, e só isso. Ela é condição necessária e
+    # NÃO mede marcha: um robô imóvel marca 1000 passos. Foi por medir andar com este
+    # número que o balanço entregava a locomoção sem marcha existir (24/08) — ver
+    # `curriculo._alvo_locomocao`.
     (1000, "Curriculum/forma/dur_loco_ema", ">=", 150.0,
-     "a locomoção não sai do lugar"),
-    (2000, "Curriculum/forma/dur_loco_ema", ">=", 600.0,
-     "a marcha existe mas não sustenta; o gate do twist não abre"),
+     "o robô de locomoção não sobrevive ao episódio"),
+    # O PORTÃO DA MARCHA (24/08). Este é o número que o balanço consome, e o alvo é o
+    # mesmo `razao_marcha_alvo` dos knobs. Se ele não chegar a 0,50, a fatia fica em
+    # 1,00 para sempre e o bloco não produz dado de manipulação nenhum.
+    (2000, "Curriculum/forma/razao_marcha_ema", ">=", 0.50,
+     "o robô não anda: ele não fecha metade da velocidade comandada, e o balanço "
+     "nunca vai liberar fatia para a manipulação"),
     # ⚠ O PORTÃO DO GIRO, acrescentado em 21/08. Ele é o que faltava.
     #
     # O bloco 2 mostrou `track_angular_velocity = 0,0054` contra `0,275` do linear
@@ -245,10 +253,18 @@ def analisa(v: dict[str, float]) -> None:
     print()
     print("  MARCHA — é aqui que se vê se existe passo")
     print("  " + "-" * 52)
-    for k, rot, alvo in (("Metrics/peak_height_mean", "pico do pé (m)", 0.02),
+    # ⚠ A `razao_marcha_ema` vem PRIMEIRO desde 24/08, e ela é o único número desta
+    # seção que mede andar SEPARADO POR FORMA. O `peak_height_mean` do fabricante é
+    # média GLOBAL sobre todos os envs, e os de manipulação — com o pé plantado por
+    # desenho — dominam a população viva (`frac_manipula_pop` mediu 0,96-0,99 no
+    # bloco 1). Ele também INFLA, porque o `peak_heights` do mjlab 1.5.1 não zera no
+    # reset de episódio. Dois vieses opostos, num número que não separa as formas:
+    # ele fica como indício de QUALIDADE, e não como medida de "anda ou não anda".
+    for k, rot, alvo in (("Curriculum/forma/razao_marcha_ema", "razão de marcha", 0.50),
+                         ("Metrics/peak_height_mean", "pico do pé (m)", 0.02),
                          ("Metrics/landing_force_mean", "força no pouso (N)", None),
                          ("Metrics/slip_velocity_mean", "escorregão (m/s)", None),
-                         ("Curriculum/forma/dur_loco_ema", "duração loco (passos)", 150.0),
+                         ("Curriculum/forma/dur_loco_ema", "sobrevida loco (passos)", 150.0),
                          ("Curriculum/forma/dur_manip_ema", "duração manip (passos)", None),
                          ("Curriculum/command_vel/lin_vel_x_max", "teto de vx (m/s)", None)):
         if k in v:
@@ -256,6 +272,9 @@ def analisa(v: dict[str, float]) -> None:
             if alvo is not None:
                 marca = "  ok" if v[k] >= alvo else f"  ⚠ abaixo de {alvo:g}"
             print(f"    {rot:28s} {v[k]:8.4f}{marca}")
+    if "Curriculum/forma/razao_marcha_ema" in v:
+        print("      (0 = parado, 1 = rastreia o comando. É o sinal do PORTÃO do")
+        print("       balanço de forma: abaixo de 0,50 a fatia NÃO desce de 1,00.)")
 
     # ---------------------------------------------------- os gates
     print()
@@ -318,6 +337,19 @@ def analisa(v: dict[str, float]) -> None:
         print(f"    fração populacional         "
               f"{1.0 - v.get('Curriculum/forma/frac_manipula_pop', 0.0):8.4f}"
               "  (tem de seguir o alvo)")
+        # ⚠ O SINAL QUE MOVE A RAMPA. Sem esta linha não há como saber POR QUE o alvo
+        # está onde está, e foi essa cegueira que custou o bloco 2. Até 24/08 o sinal
+        # era a duração do episódio — sobrevivência — e o alvo descia com o robô
+        # imóvel. Agora ele desce só quando a marcha existe.
+        razao_m = v.get("Curriculum/forma/razao_marcha_ema")
+        if razao_m is not None:
+            if razao_m >= 0.50:
+                veredito = "abre: a rampa DESCE"
+            elif razao_m < 0.40:
+                veredito = "⚠ histerese: a rampa SOBE de volta"
+            else:
+                veredito = "zona morta: a rampa fica parada"
+            print(f"    razão de marcha (portão)    {razao_m:8.4f}  {veredito}")
     for k, rot in (("Curriculum/forma/frac_loco_sorteio", "sorteio de locomoção"),
                    ("Metrics/caixa_alvo/aguardando", "fração na espera (§11.2)"),
                    ("Metrics/caixa_alvo/espera_s", "espera restante (s)")):

@@ -688,9 +688,48 @@ class TwistPoc(UniformVelocityCommand):
         lugar. (Acréscimo do g1_multitask, e ele fica.)
     (c) SORTEIO NA BORDA em que o zero de (a) é liberado. Sem ele o comando fica em
         zero justamente quando ele passa a valer — ver o comentário longo abaixo.
+    (d) A RAZÃO DE MARCHA: duas somas por env, do erro de rastreio e da demanda, só
+        nos passos de comando ativo. Elas são o sinal de competência do balanço de
+        forma (§10.4). Ver o `__init__`.
     """
 
     cfg: TwistPocCfg
+
+    def __init__(self, cfg: TwistPocCfg, env) -> None:
+        super().__init__(cfg, env)
+        # (d) A RAZÃO DE MARCHA (24/08) — os dois lados de uma razão, acumulados no
+        # mesmo passo. Ver `curriculo.sorteia_forma`, que os consome no reset.
+        #
+        # Por que os DOIS, e não só o erro: o portão do balanço precisa de um número
+        # ADIMENSIONAL. O `error_vel_xy` do fabricante é um erro em m/s, e o limiar
+        # dele teria de mudar junto com as faixas do comando — o `commands_vel` as
+        # alarga na iteração 5000, de ±1,0 para (−1,5 ; 2,0). Um limiar em m/s
+        # endureceria em silêncio naquele degrau. A razão erro/demanda não muda.
+        #
+        # Por que o gate `ativo`, e não a máscara `is_standing_env`: "parado" não é
+        # propriedade do EPISÓDIO, e sim do resample — ele troca a cada 3 a 8 s.
+        # Gatear por passo é a única leitura correta, e é o MESMO limiar de 0,05 que
+        # os cinco termos de marcha do fabricante usam. Com ele, os passos de comando
+        # zero saem dos dois somatórios, e a razão mede uma coisa só: "quando recebe
+        # ordem de mover, o robô move como mandado".
+        #
+        # ⚠ Vão dentro de `self.metrics` de propósito. O `CommandTerm.reset` zera
+        # `metrics[env_ids]` (`command_manager.py:104`) DEPOIS de o currículo rodar
+        # (`manager_based_rl_env.py:554` contra `:581`), portanto o consumidor lê o
+        # episódio que ACABOU e a limpeza vem de graça. O preço é que as duas somas
+        # aparecem no log; elas são SOMAS, e a razão limpa é a do currículo.
+        self.metrics["marcha_erro"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["marcha_demanda"] = torch.zeros(self.num_envs, device=self.device)
+
+    def _update_metrics(self) -> None:
+        super()._update_metrics()
+        v_cmd = self.vel_command_b[:, :2]
+        v = self.robot.data.root_link_lin_vel_b[:, :2]
+        demanda = torch.norm(v_cmd, dim=-1)
+        ativo = ((demanda + self.vel_command_b[:, 2].abs())
+                 > self.cfg.marcha_limiar_cmd).float()
+        self.metrics["marcha_erro"] += torch.norm(v_cmd - v, dim=-1) * ativo
+        self.metrics["marcha_demanda"] += demanda * ativo
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         super()._resample_command(env_ids)
@@ -791,6 +830,9 @@ class TwistPoc(UniformVelocityCommand):
 class TwistPocCfg(UniformVelocityCommandCfg):
     frac_giro_no_standing: float = 0.5
     piso_giro_rad_s: float = 0.15
+    # o limiar de comando ativo da razão de marcha. É o `command_threshold` dos cinco
+    # termos de marcha do fabricante.
+    marcha_limiar_cmd: float = 0.05
 
     def build(self, env: ManagerBasedRlEnv) -> TwistPoc:
         return TwistPoc(self, env)

@@ -364,6 +364,10 @@ class Comando:
     # ordem chega em tempo arbitrário. Sorteada, a política tem de LER o canal de
     # comando.
     espera_s: tuple[float, float] = (0.3, 1.0)
+    # o limiar de "comando ativo" da razão de marcha (§10.4). É o `command_threshold`
+    # que os cinco termos de marcha do fabricante já usam. Ele gateia por PASSO, e não
+    # por episódio: "parado" é propriedade do resample (3 a 8 s), não do episódio.
+    marcha_limiar_cmd: float = 0.05
 
 
 @dataclass
@@ -406,8 +410,24 @@ class Episodio:
     # 12: a `dur_loco_ema` nasce NEUTRA em 1000 passos (ver `sorteia_forma`) e o
     # limiar é 600, portanto o portão abre com dado que ainda não existe.
     alvo_iters_min: int = 200
-    # os dois sinais de competência da locomoção. Os DOIS têm de passar.
-    dur_loco_alvo: float = 600.0         # passos: sobreviver 12 s dos 20 s
+    # ⚠ 24/08: o sinal do portão era `dur_loco_alvo = 600` — a DURAÇÃO do episódio de
+    # locomoção — e ele media a coisa errada. Duração é sobrevivência, e ficar de pé
+    # sobrevive: um robô imóvel marca 1000 passos, passava o limiar de 600 sem nunca
+    # ter andado, e o balanço entregava a fatia até 0,30. O caminho de volta exigia
+    # `dur < 480`, ou seja voltar a CAIR — "parou de andar" era invisível.
+    #
+    # O sinal agora é a RAZÃO DE MARCHA, produzida por `TwistPoc._update_metrics`:
+    #
+    #     razao = 1 − Σ‖v_cmd − v‖ / Σ‖v_cmd‖      (só nos passos de comando ativo)
+    #
+    # 0 é parado, 1 é rastreio perfeito. Ela é adimensional, portanto o limiar NÃO se
+    # move quando o `commands_vel` alarga as faixas na iteração 5000.
+    #
+    # O 0,50 é do fabricante: o `terrain_levels_vel` rebaixa quem anda menos de
+    # METADE da distância comandada (`velocity/mdp/curriculums.py:52-54`). Mesma
+    # fração, ordem de integração trocada — metade da velocidade em vez de metade da
+    # distância. Não é número chutado, que foi o defeito do `erro_giro_ema` de 21/08.
+    razao_marcha_alvo: float = 0.50
     # histerese: desce com sinal >= limiar; sobe com sinal < 0,8·limiar
     alvo_desce_frac: float = 0.80
     # ⚠ O "segure e ande" antecipado (`frac_twist_livre`) SAIU em 21/08. Ele liberava
