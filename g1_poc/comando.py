@@ -264,11 +264,45 @@ class CaixaAlvoCommand(CommandTerm):
         # --- o bit ---
         self._command[env_ids, 9] = manipula.float()
 
-        # --- §11.2 — a janela de espera, SORTEADA ---
+        # --- §11.2 — a janela de espera: SORTEADA, e SÓ NA MANIPULAÇÃO ---
+        #
         # Fixa seria aprendível como "conte N passos e depois mova". Sorteada, a
         # política tem de LER o canal de comando — que é o que o deploy exige.
+        #
+        # ⚠ 24/08: ela SAIU da locomoção. Ela estava atrasando o aprendizado da
+        # marcha, e a aritmética do bloco 4 mostra por que. A janela vale 32,5 passos
+        # em média:
+        #
+        #     it  ~60   dur_loco_ema =   8   o episódio MORRE dentro da janela
+        #                                    -> 100% das amostras são "parado"
+        #     it ~150   dur_loco_ema = 100   -> 33% parado
+        #     it ~240   dur_loco_ema = 205   -> 16% parado
+        #
+        # No fabricante a fatia de parado é `rel_standing_envs = 0,10`. Portanto na
+        # fase que decide o aprendizado nós entregávamos 100% de parado onde ele
+        # entrega 10%.
+        #
+        # E a POSIÇÃO era pior que a proporção: a janela colava o "fique parado" no
+        # estado de RESET, que é exatamente o estado de onde toda tentativa de andar
+        # tem de partir. Somado ao bootstrap, o viés fecha: a amostra de andar termina
+        # em `fell_over` com V = 0, e a de parado continua.
+        #
+        # ⚠ E ela era REDUNDANTE. O fabricante já produz a transição parado->andando:
+        # `resampling_time_range = (3, 8) s` num episódio de 20 s dá 2 a 6 sorteios de
+        # comando, cada um re-sorteando `rel_standing` em 10% e `lin_vel_x` uniforme em
+        # (−1, 1). A transição existe, distribuída pelo episódio, e nunca colada no
+        # reset. A janela não a acrescentava; ela a duplicava no pior lugar.
+        #
+        # Na MANIPULAÇÃO ela fica. Ali o episódio tem 800+ passos, portanto ela custa
+        # ~4%, e serve ao que foi escrita para servir: o robô assenta antes de o alvo
+        # da caixa aparecer.
+        #
+        # Consequência: a locomoção passa a ser 100% o `velocity` do fabricante. O
+        # último desvio dela desapareceu.
         lo, hi = self.cfg.espera_s
-        self._espera[env_ids] = lo + (hi - lo) * torch.rand(n, device=self.device)
+        sorteio = lo + (hi - lo) * torch.rand(n, device=self.device)
+        self._espera[env_ids] = torch.where(
+            manipula, sorteio, torch.zeros_like(sorteio))
 
         # zera o sucesso e o cronômetro de sustentação
         self.episode_success[env_ids] = 0.0
@@ -645,8 +679,10 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
 class TwistPoc(UniformVelocityCommand):
     """O twist do mjlab, com dois acréscimos.
 
-    (a) ZERO nos elos de manipulação e na janela de espera. Aplicado DEPOIS do
-        `super()`, portanto vence o sorteio de standing e de heading.
+    (a) ZERO nos elos de manipulação e na janela de espera — e a janela existe SÓ na
+        manipulação desde 24/08. Aplicado DEPOIS do `super()`, portanto vence o
+        sorteio de standing e de heading. Num env de LOCOMOÇÃO nada disto atua: o
+        twist vale desde o passo 0, como no fabricante.
     (b) GIRO NO LUGAR: metade dos envs parados recebe vx = vy = 0 e |ωz| ≥ piso.
         Sem isto os envs parados nunca giram, e o robô não aprende a girar no
         lugar. (Acréscimo do g1_multitask, e ele fica.)

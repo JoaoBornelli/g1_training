@@ -579,6 +579,24 @@ def main() -> int:
     print("== 20. a janela de espera (§11.2) ==")
     lo, hi = cmd.cfg.espera_s
     checa(hi > 0.0, f"a janela existe no treino ({lo:g}-{hi:g} s)")
+
+    # ⚠ 24/08: a janela é SÓ da manipulação. Na locomoção ela saía atrasando a
+    # marcha — 100% das amostras eram "parado" enquanto o episódio morria dentro
+    # dela — e era redundante, porque o resample de (3, 8) s do fabricante já produz
+    # a transição parado->andando 2 a 6 vezes por episódio.
+    env._reset_idx(todos)
+    meio = N_ENVS // 2
+    env.poc_manipula[:meio] = True
+    env.poc_manipula[meio:] = False
+    cmd._resample_command(todos)
+    checa(bool((cmd._espera[:meio] > 0.0).all()),
+          "os envs de MANIPULAÇÃO recebem janela")
+    checa(bool((cmd._espera[meio:] == 0.0).all()),
+          "e os de LOCOMOÇÃO recebem ZERO — o twist vale desde o passo 0")
+    cmd._update_command()
+    checa(not bool(env.poc_twist_zero[meio:].any()),
+          "portanto nenhum env de locomoção nasce com o twist zerado")
+
     env._reset_idx(todos)
     # força TODO env a manipular, para o bit poder ser 1 depois da espera
     env.poc_manipula[:] = True
