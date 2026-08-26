@@ -51,6 +51,10 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.tasks.velocity.mdp import (
+    UniformVelocityCommand,
+    UniformVelocityCommandCfg,
+)
 from mjlab.utils.lab_api.math import quat_apply
 
 from g1_limpo.curriculo import garante_nivel
@@ -61,7 +65,8 @@ if TYPE_CHECKING:
 
 __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "DIM",
-           "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome"]
+           "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
+           "TwistComRazaoDeMarcha", "TwistComRazaoDeMarchaCfg"]
 
 # --- o layout, por nome. Nenhum índice solto no resto do pacote. ---
 ALVO = slice(0, 3)
@@ -515,3 +520,87 @@ class AlvoCaixaCmd(CommandTerm):
                 label=f"pelve->alvo {d_alvo:.3f} m"
                       + ("" if d_alvo <= ALCANCE_R else "  FORA DO ALCANCE"))
             _ = valida
+
+
+# =============================================================================
+# A RÉGUA DA LOCOMOÇÃO
+# =============================================================================
+class TwistComRazaoDeMarcha(UniformVelocityCommand):
+    """O twist do fabricante, com UMA métrica a mais: a `razao_marcha`.
+
+        razao_marcha = 1 − Σ‖v_cmd_xy − v_xy‖ / Σ‖v_cmd_xy‖
+
+    ⚠ POR QUE ADIMENSIONAL. O currículo de comando do fabricante (`command_vel`)
+    ALARGA a faixa de velocidade ao longo do treino. Uma régua em m/s daria um DEGRAU
+    na iteração em que a faixa abre, e o portão leria progresso onde só houve mudança
+    de escala. Aqui as duas somas crescem juntas, e o degrau se cancela. MEDIDO: o
+    currículo de comando corta só 17% da colheita da estátua em 10k iterações,
+    portanto ele mexe a escala de verdade e essa imunidade não é teórica.
+
+    ⚠ POR QUE ELA NASCE EM 0,0, E ISSO É O DESENHO. Robô imóvel com comando ativo tem
+    erro igual ao comando, portanto numerador = denominador e a razão é ZERO. É o
+    oposto exato do portão que media DURAÇÃO DE EPISÓDIO: aquele dava nota máxima à
+    estátua, porque a estátua não cai. Este dá zero.
+
+    ⚠ AS SOMAS VIVEM EM `self.metrics`, e isso não é conveniência. `CommandTerm.reset`
+    (`command_manager.py:99-107`) lê a métrica, tira a média dos envs e SÓ DEPOIS zera
+    — e o `reset` do comando roda DEPOIS do currículo (currículo -> eventos ->
+    comando). Portanto o consumidor lê o episódio que ACABOU, e não um buffer meio
+    zerado. Um buffer próprio meu precisaria repetir essa ordem à mão.
+
+    ⚠ SÓ O EIXO LINEAR XY. O erro de guinada tem régua própria do fabricante
+    (`error_vel_yaw`), e misturar rad/s com m/s numa soma só faria um número sem
+    unidade nem interpretação. Um robô que anda reto e não gira mostra
+    `razao_marcha` alta e `error_vel_yaw` alto — dois números, dois defeitos.
+
+    ⚠ A RAZÃO PODE FICAR NEGATIVA, e não é clampeada. Andar para o lado ERRADO dá erro
+    de até 2× o comando, logo razão −1,0. Clampear em 0 esconderia a diferença entre
+    "parado" e "indo ao contrário", que é justamente o que se quer ver num bloco em
+    que a política derivou.
+    """
+
+    cfg: TwistComRazaoDeMarchaCfg
+
+    def __init__(self, cfg: TwistComRazaoDeMarchaCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        z = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["soma_erro_marcha"] = z.clone()
+        self.metrics["soma_cmd_marcha"] = z.clone()
+        self.metrics["razao_marcha"] = z.clone()
+
+    def _update_metrics(self) -> None:
+        super()._update_metrics()
+        cmd = self.vel_command_b[:, :2]
+        vel = self.robot.data.root_link_lin_vel_b[:, :2]
+        norma_cmd = torch.norm(cmd, dim=-1)
+
+        # ⚠ O GATE. Sem ele um comando de 0,001 m/s entraria nas duas somas com erro
+        # quase nulo e inflaria a razão de graça — e o fabricante põe 10% dos envs em
+        # `is_standing_env`, portanto esse caso NÃO é raro.
+        ativo = (norma_cmd > self.cfg.limiar_comando).float()
+
+        self.metrics["soma_erro_marcha"] += torch.norm(cmd - vel, dim=-1) * ativo
+        self.metrics["soma_cmd_marcha"] += norma_cmd * ativo
+
+        # ⚠ ASSINATURA IN-PLACE. `self.metrics[k] = ...` trocaria o objeto de tensor, e
+        # o `reset` do mjlab zera o objeto que estiver no dict — funcionaria, mas
+        # qualquer referência guardada apontaria para o buffer velho.
+        soma_cmd = self.metrics["soma_cmd_marcha"]
+        self.metrics["razao_marcha"][:] = torch.where(
+            soma_cmd > 0.0,
+            1.0 - self.metrics["soma_erro_marcha"] / soma_cmd.clamp(min=1e-6),
+            torch.zeros_like(soma_cmd),
+        )
+
+
+@dataclass(kw_only=True)
+class TwistComRazaoDeMarchaCfg(UniformVelocityCommandCfg):
+    """⚠ O `mjlab` constrói o termo por `cfg.build(env)`, e NÃO por um atributo
+    `class_type` (`command_manager.py:268`). Um `class_type` aqui seria campo morto:
+    o cfg passaria, o manager chamaria o `build` HERDADO, e o treino rodaria com o
+    twist do fabricante — sem a métrica e sem nenhum erro."""
+
+    limiar_comando: float = 0.05
+
+    def build(self, env: ManagerBasedRlEnv) -> TwistComRazaoDeMarcha:
+        return TwistComRazaoDeMarcha(self, env)
