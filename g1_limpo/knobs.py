@@ -190,6 +190,25 @@ class Alvo:
 
 
 @dataclass
+class Piso:
+    """Os pisos anti-esquecimento. Três, e um deles não custa knob.
+
+    ⚠ O piso de NÍVEL não é o `rho = 0,30` do `g1_multitask`. Aquele era piso sobre
+    TAREFAS, e com 5 tarefas ele ocupava 0,75 do sorteio — o teto da locomoção ficava em
+    0,55 contra os 0,945 que a fatia de 30% exigia, e a fatia alvo virava inalcançável.
+    Piso de NÍVEL e piso de FATIA são eixos ORTOGONAIS: o de nível não toca a divisão
+    locomoção × cadeia.
+
+    ⚠ O piso de ELO é ESTRUTURAL e não tem knob: toda cadeia de 2 elos passa pelo 1º,
+    portanto não se esquece o `pegar` enquanto se treina o `botar`. Isso vale mais que
+    qualquer piso de amostragem.
+    """
+
+    # fração dos envs sorteada UNIFORMEMENTE sobre os níveis abertos
+    frac_nivel_uniforme: float = 0.20
+
+
+@dataclass
 class Nivel:
     """A tabela de células. Só o PISO desce; o TETO é fixo, portanto cada nível
     CONTÉM o anterior.
@@ -316,7 +335,7 @@ class Marcha:
 
 @dataclass
 class Forma:
-    """A fatia entre locomoção e manipulação. F2 a fixa; F5 põe o controlador.
+    """A fatia entre locomoção e manipulação. F5 põe o controlador.
 
     ⚠ `fatia_loco` NUNCA é 1,00, e o motivo não é o treino — é o NORMALIZADOR. Com
     1,00 os slots de manipulação do one-hot são constantes em zero, e
@@ -332,6 +351,51 @@ class Forma:
 
     fatia_loco: float = 0.95
 
+    # =========================================================================
+    # O CONTROLADOR (F5)
+    # =========================================================================
+    # ⚠ `alvo_loco` NÃO é probabilidade de sorteio. É a fatia de TRANSIÇÕES alvo, e o
+    # sorteio é RESOLVIDO das durações medidas:
+    #
+    #     f = alvo·Tm / (Tl·(1−alvo) + alvo·Tm)
+    #
+    # O sorteio é por EPISÓDIO e o PPO aprende por TRANSIÇÃO. Confundir os dois é a
+    # armadilha medida deste projeto: com `Tl = 24` e `Tm = 961`, um sorteio de 0,30
+    # entrega **1,06%** do gradiente à locomoção. Para entregar 0,30 de verdade é
+    # preciso sortear 0,9449.
+    #
+    #   Tl    Tm    sorteio 0,30 entrega    para entregar 0,30, sortear
+    #   24   961          1,06%                      0,9449
+    #  150   500         11,4%                       0,5882
+    #  400   500         25,5%                       0,3488
+    # 1000   500         46,2%                       0,1765
+    controla: bool = True
+    alvo_loco_max: float = 0.95     # o piso inicial. Ver `fatia_loco`.
+    alvo_loco_min: float = 0.30     # o destino
+    alvo_passo: float = 0.02        # 33 degraus de 0,95 a 0,30
+    iters_entre_degraus: int = 12   # => >= 396 iterações de rampa
+    # clamps do SORTEIO resolvido (não do alvo)
+    sorteio_min: float = 0.10
+    sorteio_max: float = 0.95
+
+    # ⚠ UM SINAL SÓ NO PORTÃO, e adimensional. Dois sinais conjuntivos já travaram uma
+    # rampa para sempre: o `erro_giro_ema <= 0,30` ficou plano em 0,587 por 390
+    # iterações enquanto a `razao_giro` marcava 0,373. O sinal é o do fabricante: o
+    # `terrain_levels_vel` rebaixa quem anda menos de METADE da velocidade comandada.
+    limiar_portao: float = 0.50
+    # ⚠ ASSIMÉTRICO de propósito: lento para avançar, rápido para defender.
+    histerese: float = 0.80         # devolve fatia se o sinal cai abaixo de 0,80×limiar
+    # ⚠ Contada de quando o BALANÇO COMEÇOU, nunca de passo global absoluto.
+    carencia_iters: int = 200
+
+    # as EMAs. ⚠ O estado INICIAL é deliberadamente ASSIMÉTRICO:
+    #   as DURAÇÕES nascem NEUTRAS (episódio cheio) — elas governam a FATIA, e um erro
+    #   ali só desafina o sorteio por ~tau;
+    #   a `razao_marcha` nasce PESSIMISTA em 0,0 — ela governa o PORTÃO, e um portão que
+    #   nasce aprovando entrega a locomoção ANTES de existir marcha. Foi exatamente o
+    #   que a `dur_loco_ema` neutra em 1000 passos fez.
+    ema: float = 0.99
+    dur_inicial_passos: float = 1000.0
 
 @dataclass
 class Tarefa:
@@ -458,6 +522,7 @@ class Knobs:
     recompensa: Recompensa = field(default_factory=Recompensa)
     marcha: Marcha = field(default_factory=Marcha)
     forma: Forma = field(default_factory=Forma)
+    piso: Piso = field(default_factory=Piso)
     tarefa: Tarefa = field(default_factory=Tarefa)
     cadeia: Cadeia = field(default_factory=Cadeia)
 

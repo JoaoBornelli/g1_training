@@ -289,18 +289,40 @@ def make_env_cfg(
     # ⚠ ORDEM DE RESET: currículo -> eventos -> comando. O `nivel` escreve
     # `env.limpo_nivel`, e os dois consumidores abaixo o leem. Invertida, a coisa
     # quebra em silêncio.
-    # ⚠ O SORTEIO DE ELO VEM PRIMEIRO, e ele TEM de ser um termo de currículo: o reset
-    # de pose da base (evento) e o alvo (comando) os dois o leem, e o currículo é o
-    # único dos três que roda antes dos outros dois.
+    # ⚠⚠ A ORDEM DESTE DICT É CONTRATO, E ELA MUDOU NA F5. Ela é
+    #
+    #        command_vel  ->  forma  ->  nivel  ->  elo
+    #
+    # e a razão é que o `forma` e o `nivel` medem o episódio que ACABOU, enquanto o
+    # `elo` escreve o do episódio que COMEÇA. Os dois primeiros precisam ler
+    # `env.limpo_elo` ANTES de o terceiro sobrescrevê-lo:
+    #
+    #   · o `forma` atribui as durações medidas ao lado certo (loco ou manipulação);
+    #   · o `nivel` precisa saber se o episódio era de locomoção para NÃO mover o nível
+    #     por causa dele.
+    #
+    # ⚠ Na F2 o `elo` vinha primeiro e não havia problema, porque ninguém lia o elo
+    # antigo. A F5 introduziu dois leitores, e com a ordem velha os dois lêem o elo do
+    # episódio SEGUINTE. É o mesmo bug medido em 20/08 com o `nivel` e a `forma`: a
+    # probabilidade de subir caía de `p` para `0,7·p`, o ponto fixo saía de 0,5 para
+    # 0,714, e um episódio de LOCOMOÇÃO rebaixava o nível em 70% das vezes.
+    #
+    # O `elo` continua sendo termo de CURRÍCULO (e não evento) porque o reset de pose e
+    # o alvo o leem — e todo termo de currículo roda antes de todo evento.
+    cfg.curriculum["forma"] = CurriculumTermCfg(
+        func=CU.forma,
+        params={"f": k.forma, "elo_loco": CMD.ANDAR, "nome_do_twist": "twist"},
+    )
+    cfg.curriculum["nivel"] = CurriculumTermCfg(
+        func=CU.nivel,
+        params={"n_niveis": n.n_niveis, "forcado": n.forcado,
+                "frac_uniforme": k.piso.frac_nivel_uniforme},
+    )
     cfg.curriculum["elo"] = CurriculumTermCfg(
         func=CU.sorteia_elo,
         params={"elo_loco": CMD.ANDAR, "elos_manip": ELOS_SORTEAVEIS,
                 "fatia_loco": k.forma.fatia_loco,
                 "forcado": elo_alvo if elo_explicito else None},
-    )
-    cfg.curriculum["nivel"] = CurriculumTermCfg(
-        func=CU.nivel,
-        params={"n_niveis": n.n_niveis, "forcado": n.forcado},
     )
 
     # -------------------------------------------------------- 3c. o comando
@@ -398,6 +420,12 @@ def make_env_cfg(
                 "sustenta_s": tr.sustenta_s})
 
     # ---------------------------------------------------- 3d. modo INSPEÇÃO
+    if inspecao or play:
+        # ⚠ O CONTROLADOR DE FATIA FICA DESLIGADO na inspeção e no play. Ele é um laço
+        # fechado que se move a cada iteração; num inspetor ele faria a fatia mudar
+        # entre duas invocações e a tabela deixaria de ser reproduzível.
+        import dataclasses as _dc
+        cfg.curriculum["forma"].params["f"] = _dc.replace(k.forma, controla=False)
     if inspecao:
         # ⚠ SÓ PARA INSPEÇÃO. Trava o robô na pose de reset, para a cena ficar
         # PARADA enquanto se confere alvo e eixo. Sem isto um robô sem política cai
