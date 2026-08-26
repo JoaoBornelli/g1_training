@@ -2,11 +2,11 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** F0 e F1 implementadas e verificadas (`smoke` 148 ok / 0 falhas, `paridade`
+**Estado:** F0, F1 e F2 implementadas e verificadas (`smoke` 187 ok / 0 falhas, `paridade`
 85 campos / 0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis,
 `leitura --demo` ok). O alvo do `REORIENTAR` foi redesenhado em 2026-08-26 (§4.3).
 **Nenhuma run rodada ainda** — o portão de treino é remoto, e o venv local não roda
-PPO (ver §11). F2 a F6 pendentes.
+PPO (ver §11). F3 a F6 pendentes.
 
 Um quarto módulo de treino, novo e isolado. `g1_multitask/` e `g1_poc/` ficam **intocados**,
 os dois como referência.
@@ -160,8 +160,35 @@ um env de `PEGAR` não receber o kernel cheio por ficar imóvel. Com o twist em 
 inverte — gatear os termos fora removeria a única coisa que recompensa ficar parado, e o twist
 zerado não impediria nada.
 
-⚠ Preço, declarado: um robô imóvel num elo de manipulação colhe **~4,0/s** dos dois `track_*`
-de graça. Contra o teto de ~12,5/s dos sete termos de tarefa isso é um **piso, e não um
+⚠ Preço, MEDIDO (2026-08-26, robô travado — com ação zero ele desaba e a velocidade da queda
+entra no erro, o que dá 2,14 e não é o piso): um robô imóvel num elo de manipulação colhe
+**3,82/s** dos dois `track_*`, e o env inteiro colhe 5,82/s. Num elo que anda a mesma estátua
+colhe 2,33/s de `track_*` e 4,20/s no total — o twist não é zero ali, portanto ficar parado
+paga menos.
+
+⚠ E a POSTURA não entra nesse piso, porque na F2 ela ficou **neutra** nos elos de manipulação.
+Não é um 4º regime de σ, que era o desenho anterior: `exp(−média(erro²/σ²))` sobre 29 juntas é
+um produto de 17 gaussianas quando os braços saem do default, e colapsa a zero para QUALQUER σ
+— nem `std_running × 5` sobrevive a 40% da faixa de junta. O `std_standing` do G1 é uma entrada
+só (`.*` = 0,05) e o `walking_threshold` dele é 0,05, logo com o twist em zero o regime
+`standing` é **certo**, e o termo vale exatamente zero já a 10% da faixa, **com gradiente
+zero**: canal morto, não penalidade forte.
+
+Portanto o termo não tem o que dizer num elo de manipulação, e devolve **1,0** ali (neutro —
+zero seria uma penalidade por sorteio de elo, e desalinharia a escala de retorno que o
+controlador de fatia da F5 lê). Quem segura o robô de pé passa a ser o `upright` do fabricante
+mais a condição de fechamento do elo, que exige "de pé". É R3 na forma mais limpa, e custa
+zero knobs.
+
+⚠ E a fatia de locomoção nunca é 1,00: com 1,00 os slots de manipulação do one-hot são
+constantes em zero, e o normalizador do `rsl_rl` divide por `_std + 1e−2` **sem clamp**
+(`rsl_rl/modules/normalization.py:48`) — ao acender, 1,0 entra na rede como **100,0**. Com
+`fatia_loco = 0,95`, 5% dos episódios são de manipulação desde o passo 0. Os slots `CARREGAR` e
+`BOTAR` seguem constantes até a F4, porque só existem como 2º elo de cadeia, e isso está
+declarado com mitigação pré-registrada.
+
+⚠ O sorteio de elo vive no **currículo**, e não num evento: a ordem de reset é currículo →
+eventos → comando, e o reset de pose da base (evento) e o alvo (comando) os dois leem o elo. Contra o teto de ~12,5/s dos sete termos de tarefa isso é um **piso, e não um
 concorrente** — mexer os braços não move a base. E é a configuração do `g1_poc`.
 
 A razão de engenharia do one-hot passa a ser outra, e continua suficiente: ele diz à política
