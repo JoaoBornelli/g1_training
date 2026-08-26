@@ -1424,19 +1424,30 @@ try:
         def get_term(self, _):
             return self._t
 
-    def _simula(razao, degraus, kf_):
+    def _simula(razao, iteracoes, kf_):
+        """Roda `iteracoes` ITERAÇÕES de PPO no controlador.
+
+        ⚠ O `common_step_counter` avança `passos_por_iteracao` por iteração, porque é
+        DELE que o controlador deriva a iteração — e não de um contador próprio. Uma
+        versão anterior deste falso não o tinha, e o teste media zero iterações.
+        """
+        _t = __import__("torch")
         e = _ty6.SimpleNamespace(
-            num_envs=4, device="cpu",
+            num_envs=4, device="cpu", common_step_counter=0,
             command_manager=_CmdFalso(razao),
-            episode_length_buf=__import__("torch").zeros(4, dtype=__import__("torch").long))
-        e.limpo_elo = __import__("torch").zeros(4, dtype=__import__("torch").long)
-        ids = __import__("torch").arange(0)
-        for _ in range(degraus):
-            CU_.forma(e, ids, f=kf_, elo_loco=0)
+            episode_length_buf=_t.zeros(4, dtype=_t.long))
+        e.limpo_elo = _t.zeros(4, dtype=_t.long)
+        ids = _t.arange(0)
+        for _ in range(iteracoes):
+            # várias chamadas por iteração, como no treino de verdade: o termo roda a
+            # cada passo em que algum env reseta.
+            for _p in range(kf_.passos_por_iteracao):
+                e.common_step_counter += 1
+                CU_.forma(e, ids, f=kf_, elo_loco=0)
         return e.limpo_forma
 
-    _n_folga = int(kf.carencia_iters
-                   + 40 * max(kf.iters_entre_degraus, 1))
+    # em ITERAÇÕES de PPO: a carência mais 40 degraus de folga
+    _n_folga = int(kf.carencia_iters + 40 * max(kf.iters_entre_degraus, 1))
     _parado = _simula(0.0, _n_folga, kf)
     # ⚠ O CHECK QUE MAIS IMPORTA DA F5.
     check("robô PARADO (razao = 0) NÃO abre o portão em 40 degraus de folga",
@@ -1456,9 +1467,23 @@ try:
     check("dentro da CARÊNCIA a rampa não se move, nem com o sinal alto",
           abs(_curto["alvo"] - kf.alvo_loco_max) < 1e-9,
           f"alvo {_curto['alvo']:.3f} depois de {kf.carencia_iters-1} iters")
+    # ⚠ O CHECK QUE PEGA O DEFEITO DE 24×. O termo roda VÁRIAS VEZES por iteração de
+    # PPO (uma por passo em que algum env reseta — medido: 48,8% dos passos com 128
+    # envs, e tenderia a 100% com 4096). Um contador próprio contaria PASSOS, e a
+    # carência de 200 "iterações" seria atingida em ~17.
+    _ref = _simula(0.95, _n_folga, kf)
+    check("a iteração é derivada do contador de PASSOS do env, não incrementada aqui",
+          abs(_ref["iters_balanco"] - _n_folga) < 1.5,
+          f"iters_balanco {_ref['iters_balanco']:.1f} contra {_n_folga} iterações "
+          f"simuladas — se der {_n_folga * kf.passos_por_iteracao} o contador está "
+          f"contando PASSOS")
+    check("um degrau por JANELA, e não um por chamada do termo",
+          _ref["ultimo_degrau"] >= 0.0,
+          "o termo roda ~24× por iteração; sem o `ultimo_degrau` a rampa desceria "
+          "24 degraus por iteração")
     check("o alvo NUNCA sai de [0,30 ; 0,95]",
           all(kf.alvo_loco_min - 1e-9 <= x["alvo"] <= kf.alvo_loco_max + 1e-9
-              for x in (_parado, _andando, _meio, _curto)))
+              for x in (_parado, _andando, _meio, _curto, _ref)))
 except Exception as _e6b:      # noqa: BLE001
     _falhas.append(f"o portão não pôde ser simulado: "
                    f"{type(_e6b).__name__}: {_e6b}")
