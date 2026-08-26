@@ -57,7 +57,7 @@ from mjlab.tasks.velocity.mdp import (
 )
 from mjlab.utils.lab_api.math import quat_apply
 
-from g1_limpo.curriculo import garante_nivel
+from g1_limpo.curriculo import garante_elo, garante_nivel
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -209,9 +209,20 @@ class AlvoCaixaCmd(CommandTerm):
         d = self.device
         n = len(env_ids)
 
-        # o elo. Na F0/F1 ele é forçado; na F4 a cadeia é sorteada aqui.
-        alvo_elo = PEGAR if self.cfg.elo_forcado is None else int(self.cfg.elo_forcado)
-        self._elo[env_ids] = alvo_elo
+        # O ELO. Desde a F2 ele é SORTEADO POR ENV, e o sorteio mora no currículo
+        # (`curriculo.sorteia_elo`) porque a ordem de reset é currículo -> eventos ->
+        # comando: o reset de pose da base já precisou do elo antes de chegarmos aqui.
+        #
+        # ⚠ Ler o buffer em vez de sortear aqui não é detalhe de organização. Se o
+        # comando sorteasse, o evento de pose teria sorteado OUTRA COISA no mesmo
+        # reset, e metade dos envs de manipulação nasceria de costas para a mobília —
+        # sem erro e sem log.
+        #
+        # O `elo_forcado` continua vencendo: é o que o inspetor e o `play` usam.
+        if self.cfg.elo_forcado is not None:
+            self._elo[env_ids] = int(self.cfg.elo_forcado)
+        else:
+            self._elo[env_ids] = garante_elo(self._env, ANDAR)[env_ids]
 
         # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
         # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da

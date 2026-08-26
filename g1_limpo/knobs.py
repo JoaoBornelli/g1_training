@@ -315,12 +315,32 @@ class Marcha:
 
 
 @dataclass
+class Forma:
+    """A fatia entre locomoção e manipulação. F2 a fixa; F5 põe o controlador.
+
+    ⚠ `fatia_loco` NUNCA é 1,00, e o motivo não é o treino — é o NORMALIZADOR. Com
+    1,00 os slots de manipulação do one-hot são constantes em zero, e
+    `rsl_rl/modules/normalization.py:48` calcula `(x − _mean) / (_std + 1e−2)`, sem
+    clamp. Com o canal constante, `_std -> 0` e `_mean -> 0`: ao acender, 1,0 entra na
+    rede como **100,0**. Com 0,95, 5% dos episódios são de manipulação desde o passo 0
+    e os slots sorteáveis nunca são constantes.
+
+    E 0,95 não contraria "locomoção primeiro": a hipótese validada é sobre não
+    entregar 70% das transições à manipulação com o robô imóvel, e não sobre a
+    diferença entre 95% e 100%.
+    """
+
+    fatia_loco: float = 0.95
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
     nivel: Nivel = field(default_factory=Nivel)
     recompensa: Recompensa = field(default_factory=Recompensa)
     marcha: Marcha = field(default_factory=Marcha)
+    forma: Forma = field(default_factory=Forma)
 
 
 ATIVO = Knobs()

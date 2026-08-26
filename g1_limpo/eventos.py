@@ -16,15 +16,56 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
+from mjlab.envs.mdp.events import reset_root_state_uniform
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
-from g1_limpo.curriculo import garante_nivel
+from g1_limpo.curriculo import garante_elo, garante_nivel
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 __all__ = ["posiciona_cena", "afasta_cena", "carga_caixa", "trava_robo",
-           "segura_caixa", "orientacao_de_nascimento", "POSE_TRAVADA"]
+           "segura_caixa", "orientacao_de_nascimento", "POSE_TRAVADA",
+           "reset_base_por_elo"]
+
+
+def reset_base_por_elo(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    *,
+    elos_que_andam: tuple[int, ...],
+    faixa_loco: dict,
+    faixa_manipula: dict,
+    velocidade: dict | None = None,
+) -> None:
+    """Reseta a pose da base com a faixa de yaw que o ELO daquele env pede.
+
+        elo que ANDA        yaw ±3,14   a mobília está a +5 m, não há com que alinhar
+        elo de MANIPULAÇÃO  yaw ±0,2    mobília de pose absoluta, à frente do robô
+
+    ⚠ O ±0,2 GLOBAL foi o defeito central de um bloco medido: o erro de rumo era
+    sempre minúsculo, o `track_angular_velocity` era satisfeito sem o robô fazer nada,
+    e o canal de guinada nunca foi exercitado. Quando a política derivou para o giro,
+    ela não tinha autoridade para sair.
+
+    ⚠ E o ±3,14 GLOBAL é o defeito espelhado: um env de manipulação nasceria de costas
+    para a prateleira, e a tarefa viraria sorte de sorteio.
+
+    ⚠ ELE NÃO REIMPLEMENTA NADA. O evento do fabricante já aceita `env_ids`, portanto
+    isto é um DESPACHANTE: chama `reset_root_state_uniform` uma vez por subconjunto.
+    Reescrever a amostragem à mão perderia o `default_root_state`, o `env_origins` e o
+    `quat_mul` com a orientação default — três coisas que o fabricante faz e que um
+    transcritor esquece.
+    """
+    if len(env_ids) == 0:
+        return
+    elo = garante_elo(env)[env_ids]
+    anda = torch.isin(elo, torch.tensor(elos_que_andam, device=env.device))
+    for mascara, faixa in ((anda, faixa_loco), (~anda, faixa_manipula)):
+        ids = env_ids[mascara]
+        if len(ids):
+            reset_root_state_uniform(env, ids, pose_range=dict(faixa),
+                                     velocity_range=dict(velocidade or {}))
 
 
 def _topo_por_nivel(env, env_ids, topo_min, topo_teto, jitter_z, n) -> torch.Tensor:
