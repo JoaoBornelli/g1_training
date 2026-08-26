@@ -340,6 +340,7 @@ def make_env_cfg(
         afasta_z=c.afasta_z,
         prateleira_xy=c.prateleira_xy,
         prateleira_meia_z=c.prateleira_meia_z,
+        prateleira_topo_piso=c.prateleira_topo_piso,
         prateleira_meia_xy=c.prateleira_meia_xy,
         caixa_meia_z=c.caixa_meia_aresta[2],
         face_alvo_b=c.face_alvo_b,

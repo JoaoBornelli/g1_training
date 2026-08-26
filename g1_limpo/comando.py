@@ -192,6 +192,8 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     prateleira_xy: tuple[float, float] = (0.50, 0.00)
     prateleira_meia_z: float = 0.02
     prateleira_meia_xy: float = 0.30
+    # o topo da laje APOIADA no chão. É o piso físico do `BOTAR`.
+    prateleira_topo_piso: float = 0.04
     caixa_meia_z: float = 0.10
     # ⚠ A meia-aresta entra no kernel de alcance: a distância medida é até a
     # SUPERFÍCIE da caixa, não até o centro. Ver `dist_palma_caixa`.
@@ -703,10 +705,31 @@ class AlvoCaixaCmd(CommandTerm):
                 # ⚠ O TETO EFETIVO é o fundo da caixa SEGURADA menos a folga. O knob
                 # `botar_topo_teto` é só um teto do teto: sem este clamp a laje
                 # nasceria DENTRO da caixa.
+                # ⚠⚠ O LIMITE FÍSICO VENCE O KNOB, e isto foi um DEFEITO MEDIDO em
+                # 2026-08-26 ao estender o inspetor para os 7 níveis.
+                #
+                # A versão anterior fazia `piso = botar_topo_piso` (0,30) e depois
+                # `teto = maximum(teto, piso)`. Com a caixa segurada BAIXA — o que
+                # acontece nos níveis altos, onde a laje nasce a 0,04 m — o
+                # `fundo − folga` cai abaixo de 0,30, e aquele `maximum` SOBREPUNHA o
+                # limite físico com o knob: a laje nascia em 0,300 contra um
+                # `fundo − folga` de 0,067. Dentro da caixa, exatamente o que a spec
+                # avisa. O meu check da F4 não pegou porque rodava um nível só.
+                #
+                # Agora o PISO CEDE: ele é o valor desejado, mas nunca passa do teto
+                # físico. O último recurso é a laje no chão (`prateleira_topo_piso`).
                 fundo = self.caixa.data.root_link_pos_w[m, 2] - c.caixa_meia_z
                 teto = torch.clamp(fundo - c.botar_folga_laje, max=c.botar_topo_teto)
-                piso = torch.full_like(teto, c.botar_topo_piso)
-                teto = torch.maximum(teto, piso)      # a faixa nunca inverte
+                piso = torch.clamp(
+                    torch.full_like(teto, c.botar_topo_piso), max=teto)
+                # ⚠ e nunca ENTERRADA: com o topo abaixo disto a laje atravessa o chão.
+                piso = torch.maximum(
+                    piso, torch.full_like(piso, c.prateleira_topo_piso))
+                # ⚠ CASO DECLARADO: se a caixa está segurada MAIS BAIXA que a laje mais
+                # fina possível, nenhum topo satisfaz as duas coisas. Aí a laje vai ao
+                # chão, e o alvo fica acima do fundo da caixa — geometricamente
+                # impossível de satisfazer, e é melhor declarar que violar em silêncio.
+                teto = torch.maximum(teto, piso)
                 topo = piso + (teto - piso) * torch.rand(k, device=d)
                 self._laje_para(m, topo)
                 # o alvo é LATERAL, em cima do topo novo. O frontal exigiria alcançar
