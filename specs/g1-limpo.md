@@ -2,8 +2,8 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** **as sete fases (F0 a F6) implementadas e verificadas** — `smoke` **291 ok / 0
-falhas** (estável em 4 runs), `paridade` 85 campos / 0 diferenças, `inspeciona --tabela` 0
+**Estado:** **as sete fases (F0 a F6) implementadas e verificadas** — `smoke` **299 ok / 0
+falhas** (estável em 5 runs), `paridade` 85 campos / 0 diferenças, `inspeciona --tabela` 0
 falhas nas 4 variantes, `leitura --demo` ok.
 
 ⚠ **NENHUMA RUN RODADA AINDA.** O portão de treino é remoto: o venv local não roda PPO por
