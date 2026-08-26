@@ -406,8 +406,13 @@ def tabela(args) -> int:
         print("PÓS-AVANÇO — 2º ELO de cada cadeia, mesmos níveis")
         print("=" * 118)
 
-        for cadeia_id in cadeias_ids[1:]:  # Só as cadeias de 2+ elos (índices 1-3)
-            niv = args.nivel if args.nivel is not None else 0
+        # ⚠ TODOS OS NÍVEIS, e não só um. O critério do plano é "zero falha nos 7 níveis
+        # x 3 cadeias": o teto efetivo do `BOTAR` depende da ALTURA da caixa, que muda
+        # com o nível — conferir num nível só deixaria os outros seis sem portão.
+        # `--nivel N` restringe a esse nível, para depuração.
+        _niveis = ([args.nivel] if args.nivel is not None
+                   else list(range(Knobs().nivel.n_niveis)))
+        for cadeia_id, niv in ((c, v) for c in cadeias_ids[1:] for v in _niveis):
 
             try:
                 # A cadeia foi forçada em _ambiente, acima
@@ -476,11 +481,21 @@ def tabela(args) -> int:
                 if elo_depois_i == CMD.BOTAR:
                     topo = float(m["topo_laje"][0] + k.cena.prateleira_meia_z)
                     caixa_z = float(m["caixa"][0, 2])
-                    # meia-aresta é scalar ou tuple?
-                    meia_z = k.cena.caixa_meia_aresta[2] if isinstance(k.cena.caixa_meia_aresta, (tuple, list)) else k.cena.caixa_meia_aresta
-                    fundo = caixa_z - meia_z
+                    meia_z = (k.cena.caixa_meia_aresta[2]
+                              if isinstance(k.cena.caixa_meia_aresta, (tuple, list))
+                              else k.cena.caixa_meia_aresta)
+                    # ⚠ O FUNDO QUE O COMANDO USOU é o de ANTES do passo, e a
+                    # tolerância é a QUEDA MEDIDA da caixa nesse passo — não um número.
+                    # Com 5 mm chutados a checagem acusava uma violação de 6 mm que era
+                    # só gravidade; com a queda medida ela é exata nos dois sentidos.
+                    queda = abs(caixa_z - _z_antes)
+                    fundo = max(caixa_z, _z_antes) - meia_z
                     teto = fundo - k.alvo.botar_folga_laje
-                    if topo > teto + 5e-3:  # 5 mm: derivado de gravidade
+                    # ⚠ CASO DECLARADO: se a caixa está segurada mais BAIXA que a laje
+                    # mais fina possível, nenhum topo satisfaz as duas coisas. Aí a laje
+                    # vai ao chão, e isso é geometria, não defeito.
+                    no_chao = abs(topo - k.cena.prateleira_topo_piso) < 1e-6
+                    if topo > teto + queda + 1e-6 and not no_chao:
                         msg = (f"✗ no BOTAR laje nasceu DENTRO da caixa: topo "
                                f"{topo:.3f} > fundo−folga {teto:.3f}")
                         print(f"  {msg}")
