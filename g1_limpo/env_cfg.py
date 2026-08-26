@@ -25,6 +25,7 @@ from mjlab.envs.mdp import is_terminated, joint_acc_l2
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
@@ -34,6 +35,7 @@ from g1_limpo import comando as CMD
 from g1_limpo import curriculo as CU
 from g1_limpo import eventos as EV
 from g1_limpo import metricas as MT
+from g1_limpo import observacoes as OB
 from g1_limpo import recompensas as RC
 from g1_limpo.knobs import ATIVO, Knobs
 
@@ -48,8 +50,20 @@ __all__ = ["make_env_cfg", "colhe_sigmas_de_postura", "aplica_pesos", "ELO_DE_TR
 # locomoção), e o `g1_poc` não andou porque entregou 70% das transições à manipulação
 # por volta da iteração 420, com o robô imóvel.
 #
-# A F3 troca isto para `CMD.PEGAR`; a F5 passa a dividir a fatia entre os dois.
+# Desde a F2 ele é o elo da MAIORIA, não de todos: o `curriculo.sorteia_elo` dá
+# `fatia_loco` dos envs a ele e o resto aos elos sorteáveis. A F5 põe o controlador.
 ELO_DE_TREINO = CMD.ANDAR
+
+# Os elos com twist ATIVO. Eles governam três coisas de uma vez, e é de propósito que
+# a lista seja uma só: a faixa de yaw do reset da base, a neutralidade da postura, e
+# quais elos NÃO têm o twist zerado pelo comando.
+ELOS_QUE_ANDAM = (CMD.ANDAR, CMD.CARREGAR)
+
+# Os elos que o sorteio pode entregar num RESET. O `CARREGAR` e o `BOTAR` ficam fora
+# porque começam com a caixa NAS MÃOS — eles só existem como 2º elo de uma cadeia, e
+# isso é F4. Ver `curriculo.sorteia_elo` para o preço declarado (os slots 3 e 4 do
+# one-hot ficam constantes até lá) e a mitigação pré-registrada.
+ELOS_SORTEAVEIS = (CMD.REORIENTAR, CMD.PEGAR)
 
 
 def aplica_pesos(cfg, r) -> None:
@@ -103,8 +117,13 @@ def make_env_cfg(
     """
     k = k or ATIVO
     c = k.cena
+    # ⚠ `elo` EXPLÍCITO e `ELO_DE_TREINO` são coisas diferentes, e confundi-los mata a
+    # F2 em silêncio. `elo=X` é o inspetor e o `play`: ali o elo é FORÇADO, igual em
+    # todos os envs. `elo=None` é o TREINO: ali o elo é SORTEADO por env, e forçar o
+    # `ELO_DE_TREINO` no comando anularia o sorteio inteiro sem uma linha de erro.
+    elo_explicito = elo is not None
     elo_alvo = ELO_DE_TREINO if elo is None else int(elo)
-    anda = elo_alvo in (CMD.ANDAR, CMD.CARREGAR)
+    anda = elo_alvo in ELOS_QUE_ANDAM
     segurando = elo_alvo in (CMD.CARREGAR, CMD.BOTAR)
 
     # ------------------------------------------------ 0. a fundação do fabricante
@@ -168,6 +187,17 @@ def make_env_cfg(
     # entra no episódio seguinte. Ver `recompensas.AlturaDeBalanco`.
     cfg.rewards["foot_swing_height"].func = RC.AlturaDeBalanco
     cfg.rewards["foot_swing_height"].params["target_height"] = k.recompensa.altura_de_balanco
+
+    # ⚠ A POSTURA FICA NEUTRA NOS ELOS DE MANIPULAÇÃO (F2). Não é um 4º regime de σ —
+    # medi, e nenhum σ resolve. Com o twist em zero o regime é SEMPRE `standing`
+    # (`walking_threshold` do G1 é 0,05, medido), cujo σ é uma entrada só, `.*` = 0,05
+    # para as 29 juntas. A 10% da faixa de junta o termo já vale 0,000, com GRADIENTE
+    # ZERO — é canal morto, não penalidade forte. Nem `running×5` sobrevive a 40%.
+    # Ver `recompensas.PosturaPorElo` para a tabela medida.
+    cfg.rewards["pose"].func = RC.PosturaPorElo
+    cfg.rewards["pose"].params.update(
+        canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
+        elos_que_andam=ELOS_QUE_ANDAM)
 
     aplica_pesos(cfg, k.recompensa)
 
@@ -239,16 +269,34 @@ def make_env_cfg(
                 params={"peito_b": k.alvo.peito_b},
             )
 
-    # O reset da base. Na F0 vale o range de MANIPULAÇÃO, ou o de LOCOMOÇÃO se a
-    # mobília estiver afastada. A bifurcação POR ENV entra na F2, junto com o one-hot
-    # que define a forma.
-    cfg.events["reset_base"].params["pose_range"] = dict(
-        c.reset_base_loco if anda else c.reset_base_manipula)
+    # O reset da base, POR ENV desde a F2. O evento do fabricante é substituído por um
+    # DESPACHANTE que o chama uma vez por subconjunto de elo — ele não reimplementa
+    # amostragem nenhuma (ver `eventos.reset_base_por_elo`).
+    #
+    # ⚠ Com `elo` forçado (inspetor, play) o buffer de elo é uniforme, portanto o
+    # despachante cai num único subconjunto e o comportamento é o de antes.
+    cfg.events["reset_base"] = EventTermCfg(
+        func=EV.reset_base_por_elo, mode="reset",
+        params={"elos_que_andam": ELOS_QUE_ANDAM,
+                "faixa_loco": dict(c.reset_base_loco),
+                "faixa_manipula": dict(c.reset_base_manipula),
+                "velocidade": {}},
+    )
+    _ = anda
 
     # ------------------------------------------------------ 3b. o currículo
     # ⚠ ORDEM DE RESET: currículo -> eventos -> comando. O `nivel` escreve
     # `env.limpo_nivel`, e os dois consumidores abaixo o leem. Invertida, a coisa
     # quebra em silêncio.
+    # ⚠ O SORTEIO DE ELO VEM PRIMEIRO, e ele TEM de ser um termo de currículo: o reset
+    # de pose da base (evento) e o alvo (comando) os dois o leem, e o currículo é o
+    # único dos três que roda antes dos outros dois.
+    cfg.curriculum["elo"] = CurriculumTermCfg(
+        func=CU.sorteia_elo,
+        params={"elo_loco": CMD.ANDAR, "elos_manip": ELOS_SORTEAVEIS,
+                "fatia_loco": k.forma.fatia_loco,
+                "forcado": elo_alvo if elo_explicito else None},
+    )
     cfg.curriculum["nivel"] = CurriculumTermCfg(
         func=CU.nivel,
         params={"n_niveis": n.n_niveis, "forcado": n.forcado},
@@ -271,9 +319,21 @@ def make_env_cfg(
         prateleira_meia_xy=c.prateleira_meia_xy,
         caixa_meia_z=c.caixa_meia_aresta[2],
         face_alvo_b=c.face_alvo_b,
-        elo_forcado=elo_alvo,
+        elo_forcado=elo_alvo if elo_explicito else None,
         debug_vis=True,
     )
+
+    # ------------------------------------------------- 3e. o one-hot (F2)
+    # ⚠ POR ÚLTIMO, e nos DOIS grupos, na MESMA ordem. Canal novo é APPEND de colunas;
+    # uma inserção no meio desloca todo peso da primeira camada em silêncio.
+    #
+    # ⚠ Sem `noise` e sem `scale`: ruído num one-hot produziria frações entre slots,
+    # isto é, estados que não existem.
+    for grupo in ("actor", "critic"):
+        cfg.observations[grupo].terms["elo"] = ObservationTermCfg(
+            func=OB.um_de_cinco,
+            params={"command_name": "alvo_caixa", "canal_do_elo": CMD.ELO},
+        )
 
     # ---------------------------------------------------- 3d. modo INSPEÇÃO
     if inspecao:
