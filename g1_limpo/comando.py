@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
+           "CADEIAS",
            "TwistComRazaoDeMarcha", "TwistComRazaoDeMarchaCfg"]
 
 # --- o layout, por nome. Nenhum índice solto no resto do pacote. ---
@@ -79,6 +80,32 @@ DIM = 9
 # --- os elos. Mesma numeração dos slots do one-hot. ---
 ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
 ELOS = ("andar", "reorientar", "pegar", "carregar", "botar")
+
+# --- as cadeias de elo (F4). Teto de 2 elos. ---
+# índice 0: cadeia de 1 elo (PEGAR, já treina desde F3)
+# índice 1, 2, 3: cadeias de 2 elos (transições, F4)
+CADEIAS = (
+    (PEGAR,),
+    (REORIENTAR, PEGAR),
+    (PEGAR, CARREGAR),
+    (PEGAR, BOTAR),
+)
+
+# ⚠ `ANDAR` NÃO É CADEIA. Um env de locomoção recebe isto, e `n_elos_da_cadeia`
+# devolve 1 para ele: não há 2º elo para avançar.
+CADEIA_NENHUMA = -1
+
+# o 1º elo de cada cadeia, e o comprimento de cada uma. Derivados de `CADEIAS`, nunca
+# redigitados — uma tabela paralela escrita à mão sai de sincronia no dia em que uma
+# cadeia mudar.
+_PRIMEIRO_ELO = torch.tensor([c[0] for c in CADEIAS], dtype=torch.long)
+_N_ELOS = torch.tensor([len(c) for c in CADEIAS], dtype=torch.long)
+# CADEIAS achatada em (n_cadeias, teto_de_elos), com -1 no que não existe
+_TETO_ELOS = max(len(c) for c in CADEIAS)
+_ELO_EM = torch.full((len(CADEIAS), _TETO_ELOS), -1, dtype=torch.long)
+for _i, _c in enumerate(CADEIAS):
+    for _j, _e in enumerate(_c):
+        _ELO_EM[_i, _j] = _e
 
 
 def elo_por_nome(nome: str) -> int:
@@ -140,6 +167,20 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # e não a forma do alvo — que impede o robô de andar com a caixa.
     elos_parados: tuple[int, ...] = (1, 2, 4)      # REORIENTAR, PEGAR, BOTAR
     nome_do_twist: str = "twist"
+    # ⚠ O SENSOR DE APOIO É `apoio_caixa`, o contato caixa<->laje declarado em
+    # `cena.sensores()`. Uma versão anterior deste campo dizia `contact_caixa_laje`,
+    # que NÃO EXISTE, e a leitura vinha dentro de um `try/except` cujo fallback era
+    # `apoiada = True`: o `BOTAR` fechava com `perto & alinhado` apenas, em silêncio.
+    nome_sensor_apoio: str = "apoio_caixa"
+    # ⚠ O limiar NÃO é absoluto: ele é uma FRAÇÃO do peso da caixa. Um limiar fixo de
+    # 2 N significaria "apoiada" com carga de 1 kg (9,8 N) e "no ar" com 5 kg mal
+    # encostada. A caixa está apoiada quando a laje carrega metade do peso dela.
+    fracao_do_peso_apoiada: float = 0.5
+    # a tolerância que conta como "na condição de fechamento", em metros e radianos
+    tol_pos: float = 0.10
+    tol_ang_deg: float = 25.0
+    # altura mínima da pelve para considerar "de pé" (não agachado)
+    pelve_alvo: float = 0.75
     # alvo do BOTAR — lateral, num topo novo
     botar_x: tuple[float, float] = (0.30, 0.40)
     botar_y: tuple[float, float] = (-0.12, 0.12)
@@ -182,6 +223,13 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
     debug_vis: bool = True
 
+    # --- F4: máquina de elo ---
+    cadeia_forcada: int | None = None    # índice em CADEIAS. Inspetor e play.
+    prob_por_nivel: tuple[tuple[float, ...], ...] = ()
+    sustenta_pegar_s: float = 0.5
+    sustenta_outros_s: float = 0.3
+    carregar_s: float = 1.5
+
     def build(self, env: "ManagerBasedRlEnv") -> "AlvoCaixaCmd":
         return AlvoCaixaCmd(self, env)
 
@@ -215,6 +263,22 @@ class AlvoCaixaCmd(CommandTerm):
         # dependente de pose no primeiro `_update_command`, quando a pose está fresca.
         self._pendente = torch.zeros(n, dtype=torch.bool, device=d)
 
+        # ---------------------------------------------------------- F4: máquina de elo
+        # Os buffers que controlam o avanço entre elos.
+        self._cadeia = torch.zeros(n, dtype=torch.long, device=d)
+        self._passo = torch.zeros(n, dtype=torch.long, device=d)  # 0 ou 1
+        self._sust = torch.zeros(n, dtype=torch.float, device=d)  # cronômetro em s
+        self.avancou = torch.zeros(n, dtype=torch.bool, device=d)
+        self.fechou = torch.zeros(n, dtype=torch.bool, device=d)
+
+        # Métricas publicadas para o log (seção 4 do contrato F4)
+        # ⚠ Todas são float para que `reset` possa tirar a média
+        z = torch.zeros(n, dtype=torch.float, device=d)
+        self.metrics["sucesso"] = z.clone()
+        self.metrics["passo_final"] = z.clone()
+        self.metrics["avancos"] = z.clone()
+        self.metrics["fatia_cadeia"] = z.clone()
+
         # ---------------------------------------------------------- os σ POR ENV
         # ⚠ ELES NÃO SÃO KNOBS. Cada um é a DISTÂNCIA INICIAL daquele env, medida no
         # instante em que o elo abre. É a decisão de maior consequência da F3, e ela
@@ -245,6 +309,34 @@ class AlvoCaixaCmd(CommandTerm):
     def command(self) -> torch.Tensor:
         return self._command
 
+    def elo_de(self, ids: torch.Tensor) -> torch.Tensor:
+        """Retorna o elo corrente daqueles envs.
+
+        Na F4, o elo pode estar em qualquer posição da cadeia sorteada.
+        Antes da F4, é sempre PEGAR.
+        """
+        cadeia_idx = self._cadeia[ids]
+        passo_idx = self._passo[ids]
+        elos = torch.tensor([CADEIAS[i][j] if j < len(CADEIAS[i]) else -1
+                             for i, j in zip(cadeia_idx.cpu().numpy(),
+                                           passo_idx.cpu().numpy())],
+                           dtype=torch.long, device=self.device)
+        return elos
+
+    def n_elos_da_cadeia(self, ids: torch.Tensor) -> torch.Tensor:
+        """Retorna o número de elos em cada cadeia daqueles envs."""
+        cadeia_idx = self._cadeia[ids]
+        n_elos = torch.tensor([len(CADEIAS[i]) for i in cadeia_idx.cpu().numpy()],
+                             dtype=torch.long, device=self.device)
+        return n_elos
+
+    def forca_avanco(self, ids: torch.Tensor) -> None:
+        """Força o avanço imediato de elo, sem esperar sustain.
+
+        Destinado ao inspetor (`inspeciona.py`) e play (`play.py`).
+        """
+        self._avanca_elo_force(ids)
+
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         if len(env_ids) == 0:
             return
@@ -266,10 +358,57 @@ class AlvoCaixaCmd(CommandTerm):
         else:
             self._elo[env_ids] = garante_elo(self._env, ANDAR)[env_ids]
 
+        # --- F4: A CADEIA, CONDICIONADA NO ELO QUE O CURRÍCULO JÁ SORTEOU ---
+        #
+        # ⚠⚠ ISTO É O PONTO MAIS DELICADO DA F4, e uma versão anterior o inverteu: ela
+        # sorteava a cadeia e depois SOBRESCREVIA `self._elo` com o 1º elo dela. Como o
+        # 1º elo de três das quatro cadeias é o `PEGAR`, TODOS os envs viravam `PEGAR` —
+        # e a fatia de locomoção da F2 (95%) era APAGADA. O módulo inteiro existe para
+        # não entregar as transições à manipulação cedo demais, e aquele `=` fazia
+        # exatamente isso, sem uma linha de log.
+        #
+        # A ordem correta é a inversa: quem decide se o env é de LOCOMOÇÃO ou de
+        # MANIPULAÇÃO é o currículo (`sorteia_elo`, a fatia). A cadeia só escolhe QUAL
+        # transição praticar, DENTRO da manipulação — e ela tem de COMEÇAR no elo que o
+        # currículo já sorteou. Uma cadeia que começa noutro elo seria uma segunda
+        # decisão sobre a mesma coisa.
+        #
+        # `ANDAR` não é cadeia: ele recebe `CADEIA_NENHUMA`.
+        elo_atual = self._elo[env_ids]
+        if self.cfg.cadeia_forcada is not None:
+            # inspetor/play: a cadeia manda, e o elo passa a ser o 1º dela
+            self._cadeia[env_ids] = int(self.cfg.cadeia_forcada)
+            self._elo[env_ids] = int(CADEIAS[int(self.cfg.cadeia_forcada)][0])
+        elif len(self.cfg.prob_por_nivel) > 0:
+            # ⚠ VETORIZADO. O laço Python sobre `env_ids` que estava aqui rodava 4096
+            # iterações a cada reset em lote.
+            tab = torch.tensor(self.cfg.prob_por_nivel, device=d, dtype=torch.float)
+            nivel = garante_nivel(self._env)[env_ids].clamp(max=tab.shape[0] - 1)
+            linha = tab[nivel]                                    # (n, 4)
+            # só as cadeias cujo 1º elo é o elo sorteado
+            compat = _PRIMEIRO_ELO.to(d).unsqueeze(0) == elo_atual.unsqueeze(1)
+            pesos = linha * compat.float()
+            soma = pesos.sum(dim=-1)
+            tem = soma > 0.0
+            # envs sem cadeia compatível (o `ANDAR`) ficam com CADEIA_NENHUMA
+            seguro = torch.where(tem.unsqueeze(-1), pesos,
+                                 torch.ones_like(pesos))
+            escolha = torch.multinomial(seguro, num_samples=1).squeeze(1)
+            self._cadeia[env_ids] = torch.where(
+                tem, escolha, torch.full_like(escolha, CADEIA_NENHUMA))
+        else:
+            # F0-F3: não há cadeia. O elo é o que o currículo disse.
+            self._cadeia[env_ids] = CADEIA_NENHUMA
+
+        # Zerar os buffers de avanço
+        self._passo[env_ids] = 0
+        self._sust[env_ids] = 0.0
+        self.avancou[env_ids] = False
+        self.fechou[env_ids] = False
+
         # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
         # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da
         # caixa, sorteada em quartos de volta pelo evento `posiciona_cena`.
-        _ = n
         self._aplica_elo(env_ids)
         # a parte dependente de POSE fica pendente para o 1º passo (ver `_pendente`)
         self._pendente[env_ids] = True
@@ -303,6 +442,10 @@ class AlvoCaixaCmd(CommandTerm):
         # e o que impede o robô de andar no `pegar` é o twist em ZERO
         self._zera_twist_nos_parados()
 
+        # --- F4: AVANÇO DE ELO ---
+        # Deve rodar APÓS a atualização do alvo e da face, porque usa pose fresca.
+        self._avanca_elo()
+
     def _update_metrics(self) -> None:
         pass
 
@@ -329,6 +472,170 @@ class AlvoCaixaCmd(CommandTerm):
             return
         tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
         tw.vel_command_b[parados] = 0.0
+
+    def _fecha_elo_corrente(self, ids: torch.Tensor) -> torch.Tensor:
+        """Retorna BoolTensor indicando quais elos fecharam.
+
+        Condição de fechamento POR ELO (tabela da F4):
+            REORIENTAR: perto & alinhado
+            PEGAR:      perto & alinhado & de pé
+            CARREGAR:   perto
+            BOTAR:      perto & alinhado & apoiada
+        """
+        if len(ids) == 0:
+            return torch.zeros(len(ids), dtype=torch.bool, device=self.device)
+
+        c = self.cfg
+        d = self.device
+
+        # Condições "perto" e "alinhado"
+        dist_alvo = torch.norm(
+            self.caixa.data.root_link_pos_w[ids] - self._command[ids, ALVO], dim=-1)
+        perto = dist_alvo <= c.tol_pos
+
+        erro_ang = self._command[ids, ANG]
+        alinhado = erro_ang <= torch.deg2rad(torch.tensor(c.tol_ang_deg))
+
+        # Condição "de pé" — altura da pelve acima de `pelve_alvo`
+        de_pe = self.robot.data.root_link_pos_w[ids, 2] >= c.pelve_alvo
+
+        # Condição "apoiada" — a LAJE carrega o peso da caixa.
+        #
+        # ⚠ SEM `try/except`. Uma versão anterior lia um sensor inexistente
+        # (`contact_caixa_laje`), pelo método errado (`robot.find_sites` — um SENSOR
+        # não é um SÍTIO, e ele vive na CENA, não no robô), dentro de um `try` cujo
+        # `except` deixava `apoiada = True`. Resultado: o `BOTAR` fechava com
+        # `perto & alinhado` apenas, sem nunca conferir se a caixa estava apoiada, e
+        # sem uma linha de erro. Se o sensor não existir, ISTO TEM DE EXPLODIR.
+        forca = torch.norm(
+            self._env.scene[c.nome_sensor_apoio].data.force, dim=-1).squeeze(-1)[ids]
+        peso = self._env.limpo_massa[ids] * 9.81
+        apoiada = forca >= c.fracao_do_peso_apoiada * peso
+
+        # Condições por elo
+        elo_corrente = self._elo[ids]
+        fecha = torch.zeros(len(ids), dtype=torch.bool, device=d)
+
+        for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR):
+            m = elo_corrente == elo_tipo
+            if not bool(m.any()):
+                continue
+
+            if elo_tipo == REORIENTAR:
+                fecha[m] = (perto[m] & alinhado[m])
+            elif elo_tipo == PEGAR:
+                fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
+            elif elo_tipo == CARREGAR:
+                fecha[m] = perto[m]
+            elif elo_tipo == BOTAR:
+                fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
+
+        return fecha
+
+    def _avanca_elo(self) -> None:
+        """Avança de elo quando a condição de fechamento é satisfeita por sustain.
+
+        Roda a cada passo DENTRO de `_update_command`, com pose fresca.
+        Não há reset nem resample — o one-hot acompanha o elo sem corte de episódio.
+
+        Acumula `_sust` enquanto a condição vale, zera quando não vale.
+        Quando `_sust >= sustain_do_elo`, avança ou marca fechou.
+        """
+        d = self.device
+        todos = torch.arange(self.num_envs, device=d)
+        # ⚠ O dt vem do ENV, e não de um literal. `1.0/50.0` estava escrito aqui à mão;
+        # ele acerta hoje e passa a mentir no dia em que a decimação ou o timestep
+        # mudar — e o cronômetro de sustentação erraria em silêncio.
+        dt = self._env.step_dt
+
+        # Verificar qual elo está aberto (não fechou ainda)
+        nao_fechou = todos[~self.fechou]
+        if len(nao_fechou) == 0:
+            return
+
+        # Condição de fechamento do elo corrente
+        fecha = self._fecha_elo_corrente(nao_fechou)
+
+        # Acumular sustain ou zerar
+        self._sust[nao_fechou] = torch.where(
+            fecha,
+            self._sust[nao_fechou] + dt,
+            torch.zeros_like(self._sust[nao_fechou])
+        )
+
+        # Determinar o sustain alvo de cada elo
+        elo_corrente = self._elo[nao_fechou]
+        sustain_alvo = torch.zeros(len(nao_fechou), device=d)
+        for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR):
+            m = elo_corrente == elo_tipo
+            if bool(m.any()):
+                if elo_tipo == PEGAR:
+                    sustain_alvo[m] = self.cfg.sustenta_pegar_s
+                elif elo_tipo == CARREGAR:
+                    sustain_alvo[m] = self.cfg.carregar_s
+                else:  # REORIENTAR, BOTAR
+                    sustain_alvo[m] = self.cfg.sustenta_outros_s
+
+        # Verificar avanço
+        deve_avancar = self._sust[nao_fechou] >= sustain_alvo
+
+        # Processar avanços
+        ids_avancar = nao_fechou[deve_avancar]
+        if len(ids_avancar) > 0:
+            self._avanca_elo_force(ids_avancar)
+
+    def _avanca_elo_force(self, ids: torch.Tensor) -> None:
+        """Avança aqueles envs UM elo, ou fecha a cadeia se já era o último.
+
+        Usado pelo `_avanca_elo` (avanço natural, por sustain) e pelo `forca_avanco`
+        (inspetor e play).
+
+        ⚠ VETORIZADO, e não é otimização prematura. A versão anterior tinha um laço
+        Python sobre os envs que chamava `_aplica_elo(ids[i:i+1])` UM POR UM — e o
+        `_aplica_elo` já itera sobre os 5 elos por dentro. Com 4096 envs isso são
+        ~20 mil iterações de Python num passo de física.
+
+        ⚠ E ela lia `CADEIAS[cad]` com `cad = −1` para os envs de locomoção, que em
+        Python devolve a ÚLTIMA cadeia. Um env de `ANDAR` era tratado como
+        `(PEGAR, BOTAR)`, em silêncio. O `tem` abaixo é o que impede isso.
+        """
+        if len(ids) == 0:
+            return
+        d = self.device
+        cad = self._cadeia[ids]
+        passo = self._passo[ids]
+
+        tem = cad >= 0                       # `ANDAR` não tem cadeia
+        n_elos = torch.ones_like(cad)
+        if bool(tem.any()):
+            n_elos[tem] = _N_ELOS.to(d)[cad[tem]]
+        prox = passo + 1
+        pode = tem & (prox < n_elos)
+
+        # --- os que AVANÇAM ---
+        m = ids[pode]
+        if len(m):
+            np_ = prox[pode]
+            self._passo[m] = np_
+            self._elo[m] = _ELO_EM.to(d)[cad[pode], np_]
+            self._sust[m] = 0.0
+            # ⚠ UMA chamada em lote. E `so_pose=False` porque aqui a pose JÁ está
+            # fresca: o avanço roda no `_update_command`, não no reset.
+            self._aplica_elo(m, so_pose=False)
+            self._recalcula_sigmas(m)
+
+        # --- os que FECHAM a cadeia ---
+        # ⚠ `tem & ~pode`, e não `~pode`. Sem o `tem`, um env de `ANDAR` em que o
+        # inspetor chamasse `forca_avanco` seria marcado como SUCESSO de manipulação.
+        f = ids[tem & ~pode]
+        if len(f):
+            self.fechou[f] = True
+            self.metrics["sucesso"][f] = 1.0
+
+        self.avancou[ids] = pode
+        self.metrics["passo_final"][ids] = self._passo[ids].float()
+        self.metrics["avancos"][ids] += pode.float()
+        self.metrics["fatia_cadeia"][ids] = (n_elos > 1).float()
 
     # ------------------------------------------------------ o alvo, por elo
     def _aplica_elo(self, ids: torch.Tensor, *, so_pose: bool = False) -> None:

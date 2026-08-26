@@ -407,6 +407,50 @@ class Tarefa:
 
 
 @dataclass
+class Cadeia:
+    """A tabela de cadeias de elo, fase F4.
+
+    ⚠ TETO DE 2 ELOS. As cadeias são:
+      índice 0: (PEGAR,)                 -> 1 elo (cadeia curta da F3)
+      índice 1: (REORIENTAR, PEGAR)
+      índice 2: (PEGAR, CARREGAR)
+      índice 3: (PEGAR, BOTAR)
+
+    O `pegar` aparece em TODAS: ele é o eixo de que não se esquece.
+    """
+
+    # [7 níveis × 4 cadeias] de probabilidades. Cada linha soma 1,0.
+    # Nível baixo concentra na cadeia de 1 elo (índice 0);
+    # nível alto abre as de 2 elos.
+    prob_por_nivel: tuple[tuple[float, ...], ...] = (
+        # Nível 0: cadeia curta domina (1 elo).
+        # Racional: robustecer a pega antes de transições.
+        (0.80, 0.10, 0.05, 0.05),
+        # Nível 1: ainda principalmente cadeia curta.
+        (0.75, 0.10, 0.10, 0.05),
+        # Nível 2: distribui mais para 2 elos; reorientar entra.
+        (0.60, 0.20, 0.10, 0.10),
+        # Nível 3: equilibrado entre 1 e 2 elos; todas as cadeias.
+        (0.40, 0.25, 0.20, 0.15),
+        # Nível 4 e acima: favorece cadeias de 2 elos (transições).
+        # Racional: com dificuldade física alta, a transição é o aprendizado.
+        (0.20, 0.25, 0.30, 0.25),
+        # Nível 5: mais 2 elos ainda.
+        (0.15, 0.25, 0.35, 0.25),
+        # Nível 6: máxima diversidade, 2 elos dominam.
+        (0.10, 0.25, 0.35, 0.30),
+    )
+
+    # Tempos de sustentação (em segundos) quando o elo fecha.
+    # PEGAR exige menor sustain (mais rápido em fechar e transicionar).
+    sustenta_pegar_s: float = 0.5
+    # Outros elos (REORIENTAR, CARREGAR, BOTAR) têm sustain maior.
+    sustenta_outros_s: float = 0.3
+    # CARREGAR é piso de tempo (tempo mínimo que o robô anda).
+    carregar_s: float = 1.5
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -415,6 +459,7 @@ class Knobs:
     marcha: Marcha = field(default_factory=Marcha)
     forma: Forma = field(default_factory=Forma)
     tarefa: Tarefa = field(default_factory=Tarefa)
+    cadeia: Cadeia = field(default_factory=Cadeia)
 
 
 ATIVO = Knobs()

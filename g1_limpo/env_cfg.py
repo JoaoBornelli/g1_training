@@ -324,6 +324,22 @@ def make_env_cfg(
         caixa_meia_aresta=c.caixa_meia_aresta[0],
         sigma_fator=k.tarefa.sigma_fator,
         sigma_min=k.tarefa.sigma_min,
+        # ------------------------------------------------------- a cadeia (F4)
+        # ⚠ SEM ESTAS LINHAS A MÁQUINA DE ELO É INERTE, e em silêncio: o campo
+        # `prob_por_nivel` do cfg tem default `()`, e o sorteio cai no ramo "não há
+        # cadeia". Foi o que aconteceu na primeira entrega — toda cadeia saía 0 e
+        # nenhum env avançava, sem nenhum erro.
+        prob_por_nivel=k.cadeia.prob_por_nivel,
+        sustenta_pegar_s=k.cadeia.sustenta_pegar_s,
+        sustenta_outros_s=k.cadeia.sustenta_outros_s,
+        carregar_s=k.cadeia.carregar_s,
+        # as tolerâncias de FECHAMENTO são as mesmas da régua de sustentação da F3:
+        # um elo que "fecha" com tolerância diferente da que a recompensa paga
+        # ensinaria duas coisas contraditórias.
+        tol_pos=k.tarefa.tol_pos,
+        tol_ang_deg=k.tarefa.tol_ang_deg,
+        pelve_alvo=k.tarefa.pelve_alvo,
+        nome_sensor_apoio=C.SENSOR_APOIO,
         elo_forcado=elo_alvo if elo_explicito else None,
         debug_vis=True,
     )
