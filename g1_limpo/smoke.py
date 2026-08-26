@@ -189,11 +189,13 @@ check("UM evento só escreve a pose da mobília",
       str([e for e in cfg.events if "reset" in e]))
 check("o `push_robot` FICA no treino — resistir a empurrão é requisito",
       "push_robot" in cfg.events)
-check("o reset da base tem o range do knob, e no ANDAR é o de LOCOMOÇÃO",
-      cfg.events["reset_base"].params["pose_range"] == dict(c.reset_base_loco)
-      and make_env_cfg(k, elo=2).events["reset_base"].params["pose_range"]
-      == dict(c.reset_base_manipula),
-      "yaw ±3,14 quando a mobília está a +5 m; ±0,2 quando há com que alinhar")
+# ⚠ O `pose_range` único SAIU na F2: o reset da base virou despachante por elo, com
+# DUAS faixas. Quem confere as faixas é a seção 16.
+check("o reset da base não tem mais faixa única — ela é por elo desde a F2",
+      "pose_range" not in cfg.events["reset_base"].params
+      and {"faixa_loco", "faixa_manipula"}
+      <= set(cfg.events["reset_base"].params),
+      str(sorted(cfg.events["reset_base"].params)))
 
 secao("8. ramo de play")
 check("`randomize_terrain` fora do play",
@@ -261,9 +263,15 @@ check("os 5 elos existem, e a numeração é a dos slots do one-hot",
       == (0, 1, 2, 3, 4) and len(CMD.ELOS) == 5)
 check("`elo_por_nome` resolve os cinco nomes",
       [CMD.elo_por_nome(x) for x in CMD.ELOS] == [0, 1, 2, 3, 4])
-check("o elo default do treino é o ANDAR — a F1 é locomoção PURA",
-      cfg.commands["alvo_caixa"].elo_forcado == CMD.ANDAR,
-      "a fatia da locomoção é 100% na F1; a F3 troca para PEGAR")
+# ⚠ Desde a F2 o TREINO não força elo nenhum: quem decide é o `curriculo.sorteia_elo`,
+# por env. `elo_forcado` não-nulo no treino anularia o sorteio em silêncio.
+check("no TREINO o comando NÃO força elo — o currículo sorteia por env",
+      cfg.commands["alvo_caixa"].elo_forcado is None
+      and cfg.curriculum["elo"].params["forcado"] is None,
+      f"elo_forcado={cfg.commands['alvo_caixa'].elo_forcado}")
+check("o elo da MAIORIA é o ANDAR, e a fatia dele vem do knob",
+      cfg.curriculum["elo"].params["elo_loco"] == CMD.ANDAR
+      and cfg.curriculum["elo"].params["fatia_loco"] == k.forma.fatia_loco)
 check("o raio de alcance de referência foi DERIVADO do envelope da Lift",
       abs(CMD.ALCANCE_R - 0.85) < 1e-9,
       "0,50 estava errado: era o box_xy do 19%, não um raio de alcance")
@@ -328,11 +336,15 @@ for _nome, _i in zip(CMD.ELOS, range(5)):
     check(f"`{_nome}`: a caixa {'é' if _segura else 'não é'} PINADA a cada passo",
           ("pina_caixa" in _c.events) == _segura,
           "sem o pino ela cai em ~0,4 s e o clamp do `botar` mede uma caixa no chão")
-    _anda = _i in (CMD.ANDAR, CMD.CARREGAR)
-    check(f"`{_nome}`: o reset da base usa o yaw "
-          f"{'do fabricante (±3,14)' if _anda else 'apertado (±0,2)'}",
-          (_c.events["reset_base"].params["pose_range"]["yaw"][1] > 3.0) == _anda,
-          "com a mobília a +5 m não há com que alinhar o rumo")
+    # ⚠ Com o elo FORÇADO, o despachante de pose cai num subconjunto só. O que se
+    # confere no cfg é que o elo forçado chega aos DOIS consumidores (currículo e
+    # comando) — se um deles ficasse com `None`, o inspetor mostraria a cena de um elo
+    # e o alvo de outro. Qual faixa de yaw sai é medido no env, na seção 16.
+    check(f"`{_nome}`: o elo forçado chega ao currículo E ao comando",
+          _c.curriculum["elo"].params["forcado"] == _i
+          and _c.commands["alvo_caixa"].elo_forcado == _i,
+          f"curriculo={_c.curriculum['elo'].params['forcado']} "
+          f"comando={_c.commands['alvo_caixa'].elo_forcado}")
 
 # ------------------------------------------- 13. o DESENHO roda e desenha
 secao("13. o desenho do comando (headless, com visualizador de mentira)")
@@ -561,15 +573,19 @@ try:
           "razao_marcha" in _ex
           and float(_tw2.metrics["soma_cmd_marcha"].abs().max()) == 0.0)
 
-    # o elo de LOCOMOÇÃO PURA
+    # o elo de LOCOMOÇÃO. ⚠ POR ENV: desde a F2 apenas `fatia_loco` dos envs são de
+    # locomoção, portanto um `.max()` sobre todos falharia por desenho, e não por bug.
     _c2 = _env2.command_manager.get_command("alvo_caixa")
-    check("na F1 o objetivo da caixa nasce INATIVO (valida = 0)",
-          float(_c2[:, CMD.VALIDA].max()) == 0.0)
-    check("na F1 a mobília está afastada em +5 m",
-          float(_env2.scene["table"].data.root_link_pos_w[:, 2].min()) > 4.0,
+    _loco2 = _env2.limpo_elo == CMD.ANDAR
+    check("no ANDAR o objetivo da caixa nasce INATIVO (valida = 0)",
+          not bool(_loco2.any())
+          or float(_c2[_loco2][:, CMD.VALIDA].max()) == 0.0)
+    check("no ANDAR a mobília está afastada em +5 m",
+          not bool(_loco2.any())
+          or float(_env2.scene["table"].data.root_link_pos_w[_loco2, 2].min()) > 4.0,
           str(_env2.scene["table"].data.root_link_pos_w[:, 2].tolist()))
-    check("o reset da base usa o yaw do CÍRCULO INTEIRO no ANDAR",
-          _cfg2.events["reset_base"].params["pose_range"]["yaw"]
+    check("a faixa de yaw da locomoção é a do fabricante (círculo inteiro)",
+          _cfg2.events["reset_base"].params["faixa_loco"]["yaw"]
           == c.reset_base_loco["yaw"])
     del _env2
 except Exception as _e2:      # noqa: BLE001
@@ -618,6 +634,279 @@ check("as constantes de tempo do `leitura` batem com o cfg",
       and abs(LE_.MAX_EP_S - cfg.episode_length_s) < 1e-12,
       f"leitura DT={LE_.DT} MAX={LE_.MAX_EP_S}")
 check("o autoteste da diluição do `leitura` passa", LE_._demo() == 0)
+
+# ==================================== 16. o one-hot, o sorteio de elo e a postura
+secao("16. one-hot, sorteio de elo e postura por elo (F2)")
+from g1_limpo import eventos as EV_         # noqa: E402
+from g1_limpo import observacoes as OB_      # noqa: E402
+from g1_limpo.env_cfg import (               # noqa: E402
+    ELOS_QUE_ANDAM, ELOS_SORTEAVEIS,
+)
+
+fab_obs = {g: list(fab.observations[g].terms) for g in ("actor", "critic")}
+nossa_obs = {g: list(cfg.observations[g].terms) for g in ("actor", "critic")}
+check("o one-hot entra nos DOIS grupos",
+      all("elo" in nossa_obs[g] for g in ("actor", "critic")))
+check("ele é o ÚLTIMO termo dos dois, e é o contrato do APPEND",
+      all(nossa_obs[g][-1] == "elo" for g in ("actor", "critic")),
+      "inserir no meio desloca todo peso da 1ª camada em silêncio")
+check("nada mais mudou na observação",
+      all(nossa_obs[g][:-1] == fab_obs[g] for g in ("actor", "critic")),
+      str({g: set(nossa_obs[g]) ^ set(fab_obs[g]) for g in nossa_obs}))
+check("o one-hot não tem ruído nem escala",
+      all(cfg.observations[g].terms["elo"].noise is None
+          and cfg.observations[g].terms["elo"].scale is None
+          for g in ("actor", "critic")),
+      "ruído num one-hot produz frações entre slots: estados que não existem")
+check("são 5 slots, um por elo", OB_.N_SLOTS == len(CMD.ELOS) == 5)
+
+check("o sorteio de elo é um termo de CURRÍCULO, e vem antes do nível",
+      list(cfg.curriculum).index("elo") < list(cfg.curriculum).index("nivel"),
+      str(list(cfg.curriculum)))
+_cur_src = pathlib.Path("g1_limpo/curriculo.py").read_text(encoding="utf-8")
+check("o `curriculo.py` NÃO importa o `comando.py` (seria ciclo)",
+      not any(ln.strip().startswith(("import ", "from "))
+              and "comando" in ln for ln in _cur_src.splitlines()),
+      "comando.py importa `garante_nivel` daqui; o import de volta fecharia o ciclo")
+check("os elos sorteáveis são só os que nascem SEM caixa nas mãos",
+      tuple(ELOS_SORTEAVEIS) == (CMD.REORIENTAR, CMD.PEGAR),
+      "CARREGAR e BOTAR só existem como 2º elo de cadeia -> F4")
+check("a fatia de locomoção NÃO é 1,00",
+      k.forma.fatia_loco < 1.0 and k.forma.fatia_loco >= 0.9,
+      "com 1,00 os slots ficam constantes e o normalizador os faz entrar como 100,0")
+
+# o normalizador: a razão do 0,95 é aritmética, e ela se confere
+check("o normalizador do rsl_rl divide por `_std + 1e-2`, sem clamp",
+      "(x - self._mean) / (self._std + self.eps)" in pathlib.Path(
+          __import__("rsl_rl.modules.normalization", fromlist=["x"]).__file__
+      ).read_text(encoding="utf-8"),
+      "é isto que faz 1,0 entrar como 100,0 num canal antes constante")
+
+# o reset de pose por elo
+check("o reset da base é o despachante por elo",
+      cfg.events["reset_base"].func is EV_.reset_base_por_elo)
+check("ele continua sendo o PRIMEIRO evento de reset",
+      list(cfg.events).index("reset_base") == 0, str(list(cfg.events)))
+check("as duas faixas de yaw são as do knob, e são diferentes",
+      cfg.events["reset_base"].params["faixa_loco"]["yaw"] == c.reset_base_loco["yaw"]
+      and cfg.events["reset_base"].params["faixa_manipula"]["yaw"]
+      == c.reset_base_manipula["yaw"]
+      and c.reset_base_loco["yaw"] != c.reset_base_manipula["yaw"])
+check("os elos com twist ativo são ANDAR e CARREGAR",
+      tuple(ELOS_QUE_ANDAM) == (CMD.ANDAR, CMD.CARREGAR))
+
+# ⚠ O GATE DOS `track_*` NÃO ENTRA, e a decisão é da spec (§4.2)
+check("os dois `track_*` seguem SEM gate de elo",
+      "elo" not in cfg.rewards["track_linear_velocity"].params
+      and "elo" not in cfg.rewards["track_angular_velocity"].params
+      and cfg.rewards["track_linear_velocity"].params
+      == fab.rewards["track_linear_velocity"].params,
+      "com o twist em ZERO, gatear removeria a única coisa que paga ficar parado")
+
+# a postura
+check("a postura é a NOSSA subclasse", cfg.rewards["pose"].func is RC_.PosturaPorElo)
+check("ela recebe o canal do elo e a lista dos que andam",
+      cfg.rewards["pose"].params["canal_do_elo"] == CMD.ELO
+      and tuple(cfg.rewards["pose"].params["elos_que_andam"]) == tuple(ELOS_QUE_ANDAM))
+# ⚠ Identidade de objeto NÃO é o invariante aqui: `cfg` e `fab` são dois builds
+# independentes do molde, portanto os dicts são objetos distintos por construção. O
+# invariante é IGUALDADE de valor mais a prova de que nada foi redigitado no nosso
+# fonte, que já é um check próprio (a busca por `knee` nos arquivos do pacote).
+check("os três σ do fabricante seguem com os MESMOS valores",
+      all(cfg.rewards["pose"].params[x] == fab.rewards["pose"].params[x]
+          for x in ("std_standing", "std_walking", "std_running")),
+      "a subclasse de postura não pode ter tocado nas tabelas")
+check("o `walking_threshold` do G1 é 0,05, não 0,5",
+      cfg.rewards["pose"].params["walking_threshold"] == 0.05,
+      "com o twist em ZERO o regime `standing` é CERTO, não provável")
+check("`std_standing` é UMA entrada só, `.*`, para as 29 juntas",
+      list(cfg.rewards["pose"].params["std_standing"]) == [".*"],
+      str(cfg.rewards["pose"].params["std_standing"]))
+
+# --- o penhasco da postura, MEDIDO. É o que justifica a subclasse. ---
+try:
+    import torch as _t3
+    from mjlab.utils.lab_api.string import resolve_matching_names_values as _rmnv
+
+    _cfg3 = make_env_cfg(k)
+    _cfg3.scene.num_envs = 128
+    _env3 = ManagerBasedRlEnv(cfg=_cfg3, device="cpu")
+    _env3.reset()
+    for _ in range(3):
+        _env3.step(_t3.zeros(_env3.num_envs,
+                             _env3.action_manager.total_action_dim))
+
+    _robo = _env3.scene["robot"]
+    _acfg = _cfg3.rewards["pose"].params["asset_cfg"]
+    _ids, _nomes = _robo.find_joints(_acfg.joint_names)
+    _, _, _v = _rmnv(data=_cfg3.rewards["pose"].params["std_standing"],
+                     list_of_strings=_nomes)
+    _std_st = _t3.tensor(_v)
+    _faixa = (_robo.data.joint_pos_limits[0][:, 1]
+              - _robo.data.joint_pos_limits[0][:, 0])[_ids]
+    _manip = _t3.tensor([any(x in nm for x in
+                            ("shoulder", "elbow", "wrist", "waist"))
+                        for nm in _nomes])
+    _err = _t3.zeros(len(_nomes))
+    _err[_manip] = _faixa[_manip] * 0.10
+    _termo = float(_t3.exp(-_t3.mean(_err ** 2 / _std_st ** 2)))
+    check("MEDIDO: a 10% da faixa o `standing` já vale 0,000 — canal MORTO",
+          _termo < 1e-6, f"{_termo:.3e}")
+
+    # a neutralidade, no env de verdade
+    _elo3 = _env3.limpo_elo
+    _pose_idx = list(_cfg3.rewards).index("pose")
+    _pp = _env3.reward_manager._step_reward[:, _pose_idx]
+    _manip_envs = ~_t3.isin(_elo3, _t3.tensor(ELOS_QUE_ANDAM))
+    check("num elo de manipulação a postura vale EXATAMENTE 1,0",
+          bool(_manip_envs.any())
+          and float((_pp[_manip_envs] - 1.0).abs().max()) < 1e-6,
+          f"{[round(float(x),5) for x in _pp[_manip_envs][:4]]}")
+    check("1,0 e não 0,0: zero seria uma penalidade por SORTEIO de elo",
+          float(_pp[_manip_envs].min()) > 0.5)
+    check("num elo que ANDA a postura segue sendo a do fabricante",
+          bool((~_manip_envs).any())
+          and float(_pp[~_manip_envs].std()) > 0.0,
+          "constante ali significaria que a subclasse comeu o termo")
+
+    # o sorteio, e os dois consumidores lendo o MESMO elo
+    check("o elo sorteado bate com o que o comando publica",
+          bool((_env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO].long()
+                == _elo3).all()),
+          "se divergirem, a pose nasceu para um elo e o alvo para outro")
+    check("a fatia medida bate com o knob (±0,06 em 128 envs)",
+          abs(float((_elo3 == CMD.ANDAR).float().mean()) - k.forma.fatia_loco) < 0.06,
+          str(round(float((_elo3 == CMD.ANDAR).float().mean()), 4)))
+    # ⚠ NÃO se checa aqui que os dois elos sorteáveis APARECERAM. Com 128 envs e 2,5%
+    # por elo, a chance de um deles sair vazio é ~4% por run — a checagem seria FLAKY,
+    # e falharia acusando o sorteio quando o sorteio está certo. O invariante é a
+    # DISTRIBUIÇÃO, e ela é testada sem simulador logo abaixo.
+    check("todo elo sorteado está no conjunto permitido",
+          bool(_t3.isin(_elo3, _t3.tensor((CMD.ANDAR,) + tuple(ELOS_SORTEAVEIS))
+                        ).all()),
+          str({e: int((_elo3 == e).sum()) for e in range(5)}))
+    check("CARREGAR e BOTAR NÃO são sorteados (declarado, F4 os abre)",
+          not bool(_t3.isin(_elo3,
+                            _t3.tensor([CMD.CARREGAR, CMD.BOTAR])).any()))
+
+    # o one-hot, por passo, e a soma
+    _oh = _env3.observation_manager.compute()["actor"][:, -OB_.N_SLOTS:]
+    check("o one-hot soma 1,0 em toda linha",
+          float((_oh.sum(-1) - 1.0).abs().max()) < 1e-6)
+    check("o slot aceso é o elo do env",
+          bool((_oh.argmax(-1) == _elo3).all()))
+    check("os slots 3 e 4 são constantes em ZERO, e está declarado",
+          all(float(_oh[:, int(e)].abs().max()) == 0.0
+              for e in (CMD.CARREGAR, CMD.BOTAR)),
+          "eles só abrem na F4; a mitigação do normalizador está pré-registrada")
+
+    # --- O ONE-HOT É POR PASSO. É o pré-requisito da F4, e prova-se sem F4. ---
+    #
+    # ⚠ `observation_manager.compute()` devolve CACHE (`observation_manager.py:311`).
+    # Sem `update_history=True` este teste leria o buffer do passo anterior e passaria
+    # com o código errado — foi o que aconteceu na primeira tentativa.
+    _antes = _env3.observation_manager.compute(
+        update_history=True)["actor"][:, -OB_.N_SLOTS:].argmax(-1).clone()
+    _env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO] = float(CMD.BOTAR)
+    _depois = _env3.observation_manager.compute(
+        update_history=True)["actor"][:, -OB_.N_SLOTS:].argmax(-1)
+    check("escrever o canal do elo muda o one-hot NO PASSO SEGUINTE, sem reset",
+          bool((_depois == CMD.BOTAR).all()) and bool((_antes != CMD.BOTAR).any()),
+          "é o mecanismo que a F4 usa para trocar de elo dentro do episódio")
+
+    # o twist zerado nos elos parados
+    _tw3 = _env3.command_manager.get_term("twist")
+    _parados = _t3.isin(_elo3, _t3.tensor(
+        _cfg3.commands["alvo_caixa"].elos_parados))
+    check("o twist é ZERO nos elos parados",
+          not bool(_parados.any())
+          or float(_tw3.vel_command_b[_parados].abs().max()) == 0.0)
+    check("e NÃO é zero nos que andam",
+          float(_tw3.vel_command_b[~_parados].abs().max()) > 0.0)
+    del _env3
+except Exception as _e3:      # noqa: BLE001
+    _falhas.append(f"a F2 não pôde ser exercitada: {type(_e3).__name__}: {_e3}")
+
+# --- a DISTRIBUIÇÃO do sorteio, sem simulador ---
+# ⚠ Aqui não há física: `sorteia_elo` é código de tensor. Testar a distribuição com
+# 20.000 amostras torna o teste determinístico na prática, em vez de flaky com 128
+# envs — e testa o que realmente importa, que é a proporção, não um sorteio.
+import types  # noqa: E402
+
+from g1_limpo import curriculo as CU2      # noqa: E402
+
+_falso = types.SimpleNamespace(num_envs=20_000, device="cpu")
+_ids = __import__("torch").arange(20_000)
+_fatia = CU2.sorteia_elo(_falso, _ids, elo_loco=CMD.ANDAR,
+                         elos_manip=ELOS_SORTEAVEIS,
+                         fatia_loco=k.forma.fatia_loco, forcado=None)
+_buf = _falso.limpo_elo
+_cont = {e: int((_buf == e).sum()) for e in range(5)}
+check("a fatia de locomoção sai como o knob pede (±0,01 em 20.000)",
+      abs(_fatia - k.forma.fatia_loco) < 0.01, f"{_fatia:.4f}")
+check("os dois elos sorteáveis aparecem, e em proporção IGUAL entre si",
+      all(_cont[int(e)] > 0 for e in ELOS_SORTEAVEIS)
+      and abs(_cont[int(ELOS_SORTEAVEIS[0])] - _cont[int(ELOS_SORTEAVEIS[1])])
+      < 0.25 * sum(_cont[int(e)] for e in ELOS_SORTEAVEIS),
+      str(_cont))
+check("nenhum elo fora do conjunto permitido é sorteado",
+      all(_cont[e] == 0 for e in range(5)
+          if e != CMD.ANDAR and e not in ELOS_SORTEAVEIS),
+      str(_cont))
+check("`forcado` vence o sorteio, e é o que o inspetor usa",
+      CU2.sorteia_elo(_falso, _ids, elo_loco=CMD.ANDAR,
+                      elos_manip=ELOS_SORTEAVEIS, fatia_loco=0.5,
+                      forcado=CMD.BOTAR) == float(CMD.BOTAR)
+      and bool((_falso.limpo_elo == CMD.BOTAR).all()))
+
+# ================================= 17. o PISO DA ESTÁTUA, medido
+secao("17. o preço declarado: quanto uma estátua colhe (F2)")
+# ⚠ Isto SUBSTITUI o critério "um env em PEGAR colhe 0/s dos track_*" do plano. Aquele
+# critério pressupunha o gate, e o gate CAIU (spec §4.2): com o twist em zero, gatear
+# os `track_*` fora removeria a única coisa que paga ficar parado, e o twist zerado já
+# impede andar. O que resta é MEDIR o piso e declará-lo.
+#
+# ⚠ Medir com `inspecao=True` não é atalho: é a única forma de ter uma estátua DE
+# VERDADE. Com ação zero e sem trava o robô DESABA, e a velocidade da queda entra no
+# erro de rastreio — a primeira medição deu 2,14/s por isso, e não por ser o piso.
+try:
+    import torch as _t4
+
+    _piso = {}
+    for _nome4, _elo4 in (("parado", CMD.PEGAR), ("anda", CMD.ANDAR)):
+        _c4 = make_env_cfg(k, inspecao=True, elo=_elo4)
+        _c4.scene.num_envs = 32
+        _e4 = ManagerBasedRlEnv(cfg=_c4, device="cpu")
+        _e4.reset()
+        for _ in range(6):
+            _e4.step(_t4.zeros(_e4.num_envs, _e4.action_manager.total_action_dim))
+        _nm = list(_c4.rewards)
+        _sr = _e4.reward_manager._step_reward
+        _piso[_nome4] = {
+            n: float(_sr[:, _nm.index(n)].mean())
+            for n in ("track_linear_velocity", "track_angular_velocity",
+                      "pose", "upright")}
+        _piso[_nome4]["TOTAL"] = float(_sr.mean(0).sum())
+        del _e4
+
+    _tk = (_piso["parado"]["track_linear_velocity"]
+           + _piso["parado"]["track_angular_velocity"])
+    check("MEDIDO: a estátua num elo parado colhe ~3,8/s dos dois `track_*`",
+          3.4 < _tk < 4.2, f"{_tk:.3f}/s — a spec declara ~4,0")
+    check("e a postura NÃO entra nesse piso: ela é neutra, exatamente 1,0",
+          abs(_piso["parado"]["pose"] - 1.0) < 1e-6,
+          f"{_piso['parado']['pose']:.6f}")
+    check("a estátua num elo que ANDA colhe MENOS (o twist não é zero)",
+          (_piso["anda"]["track_linear_velocity"]
+           + _piso["anda"]["track_angular_velocity"]) < _tk,
+          f"anda={_piso['anda']['TOTAL']:.3f}/s  parado={_piso['parado']['TOTAL']:.3f}/s")
+    check("o piso é PISO, não concorrente: fica abaixo do teto de tarefa da F3",
+          _piso["parado"]["TOTAL"] < 12.5,
+          f"{_piso['parado']['TOTAL']:.3f}/s contra ~12,5/s dos sete incentivos")
+    print(f"  piso parado = {_piso['parado']['TOTAL']:.3f}/s   "
+          f"piso andando = {_piso['anda']['TOTAL']:.3f}/s")
+except Exception as _e4x:      # noqa: BLE001
+    _falhas.append(f"o piso não pôde ser medido: {type(_e4x).__name__}: {_e4x}")
 
 # =============================================================================
 print()
