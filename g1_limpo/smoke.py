@@ -12,6 +12,7 @@ FASES COBERTAS: F0 (esqueleto, cena, física, remoções, contrato de não-impor
 """
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 import sys
 import warnings
@@ -188,8 +189,11 @@ check("UM evento só escreve a pose da mobília",
       str([e for e in cfg.events if "reset" in e]))
 check("o `push_robot` FICA no treino — resistir a empurrão é requisito",
       "push_robot" in cfg.events)
-check("o reset da base tem o range do knob",
-      cfg.events["reset_base"].params["pose_range"] == dict(c.reset_base_manipula))
+check("o reset da base tem o range do knob, e no ANDAR é o de LOCOMOÇÃO",
+      cfg.events["reset_base"].params["pose_range"] == dict(c.reset_base_loco)
+      and make_env_cfg(k, elo=2).events["reset_base"].params["pose_range"]
+      == dict(c.reset_base_manipula),
+      "yaw ±3,14 quando a mobília está a +5 m; ±0,2 quando há com que alinhar")
 
 secao("8. ramo de play")
 check("`randomize_terrain` fora do play",
@@ -230,10 +234,14 @@ for p in _fontes:
 check("nenhum import de código do projeto (fora de paridade.py)",
       not _viola, "; ".join(_viola))
 
-# ------------------------------------------------------- 11. recompensa da F0
-secao("11. recompensa (na F0 é a do fabricante, sem mudança)")
-check("a tabela é a mesma do molde",
-      set(cfg.rewards) == set(fab.rewards),
+# ------------------------------------------------------- 11. recompensa da F1
+secao("11. recompensa (a tabela do molde, mais DOIS termos)")
+# ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
+# `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
+# em que a F3 adicionar os sete incentivos; nomear a diferença não.
+check("a tabela divergE do molde em EXATAMENTE dois termos, e são estes",
+      set(cfg.rewards) - set(fab.rewards) == {"terminacao", "joint_acc"}
+      and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))
 check("`air_time` está em 0,0 — os DOIS módulos de referência o tinham desligado",
       cfg.rewards["air_time"].weight == 0.0)
@@ -253,8 +261,9 @@ check("os 5 elos existem, e a numeração é a dos slots do one-hot",
       == (0, 1, 2, 3, 4) and len(CMD.ELOS) == 5)
 check("`elo_por_nome` resolve os cinco nomes",
       [CMD.elo_por_nome(x) for x in CMD.ELOS] == [0, 1, 2, 3, 4])
-check("o elo default do treino é o PEGAR",
-      cfg.commands["alvo_caixa"].elo_forcado == CMD.PEGAR)
+check("o elo default do treino é o ANDAR — a F1 é locomoção PURA",
+      cfg.commands["alvo_caixa"].elo_forcado == CMD.ANDAR,
+      "a fatia da locomoção é 100% na F1; a F3 troca para PEGAR")
 check("o raio de alcance de referência foi DERIVADO do envelope da Lift",
       abs(CMD.ALCANCE_R - 0.85) < 1e-9,
       "0,50 estava errado: era o box_xy do 19%, não um raio de alcance")
@@ -370,7 +379,10 @@ try:
 
     _kk = Knobs()
     _kk.nivel.forcado = 3
-    _cfg = make_env_cfg(_kk, inspecao=True)
+    # ⚠ `elo=PEGAR` EXPLÍCITO. O default do módulo é o `ANDAR` desde a F1, e no
+    # `ANDAR` o desenho é OUTRO (a seta do twist, e uma esfera cinza dizendo que não
+    # há alvo de caixa). Este bloco testa o desenho do ALVO, portanto ele pede o elo.
+    _cfg = make_env_cfg(_kk, inspecao=True, elo=CMD.PEGAR)
     _cfg.scene.num_envs = 2
     _env = ManagerBasedRlEnv(cfg=_cfg, device="cpu")
     _env.reset()
@@ -412,13 +424,200 @@ try:
     check("a direção desejada é unitária e HORIZONTAL",
           abs(float(_cmd[:, CMD.FACE].norm(dim=-1).min()) - 1.0) < 1e-4
           and float(_cmd[:, CMD.FACE][:, 2].abs().max()) < 1e-6)
-    check("o objetivo da caixa nasce ATIVO na F0/F1",
+    check("o objetivo da caixa nasce ATIVO no elo de manipulação",
           float(_cmd[:, CMD.VALIDA].min()) == 1.0)
     check("o topo e a massa são publicados pelo evento",
           hasattr(_env, "limpo_topo") and hasattr(_env, "limpo_massa"))
     del _env
 except Exception as _e:      # noqa: BLE001
     _falhas.append(f"o desenho/env não pôde ser exercitado: {type(_e).__name__}: {_e}")
+
+# ================================================ 14. a locomoção da F1
+secao("14. a recompensa, as métricas e a régua de marcha (F1)")
+from g1_limpo import metricas as MT_          # noqa: E402
+from g1_limpo import recompensas as RC_       # noqa: E402
+
+_r = k.recompensa
+check("todo peso da tabela da F1 chegou ao cfg",
+      all(abs(cfg.rewards[n].weight - v) < 1e-12
+          for n, v in dataclasses.asdict(_r).items() if n != "altura_de_balanco"),
+      str({n: cfg.rewards[n].weight for n in dataclasses.asdict(_r)
+           if n != "altura_de_balanco"}))
+check("os DOIS termos novos existem, e são os do módulo que ANDOU",
+      cfg.rewards["terminacao"].weight == -200.0
+      and cfg.rewards["joint_acc"].weight == -2.5e-7)
+check("a `terminacao` NÃO pune o time_out",
+      cfg.rewards["terminacao"].func.__name__ == "is_terminated",
+      "`is_terminated` lê `termination_manager.terminated`, que exclui o time_out")
+check("`scale_rewards_by_dt` está LIGADO, portanto o peso é o valor POR SEGUNDO",
+      cfg.scale_rewards_by_dt is True)
+_dt = cfg.sim.mujoco.timestep * cfg.decimation
+check("o dt é 0,02 s, logo a `terminacao` custa −4,0 e não −200",
+      abs(_dt - 0.02) < 1e-12
+      and abs(cfg.rewards["terminacao"].weight * _dt + 4.0) < 1e-9)
+check("o `air_time` continua em ZERO, e é decisão declarada",
+      cfg.rewards["air_time"].weight == 0.0,
+      "medido: ausente no módulo que andou, 0,0 no que não andou")
+
+# --- o bug do `peak_heights` ---
+check("o `foot_swing_height` é a NOSSA subclasse",
+      cfg.rewards["foot_swing_height"].func is RC_.AlturaDeBalanco)
+check("ela TEM `reset` — sem isso `reward_manager.py:174` nunca a chamaria",
+      callable(getattr(RC_.AlturaDeBalanco, "reset", None)))
+check("o termo DO FABRICANTE não tem `reset` (é o bug que a subclasse conserta)",
+      not hasattr(_fab_swing := fab.rewards["foot_swing_height"].func, "reset"),
+      str(_fab_swing))
+check("o alvo de altura de balanço vem do knobs",
+      cfg.rewards["foot_swing_height"].params["target_height"]
+      == _r.altura_de_balanco)
+
+# --- as métricas ---
+_esperadas = {"momento_angular", "tempo_de_voo", "pico_de_altura",
+              "velocidade_de_escorrego", "forca_de_pouso"}
+check("as cinco métricas de marcha estão no manager de MÉTRICAS",
+      _esperadas <= set(cfg.metrics), str(sorted(cfg.metrics)))
+check("o `mean_action_acc` do molde não foi apagado",
+      "mean_action_acc" in cfg.metrics)
+check("o `SceneEntityCfg` da métrica de escorrego vive em `params`",
+      "asset_cfg" in cfg.metrics["velocidade_de_escorrego"].params,
+      "fora de `params` o mjlab NÃO o resolve (manager_base.py:141) e ela leria "
+      "os 6 sítios do robô em vez dos 2 pés")
+check("o `pico_de_altura` tem `reset` — senão o pico da QUEDA vaza de episódio",
+      callable(getattr(MT_.pico_de_altura, "reset", None)))
+check("os nomes de sensor das métricas existem na cena",
+      {MT_.PES_NO_CHAO, MT_.ALTURA_DO_PE}
+      <= {s.name for s in cfg.scene.sensors})
+
+# --- a régua ---
+_tw = cfg.commands["twist"]
+check("o twist é a NOSSA subclasse, com a `razao_marcha`",
+      type(_tw).__name__ == "TwistComRazaoDeMarchaCfg")
+check("o `build` foi sobrescrito — o mjlab não usa `class_type`",
+      _tw.build.__qualname__.startswith("TwistComRazaoDeMarchaCfg"),
+      "command_manager.py:268 chama cfg.build(env); um `class_type` seria campo morto")
+check("nenhum campo do twist do fabricante se perdeu na reconstrução",
+      all(getattr(_tw, f.name) == getattr(fab.commands["twist"], f.name)
+          for f in dataclasses.fields(fab.commands["twist"])),
+      "rel_standing_envs perdido mudaria 10% dos envs sem uma linha de log")
+check("o limiar de comando ativo vem do knobs", _tw.limiar_comando == k.marcha.limiar_comando)
+check("`ang_vel_z` é a faixa do fabricante", _tw.ranges.ang_vel_z == (-0.5, 0.5))
+
+# --- a ARITMÉTICA da razão, sem simulador ---
+# ⚠ Aritmética pura sobre a MESMA fórmula do termo. Não é substituto de rodar; é o
+# que prova as três propriedades que o portão da F1 usa como critério.
+def _razao(pares) -> float:
+    """pares = [(‖v_cmd‖, ‖v_cmd − v‖), ...] já gateados."""
+    se = sum(e for _, e in pares)
+    sc = sum(c for c, _ in pares)
+    return 1.0 - se / sc if sc > 0 else 0.0
+
+
+check("robô IMÓVEL com comando ativo dá razão 0,0",
+      abs(_razao([(1.0, 1.0), (0.6, 0.6)]) - 0.0) < 1e-12,
+      "erro igual ao comando: numerador iguala denominador")
+check("METADE da velocidade comandada dá exatamente 0,50",
+      abs(_razao([(1.0, 0.5), (2.0, 1.0)]) - 0.50) < 1e-12)
+check("ela é ADIMENSIONAL: 1 de 2 e 0,5 de 1 dão a MESMA razão",
+      abs(_razao([(2.0, 1.0)]) - _razao([(1.0, 0.5)])) < 1e-12,
+      "é isso que a torna imune ao degrau do currículo de comando")
+check("ir ao CONTRÁRIO dá razão NEGATIVA, e ela não é clampeada",
+      _razao([(1.0, 2.0)]) < 0.0,
+      "clampear em 0 esconderia 'parado' de 'indo ao contrário'")
+check("comando abaixo do limiar não entra em soma nenhuma",
+      _razao([]) == 0.0 and k.marcha.limiar_comando > 0.0)
+
+# --- a régua rodando de verdade, no env ---
+try:
+    import torch as _t2
+
+    _cfg2 = make_env_cfg(k)
+    _cfg2.scene.num_envs = 2
+    _env2 = ManagerBasedRlEnv(cfg=_cfg2, device="cpu")
+    _env2.reset()
+    _tw2 = _env2.command_manager.get_term("twist")
+    for _ in range(5):
+        _env2.step(_t2.zeros(_env2.num_envs,
+                             _env2.action_manager.total_action_dim))
+
+    check("as três entradas da régua existem em `self.metrics` do twist",
+          {"soma_erro_marcha", "soma_cmd_marcha", "razao_marcha"}
+          <= set(_tw2.metrics))
+    check("as métricas do fabricante seguem lá",
+          {"error_vel_xy", "error_vel_yaw"} <= set(_tw2.metrics))
+    # ⚠ A BANDA, e não `<= 0`. Um `<= 0` acusa a FÍSICA: em 5 passos (0,1 s) o robô de
+    # ação zero desaba, e a velocidade da queda pode se alinhar por acidente com o
+    # comando — medido +0,024 num env. O invariante real é que sem política NÃO SE
+    # RASTREIA: a razão fica colada no zero, e a aritmética exata das três
+    # propriedades já foi provada acima, sem simulador.
+    check("robô sem política fica colado no zero da régua",
+          float(_tw2.metrics["razao_marcha"].abs().max()) < 0.25,
+          str([round(float(x), 4) for x in _tw2.metrics["razao_marcha"]]))
+    check("o twist ativo alimenta a soma do comando",
+          float(_tw2.metrics["soma_cmd_marcha"].max()) > 0.0)
+
+    # o consumo do `reset`: a média sai, e o buffer zera
+    _ex = _tw2.reset(_t2.arange(_env2.num_envs))
+    check("o `reset` do comando EXPORTA a razão e ZERA a soma",
+          "razao_marcha" in _ex
+          and float(_tw2.metrics["soma_cmd_marcha"].abs().max()) == 0.0)
+
+    # o elo de LOCOMOÇÃO PURA
+    _c2 = _env2.command_manager.get_command("alvo_caixa")
+    check("na F1 o objetivo da caixa nasce INATIVO (valida = 0)",
+          float(_c2[:, CMD.VALIDA].max()) == 0.0)
+    check("na F1 a mobília está afastada em +5 m",
+          float(_env2.scene["table"].data.root_link_pos_w[:, 2].min()) > 4.0,
+          str(_env2.scene["table"].data.root_link_pos_w[:, 2].tolist()))
+    check("o reset da base usa o yaw do CÍRCULO INTEIRO no ANDAR",
+          _cfg2.events["reset_base"].params["pose_range"]["yaw"]
+          == c.reset_base_loco["yaw"])
+    del _env2
+except Exception as _e2:      # noqa: BLE001
+    _falhas.append(f"a régua não pôde ser exercitada: {type(_e2).__name__}: {_e2}")
+
+# ============================== 15. as chaves de log são um CONTRATO
+secao("15. as chaves da escada do `leitura.py` batem com quem as produz")
+from g1_limpo import leitura as LE_          # noqa: E402
+
+# ⚠ Uma chave errada na escada NÃO levanta erro: a linha só não aparece, e o bloco
+# roda sem o portão. Foi o que aconteceu no `g1_poc`, cuja escada usa
+# `Policy/mean_noise_std` — chave que o rsl_rl 5.4.0 NÃO escreve.
+import rsl_rl.utils.logger as _rl_logger      # noqa: E402
+_src = pathlib.Path(_rl_logger.__file__).read_text(encoding="utf-8")
+
+check("`Policy/mean_std` é a chave que o rsl_rl escreve de verdade",
+      '"Policy/mean_std"' in _src and LE_.CH_STD == "Policy/mean_std",
+      "a escada do g1_poc usa `Policy/mean_noise_std`, que nunca disparou")
+check("`Train/mean_episode_length` existe no logger",
+      '"Train/mean_episode_length"' in _src
+      and LE_.CH_DURACAO == "Train/mean_episode_length")
+
+# a razão de marcha: `CommandManager.reset` prefixa `Metrics/<termo>/<metrica>`
+check("a chave da `razao_marcha` casa com o prefixo do CommandManager",
+      LE_.CH_RAZAO == "Metrics/twist/razao_marcha"
+      and "twist" in cfg.commands,
+      "command_manager.py:246 escreve Metrics/{nome_do_termo}/{metrica}")
+
+# as métricas: `MetricsManager.reset` prefixa `Episode_Metrics/<chave>`
+for _ch in (LE_.CH_VOO, LE_.CH_PICO, LE_.CH_ESCORREGO, LE_.CH_POUSO):
+    _nome = _ch.split("/", 1)[1]
+    check(f"`{_ch}` tem produtor no manager de métricas",
+          _ch.startswith("Episode_Metrics/") and _nome in cfg.metrics,
+          str(sorted(cfg.metrics)))
+
+check("a chave do nível casa com o prefixo do CurriculumManager",
+      LE_.CH_NIVEL == "Curriculum/nivel" and "nivel" in cfg.curriculum,
+      "curriculum_manager.py:107 escreve Curriculum/{nome} para estado escalar")
+
+check("a escada tem as quatro linhas da F1, e a do andar é a `razao_marcha`",
+      len(LE_.ESCADA) == 4
+      and any(ch == LE_.CH_RAZAO and alvo == 0.50
+              for _, ch, _, alvo, _ in LE_.ESCADA))
+check("as constantes de tempo do `leitura` batem com o cfg",
+      abs(LE_.DT - cfg.sim.mujoco.timestep * cfg.decimation) < 1e-12
+      and abs(LE_.MAX_EP_S - cfg.episode_length_s) < 1e-12,
+      f"leitura DT={LE_.DT} MAX={LE_.MAX_EP_S}")
+check("o autoteste da diluição do `leitura` passa", LE_._demo() == 0)
 
 # =============================================================================
 print()
