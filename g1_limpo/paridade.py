@@ -95,13 +95,41 @@ print("PARIDADE — g1_limpo contra g1_training / g1_poc")
 print("=" * 78)
 
 # --------------------------------------------------------------- 1. a caixa
-print("\n1. a caixa (corpo livre)")
-compara_modelos(
-    "caixa",
-    C.regroup(C.spec_caixa(c), c.grupo_mobilia),
-    _regroup_ref := (lambda s, g: ([setattr(x, "group", g) for x in s.geoms], s)[1])(
-        get_box_spec(c.caixa_meia_aresta, c.caixa_massa), c.grupo_mobilia),
-)
+print("\n1. a caixa (corpo livre) — com a DIVERGÊNCIA DELIBERADA do marcador")
+#
+# ⚠ A nossa caixa tem UM GEOM A MAIS que a referência: a placa visual da face alvo,
+# sem a qual a inspeção do `reorientar` seria cega (um cubo uniforme girado 90° é
+# visualmente idêntico ao original).
+#
+# Portanto a comparação NÃO é geom a geom. Ela é:
+#   (a) a FÍSICA do corpo — massa e inércia — tem de ser BIT-IDÊNTICA
+#   (b) o geom de COLISÃO (índice 0) tem de ser idêntico ao da referência
+#   (c) o marcador tem de ser PROVADAMENTE inerte: contype = conaffinity = 0
+#
+# É assim que uma divergência deliberada se declara: delimitada, e com o limite
+# afirmado por teste.
+_regroup = (lambda s, g: ([setattr(x, "group", g) for x in s.geoms], s)[1])
+m_nossa = modelo(C.regroup(C.spec_caixa(c), c.grupo_mobilia))
+m_ref = modelo(_regroup(get_box_spec(c.caixa_meia_aresta, c.caixa_massa),
+                        c.grupo_mobilia))
+
+# (a) a física
+cmp("caixa.body_mass", m_nossa.body_mass, m_ref.body_mass)
+cmp("caixa.body_inertia", m_nossa.body_inertia, m_ref.body_inertia)
+cmp("caixa.nq", [m_nossa.nq], [m_ref.nq])
+
+# (b) o geom de colisão
+for campo in ("geom_size", "geom_pos", "geom_friction", "geom_condim",
+              "geom_group", "geom_type"):
+    a_ = getattr(m_nossa, campo)
+    b_ = getattr(m_ref, campo)
+    cmp(f"caixa.colisao.{campo}", a_[0], b_[0], tol=1e-12)
+
+# (c) o marcador é inerte
+cmp("caixa.marcador.existe", [m_nossa.ngeom], [2])
+cmp("caixa.marcador.contype_zero", [int(m_nossa.geom_contype[1])], [0])
+cmp("caixa.marcador.conaffinity_zero", [int(m_nossa.geom_conaffinity[1])], [0])
+cmp("caixa.referencia.tem_um_geom_so", [m_ref.ngeom], [1])
 
 # ---------------------------------------------------------- 2. a prateleira
 print("2. a prateleira (fixa -> mocap)")

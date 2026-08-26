@@ -96,6 +96,12 @@ def _medidas(env) -> dict:
         # componente LATERAL do alvo no frame do robô: 0 = exatamente à frente
         "lateral": _lateral(env).clone(),
         "twist": tw.clone(),
+        "voltas": (env.limpo_voltas.clone() if hasattr(env, "limpo_voltas")
+                   else torch.zeros_like(rb[:, 0])),
+        # o AZIMUTE da caixa: quanto a direção desejada (caixa->robô) foge do eixo
+        # -x do mundo. Ele ENTRA no erro angular, e não é knob — é geometria.
+        "azimute": torch.rad2deg(torch.acos(
+            (-cmd[:, CMD.FACE][:, 0]).clamp(-1.0, 1.0))).clone(),
     }
 
 
@@ -121,9 +127,26 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
     if float((m["robo_z"] - 0.80).abs().max()) > 5e-3:
         f.append(f"o robô saiu da pose travada: "
                  f"{float((m['robo_z'] - 0.80).abs().max()):.4f} m de 0,80")
-    if float(m["ang_deg"].abs().max()) > n.ang_max_deg[niv] + 1e-3:
-        f.append(f"ângulo além da célula: {float(m['ang_deg'].abs().max()):.1f}° > "
-                 f"{n.ang_max_deg[niv]}°")
+    # ⚠ `ang_deg` é o ERRO angular da face marcada, e não um pedido. O teto tem TRÊS
+    # parcelas, e eu tinha esquecido a terceira:
+    #
+    #     voltas × 90°   o quarto de volta da orientação de nascimento
+    #   + desalinho      o residual da célula
+    #   + AZIMUTE        quanto a direção caixa->robô foge do eixo -x do mundo
+    #
+    # O azimute NÃO é knob, é geometria: a caixa nasce em y até ±0,18 com x ≈ 0,32,
+    # portanto ele chega a `atan(0,18/0,32) = 29°`. Sem ele o check acusava o nível 0
+    # com 25° contra um teto de 15°.
+    #
+    # O teto é POR ENV, com o azimute medido de cada um.
+    teto = (m["voltas"] * 90.0 + n.desalinho_max_deg[niv] + m["azimute"])
+    excesso = m["ang_deg"] - teto
+    if float(excesso.max()) > 1.0:
+        i = int(excesso.argmax())
+        f.append(f"erro angular além do que a célula pode gerar, env {i}: "
+                 f"{float(m['ang_deg'][i]):.1f}° > {float(teto[i]):.1f}° "
+                 f"({float(m['voltas'][i]):.0f}×90 + {n.desalinho_max_deg[niv]:.0f} + "
+                 f"azimute {float(m['azimute'][i]):.1f})")
     if float(m["massa"].max()) > n.carga_max[niv] + 1e-6:
         f.append(f"carga além da célula: {float(m['massa'].max()):.2f} kg")
 
@@ -148,9 +171,10 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
                      f"{float(m['caixa_alvo'].max()):.4f} m")
         if float((topo - m["caixa"][:, 2] + meia_cx).abs().max()) > 5e-3:
             f.append("a caixa não está apoiada na laje")
-        if n.ang_max_deg[niv] == 0.0:
-            f.append(f"no nível {niv} o `reorientar` pede 0° — o elo é trivial aqui "
-                     f"(informativo, não defeito)")
+        if float(m["ang_deg"].max()) < 1.0:
+            f.append(f"no nível {niv} o erro angular máximo é "
+                     f"{float(m['ang_deg'].max()):.1f}° — o `reorientar` é trivial "
+                     f"aqui (informativo, não defeito)")
 
     if elo in (CMD.PEGAR, CMD.CARREGAR):
         # ⚠ Os dois pedem EXATAMENTE o mesmo alvo. O que difere é o twist.
@@ -201,9 +225,14 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
         # ⚠ ELEMENTO A ELEMENTO. Comparar `topo.max()` de um env contra
         # `(fundo−folga).min()` de OUTRO acusa violação onde não há: os dois vêm de
         # envs diferentes. O clamp é por env, e o check tem de ser também.
+        # ⚠ TOLERÂNCIA DERIVADA. O clamp roda na passada de pose (passo 1) e a leitura
+        # é no passo 2; entre os dois a caixa cai `½·g·dt² = 2,0 mm` antes de ser
+        # re-pinada. Medido: 1 mm de violação residual. Um limiar de 0,1 mm acusava a
+        # própria gravidade, e o que este check existe para pegar é violação GROSSA —
+        # o defeito antigo punha a laje meio metro dentro da caixa.
         fundo = m["caixa"][:, 2] - meia_cx
         viola = topo - (fundo - a.botar_folga_laje)
-        if float(viola.max()) > 1e-4:
+        if float(viola.max()) > 5e-3:
             i = int(viola.argmax())
             f.append(f"a laje nasceu DENTRO da caixa no env {i}: topo "
                      f"{float(topo[i]):.3f} > fundo−folga "
@@ -237,7 +266,7 @@ def tabela(args) -> int:
     print("=" * 118)
     cab = (f"{'elo':>11} {'niv':>3} {'valida':>6} {'topo laje':>13} "
            f"{'caixa z':>13} {'alvo z':>13} {'caixa->alvo':>13} "
-           f"{'pelve->alvo':>13} {'ang graus':>12}")
+           f"{'pelve->alvo':>13} {'voltas':>7} {'azimute':>13} {'erro graus':>13}")
     print(cab)
     print("-" * len(cab))
 
@@ -249,7 +278,7 @@ def tabela(args) -> int:
               f"{float(m['valida'][0]):>6.0f} {fx(m['topo_laje'] + k.cena.prateleira_meia_z):>13} "
               f"{fx(m['caixa'][:, 2]):>13} {fx(m['alvo'][:, 2]):>13} "
               f"{fx(m['caixa_alvo']):>13} {fx(m['pelve_alvo']):>13} "
-              f"{float(m['ang_deg'].min()):+.0f}..{float(m['ang_deg'].max()):+.0f}".rjust(0))
+              f"{fx(m['voltas']):>7} {fx(m['azimute']):>13} {fx(m['ang_deg']):>13}")
         if elo == CMD.ANDAR:
             print(f"{'':>11}     twist vx,vy,wz = {fx(m['twist'][:, 0])} , "
                   f"{fx(m['twist'][:, 1])} , {fx(m['twist'][:, 2])}"

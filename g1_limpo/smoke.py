@@ -103,15 +103,19 @@ check("a laje é FINA, não paredão",
 # --------------------------------------------------------------- 3. nível/células
 secao("3. tabela de níveis")
 n = k.nivel
-check("as três colunas têm o mesmo comprimento",
-      len(n.topo_min) == len(n.carga_max) == len(n.ang_max_deg) == n.n_niveis)
+check("todas as colunas da tabela têm o mesmo comprimento",
+      len(n.topo_min) == len(n.carga_max) == len(n.jitter_x_max)
+      == len(n.voltas_max) == len(n.eixo_vertical) == len(n.desalinho_max_deg)
+      == n.n_niveis)
 check("o piso do topo só DESCE (cada nível contém o anterior)",
       all(n.topo_min[i + 1] <= n.topo_min[i] for i in range(n.n_niveis - 1)),
       str(n.topo_min))
 check("o teto da carga só SOBE",
       all(n.carga_max[i + 1] >= n.carga_max[i] for i in range(n.n_niveis - 1)))
-check("o teto do ângulo só SOBE",
-      all(n.ang_max_deg[i + 1] >= n.ang_max_deg[i] for i in range(n.n_niveis - 1)))
+check("o teto de voltas só SOBE, e o eixo vertical só LIGA",
+      all(n.voltas_max[i + 1] >= n.voltas_max[i] for i in range(n.n_niveis - 1))
+      and all(int(n.eixo_vertical[i + 1]) >= int(n.eixo_vertical[i])
+              for i in range(n.n_niveis - 1)))
 check("o topo mais baixo do currículo nunca ENTERRA a laje",
       min(n.topo_min) - 2.0 * c.prateleira_meia_z >= -1e-12,
       f"o nível 6 do g1_multitask enterrava a laje em −0,02 m; aqui o fundo "
@@ -254,11 +258,25 @@ check("o elo default do treino é o PEGAR",
 check("o raio de alcance de referência foi DERIVADO do envelope da Lift",
       abs(CMD.ALCANCE_R - 0.85) < 1e-9,
       "0,50 estava errado: era o box_xy do 19%, não um raio de alcance")
-check("só as 4 faces LATERAIS servem para pegar", CMD.N_LATERAIS == 4,
-      "ninguém agarra uma caixa pelo topo nem pelo fundo")
 check("há 6 faces declaradas", len(CMD.FACE_AXES) == 6)
-check("as 4 primeiras faces são as laterais (z = 0)",
-      all(ax[2] == 0.0 for ax in CMD.FACE_AXES[:CMD.N_LATERAIS]))
+check("a face pedida é CONSTANTE, e é a marcada",
+      cfg.commands["alvo_caixa"].face_alvo_b == k.cena.face_alvo_b,
+      "a dificuldade está na orientação de NASCIMENTO, não em qual face se pede")
+check("o eixo do `reorientar` é em QUARTOS DE VOLTA, não em graus",
+      not hasattr(k.nivel, "ang_max_deg")
+      and tuple(k.nivel.voltas_max) == (0, 0, 1, 1, 1, 1, 1))
+check("o teto de voltas é UM: a face nunca nasce do lado OPOSTO",
+      max(k.nivel.voltas_max) == 1,
+      "o robô só precisa aprender a girar no máximo 90°")
+check("o eixo VERTICAL entra depois do horizontal",
+      tuple(k.nivel.eixo_vertical) == (False, False, False, False, True, True, True),
+      "girar em Z é pivotar na laje; girar em Y é TOMBAR, e é muito mais difícil")
+check("o desalinho do nível 0 é 15-20°, e não zero",
+      15.0 <= k.nivel.desalinho_max_deg[0] <= 20.0,
+      "com zero o `reorientar` ficava satisfeito em t = 0 em 3 dos 7 níveis")
+check("as voltas só CRESCEM com o nível (cada nível contém o anterior)",
+      all(k.nivel.voltas_max[i + 1] >= k.nivel.voltas_max[i]
+          for i in range(k.nivel.n_niveis - 1)))
 check("o `pegar` e o `carregar` pedem EXATAMENTE o mesmo alvo",
       cfg.commands["alvo_caixa"].peito_b == k.alvo.peito_b
       and cfg.commands["alvo_caixa"].altura_carregar == k.alvo.altura_carregar,
@@ -365,8 +383,15 @@ try:
 
     check("desenha os EIXOS da caixa (1 por env)", _v.frames == 2, f"{_v.frames}")
     check("desenha a esfera do ALVO e a do ALCANCE", _v.spheres == 4, f"{_v.spheres}")
-    check("desenha 3 setas por env (face, erguer, pelve->alvo)",
-          _v.arrows == 6, f"{_v.arrows}")
+    check("desenha 4 setas por env: normal da face MARCADA, direção DESEJADA, "
+          "caixa->alvo e pelve->alvo",
+          _v.arrows == 8, f"{_v.arrows}")
+    check("o desenho separa 'aponta aqui' de 'DEVE apontar aqui'",
+          any("MARCADA aponta" in x for x in _v.labels)
+          and any("DEVE apontar" in x for x in _v.labels),
+          "sem os dois vetores não dá para ver o erro de orientação no viewer")
+    check("o rótulo do erro cita os quartos de volta",
+          any("quarto(s) de volta" in x for x in _v.labels))
     check("desenha o TOPO da laje", _v.boxes == 2, f"{_v.boxes}")
     check("os rótulos citam a face, o alvo, e o deslocamento até ele",
           any("face" in x for x in _v.labels)
@@ -381,10 +406,12 @@ try:
     _cmd = _env.command_manager.get_command("alvo_caixa")
     check("o nível forçado chega ao buffer do env",
           int(_env.limpo_nivel[0]) == 3, str(_env.limpo_nivel.tolist()))
-    check("o ângulo respeita a célula do nível forçado",
-          float(_t.rad2deg(_cmd[:, CMD.ANG]).abs().max()) <= _kk.nivel.ang_max_deg[3] + 1e-3)
-    check("a normal da face é unitária",
-          abs(float(_cmd[:, CMD.FACE].norm(dim=-1).min()) - 1.0) < 1e-4)
+    check("o ANG publicado é o ERRO angular, em [0, 180]",
+          0.0 <= float(_t.rad2deg(_cmd[:, CMD.ANG]).min())
+          and float(_t.rad2deg(_cmd[:, CMD.ANG]).max()) <= 180.0 + 1e-3)
+    check("a direção desejada é unitária e HORIZONTAL",
+          abs(float(_cmd[:, CMD.FACE].norm(dim=-1).min()) - 1.0) < 1e-4
+          and float(_cmd[:, CMD.FACE][:, 2].abs().max()) < 1e-6)
     check("o objetivo da caixa nasce ATIVO na F0/F1",
           float(_cmd[:, CMD.VALIDA].min()) == 1.0)
     check("o topo e a massa são publicados pelo evento",
