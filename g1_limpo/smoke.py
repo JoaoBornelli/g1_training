@@ -12,6 +12,7 @@ FASES COBERTAS: F0 (esqueleto, cena, física, remoções, contrato de não-impor
 """
 from __future__ import annotations
 
+import math
 import dataclasses
 import pathlib
 import sys
@@ -241,10 +242,16 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
-check("a tabela divergE do molde em EXATAMENTE dois termos, e são estes",
-      set(cfg.rewards) - set(fab.rewards) == {"terminacao", "joint_acc"}
+# ⚠ NOVE termos a mais que o molde: dois da F1 (locomoção) e os sete da F3 (tarefa).
+# O teste os NOMEIA em vez de contar — contar deixaria de pegar um termo esquecido.
+_NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
+           "squeeze", "unload", "postura_ereta", "sustentacao"}
+check("a tabela divergE do molde em exatamente NOVE termos, e são estes",
+      set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))
+check("nenhum termo do MOLDE foi removido",
+      set(fab.rewards) <= set(cfg.rewards))
 check("`air_time` está em 0,0 — os DOIS módulos de referência o tinham desligado",
       cfg.rewards["air_time"].weight == 0.0)
 check("`dof_pos_limits` é −1,0, o valor do fabricante",
@@ -647,12 +654,19 @@ fab_obs = {g: list(fab.observations[g].terms) for g in ("actor", "critic")}
 nossa_obs = {g: list(cfg.observations[g].terms) for g in ("actor", "critic")}
 check("o one-hot entra nos DOIS grupos",
       all("elo" in nossa_obs[g] for g in ("actor", "critic")))
-check("ele é o ÚLTIMO termo dos dois, e é o contrato do APPEND",
-      all(nossa_obs[g][-1] == "elo" for g in ("actor", "critic")),
-      "inserir no meio desloca todo peso da 1ª camada em silêncio")
-check("nada mais mudou na observação",
-      all(nossa_obs[g][:-1] == fab_obs[g] for g in ("actor", "critic")),
-      str({g: set(nossa_obs[g]) ^ set(fab_obs[g]) for g in nossa_obs}))
+# ⚠ O CONTRATO DO APPEND, e ele e' o invariante que sobrevive as fases: os termos do
+# FABRICANTE vem primeiro, na ordem dele, e os NOSSOS depois, na ordem em que as fases
+# os adicionaram. Checar "o one-hot e' o ultimo" quebrou na F3, quando os canais da
+# caixa entraram depois dele -- e quebraria de novo na F4.
+_NOSSA_OBS = ["elo", "caixa"]
+check("os termos do FABRICANTE vêm primeiro, na ordem dele",
+      all(nossa_obs[g][:len(fab_obs[g])] == fab_obs[g]
+          for g in ("actor", "critic")),
+      str({g: nossa_obs[g] for g in nossa_obs}))
+check("os NOSSOS vêm depois, na ordem das fases, e nos dois grupos",
+      all(nossa_obs[g][len(fab_obs[g]):] == _NOSSA_OBS
+          for g in ("actor", "critic")),
+      "append de colunas; inserir no meio desloca todo peso da 1ª camada em silêncio")
 check("o one-hot não tem ruído nem escala",
       all(cfg.observations[g].terms["elo"].noise is None
           and cfg.observations[g].terms["elo"].scale is None
@@ -790,7 +804,11 @@ try:
                             _t3.tensor([CMD.CARREGAR, CMD.BOTAR])).any()))
 
     # o one-hot, por passo, e a soma
-    _oh = _env3.observation_manager.compute()["actor"][:, -OB_.N_SLOTS:]
+    # ⚠ O one-hot NÃO está mais no fim do vetor: os 8 canais da caixa vieram depois
+    # dele na F3. Fatiar com `[-N_SLOTS:]` leria os últimos 5 canais da CAIXA e o teste
+    # passaria medindo a coisa errada. O offset é calculado, não digitado.
+    _FAT_OH = slice(-(OB_.N_SLOTS + OB_.N_CAIXA), -OB_.N_CAIXA)
+    _oh = _env3.observation_manager.compute()["actor"][:, _FAT_OH]
     check("o one-hot soma 1,0 em toda linha",
           float((_oh.sum(-1) - 1.0).abs().max()) < 1e-6)
     check("o slot aceso é o elo do env",
@@ -806,10 +824,10 @@ try:
     # Sem `update_history=True` este teste leria o buffer do passo anterior e passaria
     # com o código errado — foi o que aconteceu na primeira tentativa.
     _antes = _env3.observation_manager.compute(
-        update_history=True)["actor"][:, -OB_.N_SLOTS:].argmax(-1).clone()
+        update_history=True)["actor"][:, _FAT_OH].argmax(-1).clone()
     _env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO] = float(CMD.BOTAR)
     _depois = _env3.observation_manager.compute(
-        update_history=True)["actor"][:, -OB_.N_SLOTS:].argmax(-1)
+        update_history=True)["actor"][:, _FAT_OH].argmax(-1)
     check("escrever o canal do elo muda o one-hot NO PASSO SEGUINTE, sem reset",
           bool((_depois == CMD.BOTAR).all()) and bool((_antes != CMD.BOTAR).any()),
           "é o mecanismo que a F4 usa para trocar de elo dentro do episódio")
@@ -907,6 +925,222 @@ try:
           f"piso andando = {_piso['anda']['TOTAL']:.3f}/s")
 except Exception as _e4x:      # noqa: BLE001
     _falhas.append(f"o piso não pôde ser medido: {type(_e4x).__name__}: {_e4x}")
+
+# =============================== 18. os sete incentivos da manipulação (F3)
+secao("18. os sete incentivos (F3)")
+SETE = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
+        "postura_ereta", "sustentacao")
+tr = k.tarefa
+
+check("os sete termos existem, e são os do plano",
+      all(n in cfg.rewards for n in SETE), str([n for n in SETE
+                                                if n not in cfg.rewards]))
+check("TODOS os pesos são POSITIVOS — nenhuma penalidade na tarefa (R3)",
+      all(cfg.rewards[n].weight > 0.0 for n in SETE),
+      str({n: cfg.rewards[n].weight for n in SETE}))
+check("a soma dos pesos é 11,5/s",
+      abs(sum(cfg.rewards[n].weight for n in SETE) - 11.5) < 1e-9)
+check("o `staged` é o maior — é o único com gradiente na pose de repouso",
+      cfg.rewards["staged"].weight == max(cfg.rewards[n].weight for n in SETE))
+check("o `precise_pos` é o ÚNICO com σ fixo, e ele é a tolerância de ACEITE",
+      cfg.rewards["precise_pos"].params["sigma"] == tr.precise_pos_sigma
+      and "sigma" not in cfg.rewards["staged"].params,
+      "quem faz a rampa de aproximação é o `staged`, com σ por env")
+check("o `sustentacao` tem `reset` — senão o tempo vaza de episódio",
+      callable(getattr(RC_.sustentacao, "reset", None)))
+check("o `squeeze` usa os sensores de PALMA, que têm o campo `force`",
+      tuple(cfg.rewards["squeeze"].params["sensores"]) == tuple(C.SENSOR_PALMA)
+      and all("force" in por_nome[n].fields for n in C.SENSOR_PALMA))
+check("o `unload` usa o sensor de APOIO, que tem `force`",
+      cfg.rewards["unload"].params["sensor_apoio"] == C.SENSOR_APOIO
+      and "force" in por_nome[C.SENSOR_APOIO].fields)
+check("a tolerância angular do sustain chega em RADIANOS",
+      abs(cfg.rewards["sustentacao"].params["tol_ang"]
+          - math.radians(tr.tol_ang_deg)) < 1e-12)
+
+# --- a observação cresceu pelo contrato do APPEND ---
+check("os canais da caixa entram DEPOIS do one-hot, nos dois grupos",
+      all(list(cfg.observations[g].terms)[-2:] == ["elo", "caixa"]
+          for g in ("actor", "critic")),
+      str(list(cfg.observations["actor"].terms)))
+
+# --- O σ. É o item de maior risco da F3, e ele se mede. ---
+try:
+    import torch as _t5
+
+    _c5 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c5.scene.num_envs = 48
+    _e5 = ManagerBasedRlEnv(cfg=_c5, device="cpu")
+    _e5.reset()
+    _e5.step(_t5.zeros(_e5.num_envs, _e5.action_manager.total_action_dim))
+    _t5c = _e5.command_manager.get_term("alvo_caixa")
+    _ids5 = _t5.arange(_e5.num_envs)
+    _d5 = _t5c.dist_palma_caixa(_ids5)
+    _s5 = _t5c.sigma_alcance
+    _ker = _t5.exp(-(_d5 / _s5) ** 2)
+
+    check("o σ NÃO é constante — cada env tem o seu",
+          float(_s5.std()) > 0.01, f"std={float(_s5.std()):.4f}")
+    check("o σ É a distância inicial daquele env",
+          float((_s5 - _d5).abs().max()) < 5e-3,
+          f"pior desvio {float((_s5-_d5).abs().max()):.4f} m")
+    # ⚠ O NÚMERO QUE DECIDE A F3. Com σ fixo de 0,10 isto valeria 1e−05.
+    #
+    # ⚠ A BANDA É DERIVADA, e não escolhida. O σ é fixado no passo do `_pendente`, e a
+    # caixa continua assentando depois disso — o check acima tolera 5 mm de deriva. No
+    # env de σ mínimo (0,08 m) 5 mm são 6,25% de razão, logo o kernel varia entre
+    # `exp(−1,0625²)` e `exp(−0,9375²)`, isto é [0,323; 0,415]. Uma tolerância de
+    # ±0,02 é MAIS APERTADA que isso e acusa o assentamento da caixa, não o desenho.
+    _lo = math.exp(-(1.0 + 5e-3 / k.tarefa.sigma_min) ** 2)
+    _hi = math.exp(-(1.0 - 5e-3 / k.tarefa.sigma_min) ** 2)
+    check("o kernel de alcance vale exp(−1) = 0,368 no passo em que o elo abre, "
+          "em TODOS os envs",
+          _lo - 1e-3 <= float(_ker.min()) and float(_ker.max()) <= _hi + 1e-3,
+          f"min {float(_ker.min()):.4f} max {float(_ker.max()):.4f}, "
+          f"banda derivada [{_lo:.3f}; {_hi:.3f}]")
+    check("a derivada do kernel no repouso é > 1,0 até no env mais distante",
+          float((2.0 * _d5 / _s5 ** 2 * _ker).min()) > 1.0,
+          f"min {float((2.0*_d5/_s5**2*_ker).min()):.3f} por metro")
+    check("a distância é até a SUPERFÍCIE da caixa, não o centro",
+          float(_d5.max()) < 0.45,
+          "ao centro o mínimo alcançável é 0,191 m e o kernel saturava em 0,674")
+    check("o σ de orientação tem piso, e ele é em RADIANOS",
+          float(_t5c.sigma_ori.min()) >= _c5.commands["alvo_caixa"].sigma_ori_min
+          - 1e-9)
+    del _e5
+except Exception as _e5x:      # noqa: BLE001
+    _falhas.append(f"o σ não pôde ser medido: {type(_e5x).__name__}: {_e5x}")
+
+# --- os sete valem ZERO no ANDAR, e o gate é o que garante isso ---
+try:
+    import torch as _t6
+
+    _vals = {}
+    for _rot, _elo6 in (("andar", CMD.ANDAR), ("pegar", CMD.PEGAR)):
+        _c6 = make_env_cfg(k, inspecao=True, elo=_elo6)
+        _c6.scene.num_envs = 16
+        _e6 = ManagerBasedRlEnv(cfg=_c6, device="cpu")
+        _e6.reset()
+        for _ in range(5):
+            _e6.step(_t6.zeros(_e6.num_envs,
+                               _e6.action_manager.total_action_dim))
+        _nm6 = list(_c6.rewards)
+        _sr6 = _e6.reward_manager._step_reward
+        _vals[_rot] = {n: float(_sr6[:, _nm6.index(n)].mean()) for n in SETE}
+        _vals[_rot]["TOTAL"] = float(_sr6.mean(0).sum())
+        del _e6
+
+    check("os SETE valem exatamente 0 num env de ANDAR",
+          all(abs(_vals["andar"][n]) < 1e-9 for n in SETE),
+          str({n: round(_vals['andar'][n], 5) for n in SETE}))
+    check("sem o gate eles pagariam o máximo: `exp(0) = 1` com a caixa zerada",
+          abs(_vals["andar"]["staged"]) < 1e-9)
+    check("num elo de manipulação o `staged` paga, e é o motor da fase inicial",
+          _vals["pegar"]["staged"] > 1.0, f"{_vals['pegar']['staged']:.3f}")
+    check("`squeeze` e `sustentacao` valem 0 sem contato e sem chegar ao alvo",
+          abs(_vals["pegar"]["squeeze"]) < 1e-6
+          and abs(_vals["pegar"]["sustentacao"]) < 1e-6)
+    check("`postura_ereta` é ZERO sem preensão — ela é MULTIPLICADA, não somada",
+          abs(_vals["pegar"]["postura_ereta"]) < 1e-6,
+          "somada, o robô colheria a rampa só por ficar de pé sem tocar a caixa")
+    # ⚠ o preço declarado: o piso do elo parado SUBIU com a F3
+    print(f"  piso ANDAR = {_vals['andar']['TOTAL']:.3f}/s   "
+          f"piso PEGAR = {_vals['pegar']['TOTAL']:.3f}/s")
+    check("o piso do elo de manipulação segue ABAIXO do teto da tarefa",
+          _vals["pegar"]["TOTAL"] < 5.815 + 11.5,
+          f"{_vals['pegar']['TOTAL']:.3f}/s")
+except Exception as _e6x:      # noqa: BLE001
+    _falhas.append(f"o gate dos sete não pôde ser medido: "
+                   f"{type(_e6x).__name__}: {_e6x}")
+
+# --- a MONOTONIA: aproximar a caixa TEM de subir o `staged` ---
+# ⚠ Move-se a CAIXA, e não o braço: o `trava_robo` pina as juntas em
+# `default_joint_pos` a cada passo, portanto o braço não acumula deslocamento. A
+# curva é a mesma — o kernel depende de ‖palma − caixa‖, não de quem se moveu.
+try:
+    import torch as _t7
+
+    _c7 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c7.scene.num_envs = 8
+    _e7 = ManagerBasedRlEnv(cfg=_c7, device="cpu")
+    _e7.reset()
+    _na7 = _e7.action_manager.total_action_dim
+    _e7.step(_t7.zeros(_e7.num_envs, _na7))
+    _t7c = _e7.command_manager.get_term("alvo_caixa")
+    _robo7, _caixa7 = _e7.scene["robot"], _e7.scene["box"]
+    _idp7, _ = _robo7.find_sites(list(C.PALM_SITES))
+    _palma7 = _robo7.data.site_pos_w[:, _idp7, :].mean(dim=1)
+    _dir7 = _t7.nn.functional.normalize(
+        _t7c.command[:, CMD.ALVO] - _palma7, dim=-1)
+    _d0_7 = _t7c.dist_palma_caixa(_t7.arange(_e7.num_envs)).clone()
+    _nm7 = list(_c7.rewards)
+    _curva = []
+    for _f7 in (1.0, 0.6, 0.3):
+        _novo7 = _palma7 + _dir7 * (_d0_7 * _f7 + k.cena.caixa_meia_aresta[0]
+                                    ).unsqueeze(-1)
+        _q7 = _caixa7.data.root_link_quat_w.clone()
+        for _ in range(3):
+            _caixa7.write_root_link_pose_to_sim(
+                _t7.cat([_novo7, _q7], dim=-1))
+            _caixa7.write_root_link_velocity_to_sim(
+                _t7.zeros(_e7.num_envs, 6))
+            _e7.step(_t7.zeros(_e7.num_envs, _na7))
+        _curva.append(
+            float(_e7.reward_manager._step_reward[:,
+                  _nm7.index("staged")].mean()))
+    check("aproximar a caixa SOBE o `staged`, monotonicamente",
+          _curva[0] < _curva[1] < _curva[2],
+          " -> ".join(f"{x:.3f}" for x in _curva))
+    print("  staged por distância: " + " -> ".join(f"{x:.3f}" for x in _curva))
+    del _e7
+except Exception as _e7x:      # noqa: BLE001
+    _falhas.append(f"a monotonia não pôde ser medida: "
+                   f"{type(_e7x).__name__}: {_e7x}")
+
+# --- o cronômetro de sustentação NÃO pode ser zerado por um push ---
+try:
+    import torch as _t8
+
+    _c8 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c8.scene.num_envs = 4
+    _e8 = ManagerBasedRlEnv(cfg=_c8, device="cpu")
+    _e8.reset()
+    _na8 = _e8.action_manager.total_action_dim
+    _e8.step(_t8.zeros(_e8.num_envs, _na8))
+    _t8c = _e8.command_manager.get_term("alvo_caixa")
+    _caixa8 = _e8.scene["box"]
+    # põe a caixa NO alvo, com a face certa, e conta
+    for _ in range(6):
+        _caixa8.write_root_link_pose_to_sim(
+            _t8.cat([_t8c.command[:, CMD.ALVO],
+                     _t8.tensor([[1.0, 0.0, 0.0, 0.0]]).expand(
+                         _e8.num_envs, 4)], dim=-1))
+        _caixa8.write_root_link_velocity_to_sim(_t8.zeros(_e8.num_envs, 6))
+        _e8.step(_t8.zeros(_e8.num_envs, _na8))
+    # ⚠ O termo de CLASSE é instanciado pelo manager (`manager_base.py:146`), e o
+    # `RewardManager` faz DEEPCOPY do cfg. Portanto a instância vive no manager, e
+    # `_c8.rewards[...].func` continua sendo a CLASSE. Ler do cfg dá AttributeError.
+    _idx8 = _e8.reward_manager.active_terms.index("sustentacao")
+    _termo8 = _e8.reward_manager._term_cfgs[_idx8].func
+    _antes8 = float(_termo8.t.max())
+    check("o cronômetro conta quando a caixa está no alvo",
+          _antes8 > 0.0, f"t={_antes8:.3f} s")
+    # ⚠ AGORA O PUSH. Ele NÃO pode zerar o contador.
+    _e8.event_manager.apply(mode="interval", dt=_e8.step_dt)
+    _caixa8.write_root_link_pose_to_sim(
+        _t8.cat([_t8c.command[:, CMD.ALVO],
+                 _t8.tensor([[1.0, 0.0, 0.0, 0.0]]).expand(
+                     _e8.num_envs, 4)], dim=-1))
+    _caixa8.write_root_link_velocity_to_sim(_t8.zeros(_e8.num_envs, 6))
+    _e8.step(_t8.zeros(_e8.num_envs, _na8))
+    check("um PUSH não zera o cronômetro — a régua lê SÓ a condição da tarefa",
+          float(_termo8.t.max()) >= _antes8,
+          f"antes {_antes8:.3f} s, depois {float(_termo8.t.max()):.3f} s; "
+          f"no g1_multitask isto zerava e o `perf` marcou 0 com o robô andando")
+    del _e8
+except Exception as _e8x:      # noqa: BLE001
+    _falhas.append(f"o cronômetro não pôde ser medido: "
+                   f"{type(_e8x).__name__}: {_e8x}")
 
 # =============================================================================
 print()
