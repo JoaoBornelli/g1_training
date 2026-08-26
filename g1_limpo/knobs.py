@@ -334,6 +334,79 @@ class Forma:
 
 
 @dataclass
+class Tarefa:
+    """Os sete incentivos da manipulação. TODOS positivos e contínuos (R3).
+
+    ⚠ Nenhuma penalidade aqui. Penalidade limita COMO fazer o que já existe; ela não
+    ensina a fazer. E booleano é platô — o `pegar` do `g1_poc` travou 22k iterações num
+    `squeeze` booleano.
+
+    Soma dos pesos = 11,5/s. É o teto da tarefa, e ele se compara com o PISO DA ESTÁTUA
+    de **5,81/s** (medido 2026-08-26, robô travado num elo parado). Razão ~2:1 no
+    fecho completo, e é a resposta à pergunta "ficar parado paga mais que agir?".
+    """
+
+    # --- os sete pesos ---
+    staged: float = 3.0            # alcançar × (1 + trazer). O motor da fase inicial
+    precise_pos: float = 2.0       # caixa NO alvo
+    precise_ori: float = 1.0       # face pedida apontando ao robô
+    squeeze: float = 1.0           # força nas DUAS palmas
+    unload: float = 2.0            # a caixa deixou de pesar na laje
+    postura_ereta: float = 2.0     # ergueu SEM agachar
+    sustentacao: float = 0.5       # ficou lá
+
+    # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
+    #
+    # ⚠ ESTE É O ITEM DE MAIOR RISCO DA F3, e ele é medido. A palma nasce a 0,339 m da
+    # caixa (mín 0,211, máx 0,481). Com σ FIXO de 0,10 o kernel `exp(−d²/σ²)` vale
+    # 1e−05 ali, **e a derivada é ZERO**: o robô move a mão 1 cm para perto e nada
+    # muda, 1 cm para longe e nada muda. Não existe pista. Foi isto que travou o
+    # `g1_poc` — não uma preferência por ficar parado.
+    #
+    # Com `σ = d₀`, todo env nasce em `exp(−1) = 0,368` com derivada `2/d₀ × 0,368`:
+    # 3,49 no env mais perto e 1,53 no mais longe. Vivo nos dois extremos, e sem
+    # número mágico.
+    #
+    # O fator multiplica a distância medida. 1,0 é a derivação limpa; >1 alarga.
+    #
+    # ⚠ PRÉ-REGISTRADO: se o alcance não aparecer, este fator é o PRIMEIRO e ÚNICO
+    # número a mover (para 1,5). NUNCA o peso — tornar o 1º centímetro positivo
+    # exigiria peso > 12, quatro vezes o da locomoção, e o robô pararia de andar.
+    sigma_fator: float = 1.0
+    # piso do σ, em metros. Sem ele um env que nasce com a palma colada na caixa teria
+    # σ ~ 0 e o kernel viraria um pico impossível de manter.
+    sigma_min: float = 0.08
+
+    # ⚠ O `precise_pos` é o ÚNICO com σ FIXO, e de propósito: ele mede "a caixa está NO
+    # alvo", que é uma tolerância de aceite e não uma rampa de aproximação. Quem faz a
+    # aproximação é o `staged`, com σ por env.
+    precise_pos_sigma: float = 0.05
+
+    # --- squeeze: força de referência das palmas, em newtons ---
+    # ⚠ `tanh(min(F_E, F_D)/F_ref)` e não booleano. O `min` exige as DUAS mãos: uma
+    # palma sozinha empurra a caixa, não a segura. E o `tanh` é contínuo desde a
+    # primeira décima de newton — um limiar booleano é platô, e o platô travou o
+    # `pegar` do g1_poc por 22k iterações.
+    forca_ref: float = 12.0
+
+    # --- postura ereta: a rampa dupla na pelve ---
+    # ⚠ Ela paga por erguer SEM agachar, e é o que impede o robô de satisfazer o alvo
+    # descendo até a caixa. Medido na pose de pé: pelve em 0,798 m.
+    pelve_alvo: float = 0.75       # acima disto a rampa paga cheio
+    pelve_piso: float = 0.45       # abaixo disto ela paga zero
+
+    # --- sustentação ---
+    # ⚠ O cronômetro lê SÓ a condição da tarefa. No `g1_multitask` ele lia também o
+    # erro angular, e um push de ±0,78 rad/s a cada 1-3 s ZERAVA o contador: o
+    # `perf` ficou 0 nas iterações 13.700 e 17.297 com o robô já andando. Push e régua
+    # em compartimentos separados.
+    sustenta_s: float = 1.0
+    # a tolerância que conta como "na condição", em metros e radianos
+    tol_pos: float = 0.10
+    tol_ang_deg: float = 25.0
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -341,6 +414,7 @@ class Knobs:
     recompensa: Recompensa = field(default_factory=Recompensa)
     marcha: Marcha = field(default_factory=Marcha)
     forma: Forma = field(default_factory=Forma)
+    tarefa: Tarefa = field(default_factory=Tarefa)
 
 
 ATIVO = Knobs()

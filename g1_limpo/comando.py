@@ -152,9 +152,26 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     prateleira_meia_z: float = 0.02
     prateleira_meia_xy: float = 0.30
     caixa_meia_z: float = 0.10
+    # ⚠ A meia-aresta entra no kernel de alcance: a distância medida é até a
+    # SUPERFÍCIE da caixa, não até o centro. Ver `dist_palma_caixa`.
+    caixa_meia_aresta: float = 0.10
     # a face MARCADA, no frame da caixa. Constante: é sempre ela que o `reorientar`
     # pede normal ao robô. A dificuldade está na ORIENTAÇÃO DE NASCIMENTO da caixa.
     face_alvo_b: tuple[float, float, float] = (-1.0, 0.0, 0.0)
+    # os sítios das palmas, para a distância que define o σ
+    sitios_palma: tuple[str, ...] = ("left_palm", "right_palm")
+
+    # ⚠ O σ NÃO É UM NÚMERO: ele é a DISTÂNCIA INICIAL daquele env, vezes este fator.
+    # Ver o bloco de σ no `__init__` e a §4.2b da spec. Medido: com σ fixo de 0,10 a
+    # 0,339 m o kernel vale 1e−05 e a DERIVADA É ZERO — o robô não tem pista de onde
+    # ir, e foi isto que travou o `g1_poc`.
+    #
+    # ⚠ PRÉ-REGISTRADO: se o alcance não aparecer na F3, este fator vai a 1,5. É o
+    # PRIMEIRO e ÚNICO número a mover, e NUNCA o peso.
+    sigma_fator: float = 1.0
+    sigma_min: float = 0.08          # metros
+    sigma_ori_min: float = 0.20      # radianos (~11°)
+
     # o elo. `None` = todos em `PEGAR` (o único que a F0/F1 treina).
     elo_forcado: int | None = None
     # ⚠ NUNCA igual à duração do episódio. Com `(20, 20)` o `time_left` do comando
@@ -198,6 +215,31 @@ class AlvoCaixaCmd(CommandTerm):
         # dependente de pose no primeiro `_update_command`, quando a pose está fresca.
         self._pendente = torch.zeros(n, dtype=torch.bool, device=d)
 
+        # ---------------------------------------------------------- os σ POR ENV
+        # ⚠ ELES NÃO SÃO KNOBS. Cada um é a DISTÂNCIA INICIAL daquele env, medida no
+        # instante em que o elo abre. É a decisão de maior consequência da F3, e ela
+        # vem de medição (spec §4.2b):
+        #
+        #   a palma nasce a 0,339 m da caixa (mín 0,211, máx 0,481). Com σ FIXO de
+        #   0,10 o kernel `exp(−d²/σ²)` vale 1e−05 ali, E A DERIVADA É ZERO. O robô
+        #   move a mão 1 cm para perto e nada muda; 1 cm para longe e nada muda. Não
+        #   existe pista de onde ir. Foi isto que travou o `g1_poc`, e não uma
+        #   preferência do robô por ficar parado.
+        #
+        # Com `σ = d₀`, todo env nasce em `exp(−1) = 0,368` com derivada
+        # `2/d₀ × 0,368`: 3,49 no env mais perto e 1,53 no mais longe. Vivo nos dois
+        # extremos, e sem número mágico.
+        #
+        # ⚠ ELES NÃO ENTRAM NA OBSERVAÇÃO, e isso é decisão. Publicar o σ diria à
+        # política "este env é fácil/difícil", e ela condicionaria a ação à forma da
+        # recompensa em vez de à tarefa. σ é moldagem, não estado do mundo.
+        self.sigma_alcance = torch.full((n,), cfg.sigma_min, device=d)
+        self.sigma_trazer = torch.full((n,), cfg.sigma_min, device=d)
+        self.sigma_ori = torch.full((n,), cfg.sigma_ori_min, device=d)
+
+        # os sítios das palmas, resolvidos UMA vez
+        self._ids_palma, _ = self.robot.find_sites(list(cfg.sitios_palma))
+
     # -------------------------------------------------------------- o contrato
     @property
     def command(self) -> torch.Tensor:
@@ -239,6 +281,11 @@ class AlvoCaixaCmd(CommandTerm):
         pend = todos[self._pendente]
         if len(pend):
             self._aplica_elo(pend, so_pose=True)
+            # ⚠ O σ é recalculado AQUI e em nenhum outro lugar do reset: é o único
+            # ponto em que a pose da palma, da caixa e do alvo está fresca. Calculá-lo
+            # no `_resample_command` daria σ de pose obsoleta — o mesmo defeito que o
+            # `_pendente` existe para consertar.
+            self._recalcula_sigmas(pend)
             self._pendente[pend] = False
 
         # a caixa gira durante o episódio, portanto a normal da face acompanha. O
@@ -414,6 +461,46 @@ class AlvoCaixaCmd(CommandTerm):
         a = base_p + quat_apply(base_q, p)
         a[:, 2] = self.cfg.altura_carregar
         self._command[ids, ALVO] = a
+
+    def dist_palma_caixa(self, ids: torch.Tensor) -> torch.Tensor:
+        """Distância da palma MAIS PRÓXIMA à SUPERFÍCIE da caixa, por env.
+
+        ⚠ `min` sobre as duas palmas, e não média: no início do treino uma mão chega
+        antes da outra, e a média diluiria o sinal da que está chegando. O `squeeze`
+        é que exige as DUAS.
+
+        ⚠ SUPERFÍCIE, E NÃO CENTRO, e isso foi um DEFEITO MEDIDO em 2026-08-26. Ao
+        centro, a distância mínima fisicamente alcançável é 0,191 m (a caixa colide com
+        a mão antes) — logo `exp(−(d/σ)²)` saturava em **0,674** e o `staged` nunca
+        passava de 3,35 de um teto de 6,0. O robô fazia a tarefa inteira e o termo
+        dizia "faltam 33%".
+        """
+        palmas = self.robot.data.site_pos_w[ids][:, self._ids_palma, :]
+        centro = self.caixa.data.root_link_pos_w[ids].unsqueeze(1)
+        d = torch.norm(palmas - centro, dim=-1).min(dim=1).values
+        return (d - self.cfg.caixa_meia_aresta).clamp(min=0.0)
+
+    def _recalcula_sigmas(self, ids: torch.Tensor) -> None:
+        """σ = distância inicial × fator, com piso. Ver o bloco do `__init__`.
+
+        ⚠ O PISO não é estética: um env que nasce com a palma colada na caixa teria
+        σ ≈ 0, e o kernel viraria um pico impossível de sustentar — a recompensa
+        desabaria ao primeiro milímetro de tremor.
+        """
+        if len(ids) == 0:
+            return
+        c = self.cfg
+        d_palma = self.dist_palma_caixa(ids)
+        d_alvo = torch.norm(
+            self.caixa.data.root_link_pos_w[ids] - self._command[ids, ALVO], dim=-1)
+        self.sigma_alcance[ids] = (d_palma * c.sigma_fator).clamp(min=c.sigma_min)
+        self.sigma_trazer[ids] = (d_alvo * c.sigma_fator).clamp(min=c.sigma_min)
+        # ⚠ O σ de ORIENTAÇÃO é o ÂNGULO inicial, em radianos — outra unidade, outro
+        # piso. Com σ fixo de 0,40 rad um pedido de 90° dá `exp(−(1,57/0,40)²)` =
+        # 2,0e−7, isto é zero: era a "sorte de nível 3+" medida no `g1_poc`.
+        self._atualiza_face(ids)
+        self.sigma_ori[ids] = (self._command[ids, ANG] * c.sigma_fator).clamp(
+            min=c.sigma_ori_min)
 
     def _atualiza_face(self, ids: torch.Tensor) -> None:
         """Publica a DIREÇÃO DESEJADA e o ERRO angular da face marcada.
