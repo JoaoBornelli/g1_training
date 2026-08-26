@@ -1492,6 +1492,125 @@ except Exception as _e7b2:      # noqa: BLE001
     _falhas.append(f"o balanço não pôde ser exercitado: "
                    f"{type(_e7b2).__name__}: {_e7b2}")
 
+# ============================= 21. o currículo de nível e de cadeia (F6)
+secao("21. o passeio de nível e a tabela de cadeias (F6)")
+
+# --- a dinâmica do passeio, sem simulador ---
+# ⚠ Um `env` FALSO com um comando falso. É o único jeito de varrer a taxa de sucesso de
+# 0% a 100% e ver o ponto fixo — num env real a taxa é o que a política der.
+try:
+    import types as _ty7
+
+    import torch as _t8b
+
+    class _CmdNivel:
+        """Comando falso: `frac` dos envs fecham a cadeia, o resto não."""
+
+        def __init__(self, nenv, frac, de_cadeia=True):
+            self._cadeia = _t8b.where(
+                _t8b.rand(nenv) < (1.0 if de_cadeia else 0.0),
+                _t8b.zeros(nenv, dtype=_t8b.long),
+                _t8b.full((nenv,), -1, dtype=_t8b.long))
+            self.fechou = _t8b.rand(nenv) < frac
+
+        def sorteia(self, frac):
+            self.fechou = _t8b.rand(len(self.fechou)) < frac
+
+    class _MgrNivel:
+        def __init__(self, c):
+            self._c = c
+
+        def get_term(self, _):
+            return self._c
+
+    def _passeia(frac, iters, nenv=512, de_cadeia=True, frac_uniforme=0.0):
+        c = _CmdNivel(nenv, frac, de_cadeia)
+        e = _ty7.SimpleNamespace(num_envs=nenv, device="cpu",
+                                 command_manager=_MgrNivel(c))
+        ids = _t8b.arange(nenv)
+        for _ in range(iters):
+            c.sorteia(frac)
+            CU_.nivel(e, ids, n_niveis=k.nivel.n_niveis, forcado=None,
+                      frac_uniforme=frac_uniforme, nome_do_comando="alvo_caixa")
+        return e.limpo_nivel
+
+    _topo = k.nivel.n_niveis - 1
+    _b = _passeia(1.0, 40)
+    check("com sucesso 100% o nível sobe até o topo e PARA",
+          bool((_b == _topo).all()), f"média {float(_b.float().mean()):.2f}")
+    _b = _passeia(0.0, 40)
+    check("com sucesso 0% o nível desce até 0 e PARA",
+          bool((_b == 0).all()), f"média {float(_b.float().mean()):.2f}")
+    # ⚠ O PONTO FIXO. Com ±1 e p = 0,5 o passeio é uma caminhada sem viés: ele NÃO
+    # converge para um valor, ele DIFUNDE. O invariante testável é que a média fica
+    # longe dos dois extremos — não que ela seja estacionária num ponto.
+    _b = _passeia(0.5, 200)
+    _m = float(_b.float().mean())
+    check("com sucesso 50% o nível NÃO cola em nenhum extremo",
+          0.5 < _m < _topo - 0.5,
+          f"média {_m:.2f} de um teto de {_topo}; com p=0,5 o passeio DIFUNDE, "
+          f"não converge — o invariante é não colar")
+    check("o ponto fixo não vem de limiar escolhido à mão",
+          not any(x in dataclasses.asdict(k.nivel)
+                  for x in ("limiar_competencia", "limiar")),
+          "o ponto fixo do passeio ±1 é p = 0,5 por CONSTRUÇÃO")
+
+    # ⚠ O CHECK QUE MAIS IMPORTA DA F6.
+    _b = _passeia(0.0, 40, de_cadeia=False)
+    check("um episódio de LOCOMOÇÃO não move o nível",
+          bool((_b == 0).all()) and bool((_passeia(1.0, 40, de_cadeia=False)
+                                          == 0).all()),
+          "com a fatia de locomoção em 95%, episódios sem cadeia empurrariam o "
+          "nível ao piso sem nunca terem tentado a tarefa")
+
+    # o piso de nível
+    _b = _passeia(1.0, 60, frac_uniforme=k.piso.frac_nivel_uniforme)
+    check("o PISO mantém envs fora do topo mesmo com sucesso 100%",
+          bool((_b < _topo).any()),
+          f"{int((_b < _topo).sum())} de {len(_b)} envs fora do topo")
+    _b = _passeia(1.0, 60, frac_uniforme=0.0)
+    check("e sem o piso eles TODOS colam no topo — o piso é o que faz diferença",
+          bool((_b == _topo).all()))
+
+    # o nivel forçado
+    _c8b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    check("`forcado` vence o passeio, e é o que o inspetor usa",
+          _c8b.curriculum["nivel"].params["forcado"] == k.nivel.forcado)
+    _kk8 = Knobs()
+    _kk8.nivel.forcado = 5
+    _c8c = make_env_cfg(_kk8, inspecao=True, elo=CMD.PEGAR)
+    _c8c.scene.num_envs = 4
+    _e8c = ManagerBasedRlEnv(cfg=_c8c, device="cpu")
+    _e8c.reset()
+    _e8c.step(_t8b.zeros(4, _e8c.action_manager.total_action_dim))
+    check("o nível forçado sobrevive ao termo de currículo",
+          bool((_e8c.limpo_nivel == 5).all()), str(_e8c.limpo_nivel.tolist()))
+    del _e8c
+except Exception as _e8d:      # noqa: BLE001
+    _falhas.append(f"o passeio não pôde ser simulado: "
+                   f"{type(_e8d).__name__}: {_e8d}")
+
+# --- a tabela de cadeias por nível É a ordem de aprendizado ---
+check("no nível 0 a cadeia de 1 elo tem a MAIOR probabilidade",
+      k.cadeia.prob_por_nivel[0][0] == max(k.cadeia.prob_por_nivel[0]),
+      str(k.cadeia.prob_por_nivel[0]))
+check("no nível mais alto as cadeias de 2 elos somam mais que a de 1",
+      sum(k.cadeia.prob_por_nivel[-1][1:]) > k.cadeia.prob_por_nivel[-1][0])
+check("a probabilidade da cadeia de 1 elo só DESCE com o nível",
+      all(k.cadeia.prob_por_nivel[i + 1][0] <= k.cadeia.prob_por_nivel[i][0]
+          for i in range(k.nivel.n_niveis - 1)),
+      "é esta tabela que é a ordem de aprendizado das habilidades")
+
+# --- cada nível CONTÉM o anterior, e a laje nunca enterra ---
+# (as monotonias já estão na seção 3; aqui fica o que a F6 acrescenta)
+check("a laje NUNCA nasce com centro abaixo de zero, em nível nenhum",
+      min(k.nivel.topo_min) - 2.0 * k.cena.prateleira_meia_z >= -1e-12,
+      "no nível 6 do g1_multitask o centro ficava em −0,02 m")
+check("o eixo do `reorientar` satura no nível 4, e está declarado",
+      k.nivel.voltas_max[4] == k.nivel.voltas_max[-1]
+      and k.nivel.eixo_vertical[4] == k.nivel.eixo_vertical[-1],
+      "acima dele só a altura e a carga graduam")
+
 # =============================================================================
 print()
 print("=" * 62)
