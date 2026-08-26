@@ -44,11 +44,18 @@ def rl_cfg():
     return cfg
 
 
+# ⚠ O `runner_cls` NÃO é cosmético: sem ele o estado do currículo NÃO vai para o
+# checkpoint, e o Colab/Kaggle matam sessão no meio de um bloco de 5000 iterações. A
+# rampa de ~400 iterações seria re-paga a cada reinício, e o currículo ficaria
+# não-monotônico. Ver `runner.py`.
+from g1_limpo.runner import RunnerComEstadoDeCurriculo  # noqa: E402
+
 register_mjlab_task(
     task_id=TASK_ID,
     env_cfg=make_env_cfg(),
     play_env_cfg=make_env_cfg(play=True),
     rl_cfg=rl_cfg(),
+    runner_cls=RunnerComEstadoDeCurriculo,
 )
 
 # ---------------------------------------------------------------- INSPEÇÃO
