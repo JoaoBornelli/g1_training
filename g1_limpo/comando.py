@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "N_LATERAIS",
+__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome"]
 
@@ -83,15 +83,19 @@ def elo_por_nome(nome: str) -> int:
         raise SystemExit(f"elo desconhecido: {nome!r}. Use um de {ELOS}.") from None
 
 
-# As 6 faces da caixa, em coordenada LOCAL dela.
-# ⚠ As 4 PRIMEIRAS são as LATERAIS, e só elas servem para pegar: ninguém agarra uma
-# caixa pelo topo nem pelo fundo. `N_LATERAIS` é o que o sorteio usa.
+# As 6 faces da caixa, em coordenada LOCAL dela. Ficam aqui como DOCUMENTAÇÃO: a face
+# pedida NÃO é sorteada entre elas.
+#
+# ⚠ O `reorientar` pede que UMA face — a marcada, `cfg.face_alvo_b` — fique normal ao
+# robô. Qualquer uma das 6 chega à frente por composição de QUARTOS DE VOLTA (±90° em
+# X, Y ou Z), portanto o robô precisa aprender 6 primitivas e nada mais. A dificuldade
+# mora na ORIENTAÇÃO DE NASCIMENTO da caixa, e ela é sorteada em
+# `eventos.orientacao_de_nascimento`.
 FACE_AXES = (
     (1.0, 0.0, 0.0), (-1.0, 0.0, 0.0),
     (0.0, 1.0, 0.0), (0.0, -1.0, 0.0),
     (0.0, 0.0, 1.0), (0.0, 0.0, -1.0),
 )
-N_LATERAIS = 4
 
 # Raio de referência do alcance, a partir da pelve. É REFERÊNCIA, não limiar de
 # recompensa.
@@ -143,7 +147,9 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     prateleira_meia_z: float = 0.02
     prateleira_meia_xy: float = 0.30
     caixa_meia_z: float = 0.10
-    ang_max_deg: tuple[float, ...] = (0.0,)
+    # a face MARCADA, no frame da caixa. Constante: é sempre ela que o `reorientar`
+    # pede normal ao robô. A dificuldade está na ORIENTAÇÃO DE NASCIMENTO da caixa.
+    face_alvo_b: tuple[float, float, float] = (-1.0, 0.0, 0.0)
     # o elo. `None` = todos em `PEGAR` (o único que a F0/F1 treina).
     elo_forcado: int | None = None
     # ⚠ NUNCA igual à duração do episódio. Com `(20, 20)` o `time_left` do comando
@@ -158,13 +164,6 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
         return AlvoCaixaCmd(self, env)
 
 
-def _rot_z(v: torch.Tensor, ang: torch.Tensor) -> torch.Tensor:
-    """Gira `v` em torno de +Z do MUNDO por `ang`."""
-    c, s = torch.cos(ang), torch.sin(ang)
-    x, y, z = v[:, 0], v[:, 1], v[:, 2]
-    return torch.stack((c * x - s * y, s * x + c * y, z), dim=-1)
-
-
 class AlvoCaixaCmd(CommandTerm):
     cfg: AlvoCaixaCmdCfg
 
@@ -176,8 +175,7 @@ class AlvoCaixaCmd(CommandTerm):
 
         d, n = self.device, self.num_envs
         self._command = torch.zeros(n, DIM, device=d)
-        self._face_idx = torch.zeros(n, dtype=torch.long, device=d)
-        self._ang = torch.zeros(n, device=d)
+        self._face_b = torch.tensor(cfg.face_alvo_b, device=d)
         self._elo = torch.full((n,), PEGAR, dtype=torch.long, device=d)
         # ⚠⚠ O `_pendente` existe por causa de uma armadilha MEDIDA em 25/08.
         #
@@ -194,8 +192,6 @@ class AlvoCaixaCmd(CommandTerm):
         # Solução: marcar o env como PENDENTE no resample e concluir a parte
         # dependente de pose no primeiro `_update_command`, quando a pose está fresca.
         self._pendente = torch.zeros(n, dtype=torch.bool, device=d)
-        self._faces = torch.tensor(FACE_AXES, device=d)
-        self._ang_max = torch.deg2rad(torch.tensor(cfg.ang_max_deg, device=d))
 
     # -------------------------------------------------------------- o contrato
     @property
@@ -212,15 +208,10 @@ class AlvoCaixaCmd(CommandTerm):
         alvo_elo = PEGAR if self.cfg.elo_forcado is None else int(self.cfg.elo_forcado)
         self._elo[env_ids] = alvo_elo
 
-        # a face pedida: só as 4 LATERAIS
-        self._face_idx[env_ids] = torch.randint(0, N_LATERAIS, (n,), device=d)
-
-        # o ângulo pedido vem da célula do NÍVEL. No nível 0 ele é 0: a orientação de
-        # nascimento já satisfaz, e o eixo ganha um 1º degrau trivialmente alcançável.
-        nivel = garante_nivel(self._env)[env_ids].clamp(max=len(self._ang_max) - 1)
-        self._ang[env_ids] = ((torch.rand(n, device=d) * 2.0 - 1.0)
-                              * self._ang_max[nivel])
-
+        # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
+        # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da
+        # caixa, sorteada em quartos de volta pelo evento `posiciona_cena`.
+        _ = n
         self._aplica_elo(env_ids)
         # a parte dependente de POSE fica pendente para o 1º passo (ver `_pendente`)
         self._pendente[env_ids] = True
@@ -409,13 +400,32 @@ class AlvoCaixaCmd(CommandTerm):
         self._command[ids, ALVO] = a
 
     def _atualiza_face(self, ids: torch.Tensor) -> None:
+        """Publica a DIREÇÃO DESEJADA e o ERRO angular da face marcada.
+
+            FACE  a direção em que a face marcada DEVE apontar — da caixa para o robô,
+                  na horizontal.
+            ANG   o erro angular ATUAL, em radianos, entre a normal da face marcada e
+                  essa direção. Zero = alinhada.
+
+        ⚠ O erro é o ângulo entre dois vetores 3D, e não uma rotação em torno de Z. É
+        de propósito: se a caixa estiver TOMBADA, a normal da face marcada aponta para
+        cima, e o erro tem de acusar isso — 90°, e não 0.
+        """
         if len(ids) == 0:
             return
-        face_b = self._faces[self._face_idx[ids]]
-        normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], face_b)
-        dir_w = _rot_z(normal_w, self._ang[ids])
-        self._command[ids, FACE] = dir_w / dir_w.norm(dim=-1, keepdim=True).clamp(min=1e-6)
-        self._command[ids, ANG] = self._ang[ids]
+        k = len(ids)
+        fb = self._face_b.expand(k, 3)
+        normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], fb)
+
+        para_o_robo = (self.robot.data.root_link_pos_w[ids]
+                       - self.caixa.data.root_link_pos_w[ids])
+        para_o_robo = para_o_robo.clone()
+        para_o_robo[:, 2] = 0.0        # a direção pedida é HORIZONTAL
+        desejada = para_o_robo / para_o_robo.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+
+        self._command[ids, FACE] = desejada
+        cos = (normal_w * desejada).sum(-1).clamp(-1.0, 1.0)
+        self._command[ids, ANG] = torch.acos(cos)
 
     # --------------------------------------------------------------- o desenho
     def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
@@ -457,11 +467,22 @@ class AlvoCaixaCmd(CommandTerm):
                                       label="sem alvo de caixa (valida=0)")
                 continue
 
-            # A FACE PEDIDA, em MUNDO
+            # A NORMAL ATUAL da face MARCADA (o que ela É) e a DIREÇÃO DESEJADA
+            # (onde ela DEVE apontar). O erro é o ângulo entre as duas.
+            fb = self._face_b.unsqueeze(0)
+            n_at = quat_apply(self.caixa.data.root_link_quat_w[i:i + 1], fb)[0]
+            n_at = n_at.cpu().numpy()
+            erro = np.degrees(float(self._command[i, ANG]))
+            voltas = int(getattr(self._env, "limpo_voltas",
+                                 torch.zeros(1, device=self.device))[i]) \
+                if hasattr(self._env, "limpo_voltas") else 0
+            visualizer.add_arrow(
+                start=caixa_p, end=caixa_p + n_at * 0.30, color=_VERDE, width=0.014,
+                label=f"face MARCADA aponta aqui")
             visualizer.add_arrow(
                 start=caixa_p, end=caixa_p + face * 0.30, color=_MAGENTA, width=0.012,
-                label=f"face {int(self._face_idx[i])}"
-                      f"  ang {np.degrees(float(self._ang[i])):+.0f}°")
+                label=f"DEVE apontar aqui  ·  erro {erro:.0f}°  ·  "
+                      f"{voltas} quarto(s) de volta")
 
             # O ALVO
             rot = "  (o alvo É a caixa: pede-se ATITUDE)" if elo == REORIENTAR else ""

@@ -135,8 +135,9 @@ def make_env_cfg(
                 "prateleira_xy": c.prateleira_xy,
                 "prateleira_meia_z": c.prateleira_meia_z,
                 "caixa_xy": c.caixa_xy, "caixa_jitter_y": c.caixa_jitter_y,
-                "caixa_jitter_yaw_deg": c.caixa_jitter_yaw_deg,
-                "caixa_meia_z": c.caixa_meia_aresta[2]},
+                "caixa_meia_z": c.caixa_meia_aresta[2],
+                "voltas_max": n.voltas_max, "eixo_vertical": n.eixo_vertical,
+                "desalinho_max_deg": n.desalinho_max_deg},
     )
     cfg.events["carga_caixa"] = EventTermCfg(
         func=EV.carga_caixa, mode="reset",
@@ -192,7 +193,7 @@ def make_env_cfg(
         prateleira_meia_z=c.prateleira_meia_z,
         prateleira_meia_xy=c.prateleira_meia_xy,
         caixa_meia_z=c.caixa_meia_aresta[2],
-        ang_max_deg=n.ang_max_deg,
+        face_alvo_b=c.face_alvo_b,
         elo_forcado=elo_alvo,
         debug_vis=True,
     )

@@ -25,6 +25,24 @@ class Cena:
     caixa_atrito: tuple[float, float, float] = (1.0, 0.02, 0.001)
     caixa_rgba: tuple[float, float, float, float] = (0.8, 0.5, 0.2, 1.0)
     caixa_condim: int = 3
+
+    # --- a FACE ALVO, marcada visualmente ---
+    # ⚠ O `reorientar` pede que UMA face específica fique normal ao robô. Ela é
+    # CONSTANTE, e não sorteada: a dificuldade está na ORIENTAÇÃO DE NASCIMENTO da
+    # caixa, e não em qual face se pede.
+    #
+    # `-X` no frame da caixa: com a caixa nascendo à frente do robô e quatérnion
+    # identidade, o `-X` dela aponta de volta para ele. Portanto "zero voltas" é a
+    # orientação de nascimento neutra.
+    #
+    # ⚠ O marcador é uma placa fina, SÓ VISUAL: `contype = 0`, `conaffinity = 0`,
+    # `density = 0`. MEDIDO: massa e inércia ficam bit-idênticas à caixa sem ele, e o
+    # `paridade.py` afirma isso. Sem o marcador a inspeção do `reorientar` seria cega
+    # — um cubo uniforme girado 90° é visualmente idêntico.
+    face_alvo_b: tuple[float, float, float] = (-1.0, 0.0, 0.0)
+    marcador_rgba: tuple[float, float, float, float] = (0.10, 0.90, 0.30, 1.0)
+    marcador_espessura: float = 0.002
+    marcador_folga: float = 0.005      # quanto a placa é menor que a face
     # borda perto do robô (lição de 16/07: mais longe e a pega vira sorte)
     caixa_xy: tuple[float, float] = (0.32, 0.00)
     caixa_jitter_y: tuple[float, float] = (-0.18, 0.18)
@@ -183,7 +201,35 @@ class Nivel:
     n_niveis: int = 7
     topo_min: tuple[float, ...] = (0.55, 0.45, 0.30, 0.15, 0.04, 0.04, 0.04)
     carga_max: tuple[float, ...] = (1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0)
-    ang_max_deg: tuple[float, ...] = (0.0, 0.0, 0.0, 45.0, 90.0, 180.0, 180.0)
+    # ⚠ O EIXO DO `reorientar` É EM QUARTOS DE VOLTA, e não em graus (decidido
+    # 2026-08-26). Qualquer uma das 6 faces chega à frente por composição de quartos
+    # de volta, portanto o robô precisa aprender 6 primitivas: ±90° em X, Y ou Z.
+    #
+    # A dificuldade é QUANTOS quartos de volta faltam:
+    #   0 voltas  a face marcada já está à frente, só torta pelo desalinho
+    #   1 volta   uma das 4 faces ADJACENTES
+    #
+    # ⚠ TETO DE UMA VOLTA (decidido 2026-08-26). A face marcada NUNCA nasce do lado
+    # OPOSTO: o robô só precisa aprender a girar no máximo 90°. A primitiva atômica É
+    # o quarto de volta; compor voltas não é alvo de treino, e sai de graça aplicando
+    # a primitiva outra vez.
+    #
+    # E cada nível CONTÉM o anterior: o sorteio é uniforme em `0..voltas_max`.
+    #
+    # ⚠ O eixo VERTICAL (Y) entra depois do horizontal (Z), e a razão é física:
+    # girar em Z é PIVOTAR sobre a laje, e dá para empurrar com uma mão; girar em Y é
+    # TOMBAR, e exige erguer uma aresta de um cubo de 20 cm.
+    voltas_max: tuple[int, ...] = (0, 0, 1, 1, 1, 1, 1)
+    eixo_vertical: tuple[bool, ...] = (False, False, False, False, True, True, True)
+
+    # ⚠ O eixo do `reorientar` SATURA no nível 4, e está declarado: acima dele o que
+    # gradua é a altura da laje e a carga, não a orientação.
+
+    # o desalinho residual, em graus. É a tarefa do nível 0: endireitar a caixa.
+    # ⚠ Antes de 26/08 este eixo era `ang_max_deg = (0, 0, 0, 45, 90, 180, 180)`, e com
+    # zero nos três primeiros níveis o `reorientar` ficava SATISFEITO em t = 0 — ele
+    # não fazia nada em 3 dos 7 níveis.
+    desalinho_max_deg: tuple[float, ...] = (15.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0)
     # ⚠ o jitter em x APERTA com o nível, e não é estética: com o topo a 0,04 m o
     # alcance de pose de pega acaba em x relativo ~0,45 m. Sem apertar, os níveis
     # altos sorteariam poses fora de alcance e a competência viraria sorte.

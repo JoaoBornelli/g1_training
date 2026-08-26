@@ -27,7 +27,7 @@ from mjlab.utils.spec_config import CollisionCfg
 from g1_limpo.knobs import Cena, Knobs
 
 __all__ = [
-    "BOX_GEOM", "TABLE_GEOM",
+    "BOX_GEOM", "TABLE_GEOM", "MARCADOR_GEOM",
     "PALM_SITES", "PALM_PAD_GEOMS", "BACK_PAD_GEOMS", "FOOT_SITES",
     "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CORPO_PRATELEIRA",
     "SENSOR_AUTO_COLISAO", "SENSOR_PES",
@@ -38,6 +38,7 @@ __all__ = [
 # ---------------------------------------------------------------- nomes de geom
 BOX_GEOM = "box_geom"
 TABLE_GEOM = "table_geom"
+MARCADOR_GEOM = "face_alvo"
 
 # ⚠ O nome do geom da prateleira é `table_geom` e o do body é `table`, apesar de a
 # entidade ser uma LAJE e não uma mesa. Mantido de propósito: é o nome que os
@@ -111,9 +112,32 @@ def _spec_box(body: str, geom: str, joint: str | None, half, mass, rgba,
 
 
 def spec_caixa(c: Cena) -> mujoco.MjSpec:
-    """Caixa LEVE a erguer: corpo LIVRE, ~0,20 m de lado, 1 kg."""
-    return _spec_box("box", BOX_GEOM, "box_joint", c.caixa_meia_aresta,
+    """Caixa LEVE a erguer: corpo LIVRE, ~0,20 m de lado, 1 kg.
+
+    Com uma PLACA VISUAL na face alvo — a face que o `reorientar` pede que fique
+    normal ao robô.
+
+    ⚠ A placa é SÓ VISUAL: `contype = 0`, `conaffinity = 0`, `density = 0`. MEDIDO
+    (e afirmado pelo `paridade.py`): massa e inércia ficam **bit-idênticas** à caixa
+    sem ela. Sem a placa a inspeção do `reorientar` seria cega, porque um cubo
+    uniforme girado 90° é visualmente idêntico ao original.
+    """
+    spec = _spec_box("box", BOX_GEOM, "box_joint", c.caixa_meia_aresta,
                      c.caixa_massa, c.caixa_rgba, c.caixa_condim, c.caixa_atrito)
+    corpo = spec.body("box")
+    n = c.face_alvo_b
+    meia = c.caixa_meia_aresta
+    e = c.marcador_espessura
+    folga = c.marcador_folga
+    # a placa fica na face `face_alvo_b`, rente por fora, e é achatada no eixo dela
+    pos = tuple(ni * (mi + e) for ni, mi in zip(n, meia))
+    size = tuple(e if ni != 0.0 else mi - folga for ni, mi in zip(n, meia))
+    corpo.add_geom(
+        name=MARCADOR_GEOM, type=mujoco.mjtGeom.mjGEOM_BOX,
+        pos=pos, size=size, rgba=tuple(c.marcador_rgba),
+        contype=0, conaffinity=0, density=0.0,
+    )
+    return spec
 
 
 def spec_prateleira(c: Cena) -> mujoco.MjSpec:

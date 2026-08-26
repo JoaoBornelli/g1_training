@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 __all__ = ["posiciona_cena", "afasta_cena", "carga_caixa", "trava_robo",
-           "segura_caixa", "POSE_TRAVADA"]
+           "segura_caixa", "orientacao_de_nascimento", "POSE_TRAVADA"]
 
 
 def _topo_por_nivel(env, env_ids, topo_min, topo_teto, jitter_z, n) -> torch.Tensor:
@@ -42,6 +42,60 @@ def _topo_por_nivel(env, env_ids, topo_min, topo_teto, jitter_z, n) -> torch.Ten
     return torch.maximum(topo, piso)      # o jitter nunca desce abaixo do piso
 
 
+def orientacao_de_nascimento(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    *,
+    voltas_max: tuple[int, ...],
+    eixo_vertical: tuple[bool, ...],
+    desalinho_max_deg: tuple[float, ...],
+) -> torch.Tensor:
+    """O quatérnion de nascimento da caixa, por QUARTOS DE VOLTA da célula do nível.
+
+    O `reorientar` pede que a face MARCADA fique normal ao robô. Ela é constante,
+    portanto a dificuldade está aqui: quantos quartos de volta a face marcada está da
+    frente no instante do reset.
+
+        0 voltas   a face marcada já está à frente, só torta pelo desalinho
+        1 volta    uma das 4 faces ADJACENTES
+
+    ⚠ TETO DE UMA VOLTA. A face marcada nunca nasce do lado OPOSTO: o robô só precisa
+    aprender a girar no máximo 90°.
+
+    ⚠ O sorteio é uniforme em `0..voltas_max`, portanto **cada nível CONTÉM o
+    anterior** — o caso fácil nunca desaparece do treino.
+
+    ⚠ O eixo VERTICAL (Y) só entra quando a célula o permite, e a razão é FÍSICA:
+    girar em Z é PIVOTAR sobre a laje, e dá para empurrar com uma mão; girar em Y é
+    TOMBAR, e exige erguer uma aresta de um cubo de 20 cm. São manipulações
+    diferentes, e a segunda é muito mais difícil.
+    """
+    n = len(env_ids)
+    dev = env.device
+    nivel = garante_nivel(env)[env_ids]
+
+    vmax = torch.tensor(voltas_max, device=dev)[nivel].float()
+    vert = torch.tensor(eixo_vertical, device=dev)[nivel]
+    desal = torch.deg2rad(torch.tensor(desalinho_max_deg, device=dev))[nivel]
+
+    # uniforme em 0..vmax, inclusive
+    voltas = (torch.rand(n, device=dev) * (vmax + 1.0)).floor().clamp(max=1.0)
+    usa_y = vert & (torch.rand(n, device=dev) < 0.5)
+    sinal = torch.where(torch.rand(n, device=dev) < 0.5, -1.0, 1.0)
+    ang = voltas * (math.pi / 2.0) * sinal      # no máximo ±90°
+
+    zeros = torch.zeros(n, device=dev)
+    pitch = torch.where(usa_y, ang, zeros)
+    yaw = torch.where(usa_y, zeros, ang)
+    # o desalinho residual entra sempre, e é a tarefa do nível 0
+    yaw = yaw + (2.0 * torch.rand(n, device=dev) - 1.0) * desal
+
+    if not hasattr(env, "limpo_voltas"):
+        env.limpo_voltas = torch.zeros(env.num_envs, device=dev)
+    env.limpo_voltas[env_ids] = voltas
+    return quat_from_euler_xyz(zeros, pitch, yaw)
+
+
 def posiciona_cena(
     env: "ManagerBasedRlEnv",
     env_ids: torch.Tensor,
@@ -54,8 +108,10 @@ def posiciona_cena(
     prateleira_meia_z: float,
     caixa_xy: tuple[float, float],
     caixa_jitter_y: tuple[float, float],
-    caixa_jitter_yaw_deg: float,
     caixa_meia_z: float,
+    voltas_max: tuple[int, ...],
+    eixo_vertical: tuple[bool, ...],
+    desalinho_max_deg: tuple[float, ...],
 ) -> None:
     """Põe a prateleira na altura sorteada e a caixa em repouso em cima dela.
 
@@ -92,14 +148,16 @@ def posiciona_cena(
     jx = torch.tensor(jitter_x_max, device=dev)[nivel]
     dx = jx * torch.rand(n, device=dev)
     dy = caixa_jitter_y[0] + (caixa_jitter_y[1] - caixa_jitter_y[0]) * torch.rand(n, device=dev)
-    yaw = (2.0 * torch.rand(n, device=dev) - 1.0) * math.radians(caixa_jitter_yaw_deg)
-    zeros = torch.zeros(n, device=dev)
 
     pose_caixa = torch.zeros(n, 7, device=dev)
     pose_caixa[:, 0] = origem[:, 0] + caixa_xy[0] + dx
     pose_caixa[:, 1] = origem[:, 1] + caixa_xy[1] + dy
     pose_caixa[:, 2] = topo + caixa_meia_z
-    pose_caixa[:, 3:7] = quat_from_euler_xyz(zeros, zeros, yaw)
+    # ⚠ A ORIENTAÇÃO não é mais um jitter de yaw: ela é o eixo do `reorientar`,
+    # sorteada em QUARTOS DE VOLTA pela célula do nível.
+    pose_caixa[:, 3:7] = orientacao_de_nascimento(
+        env, env_ids, voltas_max=voltas_max, eixo_vertical=eixo_vertical,
+        desalinho_max_deg=desalinho_max_deg)
     caixa.write_root_link_pose_to_sim(pose_caixa, env_ids=env_ids)
     caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev),
                                           env_ids=env_ids)
