@@ -54,6 +54,10 @@ CH_PICO = "Episode_Metrics/pico_de_altura"
 CH_ESCORREGO = "Episode_Metrics/velocidade_de_escorrego"
 CH_POUSO = "Episode_Metrics/forca_de_pouso"
 CH_NIVEL = "Curriculum/nivel"
+CH_SUCESSO_CADEIA = "Metrics/alvo_caixa/sucesso"
+CH_PASSO_CADEIA = "Metrics/alvo_caixa/passo_final"
+CH_AVANCOS_CADEIA = "Metrics/alvo_caixa/avancos"
+CH_FATIA_CADEIA = "Metrics/alvo_caixa/fatia_cadeia"
 
 # =============================================================================
 # A ESCADA DE CORTE DA F1. Pare o bloco se uma linha falhar.
@@ -77,6 +81,30 @@ ESCADA = [
     # e a razão de as métricas terem saído dos termos de recompensa.
     (1000, CH_VOO, ">", 0.0,
      "nenhum pé deixa o chão: não existe marcha, existe arrasto"),
+
+    # ------------------------------------------------------------------ F4
+    # ⚠ AS DUAS LINHAS DA F4 SÃO DE FIM DE RUN (`it = None`), e não de um número. O
+    # contador do `rsl_rl` ACUMULA entre blocos, portanto uma linha "na iteração 5000"
+    # dispararia no instante em que o bloco da F4 começa — o contador já passou de 5000
+    # na F1. Ver `_fim_de_run`.
+
+    # ⚠ O ALVO É DERIVADO DA TABELA DE CADEIAS, e não escolhido. `fatia_cadeia` é a
+    # fração de episódios que são cadeia de 2 elos, e ela é ditada pelo
+    # `prob_por_nivel` do `knobs.Cadeia` combinado com onde o nível se equilibra. O
+    # 0,50 abaixo é o valor da LINHA DO NÍVEL 0 da tabela: se o nível ficar no piso, a
+    # fatia medida tem de bater com aquela linha, e ficar MUITO abaixo dela significa
+    # que o sorteio de cadeia não está funcionando.
+    (None, CH_FATIA_CADEIA, ">=", 0.10,
+     "as cadeias de 2 elos não estão sendo sorteadas: a máquina de elo não abriu. "
+     "CONFERIR contra a linha do nível corrente em `knobs.Cadeia.prob_por_nivel` "
+     "antes de culpar o código — o alvo depende de onde o nível se equilibrou"),
+
+    # ⚠ Este é o portão de VERDADE da F4, e ele é frouxo de propósito: `> 0` só pede que
+    # a transição aconteça ALGUMA vez. Um alvo alto aqui confundiria "a máquina de elo
+    # funciona" com "o robô já é bom na tarefa", que é a pergunta da F5.
+    (None, CH_SUCESSO_CADEIA, ">", 0.0,
+     "nenhuma cadeia de 2 elos fechou em run nenhuma: ou o fechamento por elo nunca "
+     "dispara, ou o 2º elo é inalcançável a partir do 1º"),
 ]
 
 
@@ -159,6 +187,31 @@ def _tabela_de_marcha(acc, it: int) -> None:
         print(f"  {rot:<20}{'ausente' if v is None else f'{v:.4f}{un}'}")
 
 
+def _tabela_de_cadeia(acc, it: int) -> None:
+    for rot, ch, un in (
+        ("sucesso da cadeia", CH_SUCESSO_CADEIA, ""),
+        ("passo final", CH_PASSO_CADEIA, ""),
+        ("avanços por episódio", CH_AVANCOS_CADEIA, ""),
+        ("fatia de cadeia", CH_FATIA_CADEIA, ""),
+        ("fatia de locomoção", "Curriculum/elo", ""),
+    ):
+        v = _em(_serie(acc, ch), it)
+        print(f"  {rot:<20}{'ausente' if v is None else f'{v:.4f}{un}'}")
+
+
+def _fim_de_run(it) -> bool:
+    """`it = None` numa linha da escada significa "no ÚLTIMO passo do log".
+
+    ⚠ POR QUE ISSO EXISTE. As iterações da escada são ABSOLUTAS, mas as fases do plano
+    são blocos SEQUENCIAIS, e o `rsl_rl` ACUMULA o contador num resume
+    (`total_it = start_it + num_learning_iterations`). Portanto uma linha "na iteração
+    5000" que valha para a F4 dispara no instante em que o bloco começa, porque o
+    contador já passou de 5000 na F1. Uma linha de fase posterior tem de ser lida no
+    fim da run, e não num número.
+    """
+    return it is None
+
+
 def _escada(acc) -> int:
     falhas = 0
     print(f"  {'it':>6}  {'chave':<34}{'medido':>10}{'alvo':>10}  veredito")
@@ -166,10 +219,12 @@ def _escada(acc) -> int:
     for it, ch, comp, alvo, porque in ESCADA:
         serie = _serie(acc, ch)
         ultimo = max((s for s, _ in serie), default=-1)
+        if _fim_de_run(it):
+            it = ultimo          # a linha é lida no último passo que existe
         v = _em(serie, it)
         if ultimo < it:
             estado = "ainda não" if serie else "CHAVE AUSENTE"
-            print(f"  {it:>6}  {ch:<34}{'—':>10}{alvo:>10.2f}  {estado}")
+            print(f"  {it:>6}  {ch:<34}{'—':>10}{alvo:>10.2f}  {estado}")  # noqa
             if not serie:
                 falhas += 1
                 print(f"          ⚠ {ch} não existe no log — portão CEGO")
@@ -210,6 +265,35 @@ def _demo() -> int:
     confere("a correção é LINEAR nos passos",
             por_segundo(1.0, 250.0) / por_segundo(1.0, 500.0), 2.0)
     print(f"\n  ⚠ −0,34 no painel é −{abs(-0.34 * fator):.2f}/s de verdade.")
+
+    # ---------------------------------------------- a busca na série
+    # ⚠ Uma versão anterior deste bloco "testava" `0,10 >= 0,05`. Isso exercita o
+    # operador do Python, e não uma linha deste arquivo — ele NÃO PODE FALHAR, logo não
+    # é teste. O que tem lógica própria aqui é o `_em`, que escolhe o último valor com
+    # passo <= it, e é ele que decide o que a escada lê.
+    print("\n--- demo: a busca na série (é o que a escada lê)")
+    _serie_falsa = [(0, 10.0), (100, 20.0), (200, 30.0), (500, 40.0)]
+    confere("`_em` pega o valor EXATO quando o passo existe",
+            _em(_serie_falsa, 200), 30.0)
+    confere("`_em` pega o ANTERIOR quando o passo não existe",
+            _em(_serie_falsa, 350), 30.0)
+    confere("`_em` NÃO olha para o futuro",
+            _em(_serie_falsa, 199), 20.0)
+    erros_antes = erros
+    if _em(_serie_falsa, -1) is not None:
+        print("  FALHOU `_em` devolve algo antes do início da série")
+        erros += 1
+    else:
+        print("  ok  `_em` devolve None antes do início da série")
+
+    # ---------------------------------------------- a escada em it=None
+    print("\n--- demo: a escada de FIM DE RUN (it=None)")
+    confere("uma linha com it=None é lida no ÚLTIMO passo do log",
+            float(_fim_de_run(None)), 1.0)
+    confere("uma linha com it numérico NÃO é de fim de run",
+            float(_fim_de_run(2000)), 0.0)
+    _ = erros_antes
+
     return erros
 
 
@@ -244,6 +328,8 @@ def main(argv: list[str]) -> int:
     _tabela_de_recompensa(acc, it, passos)
     print("\n--- marcha")
     _tabela_de_marcha(acc, it)
+    print("\n--- cadeia (F4)")
+    _tabela_de_cadeia(acc, it)
     print("\n--- escada de corte da F1")
     falhas = _escada(acc)
     print("\n" + "=" * 80)
