@@ -231,6 +231,7 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     sustenta_pegar_s: float = 0.5
     sustenta_outros_s: float = 0.3
     carregar_s: float = 1.5
+    carregar_dist_m: float = 0.50
 
     def build(self, env: "ManagerBasedRlEnv") -> "AlvoCaixaCmd":
         return AlvoCaixaCmd(self, env)
@@ -264,6 +265,11 @@ class AlvoCaixaCmd(CommandTerm):
         # Solução: marcar o env como PENDENTE no resample e concluir a parte
         # dependente de pose no primeiro `_update_command`, quando a pose está fresca.
         self._pendente = torch.zeros(n, dtype=torch.bool, device=d)
+
+        # ⚠ Onde a base estava quando o elo corrente ABRIU. É o que permite ao
+        # `CARREGAR` exigir DESLOCAMENTO em vez de só tempo — sem isso ele fechava sem o
+        # robô andar um centímetro. Ver `knobs.Cadeia.carregar_dist_m`.
+        self._pos_no_elo = torch.zeros(n, 3, device=d)
 
         # ---------------------------------------------------------- F4: máquina de elo
         # Os buffers que controlam o avanço entre elos.
@@ -312,25 +318,34 @@ class AlvoCaixaCmd(CommandTerm):
         return self._command
 
     def elo_de(self, ids: torch.Tensor) -> torch.Tensor:
-        """Retorna o elo corrente daqueles envs.
+        """O elo corrente daqueles envs.
 
-        Na F4, o elo pode estar em qualquer posição da cadeia sorteada.
-        Antes da F4, é sempre PEGAR.
+        ⚠ Ele lê o BUFFER `_elo`, e não reconstrói o elo a partir de
+        `CADEIAS[cadeia][passo]`. Duas razões, e as duas são defeitos que existiam aqui:
+
+        1. `CADEIAS[cad]` com `cad = CADEIA_NENHUMA = −1` devolve a ÚLTIMA cadeia em
+           Python, portanto um env de `ANDAR` reportava elo `BOTAR` em silêncio. E o
+           `__init__.py` registra tasks de inspeção para os CINCO elos, três dos quais
+           caem em `−1`.
+        2. Reconstruir de duas fontes cria a chance de elas divergirem. O `_elo` é a
+           fonte, e é o que o one-hot e o gate de recompensa leem.
         """
-        cadeia_idx = self._cadeia[ids]
-        passo_idx = self._passo[ids]
-        elos = torch.tensor([CADEIAS[i][j] if j < len(CADEIAS[i]) else -1
-                             for i, j in zip(cadeia_idx.cpu().numpy(),
-                                           passo_idx.cpu().numpy())],
-                           dtype=torch.long, device=self.device)
-        return elos
+        return self._elo[ids]
 
     def n_elos_da_cadeia(self, ids: torch.Tensor) -> torch.Tensor:
-        """Retorna o número de elos em cada cadeia daqueles envs."""
-        cadeia_idx = self._cadeia[ids]
-        n_elos = torch.tensor([len(CADEIAS[i]) for i in cadeia_idx.cpu().numpy()],
-                             dtype=torch.long, device=self.device)
-        return n_elos
+        """Quantos elos tem a cadeia daqueles envs. **1** para quem não tem cadeia.
+
+        ⚠ `CADEIAS[cad]` com `cad = CADEIA_NENHUMA = −1` devolve a ÚLTIMA cadeia em
+        Python. Um env de `ANDAR` reportava "2 elos" e elo `BOTAR`, em silêncio. É o
+        mesmo defeito que o `_avanca_elo_force` já guardava, e que ficou de fora destes
+        dois acessores — que são justamente os que o inspetor usa na tabela ANTES/DEPOIS.
+        """
+        cad = self._cadeia[ids]
+        n = torch.ones_like(cad)
+        tem = cad >= 0
+        if bool(tem.any()):
+            n[tem] = _N_ELOS.to(cad.device)[cad[tem]]
+        return n
 
     def forca_avanco(self, ids: torch.Tensor) -> None:
         """Força o avanço imediato de elo, sem esperar sustain.
@@ -427,6 +442,9 @@ class AlvoCaixaCmd(CommandTerm):
             # no `_resample_command` daria σ de pose obsoleta — o mesmo defeito que o
             # `_pendente` existe para consertar.
             self._recalcula_sigmas(pend)
+            # ⚠ A âncora de deslocamento do `CARREGAR`, na mesma passada em que a pose
+            # está fresca. No `_resample_command` ela seria de pose obsoleta.
+            self._pos_no_elo[pend] = self.robot.data.root_link_pos_w[pend]
             self._pendente[pend] = False
 
         # a caixa gira durante o episódio, portanto a normal da face acompanha. O
@@ -528,7 +546,13 @@ class AlvoCaixaCmd(CommandTerm):
             elif elo_tipo == PEGAR:
                 fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
             elif elo_tipo == CARREGAR:
-                fecha[m] = perto[m]
+                # ⚠ `perto & ANDOU`, e não `perto` sozinho. `perto` é subconjunto da
+                # condição do `pegar` sobre o MESMO alvo, portanto o `carregar` fechava
+                # no instante em que o `pegar` fechava, sem o robô sair do lugar.
+                andou = torch.norm(
+                    self.robot.data.root_link_pos_w[ids][m, :2]
+                    - self._pos_no_elo[ids][m, :2], dim=-1) >= c.carregar_dist_m
+                fecha[m] = perto[m] & andou
             elif elo_tipo == BOTAR:
                 fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 
@@ -578,13 +602,31 @@ class AlvoCaixaCmd(CommandTerm):
                 else:  # REORIENTAR, BOTAR
                     sustain_alvo[m] = self.cfg.sustenta_outros_s
 
-        # Verificar avanço
-        deve_avancar = self._sust[nao_fechou] >= sustain_alvo
+        # ⚠ SÓ QUEM TEM CADEIA pode avançar. Sem este filtro, um env de `ANDAR` entrava
+        # em `_avanca_elo_force` A CADA PASSO: o laço por elo acima não cobre o `ANDAR`,
+        # portanto o `sustain_alvo` dele ficava no zero do `torch.zeros`, e
+        # `0 >= 0` é True. Com 95% dos envs em locomoção isso era ~95% dos envs entrando
+        # na função todo passo de física, e escrevendo `fatia_cadeia = 0` por cima.
+        tem_cadeia = self._cadeia[nao_fechou] >= 0
+        deve_avancar = (self._sust[nao_fechou] >= sustain_alvo) & tem_cadeia
 
-        # Processar avanços
         ids_avancar = nao_fechou[deve_avancar]
         if len(ids_avancar) > 0:
             self._avanca_elo_force(ids_avancar)
+
+        # ⚠ AS MÉTRICAS SÃO ESCRITAS TODO PASSO, PARA TODOS OS ENVS. Antes elas só eram
+        # escritas dentro do `_avanca_elo_force`, isto é, só no instante de um avanço —
+        # logo um env de cadeia que NUNCA fechasse o 1º elo nunca escrevia o seu
+        # `fatia_cadeia = 1`, e o `Metrics/alvo_caixa/fatia_cadeia` ficava perto de zero
+        # no começo do treino. A escada da F4 leria isso e diagnosticaria "as cadeias
+        # não estão sendo sorteadas", que é o oposto do que estaria acontecendo.
+        cad_t = self._cadeia
+        n_el = torch.ones_like(cad_t)
+        tem_t = cad_t >= 0
+        if bool(tem_t.any()):
+            n_el[tem_t] = _N_ELOS.to(d)[cad_t[tem_t]]
+        self.metrics["fatia_cadeia"][:] = (n_el > 1).float()
+        self.metrics["passo_final"][:] = self._passo.float()
 
     def _avanca_elo_force(self, ids: torch.Tensor) -> None:
         """Avança aqueles envs UM elo, ou fecha a cadeia se já era o último.
@@ -625,6 +667,8 @@ class AlvoCaixaCmd(CommandTerm):
             # fresca: o avanço roda no `_update_command`, não no reset.
             self._aplica_elo(m, so_pose=False)
             self._recalcula_sigmas(m)
+            # ⚠ o elo NOVO começa a contar deslocamento daqui
+            self._pos_no_elo[m] = self.robot.data.root_link_pos_w[m]
 
         # --- os que FECHAM a cadeia ---
         # ⚠ `tem & ~pode`, e não `~pode`. Sem o `tem`, um env de `ANDAR` em que o
@@ -635,17 +679,22 @@ class AlvoCaixaCmd(CommandTerm):
             self.metrics["sucesso"][f] = 1.0
 
         self.avancou[ids] = pode
-        self.metrics["passo_final"][ids] = self._passo[ids].float()
+        # ⚠ Só o CONTADOR de avanços mora aqui — ele é por evento. O `passo_final` e o
+        # `fatia_cadeia` são ESTADO, e são escritos todo passo no `_avanca_elo`.
         self.metrics["avancos"][ids] += pode.float()
-        self.metrics["fatia_cadeia"][ids] = (n_elos > 1).float()
 
     # ------------------------------------------------------ o alvo, por elo
     def _aplica_elo(self, ids: torch.Tensor, *, so_pose: bool = False) -> None:
         """Escreve o alvo do elo corrente, e move a laje quando o elo pede.
 
-        `so_pose=True` refaz APENAS o que depende de pose de entidade. É o que a
-        passada de `_pendente` chama, no 1º passo depois do reset, quando os buffers
-        de `data` já estão frescos.
+        ⚠ `so_pose` NÃO É LIDO PELO CORPO, e isso é declarado em vez de prometido. O
+        docstring anterior dizia "refaz APENAS o que depende de pose", o que era falso:
+        a função refaz TUDO. Hoje isso é correto e desejado — o `topo` e o alvo do
+        `BOTAR` sorteados no reset vêm de pose OBSOLETA e TÊM de ser descartados e
+        re-sorteados na passada do `_pendente`.
+        O parâmetro fica na assinatura como documentação do intento do chamador; quem
+        acrescentar aqui um sorteio que deva sobreviver à passada do `_pendente` tem de
+        passar a LÊ-LO.
 
         ⚠ A F4 chama exatamente esta função no avanço de elo — e lá ela pode rodar
         com `so_pose=False`, porque no avanço a pose JÁ está fresca (o `_avanca_elo`

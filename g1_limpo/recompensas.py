@@ -289,6 +289,15 @@ class sustentacao:
         na_condicao = perto & alinhado & (_valida(env, nome_do_comando) > 0.5)
         self.t = torch.where(na_condicao, self.t + self.dt,
                             torch.zeros_like(self.t))
+        # ⚠⚠ ZERA NO AVANÇO DE ELO. Sem isto o crédito VAZA de um elo para o seguinte:
+        # o `pegar` e o `carregar` pedem o MESMO alvo (é decisão, §4.2), portanto no
+        # instante em que o elo avança a condição continua valendo e o `self.t` já está
+        # saturado — o `carregar` nasceria pago sem nenhum trabalho novo. O termo tem o
+        # seu próprio cronômetro, separado do `_sust` do comando, e por isso precisa do
+        # seu próprio zeramento.
+        avancou = getattr(_t(env, nome_do_comando), "avancou", None)
+        if avancou is not None:
+            self.t = torch.where(avancou, torch.zeros_like(self.t), self.t)
         return (self.t / max(sustenta_s, 1e-6)).clamp(max=1.0)
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
