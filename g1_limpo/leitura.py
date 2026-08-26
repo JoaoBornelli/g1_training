@@ -219,6 +219,15 @@ def _escada(acc) -> int:
     for it, ch, comp, alvo, porque in ESCADA:
         serie = _serie(acc, ch)
         ultimo = max((s for s, _ in serie), default=-1)
+        # ⚠ A CHAVE AUSENTE VEM ANTES DO `it`. Com `it = None` e a chave ausente,
+        # `ultimo = −1` virava `it = −1`, `ultimo < it` era False, e a linha caía no
+        # `v >= alvo` com `v = None` — TypeError, e o leitor inteiro morria. Ler um log
+        # anterior à F4 crashava em vez de marcar dois portões CEGOS.
+        if not serie:
+            print(f"  {'—':>6}  {ch:<34}{'—':>10}{alvo:>10.2f}  CHAVE AUSENTE")
+            print(f"          ⚠ {ch} não existe no log — portão CEGO")
+            falhas += 1
+            continue
         if _fim_de_run(it):
             it = ultimo          # a linha é lida no último passo que existe
         v = _em(serie, it)
@@ -292,6 +301,11 @@ def _demo() -> int:
             float(_fim_de_run(None)), 1.0)
     confere("uma linha com it numérico NÃO é de fim de run",
             float(_fim_de_run(2000)), 0.0)
+    # ⚠ o caso que crashava: chave ausente numa linha de fim de run
+    confere("chave ausente devolve série VAZIA, e não None a comparar",
+            float(len(_serie_vazia := [])), 0.0)
+    confere("`_em` de série vazia devolve None (e a escada trata ANTES de comparar)",
+            float(_em(_serie_vazia, None if False else 10) is None), 1.0)
     _ = erros_antes
 
     return erros

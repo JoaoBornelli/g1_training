@@ -438,6 +438,11 @@ def tabela(args) -> int:
                     # segura: ela cairia, e o `fundo` medido seria de um instante
                     # diferente do `topo`.
                     caixa = env.scene["box"]
+                    # ⚠ O `fundo` que o COMANDO usou para clampear o topo é o de AGORA,
+                    # antes do passo. A caixa cai durante o passo (no pós-avanço nada a
+                    # segura), e comparar o topo escrito em t contra o fundo em t+1
+                    # acusa milímetros que não são violação.
+                    _z_antes = float(caixa.data.root_link_pos_w[0, 2])
                     pose = torch.cat([caixa.data.root_link_pos_w,
                                       caixa.data.root_link_quat_w], dim=-1).clone()
                     caixa.write_root_link_pose_to_sim(pose)
@@ -506,8 +511,16 @@ def tabela(args) -> int:
 
                 del env
 
-            except Exception as e:
-                print(f"  ⚠ cadeia {cadeia_id}: não conseguiu testar (F4 ainda não pronta?)")
+            except (AttributeError, KeyError) as e:
+                # ⚠ ESTE `except` FOI ESTREITADO, e é uma cicatriz. Ele era
+                # `except Exception`, e engoliu um `NameError` do meu próprio código
+                # (`_z_antes` não definido) transformando-o em "F4 ainda não pronta?".
+                # Resultado: TODA checagem de geometria do `BOTAR` reportou SUCESSO POR
+                # OMISSÃO nos 7 níveis, e eu declarei o portão verde. Um `except` largo
+                # num verificador não protege nada — ele apaga o verificador.
+                print(f"  ⚠ cadeia {cadeia_id} nível {niv}: API ausente ({e}); "
+                      f"a máquina de elo não está completa")
+                total += 1
                 print(f"     erro: {e}")
 
     print()
