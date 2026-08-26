@@ -2,9 +2,11 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** F0 implementada e verificada (`smoke` 104 ok / 0 falhas, `paridade` 85 campos /
-0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis). O alvo do
-`REORIENTAR` foi redesenhado em 2026-08-26 (§4.3). F1 a F6 pendentes.
+**Estado:** F0 e F1 implementadas e verificadas (`smoke` 148 ok / 0 falhas, `paridade`
+85 campos / 0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis,
+`leitura --demo` ok). O alvo do `REORIENTAR` foi redesenhado em 2026-08-26 (§4.3).
+**Nenhuma run rodada ainda** — o portão de treino é remoto, e o venv local não roda
+PPO (ver §11). F2 a F6 pendentes.
 
 Um quarto módulo de treino, novo e isolado. `g1_multitask/` e `g1_poc/` ficam **intocados**,
 os dois como referência.
@@ -608,6 +610,14 @@ compila os dois `MjSpec` e diferencia o `mjModel`: `body_mass`, `geom_size`, `ge
 `geom_condim`, `geom_group`, `site_pos`, e os `fields`/`adr` de cada sensor. É diagnóstico
 descartável, não dependência do treino. Se isso for recusado, a paridade fica por conferência
 manual dupla, e o risco fica declarado.
+
+⚠ **O venv local não roda PPO, e isso não é defeito deste módulo** (medido 2026-08-26). Duas
+causas independentes: `mjlab/scripts/train.py` chama `select_gpus`, que estoura sem placa; e o
+`mjlab 1.5.1` local manda `cnn_cfg`/`rnn_type`/`rnn_num_layers` ao `MLPModel` do
+`rsl-rl-lib 5.4.0`, que não os aceita — o que derruba a task do PRÓPRIO fabricante. O
+ambiente de treino instala `mjlab==1.5.3` com o mesmo `rsl-rl-lib` e roda. Consequência para
+a paridade: **ela vale onde roda.** O `smoke` e o `paridade` têm de rodar no ambiente remoto,
+na primeira célula, antes do treino — rodá-los só aqui prova a versão errada do `mjlab`.
 
 ⚠ **Divergência deliberada, e como ela se declara.** A nossa caixa tem um geom a mais que a
 referência: a placa da face alvo (§4.3). Quando isso aconteceu o `paridade.py` **não** ganhou
