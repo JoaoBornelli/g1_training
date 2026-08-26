@@ -268,7 +268,13 @@ def garante_forma(env: "ManagerBasedRlEnv", f) -> dict:
             "dur_loco": float(f.dur_inicial_passos),
             "dur_manip": float(f.dur_inicial_passos),
             "razao": 0.0,                 # PESSIMISTA
-            "iters_balanco": 0.0,         # conta de quando o BALANÇO começou
+            # ⚠ O PASSO em que o balanço começou, e não um contador próprio. Ver o
+            # bloco `passos_por_iteracao` do `knobs.Forma`: um `contador += 1` neste
+            # termo conta PASSOS (o `_reset_idx` roda quando QUALQUER env reseta), e a
+            # carência de 200 "iterações" era atingida em ~17.
+            "passo_inicial": -1.0,        # -1 = ainda não começou
+            "iters_balanco": 0.0,         # DERIVADO, para o log e o checkpoint
+            "ultimo_degrau": -1.0,        # a iteração do último degrau da rampa
             "abriu": 0.0,                 # 1.0 depois de o portão abrir a 1ª vez
         }
     return env.limpo_forma
@@ -298,7 +304,15 @@ def forma(
                                         f.sorteio_min, f.sorteio_max)
         return st["sorteio"]
 
-    st["iters_balanco"] += 1.0
+    # ⚠ A ITERAÇÃO É DERIVADA DO CONTADOR DE PASSOS DO ENV, e não incrementada aqui.
+    # `common_step_counter` conta passos (`manager_based_rl_env.py:431`) e o mjlab o
+    # PERSISTE no checkpoint (`mjlab/rl/runner.py:73`), portanto a rampa fica
+    # resume-safe de graça e monotônica por construção.
+    passo = float(getattr(env, "common_step_counter", 0))
+    if st["passo_inicial"] < 0.0:
+        st["passo_inicial"] = passo
+    st["iters_balanco"] = ((passo - st["passo_inicial"])
+                           / max(int(f.passos_por_iteracao), 1))
 
     # ---------------------------------------------------- 1. as EMAs de duração
     # ⚠ Medidas dos episódios QUE ACABARAM, e separadas por forma. É o que faz a
@@ -332,7 +346,13 @@ def forma(
             st["alvo"] = min(st["alvo"] + f.alvo_passo, f.alvo_loco_max)
         elif st["razao"] >= f.limiar_portao:
             st["abriu"] = 1.0
-            if int(st["iters_balanco"]) % max(int(f.iters_entre_degraus), 1) == 0:
+            # ⚠ UM DEGRAU POR JANELA, e não um por chamada. Este termo roda várias
+            # vezes por iteração de PPO (uma por passo em que algum env reseta), logo um
+            # `% iters_entre_degraus == 0` desceria a rampa muitas vezes na mesma
+            # iteração. O `ultimo_degrau` garante uma descida por janela.
+            janela = int(st["iters_balanco"]) // max(int(f.iters_entre_degraus), 1)
+            if janela > st["ultimo_degrau"]:
+                st["ultimo_degrau"] = float(janela)
                 st["alvo"] = max(st["alvo"] - f.alvo_passo, f.alvo_loco_min)
 
     # o alvo NUNCA sai da faixa — nem por acumulação de ponto flutuante

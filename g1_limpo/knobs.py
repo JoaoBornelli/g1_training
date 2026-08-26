@@ -109,10 +109,16 @@ class Cena:
         "x": (-0.50, 0.50), "y": (-0.50, 0.50), "z": (0.01, 0.05),
         "yaw": (-3.14159, 3.14159),
     })
-    # o robô chega andando, não parado
-    reset_base_vel_manipula: dict = field(default_factory=lambda: {
-        "x": (-0.25, 0.25), "y": (-0.25, 0.25), "yaw": (-0.4, 0.4),
-    })
+    # ⚠ REMOVIDO em 2026-08-26 (achado por code review): `reset_base_vel_manipula`
+    # existia com o comentário "o robô chega andando, não parado" e NENHUM consumidor —
+    # o `env_cfg` passa `velocidade: {}` ao `reset_base_por_elo`, logo a base sempre
+    # resetou em repouso. Um knob morto num arquivo cuja premissa é "um treino tem de
+    # ser reproduzível por `git diff` deste arquivo" é pior que ausente: ele descreve um
+    # comportamento que não existe.
+    #
+    # A decisão de FATO é: a base reseta EM REPOUSO, nos dois modos. Se um dia se quiser
+    # o robô chegando andando, o caminho é passar a faixa ao evento — e aí o knob volta,
+    # com um consumidor.
 
 
 @dataclass
@@ -397,6 +403,27 @@ class Forma:
     ema: float = 0.99
     dur_inicial_passos: float = 1000.0
 
+    # ⚠⚠ PASSOS POR ITERAÇÃO DE PPO. Sem isto a carência e a rampa contam a coisa
+    # errada, e foi um defeito MEDIDO em 2026-08-26 (achado por code review).
+    #
+    # O termo de currículo roda em `curriculum_manager.compute`, que o `_reset_idx`
+    # chama — e o `_reset_idx` roda a CADA PASSO em que ALGUM env reseta. Com os
+    # episódios dessincronizados isso é quase todo passo: medido com 128 envs, o
+    # contador subiu para 48,8% dos passos em 400 passos, e com 4096 envs tenderia a
+    # 100%.
+    #
+    # Portanto um `contador += 1` conta PASSOS, não iterações. Consequência medida: a
+    # carência de "200 iterações" era atingida em ~17 iterações de PPO, e a rampa de
+    # "396 iterações" em ~34. A fatia colapsaria de 0,95 para 0,30 em algumas dezenas
+    # de iterações — exatamente a falha que este módulo existe para evitar.
+    #
+    # O conserto: derivar a iteração de `env.common_step_counter`, que conta PASSOS
+    # (`manager_based_rl_env.py:431`) e que o mjlab JÁ PERSISTE no checkpoint
+    # (`mjlab/rl/runner.py:73`) — o que torna a rampa resume-safe de graça.
+    #
+    # 24 é o `num_steps_per_env` do PPO do fabricante. O `smoke` confere contra o cfg.
+    passos_por_iteracao: int = 24
+
 @dataclass
 class Tarefa:
     """Os sete incentivos da manipulação. TODOS positivos e contínuos (R3).
@@ -507,10 +534,35 @@ class Cadeia:
 
     # Tempos de sustentação (em segundos) quando o elo fecha.
     # PEGAR exige menor sustain (mais rápido em fechar e transicionar).
+    # ⚠ O `pegar` exige o sustain MAIOR (0,5 s contra 0,3 s), e é decisão: ele é o elo
+    # do qual todas as cadeias dependem, e um fecho por acidente de um frame
+    # propagaria para os outros três. Um comentário anterior dizia o contrário do que
+    # os valores fazem.
     sustenta_pegar_s: float = 0.5
-    # Outros elos (REORIENTAR, CARREGAR, BOTAR) têm sustain maior.
+    # ⚠ O comentário anterior aqui dizia "outros elos têm sustain MAIOR" com 0,3 contra
+    # os 0,5 do `pegar` — dizia o contrário do que os valores fazem. O `pegar` tem o
+    # sustain MAIOR de propósito: ele é o elo do qual TODAS as cadeias dependem, e um
+    # fecho por acidente de um frame propagaria para os outros três.
     sustenta_outros_s: float = 0.3
-    # CARREGAR é piso de tempo (tempo mínimo que o robô anda).
+
+    # ⚠⚠ O `CARREGAR` EXIGE DESLOCAMENTO, e não só tempo. Defeito MEDIDO em 2026-08-26
+    # (achado por code review): o `pegar` e o `carregar` publicam EXATAMENTE o mesmo
+    # alvo (é decisão, §4.2), e as condições de fechamento eram
+    #
+    #     PEGAR     perto & alinhado & de_pé
+    #     CARREGAR  perto
+    #
+    # `perto` é SUBCONJUNTO de `perto & alinhado & de_pé` sobre um alvo que não muda.
+    # Portanto no instante em que o `pegar` fechava, o `carregar` JÁ estava satisfeito:
+    # o robô ficava parado 1,5 s e a cadeia era marcada como SUCESSO — o que move o
+    # currículo de nível. A cadeia `pegar -> carregar` treinava "não andar".
+    #
+    # DERIVAÇÃO do 0,50 m: a faixa de comando do fabricante vai a 1,0 m/s e o portão da
+    # F1 exige rastrear METADE dela, logo um robô aprovado cobre ~0,5 m em 1,0 s. Com
+    # `carregar_s = 1,5 s` o pedido é conservador — não exige mais do que a locomoção já
+    # provou fazer.
+    carregar_dist_m: float = 0.50
+    # o PISO de tempo do carregar (tempo mínimo andando), não um teto
     carregar_s: float = 1.5
 
 

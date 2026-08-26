@@ -37,7 +37,11 @@ from mjlab.rl import MjlabOnPolicyRunner
 
 __all__ = ["RunnerComEstadoDeCurriculo", "CHAVES_ESCALARES", "CHAVES_POR_ENV"]
 
+# ⚠  e  VAO, e sao o que torna a rampa resume-safe: o
+#  que o mjlab restaura e ABSOLUTO, logo sem o passo em que o
+# balanco comecou a carencia seria recontada do zero a cada sessao.
 CHAVES_ESCALARES = ("alvo", "dur_loco", "dur_manip", "razao",
+                    "passo_inicial", "ultimo_degrau",
                     "iters_balanco", "abriu", "sorteio")
 CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo")
 
