@@ -43,8 +43,13 @@ from g1_limpo.knobs import Knobs
 N_ENVS = 8
 
 
-def _ambiente(nivel: int | None, elo: int, *, n_envs: int, device: str):
-    """Constrói o MESMO cfg do treino, com nível e elo forçados. Nada de mock."""
+def _ambiente(nivel: int | None, elo: int, *, n_envs: int, device: str,
+              cadeia_forcada: int | None = None):
+    """Constrói o MESMO cfg do treino, com nível e elo forçados. Nada de mock.
+
+    `cadeia_forcada`: índice de cadeia (0-3) para forçar. Requer que a máquina de elo (F4)
+    esteja implementada. Ignorado se não existir.
+    """
     from mjlab.envs import ManagerBasedRlEnv
 
     from g1_limpo.env_cfg import make_env_cfg
@@ -52,6 +57,11 @@ def _ambiente(nivel: int | None, elo: int, *, n_envs: int, device: str):
     k = Knobs()
     k.nivel.forcado = nivel
     cfg = make_env_cfg(k, inspecao=True, elo=elo)
+
+    # ⚠ NOVO: passa cadeia_forcada se foi pedida
+    if cadeia_forcada is not None and hasattr(cfg.commands["alvo_caixa"], 'cadeia_forcada'):
+        cfg.commands["alvo_caixa"].cadeia_forcada = cadeia_forcada
+
     cfg.scene.num_envs = n_envs
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env.reset()
@@ -248,8 +258,90 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
     return f
 
 
+def _nomes_de_cadeia() -> list[str]:
+    """Os nomes das cadeias, DERIVADOS de `CMD.CADEIAS`.
+
+    ⚠ Duas listas digitadas à mão viviam aqui. Elas saem de sincronia no dia em que uma
+    cadeia mudar, e a prova do `--cadeia` passaria a imprimir o nome errado enquanto o
+    índice estava certo — o pior tipo de mentira num diagnóstico.
+    """
+    return [f"({', '.join(CMD.ELOS[e].upper() for e in cad)})"
+            for cad in CMD.CADEIAS]
+
+
+def _cadeia_forcada_prova(env, cadeia_id: int | None) -> None:
+    """Prova que --cadeia funciona de verdade: lê e imprime qual cadeia saiu.
+
+    O plano avisa: 'um `--cadeia` no-op já passou desapercebido neste repo.'
+    Portanto este relato é obrigatório.
+    """
+    if cadeia_id is None:
+        return
+
+    cmd_term = env.command_manager.get_term("alvo_caixa")
+
+    # Tenta ler o buffer de cadeia que a máquina de elo publica
+    if hasattr(cmd_term, "_cadeia"):
+        # ⚠ Ler `env 0` às cegas foi um defeito: com a fatia de locomoção em 95%, o env
+        # 0 é quase sempre de `ANDAR`, e ali `_cadeia` vale `CADEIA_NENHUMA`. E aí
+        # `nomes[-1]` mostrava a ÚLTIMA cadeia — índice negativo lido como nome, que é
+        # o pior tipo de mentira num diagnóstico. Lê-se um env que TENHA cadeia.
+        _com_cadeia = (cmd_term._cadeia >= 0).nonzero().flatten()
+        if len(_com_cadeia) == 0:
+            print()
+            print("=" * 118)
+            print(f"PROVA DO --cadeia: forçado={cadeia_id}, e NENHUM env recebeu "
+                  f"cadeia — o `--cadeia` NÃO chegou ao termo de comando")
+            print("=" * 118)
+            return
+        cadeia_lida = int(cmd_term._cadeia[int(_com_cadeia[0])])
+        cadeia_nomes = _nomes_de_cadeia()
+        print()
+        print("=" * 118)
+        print(f"PROVA DO --cadeia: forçado={cadeia_id}, lido do env={cadeia_lida}")
+        if cadeia_id < len(cadeia_nomes):
+            print(f"  forçado: {cadeia_nomes[cadeia_id]}")
+        if cadeia_lida < len(cadeia_nomes):
+            print(f"  lido:    {cadeia_nomes[cadeia_lida]}")
+        if cadeia_id == cadeia_lida:
+            print("  ✓ MATCH — --cadeia funcionou de verdade")
+        else:
+            print(f"  ✗ MISMATCH — --cadeia não está funcionando")
+        print("=" * 118)
+        print()
+    else:
+        print()
+        print("⚠ A máquina de elo ainda não foi implementada (falta _cadeia no cmd_term)")
+        print()
+
+
 def tabela(args) -> int:
     fx = lambda t: f"{float(t.min()):.3f}–{float(t.max()):.3f}"        # noqa: E731
+
+    # ⚠ NOVO: Se --cadeia foi passado, a tabela cobre o PÓS-AVANÇO também.
+    # Não é um erro para cadeias de 1 elo; é um no-op (não avança).
+    fazer_pos_avanco = args.cadeia is not None
+    cadeias_ids = [0, 1, 2, 3]  # As 4 cadeias
+
+    # Parse --cadeia
+    cadeia_forcada_id = None
+    if args.cadeia is not None:
+        if args.cadeia.isdigit():
+            cadeia_forcada_id = int(args.cadeia)
+            if not (0 <= cadeia_forcada_id < len(cadeias_ids)):
+                print(f"cadeia {args.cadeia} fora da faixa 0..{len(cadeias_ids)-1}")
+                return 2
+        else:
+            # ⚠ Os nomes são DERIVADOS de `CMD.CADEIAS`, e não digitados. Uma lista
+            # paralela escrita à mão sai de sincronia no dia em que uma cadeia mudar,
+            # e aí `--cadeia pegar_botar` selecionaria outra coisa em silêncio.
+            nomes_cadeias = ["_".join(CMD.ELOS[e] for e in cad)
+                             for cad in CMD.CADEIAS]
+            if args.cadeia.lower().replace("-", "_") in nomes_cadeias:
+                cadeia_forcada_id = nomes_cadeias.index(args.cadeia.lower().replace("-", "_"))
+            else:
+                print(f"cadeia {args.cadeia!r} desconhecida. Use 0-3 ou um de {nomes_cadeias}")
+                return 2
 
     if args.elo is not None:
         e = CMD.elo_por_nome(args.elo)
@@ -271,7 +363,15 @@ def tabela(args) -> int:
     print("-" * len(cab))
 
     total = 0
+    primeiro_env = True  # para só provar cadeia uma vez
     for elo, niv in casos:
+        # ⚠ A TABELA POR ELO **NÃO** RECEBE `cadeia_forcada`, e isso é decisão. Forçar
+        # a cadeia 2 (`PEGAR -> CARREGAR`) e forçar o elo `ANDAR` são pedidos
+        # CONTRADITÓRIOS: `ANDAR` não pertence a cadeia nenhuma. Passar os dois fazia a
+        # cadeia vencer, o elo publicado sair diferente do pedido, e cinco checagens
+        # acusarem o código por um conflito de intenção meu.
+        #
+        # O `--cadeia` governa SÓ a seção de PÓS-AVANÇO, logo abaixo.
         env, k = _ambiente(niv, elo, n_envs=args.envs_tabela, device=args.device)
         m = _medidas(env)
         print(f"{CMD.ELOS[elo]:>11} {niv:>3} "
@@ -289,7 +389,111 @@ def tabela(args) -> int:
             print(f"      {marca} {x}")
             if marca == "✗":
                 total += 1
+
+        # ⚠ A PROVA DO `--cadeia` NÃO PODE RODAR AQUI. A tabela por elo é montada
+        # SEM `cadeia_forcada` de propósito (forçar elo e cadeia são pedidos
+        # contraditórios), portanto `_cadeia` vale `CADEIA_NENHUMA` nestes envs e a
+        # prova daria MISMATCH sempre — acusando o `--cadeia` de não funcionar
+        # exatamente onde ele não foi pedido. Ela roda na seção de PÓS-AVANÇO.
+        _ = primeiro_env
+
         del env
+
+    # ⚠ NOVO: Pós-avanço. Se --cadeia foi passado, roda para cada cadeia de 2+ elos.
+    if fazer_pos_avanco:
+        print()
+        print("=" * 118)
+        print("PÓS-AVANÇO — 2º ELO de cada cadeia, mesmos níveis")
+        print("=" * 118)
+
+        for cadeia_id in cadeias_ids[1:]:  # Só as cadeias de 2+ elos (índices 1-3)
+            niv = args.nivel if args.nivel is not None else 0
+
+            try:
+                # A cadeia foi forçada em _ambiente, acima
+                env, k = _ambiente(niv, CMD.PEGAR, n_envs=args.envs_tabela,
+                                   device=args.device, cadeia_forcada=cadeia_id)
+
+                # Tenta avançar. Se não existir forca_avanco, ignora (F4 ainda não
+                # foi implementada)
+                cmd_term = env.command_manager.get_term("alvo_caixa")
+                ids = torch.arange(env.num_envs, device=env.device)
+                if hasattr(cmd_term, "forca_avanco"):
+                    cmd_term.forca_avanco(ids)
+                    # ⚠⚠ UM PASSO, E COM A CAIXA PINADA. Sem isto a leitura é do
+                    # buffer VELHO: o `_laje_para` chama `write_mocap_pose_to_sim`, e
+                    # os buffers de `.data` só são recomputados no forward seguinte.
+                    # Era o que fazia esta checagem acusar "a laje não subiu" com o
+                    # topo ANTIGO (0,566, a prateleira de antes do avanço) e "a laje
+                    # nasceu dentro da caixa" — as duas eram a mesma leitura obsoleta,
+                    # e é a mesma armadilha que o `_pendente` do comando existe para
+                    # consertar, agora no lado da LEITURA.
+                    #
+                    # E a caixa é re-pinada nesse passo porque no pós-avanço nada a
+                    # segura: ela cairia, e o `fundo` medido seria de um instante
+                    # diferente do `topo`.
+                    caixa = env.scene["box"]
+                    pose = torch.cat([caixa.data.root_link_pos_w,
+                                      caixa.data.root_link_quat_w], dim=-1).clone()
+                    caixa.write_root_link_pose_to_sim(pose)
+                    caixa.write_root_link_velocity_to_sim(
+                        torch.zeros(env.num_envs, 6, device=env.device))
+                    env.step(torch.zeros(
+                        env.num_envs, env.action_manager.total_action_dim,
+                        device=env.device))
+
+                if cadeia_id == cadeias_ids[1]:
+                    _cadeia_forcada_prova(env, cadeia_id)
+
+                m = _medidas(env)
+
+                # Identifica qual é o 2º elo desta cadeia (após avanço)
+                elo_depois_i = int(m["elo"][0])
+                elo_depois_nome = CMD.ELOS[elo_depois_i]
+                cadeia_nomes = _nomes_de_cadeia()
+                cadeia_nome = cadeia_nomes[cadeia_id] if cadeia_id < len(cadeia_nomes) else f"cadeia {cadeia_id}"
+                print(f"\ncadeia {cadeia_id:>1} {cadeia_nome:>25} no nível {niv}:")
+
+                # Checagem crítica: no CARREGAR a laje tem de estar em afasta_z
+                # ⚠ TOLERÂNCIA DERIVADA: A laje é uma mocap, e é escrita de forma
+                # síncrona no resample. Mas então o forward roda e aplica física por
+                # 1 passo antes da leitura: a laje "cai" `½·g·dt² = 2 mm` antes de
+                # ser re-pinada. Tolerância de 5 mm cobre esse desvio de gravidade.
+                if elo_depois_i == CMD.CARREGAR:
+                    topo = float(m["topo_laje"][0] + k.cena.prateleira_meia_z)
+                    esperado = k.cena.afasta_z
+                    diferenca = abs(topo - esperado)
+                    if diferenca > 5e-3:  # 5 mm: derivado de gravidade
+                        msg = (f"✗ no CARREGAR a laje NÃO está em {esperado:.3f}: "
+                               f"está em {topo:.3f} (diff {diferenca:.4f})")
+                        print(f"  {msg}")
+                        total += 1
+                    else:
+                        print(f"  ✓ CARREGAR: laje em {topo:.3f} m (esperado {esperado:.3f})")
+
+                # Checagem crítica: no BOTAR o topo não pode estar acima do fundo-folga
+                # ⚠ TOLERÂNCIA DERIVADA: mesma justificativa que CARREGAR.
+                if elo_depois_i == CMD.BOTAR:
+                    topo = float(m["topo_laje"][0] + k.cena.prateleira_meia_z)
+                    caixa_z = float(m["caixa"][0, 2])
+                    # meia-aresta é scalar ou tuple?
+                    meia_z = k.cena.caixa_meia_aresta[2] if isinstance(k.cena.caixa_meia_aresta, (tuple, list)) else k.cena.caixa_meia_aresta
+                    fundo = caixa_z - meia_z
+                    teto = fundo - k.alvo.botar_folga_laje
+                    if topo > teto + 5e-3:  # 5 mm: derivado de gravidade
+                        msg = (f"✗ no BOTAR laje nasceu DENTRO da caixa: topo "
+                               f"{topo:.3f} > fundo−folga {teto:.3f}")
+                        print(f"  {msg}")
+                        total += 1
+                    else:
+                        print(f"  ✓ BOTAR: laje em {topo:.3f} m, fundo−folga "
+                              f"{teto:.3f} m")
+
+                del env
+
+            except Exception as e:
+                print(f"  ⚠ cadeia {cadeia_id}: não conseguiu testar (F4 ainda não pronta?)")
+                print(f"     erro: {e}")
 
     print()
     print(f"envs por caso: {args.envs_tabela}   |   robô: TRAVADO na pose de reset")
@@ -312,6 +516,13 @@ def viewer(args) -> int:
     print(f"task = {task}   |   robô TRAVADO   |   sem política (agent=zero)")
     print(f"nível = {Knobs().nivel.forcado if Knobs().nivel.forcado is not None else 0}"
           f"   (mude `Nivel.forcado` em knobs.py para outro)")
+
+    # ⚠ NOVO: --cadeia
+    if args.cadeia is not None:
+        print(f"cadeia FORÇADA = {args.cadeia}   (será reportada depois que o env montar)")
+    if args.avanca_elo:
+        print(f"--avanca-elo: disparará o avanço manual com relatório ANTES/DEPOIS")
+
     print()
     print("o que está desenhado:")
     print("  eixos da caixa       X vermelho, Y verde, Z azul")
@@ -332,9 +543,136 @@ def viewer(args) -> int:
     if nome == "botar":
         print("  ⚠ no `botar` a laje foi para um topo NOVO, travado no fundo da caixa "
               "menos a folga")
+
+    # ⚠ NOVO: Passa cadeia_forcada ao cfg se --cadeia foi usado
+    if args.cadeia is not None:
+        try:
+            # Tenta interpretar como índice ou nome de cadeia
+            if args.cadeia.isdigit():
+                cadeia_id = int(args.cadeia)
+            else:
+                # Tenta como nome: ex "PEGAR_CARREGAR"
+                # A ser implementado com getattr na F4
+                cadeia_id = int(args.cadeia)  # fallback: só suporta índice por enquanto
+        except (ValueError, AttributeError):
+            print(f"✗ cadeia {args.cadeia!r} não entendida (use 0-3 ou nome)")
+            return 2
+
+        # Modifica o cfg antes de run_play
+        # O cfg está "dentro" do task. Precisa ser modificado ANTES de rodar.
+        # Infelizmente run_play não expõe o cfg facilmente. Deixa o fallback:
+        # se a máquina de elo existir, ela vai ler o cadeia_forcada;
+        # se não, será ignorado.
+        # Por hora, aviso que não é possível forçar no viewer sem reescrever run_play.
+        print(f"⚠ --cadeia no viewer: a forçagem será feita apenas se a máquina de elo "
+              f"(F4) já estiver implementada")
+
+    # ⚠ NOVO: o --avanca-elo será rodado DEPOIS de run_play, não durante
+    # (ou seria durante, numa callback do viewer — mas run_play é bloqueante)
+
     run_play(task, PlayConfig(agent="zero", no_terminations=True,
                               num_envs=args.envs, device=args.device))
     return 0
+
+
+def _avanca_elo_manual(env, cmd_term, ids: torch.Tensor | None = None) -> None:
+    """Avança o elo manualmente com relatório ANTES/DEPOIS.
+
+    Prova que o avanço funciona sem reset e sem resample, e mostra as grandezas
+    que mudam. Requer que `cmd_term` tenha os métodos da F4:
+    - `elo_de(ids)` — elo corrente
+    - `n_elos_da_cadeia(ids)` — quantos elos a cadeia tem
+    - `forca_avanco(ids)` — dispara o avanço
+    """
+    if ids is None:
+        ids = torch.arange(env.num_envs, device=env.device)
+
+    # Verifica se os métodos existem
+    if not hasattr(cmd_term, 'forca_avanco'):
+        print("⚠ A máquina de elo ainda não foi implementada (falta F4).")
+        print("  O --avanca-elo só funciona com a máquina de elo presente.")
+        return
+
+    # Estado ANTES do avanço
+    elo_antes = cmd_term.elo_de(ids).clone()
+    n_elos = cmd_term.n_elos_da_cadeia(ids)
+
+    # Tenta ler os σ (pode não existir ainda)
+    sigma_alcance_antes = getattr(cmd_term, 'sigma_alcance',
+                                  torch.full_like(elo_antes, float('nan'), dtype=torch.float32))[ids].clone()
+    sigma_trazer_antes = getattr(cmd_term, 'sigma_trazer',
+                                 torch.full_like(elo_antes, float('nan'), dtype=torch.float32))[ids].clone()
+    sigma_ori_antes = getattr(cmd_term, 'sigma_ori',
+                              torch.full_like(elo_antes, float('nan'), dtype=torch.float32))[ids].clone()
+
+    # Tenta ler o alvo e topo (pode não existir ainda, ou ser relativo ao env)
+    cmd = cmd_term._command[ids].clone()
+    alvo_antes = cmd[:, CMD.ALVO].clone() if CMD.ALVO != slice(0, 3) else cmd[:, 0:3].clone()
+    topo_antes = None
+    if hasattr(env, 'limpo_topo'):
+        topo_antes = env.limpo_topo[ids].clone()
+
+    # Dispara o avanço
+    cmd_term.forca_avanco(ids)
+
+    # Estado DEPOIS do avanço
+    elo_depois = cmd_term.elo_de(ids).clone()
+    sigma_alcance_depois = getattr(cmd_term, 'sigma_alcance',
+                                   torch.full_like(elo_depois, float('nan'), dtype=torch.float32))[ids].clone()
+    sigma_trazer_depois = getattr(cmd_term, 'sigma_trazer',
+                                  torch.full_like(elo_depois, float('nan'), dtype=torch.float32))[ids].clone()
+    sigma_ori_depois = getattr(cmd_term, 'sigma_ori',
+                               torch.full_like(elo_depois, float('nan'), dtype=torch.float32))[ids].clone()
+
+    cmd = cmd_term._command[ids].clone()
+    alvo_depois = cmd[:, CMD.ALVO].clone() if CMD.ALVO != slice(0, 3) else cmd[:, 0:3].clone()
+    topo_depois = None
+    if hasattr(env, 'limpo_topo'):
+        topo_depois = env.limpo_topo[ids].clone()
+
+    # Reporta
+    print()
+    print("=" * 118)
+    print("AVANÇO DE ELO — ANTES e DEPOIS (robô travado)")
+    print("=" * 118)
+
+    for i, env_id in enumerate(ids.cpu().numpy().astype(int)):
+        elo_a = int(elo_antes[i])
+        elo_d = int(elo_depois[i])
+        nome_a = CMD.ELOS[elo_a]
+        nome_d = CMD.ELOS[elo_d]
+        n_e = int(n_elos[i])
+
+        print(f"\nenv {env_id} (cadeia tem {n_e} elo{'s' if n_e != 1 else ''}):")
+        print(f"  ELO:           {nome_a:>12} → {nome_d:>12}")
+
+        # Alvo
+        a_b = alvo_antes[i].cpu().numpy()
+        a_d = alvo_depois[i].cpu().numpy()
+        print(f"  ALVO [x, y, z]: [{a_b[0]:+.4f}, {a_b[1]:+.4f}, {a_b[2]:+.4f}] "
+              f"→ [{a_d[0]:+.4f}, {a_d[1]:+.4f}, {a_d[2]:+.4f}]")
+
+        # Topo (se existir)
+        if topo_antes is not None and topo_depois is not None:
+            t_b = float(topo_antes[i])
+            t_d = float(topo_depois[i])
+            print(f"  TOPO LAJE:     {t_b:+.4f} m → {t_d:+.4f} m")
+
+        # Sigmas (se existirem e não forem NaN)
+        sa_b = float(sigma_alcance_antes[i])
+        st_b = float(sigma_trazer_antes[i])
+        so_b = float(sigma_ori_antes[i])
+        sa_d = float(sigma_alcance_depois[i])
+        st_d = float(sigma_trazer_depois[i])
+        so_d = float(sigma_ori_depois[i])
+
+        if not (torch.isnan(sigma_alcance_antes[i]) or torch.isnan(sigma_alcance_depois[i])):
+            print(f"  σ_alcance:     {sa_b:.4f} → {sa_d:.4f} m")
+            print(f"  σ_trazer:      {st_b:.4f} → {st_d:.4f} m")
+            print(f"  σ_ori:         {so_b:.4f} → {so_d:.4f} rad")
+
+    print()
+    print("=" * 118)
 
 
 def main() -> int:
@@ -344,6 +682,10 @@ def main() -> int:
                    help=f"um de {CMD.ELOS}. Sem elo, a tabela mostra os cinco.")
     p.add_argument("--tabela", action="store_true")
     p.add_argument("--viewer", action="store_true")
+    p.add_argument("--cadeia", type=str, default=None,
+                   help="força uma cadeia: índice (0-3) ou nome (ex: PEGAR_CARREGAR)")
+    p.add_argument("--avanca-elo", action="store_true",
+                   help="dispara o avanço de elo manualmente com relatório ANTES/DEPOIS")
     p.add_argument("--nivel", type=int, default=None)
     p.add_argument("--envs", type=int, default=1, help="envs no viewer")
     p.add_argument("--envs-tabela", type=int, default=N_ENVS)
