@@ -993,11 +993,23 @@ try:
     _s5 = _t5c.sigma_alcance
     _ker = _t5.exp(-(_d5 / _s5) ** 2)
 
+    # ⚠ A TOLERÂNCIA É MEDIDA, e não escolhida. O σ é fixado na passada do `_pendente`,
+    # e a caixa continua ASSENTANDO na laje depois disso: ela desliza alguns milímetros
+    # antes de parar. Eu havia derivado a banda de uma tolerância de 5 mm CHUTADA, e a
+    # deriva real chega a ~11 mm — a checagem falhava em 1 de 3 runs acusando o
+    # assentamento da caixa. Aqui o próprio deslocamento de um passo é a tolerância.
+    _antes5 = _t5c.dist_palma_caixa(_ids5).clone()
+    _e5.step(_t5.zeros(_e5.num_envs, _e5.action_manager.total_action_dim))
+    _deriva = float((_t5c.dist_palma_caixa(_ids5) - _antes5).abs().max())
+    _tol5 = max(_deriva * 3.0, 2e-3)     # 3 passos de folga, piso de 2 mm
+
     check("o σ NÃO é constante — cada env tem o seu",
           float(_s5.std()) > 0.01, f"std={float(_s5.std()):.4f}")
     check("o σ É a distância inicial daquele env",
-          float((_s5 - _d5).abs().max()) < 5e-3,
-          f"pior desvio {float((_s5-_d5).abs().max()):.4f} m")
+          float((_s5 - _d5).abs().max()) <= _tol5,
+          f"pior desvio {float((_s5-_d5).abs().max())*1000:.1f} mm, "
+          f"tolerância medida {_tol5*1000:.1f} mm (deriva de 1 passo: "
+          f"{_deriva*1000:.1f} mm)")
     # ⚠ O NÚMERO QUE DECIDE A F3. Com σ fixo de 0,10 isto valeria 1e−05.
     #
     # ⚠ A BANDA É DERIVADA, e não escolhida. O σ é fixado no passo do `_pendente`, e a
@@ -1005,8 +1017,11 @@ try:
     # env de σ mínimo (0,08 m) 5 mm são 6,25% de razão, logo o kernel varia entre
     # `exp(−1,0625²)` e `exp(−0,9375²)`, isto é [0,323; 0,415]. Uma tolerância de
     # ±0,02 é MAIS APERTADA que isso e acusa o assentamento da caixa, não o desenho.
-    _lo = math.exp(-(1.0 + 5e-3 / k.tarefa.sigma_min) ** 2)
-    _hi = math.exp(-(1.0 - 5e-3 / k.tarefa.sigma_min) ** 2)
+    # ⚠ E a banda do kernel sai da MESMA tolerância medida, sobre o σ MÍNIMO — que é o
+    # env em que uma deriva de milímetros mais desloca a razão `d/σ`.
+    _r = _tol5 / k.tarefa.sigma_min
+    _lo = math.exp(-(1.0 + _r) ** 2)
+    _hi = math.exp(-max(1.0 - _r, 0.0) ** 2)
     check("o kernel de alcance vale exp(−1) = 0,368 no passo em que o elo abre, "
           "em TODOS os envs",
           _lo - 1e-3 <= float(_ker.min()) and float(_ker.max()) <= _hi + 1e-3,
@@ -1275,6 +1290,15 @@ try:
     # ⚠ O AVANÇO NÃO RESETA. É o critério do plano, e ele se mede pelo contador de
     # duração do episódio: um reset o zeraria.
     _ea.step(_ta.zeros(_ea.num_envs, _naa))
+    # ⚠ O TWIST TEM DE RELIGAR no avanço para `CARREGAR`. Ele é forçado a ZERO nos elos
+    # parados; se continuasse zerado depois do avanço, o robô "carregaria" sem ter
+    # velocidade a rastrear, e o elo inteiro seria inerte.
+    _tw_a = _ea.command_manager.get_term("twist")
+    check("no avanço para CARREGAR o twist RELIGA",
+          True if CMD.BOTAR == int(_tac._elo[0]) else
+          float(_tw_a.vel_command_b.abs().max()) > 0.0,
+          "medido em cadeia 2: 0,0 antes do avanço, 0,5 depois")
+
     check("o avanço NÃO reseta o episódio",
           int(_ea.episode_length_buf.max()) > _dur_antes,
           f"antes {_dur_antes}, depois {int(_ea.episode_length_buf.max())}")
@@ -1458,6 +1482,55 @@ check("o estado salvo cobre as EMAs, a carência, o nível e o elo",
       {"alvo", "dur_loco", "dur_manip", "razao", "iters_balanco"}
       <= set(RN_.CHAVES_ESCALARES)
       and set(RN_.CHAVES_POR_ENV) == {"limpo_nivel", "limpo_elo"})
+# ⚠ O CICLO DE VERDADE. Conferir os NOMES das chaves não prova que o estado sobrevive:
+# o furo que isso deixava é uma chave certa com um `save` que não a escreve. Aqui o
+# estado é serializado e restaurado, e os valores são comparados.
+try:
+    import tempfile as _tmp
+
+    import torch as _t9c
+
+    _c9c = make_env_cfg(k)
+    _c9c.scene.num_envs = 8
+    _e9c = ManagerBasedRlEnv(cfg=_c9c, device="cpu")
+    _e9c.reset()
+    _e9c.step(_t9c.zeros(8, _e9c.action_manager.total_action_dim))
+
+    # mexe o estado para valores RECONHECÍVEIS — zeros passariam por acidente
+    _e9c.limpo_forma["alvo"] = 0.4242
+    _e9c.limpo_forma["iters_balanco"] = 777.0
+    _e9c.limpo_forma["razao"] = 0.6161
+    _e9c.limpo_nivel[:] = 4
+    _e9c.limpo_elo[:] = CMD.PEGAR
+
+    _estado = {
+        "forma": {c: float(_e9c.limpo_forma[c]) for c in RN_.CHAVES_ESCALARES
+                  if c in _e9c.limpo_forma},
+        "limpo_nivel": _e9c.limpo_nivel.detach().cpu().clone(),
+        "limpo_elo": _e9c.limpo_elo.detach().cpu().clone(),
+    }
+    _cam = str(pathlib.Path(_tmp.mkdtemp()) / "ck.pt")
+    _t9c.save({"infos": {"limpo_curriculo": _estado}}, _cam)
+    _volta = _t9c.load(_cam, weights_only=False)["infos"]["limpo_curriculo"]
+
+    check("o ciclo salvar->carregar preserva a FATIA e a carência",
+          abs(_volta["forma"]["alvo"] - 0.4242) < 1e-9
+          and abs(_volta["forma"]["iters_balanco"] - 777.0) < 1e-9,
+          str(_volta["forma"]))
+    check("e preserva a EMA do sinal do portão",
+          abs(_volta["forma"]["razao"] - 0.6161) < 1e-9)
+    check("e preserva o nível e o elo POR ENV",
+          bool((_volta["limpo_nivel"] == 4).all())
+          and bool((_volta["limpo_elo"] == CMD.PEGAR).all()))
+    check("as três EMAs de duração e fatia estão TODAS no que foi salvo",
+          {"alvo", "dur_loco", "dur_manip", "razao", "iters_balanco"}
+          <= set(_volta["forma"]),
+          str(sorted(_volta["forma"])))
+    del _e9c
+except Exception as _e9d:      # noqa: BLE001
+    _falhas.append(f"o ciclo de checkpoint não pôde ser exercitado: "
+                   f"{type(_e9d).__name__}: {_e9d}")
+
 check("o estado de EPISÓDIO fica FORA do checkpoint",
       not any("cadeia" in c or "sust" in c or "sigma" in c
               for c in RN_.CHAVES_ESCALARES + RN_.CHAVES_POR_ENV),
@@ -1491,6 +1564,52 @@ try:
 except Exception as _e7b2:      # noqa: BLE001
     _falhas.append(f"o balanço não pôde ser exercitado: "
                    f"{type(_e7b2).__name__}: {_e7b2}")
+
+# --- O FECHO NATURAL: o elo avança POR SUSTENTAÇÃO, sem ninguém forçar ---
+# ⚠ Todos os checks acima usam `forca_avanco`, que é o atalho do inspetor. Este é o
+# único que exercita o caminho REAL: a condição de fechamento vale, o cronômetro
+# acumula, e o elo troca sozinho. Sem ele, um `_fecha_elo_corrente` que nunca
+# devolvesse True passaria em tudo.
+try:
+    import torch as _tb
+
+    _cb = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _cb.scene.num_envs = 4
+    _cb.commands["alvo_caixa"].cadeia_forcada = 2        # (PEGAR, CARREGAR)
+    _eb = ManagerBasedRlEnv(cfg=_cb, device="cpu")
+    _eb.reset()
+    _nab = _eb.action_manager.total_action_dim
+    _eb.step(_tb.zeros(_eb.num_envs, _nab))
+    _tbc = _eb.command_manager.get_term("alvo_caixa")
+    _caixab = _eb.scene["box"]
+    _elo_ini = int(_tbc._elo[0])
+
+    # a caixa NO alvo, com a face alinhada, e PINADA lá
+    _quat = _tb.tensor([[1.0, 0.0, 0.0, 0.0]]).expand(_eb.num_envs, 4)
+    _passos = int(k.cadeia.sustenta_pegar_s / _eb.step_dt) + 6
+    _sust_max = 0.0
+    for _ in range(_passos):
+        _caixab.write_root_link_pose_to_sim(
+            _tb.cat([_tbc.command[:, CMD.ALVO], _quat], dim=-1))
+        _caixab.write_root_link_velocity_to_sim(
+            _tb.zeros(_eb.num_envs, 6))
+        _eb.step(_tb.zeros(_eb.num_envs, _nab))
+        _sust_max = max(_sust_max, float(_tbc._sust.max()))
+
+    check("a condição de fechamento do PEGAR DISPARA com a caixa no alvo e de pé",
+          _sust_max > 0.0,
+          f"o cronômetro nunca saiu de zero — `_fecha_elo_corrente` não fecha nunca")
+    check("e o elo avança SOZINHO, por sustentação, sem `forca_avanco`",
+          int(_tbc._elo[0]) != _elo_ini and int(_tbc._passo[0]) == 1,
+          f"elo {_elo_ini} -> {int(_tbc._elo[0])}, passo {int(_tbc._passo[0])}, "
+          f"sust_max {_sust_max:.3f} s de {k.cadeia.sustenta_pegar_s} s")
+    check("o cronômetro respeita o sustain do elo, e não avança antes",
+          _sust_max >= k.cadeia.sustenta_pegar_s - _eb.step_dt - 1e-9,
+          f"sust_max {_sust_max:.3f} s")
+    del _eb
+except Exception as _ebx:      # noqa: BLE001
+    _falhas.append(f"o fecho natural não pôde ser exercitado: "
+                   f"{type(_ebx).__name__}: {_ebx}")
 
 # ============================= 21. o currículo de nível e de cadeia (F6)
 secao("21. o passeio de nível e a tabela de cadeias (F6)")
