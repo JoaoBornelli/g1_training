@@ -2,8 +2,9 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** F0 implementada e verificada (`smoke` 98 ok / 0 falhas, `paridade` 0
-diferenças, `inspeciona --tabela` 0 falhas nos 5 elos). F1 a F6 pendentes.
+**Estado:** F0 implementada e verificada (`smoke` 104 ok / 0 falhas, `paridade` 85 campos /
+0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis). O alvo do
+`REORIENTAR` foi redesenhado em 2026-08-26 (§4.3). F1 a F6 pendentes.
 
 Um quarto módulo de treino, novo e isolado. `g1_multitask/` e `g1_poc/` ficam **intocados**,
 os dois como referência.
@@ -173,7 +174,53 @@ sem equalização de orçamento. R2 continua respeitada.
 `caixa_valida` em `command[:,9]`, `env_cfg.py:243-246`, mais o twist forçado a zero,
 `comando.py:826`) e não andou.
 
-### 4.3 Duração de episódio — um corte só
+### 4.3 O alvo do `REORIENTAR` — uma face marcada, no máximo um quarto de volta
+
+Revisado 2026-08-26, e o desenho **inverteu**: a dificuldade não está no alvo, está na
+orientação de nascimento da caixa.
+
+**A face pedida é sempre a mesma, e ela é pintada.** `face_alvo_b = (−1, 0, 0)` no
+referencial da caixa, com uma placa visual verde no geom `face_alvo`. O comando publica em
+`FACE` a direção **desejada** (caixa→robô, projetada no horizontal) e em `ANG` o erro angular
+corrente `arccos(normal_marcada · desejada)`.
+
+Não se sorteia qual face. Sortear a face não ensinaria nada a mais: o cubo é simétrico, e o
+que o robô precisa aprender é **girar**, não reconhecer qual lado é qual.
+
+**O robô precisa aprender a girar no máximo 90°** (decisão do dono). A face não precisa ir
+para o lado oposto. Qualquer uma das 6 faces chega à frente do robô com um quarto de volta em
+Z, ou um quarto de volta em X/Y — e as duas coisas se fazem com a caixa **na laje**.
+
+**A dificuldade gradua pelo nascimento** (`eventos.orientacao_de_nascimento`):
+
+| nível | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|---|
+| `voltas_max` | 0 | 0 | 1 | 1 | 1 | 1 | 1 |
+| `eixo_vertical` | não | não | não | não | **sim** | sim | sim |
+| `desalinho_max_deg` | 15 | 20 | 20 | 20 | 20 | 20 | 20 |
+
+As voltas são sorteadas uniformes em `0..voltas_max`, então **cada nível contém o anterior**.
+O Z vem antes do Y por razão física: girar em Z é **pivotar** sobre a laje; girar em Y é
+**tombar** um cubo de 20 cm numa laje de 4 cm.
+
+⚠ Este eixo **satura no nível 4**. Acima dele só a altura e a carga graduam.
+
+⚠ O erro tem **três** parcelas, e a terceira não é knob: `voltas × 90 + desalinho + azimute`.
+A caixa nasce em `y ∈ ±0,18` com `x ≈ 0,32`, então a direção caixa→robô foge até
+`atan(0,18/0,32) = 29°` do eixo. Sem essa parcela o teto medido acusa o nível 0.
+
+**Diagnóstico de graça:** `erro == 90,0` exato significa caixa tombada. Quando a volta é em Y
+a face marcada aponta para cima, e o ângulo entre um vetor vertical e *qualquer* direção
+horizontal é exatamente 90°, seja qual for o azimute.
+
+**A placa visual é a primeira divergência deliberada contra a referência**, e ela é
+delimitada em vez de tolerada. `contype = 0`, `conaffinity = 0`, `density = 0` → massa **e
+inércia bit-idênticas** à caixa sem ela. O `paridade.py` não compara geom a geom: ele compara
+a física do corpo, compara o geom de colisão no índice 0, e **afirma** que o marcador é
+inerte. Sem a placa a inspeção do `reorientar` seria cega — um cubo uniforme girado 90° é
+visualmente idêntico ao original.
+
+### 4.4 Duração de episódio — um corte só
 
 `episode_length_s = 20,0` → 1000 passos a 50 Hz (`timestep 0,005 × decimation 4 = dt 0,02`).
 
@@ -418,10 +465,14 @@ piso.)
 |---|---|---|---|---|---|---|---|
 | `topo_min` (m) | 0,55 | 0,45 | 0,30 | 0,15 | 0,04 | 0,04 | 0,04 |
 | `carga_max` (kg) | 1,0 | 2,0 | 3,0 | 4,0 | 5,0 | 5,0 | 5,0 |
-| `ang_max_deg` | 0 | 0 | 0 | 45 | 90 | 180 | 180 |
+| `jitter_x_max` (m) | 0,20 | 0,20 | 0,20 | 0,15 | 0,08 | 0,08 | 0,08 |
+| `voltas_max` | 0 | 0 | 1 | 1 | 1 | 1 | 1 |
+| `eixo_vertical` | não | não | não | não | sim | sim | sim |
+| `desalinho_max_deg` | 15 | 20 | 20 | 20 | 20 | 20 | 20 |
 
-Topo sorteado em `U(topo_min; 0,55)`, carga em `1,0 + (teto−1,0)·U(0,1)`: **cada nível contém
-o anterior**. A tabela discreta do `g1_multitask` tem dois defeitos — no nível 6 a laje fica
+Topo sorteado em `U(topo_min; 0,55)`, carga em `1,0 + (teto−1,0)·U(0,1)`, voltas uniformes em
+`0..voltas_max`: **cada nível contém o anterior**. O `ang_max_deg` de uma versão anterior foi
+**deletado** — ele fazia o `reorientar` nascer satisfeito em 3 dos 7 níveis (§4.3). A tabela discreta do `g1_multitask` tem dois defeitos — no nível 6 a laje fica
 enterrada (centro em −0,02 m), e a altura fácil desaparece do treino no instante da promoção.
 
 **Nada do currículo vai para o checkpoint.** Depois de um resume o balanço recomeça no piso e
@@ -557,6 +608,13 @@ compila os dois `MjSpec` e diferencia o `mjModel`: `body_mass`, `geom_size`, `ge
 `geom_condim`, `geom_group`, `site_pos`, e os `fields`/`adr` de cada sensor. É diagnóstico
 descartável, não dependência do treino. Se isso for recusado, a paridade fica por conferência
 manual dupla, e o risco fica declarado.
+
+⚠ **Divergência deliberada, e como ela se declara.** A nossa caixa tem um geom a mais que a
+referência: a placa da face alvo (§4.3). Quando isso aconteceu o `paridade.py` **não** ganhou
+tolerância — ele trocou de eixo: compara a física do corpo (massa e inércia, bit-idênticas),
+compara o geom de **colisão** no índice 0, e afirma `contype = conaffinity = 0` no marcador. É
+o padrão para toda divergência futura: delimitada e com o limite afirmado por teste, nunca
+tolerada por `atol`.
 
 ---
 
