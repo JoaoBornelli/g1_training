@@ -79,19 +79,43 @@ def nivel(
     n_niveis: int,
     forcado: int | None = None,
     frac_uniforme: float = 0.0,
+    nome_do_comando: str | None = None,
 ) -> float:
     """Escreve o nível dos envs que resetaram. Devolve a média, para o log.
 
-    F0/F1: fixo. F6 troca o corpo desta função pelo passeio ±1 por sucesso, e a
-    assinatura não muda.
+    Passeio aleatório ±1: sobe com sucesso de cadeia, desce sem, `clamp(0, N−1)`. Mais
+    o PISO, que sorteia uma fração dos envs uniformemente sobre os níveis abertos.
     """
     buf = garante_nivel(env)
     if forcado is not None:
         buf[env_ids] = int(max(0, min(n_niveis - 1, forcado)))
         return float(buf.float().mean())
 
-    # sem `forcado`, o nível permanece onde está. Na F6 é aqui que o passeio ±1 entra:
-    #     sobe = sucesso ; desce = ~sucesso ; buf = clamp(buf + sobe - desce, 0, N-1)
+    # -------------------------------------------------- O PASSEIO ALEATÓRIO (F6)
+    # Sobe com sucesso, desce sem. O nível se EQUILIBRA onde a taxa de sucesso é ~50%,
+    # e é por isso que não existe limiar escolhido à mão: o ponto fixo do passeio ±1 é
+    # `p = 0,5` por construção.
+    #
+    # ⚠ SÓ EPISÓDIOS DE CADEIA MOVEM O NÍVEL. Um episódio de LOCOMOÇÃO não tem cadeia,
+    # não tem o que fechar, e portanto "fracassaria" sempre — com a fatia de locomoção
+    # em 95%, o nível seria empurrado ao piso por episódios que nem tentaram a tarefa.
+    # Foi o bug medido em 20/08 na forma espelhada: a probabilidade de subir caía de `p`
+    # para `0,7·p` e o ponto fixo saía de 0,5 para 0,714.
+    #
+    # ⚠ Ele lê o comando AQUI porque a ordem do currículo é `forma -> nivel -> elo`, e
+    # o `command_manager.reset` só roda depois de TODO o currículo
+    # (`manager_based_rl_env.py:581`). Portanto `fechou` e `_cadeia` ainda são do
+    # episódio que ACABOU. Se o `elo` rodasse antes, isto leria o episódio seguinte.
+    if nome_do_comando is not None and len(env_ids):
+        try:
+            cmd = env.command_manager.get_term(nome_do_comando)
+            de_cadeia = cmd._cadeia[env_ids] >= 0
+            sucesso = cmd.fechou[env_ids]
+        except (KeyError, AttributeError):
+            de_cadeia = sucesso = None
+        if de_cadeia is not None and bool(de_cadeia.any()):
+            passo = torch.where(sucesso, 1, -1) * de_cadeia.long()
+            buf[env_ids] = (buf[env_ids] + passo).clamp(0, n_niveis - 1)
 
     # ------------------------------------------------------ O PISO DE NÍVEL (F5)
     # ⚠ Uma fração dos envs é sorteada UNIFORMEMENTE sobre os níveis abertos. É seguro

@@ -316,7 +316,8 @@ def make_env_cfg(
     cfg.curriculum["nivel"] = CurriculumTermCfg(
         func=CU.nivel,
         params={"n_niveis": n.n_niveis, "forcado": n.forcado,
-                "frac_uniforme": k.piso.frac_nivel_uniforme},
+                "frac_uniforme": k.piso.frac_nivel_uniforme,
+                "nome_do_comando": "alvo_caixa"},
     )
     cfg.curriculum["elo"] = CurriculumTermCfg(
         func=CU.sorteia_elo,
