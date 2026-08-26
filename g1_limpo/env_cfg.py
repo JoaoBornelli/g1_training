@@ -18,6 +18,7 @@ gates entram na F2; os sete incentivos de manipulação, na F3.
 from __future__ import annotations
 
 import dataclasses
+import math
 
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -319,6 +320,10 @@ def make_env_cfg(
         prateleira_meia_xy=c.prateleira_meia_xy,
         caixa_meia_z=c.caixa_meia_aresta[2],
         face_alvo_b=c.face_alvo_b,
+        sitios_palma=C.PALM_SITES,
+        caixa_meia_aresta=c.caixa_meia_aresta[0],
+        sigma_fator=k.tarefa.sigma_fator,
+        sigma_min=k.tarefa.sigma_min,
         elo_forcado=elo_alvo if elo_explicito else None,
         debug_vis=True,
     )
@@ -334,6 +339,47 @@ def make_env_cfg(
             func=OB.um_de_cinco,
             params={"command_name": "alvo_caixa", "canal_do_elo": CMD.ELO},
         )
+
+    # ------------------------------------------------- 3f. a caixa na obs (F3)
+    # ⚠ DEPOIS do one-hot, pelo mesmo contrato de append. E nos dois grupos.
+    for grupo in ("actor", "critic"):
+        cfg.observations[grupo].terms["caixa"] = ObservationTermCfg(
+            func=OB.caixa_no_frame_da_base,
+            params={"command_name": "alvo_caixa"},
+        )
+
+    # ------------------------------------------- 3g. os sete incentivos (F3)
+    # ⚠ TODOS positivos e contínuos (R3), e todos gateados por `VALIDA` — sem o gate
+    # um env de `ANDAR` pagaria o MÁXIMO, porque com os canais de caixa zerados
+    # `exp(0) = 1`.
+    tr = k.tarefa
+    _cmd = "alvo_caixa"
+    cfg.rewards["staged"] = RewardTermCfg(
+        func=RC.staged, weight=tr.staged,
+        params={"nome_do_comando": _cmd})
+    cfg.rewards["precise_pos"] = RewardTermCfg(
+        func=RC.precise_pos, weight=tr.precise_pos,
+        params={"nome_do_comando": _cmd, "sigma": tr.precise_pos_sigma})
+    cfg.rewards["precise_ori"] = RewardTermCfg(
+        func=RC.precise_ori, weight=tr.precise_ori,
+        params={"nome_do_comando": _cmd})
+    cfg.rewards["squeeze"] = RewardTermCfg(
+        func=RC.squeeze, weight=tr.squeeze,
+        params={"nome_do_comando": _cmd, "sensores": C.SENSOR_PALMA,
+                "forca_ref": tr.forca_ref})
+    cfg.rewards["unload"] = RewardTermCfg(
+        func=RC.unload, weight=tr.unload,
+        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO})
+    cfg.rewards["postura_ereta"] = RewardTermCfg(
+        func=RC.postura_ereta, weight=tr.postura_ereta,
+        params={"nome_do_comando": _cmd, "sensores_palma": C.SENSOR_PALMA,
+                "sensor_apoio": C.SENSOR_APOIO, "forca_ref": tr.forca_ref,
+                "pelve_alvo": tr.pelve_alvo, "pelve_piso": tr.pelve_piso})
+    cfg.rewards["sustentacao"] = RewardTermCfg(
+        func=RC.sustentacao, weight=tr.sustentacao,
+        params={"nome_do_comando": _cmd, "tol_pos": tr.tol_pos,
+                "tol_ang": math.radians(tr.tol_ang_deg),
+                "sustenta_s": tr.sustenta_s})
 
     # ---------------------------------------------------- 3d. modo INSPEÇÃO
     if inspecao:
