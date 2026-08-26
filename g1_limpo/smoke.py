@@ -632,10 +632,19 @@ check("a chave do nível casa com o prefixo do CurriculumManager",
       LE_.CH_NIVEL == "Curriculum/nivel" and "nivel" in cfg.curriculum,
       "curriculum_manager.py:107 escreve Curriculum/{nome} para estado escalar")
 
+# ⚠ CONTAR as linhas da escada quebrou quando a F4 acrescentou duas. O invariante que
+# sobrevive às fases é a PRESENÇA das linhas que cada fase exige, nomeada por chave.
+_chaves_escada = {ch for _, ch, _, _, _ in LE_.ESCADA}
 check("a escada tem as quatro linhas da F1, e a do andar é a `razao_marcha`",
-      len(LE_.ESCADA) == 4
+      {LE_.CH_STD, LE_.CH_DURACAO, LE_.CH_RAZAO, LE_.CH_VOO} <= _chaves_escada
       and any(ch == LE_.CH_RAZAO and alvo == 0.50
               for _, ch, _, alvo, _ in LE_.ESCADA))
+check("as duas linhas da F4 são de FIM DE RUN, e não de um número",
+      all(it is None for it, ch, _, _, _ in LE_.ESCADA
+          if ch in (LE_.CH_FATIA_CADEIA, LE_.CH_SUCESSO_CADEIA))
+      and {LE_.CH_FATIA_CADEIA, LE_.CH_SUCESSO_CADEIA} <= _chaves_escada,
+      "o contador do rsl_rl ACUMULA entre blocos: uma linha `na iteração 5000` para a "
+      "F4 dispararia no instante em que o bloco começa")
 check("as constantes de tempo do `leitura` batem com o cfg",
       abs(LE_.DT - cfg.sim.mujoco.timestep * cfg.decimation) < 1e-12
       and abs(LE_.MAX_EP_S - cfg.episode_length_s) < 1e-12,
@@ -1141,6 +1150,154 @@ try:
 except Exception as _e8x:      # noqa: BLE001
     _falhas.append(f"o cronômetro não pôde ser medido: "
                    f"{type(_e8x).__name__}: {_e8x}")
+
+# ==================================== 19. a máquina de elo (F4)
+secao("19. a máquina de elo: cadeias, fechamento e avanço (F4)")
+kc = k.cadeia
+
+# --- a tabela, estática ---
+check("há 4 cadeias, e NENHUMA com mais de 2 elos",
+      len(CMD.CADEIAS) == 4 and max(len(c) for c in CMD.CADEIAS) == 2,
+      str(CMD.CADEIAS))
+check("o `PEGAR` aparece em TODAS as cadeias — é o eixo",
+      all(CMD.PEGAR in c for c in CMD.CADEIAS),
+      "é daí que vem o anti-esquecimento por construção: não se chega ao "
+      "`botar` sem pegar")
+check("`prob_por_nivel` é [7 níveis × 4 cadeias]",
+      len(kc.prob_por_nivel) == k.nivel.n_niveis
+      and all(len(l) == len(CMD.CADEIAS) for l in kc.prob_por_nivel))
+check("CADA linha soma 1,0",
+      all(abs(sum(l) - 1.0) < 1e-9 for l in kc.prob_por_nivel),
+      str([round(sum(l), 6) for l in kc.prob_por_nivel]))
+check("o nível 0 concentra na cadeia de 1 elo; o nível 6 abre as de 2",
+      kc.prob_por_nivel[0][0] > 0.5
+      and sum(kc.prob_por_nivel[-1][1:]) > 0.5,
+      f"nivel0={kc.prob_por_nivel[0]} nivel6={kc.prob_por_nivel[-1]}")
+check("as tabelas derivadas batem com CADEIAS, e não são digitadas",
+      [int(x) for x in CMD._PRIMEIRO_ELO] == [c[0] for c in CMD.CADEIAS]
+      and [int(x) for x in CMD._N_ELOS] == [len(c) for c in CMD.CADEIAS])
+check("`ANDAR` tem um marcador PRÓPRIO de ausência de cadeia",
+      CMD.CADEIA_NENHUMA < 0,
+      "índice negativo em `CADEIAS[c]` leria a ÚLTIMA cadeia em silêncio")
+check("o dt do cronômetro NÃO é literal no fonte",
+      "1.0 / 50.0" not in pathlib.Path("g1_limpo/comando.py").read_text(
+          encoding="utf-8"),
+      "ele tem de vir de `env.step_dt`")
+check("o sensor de apoio do fechamento é o `apoio_caixa` da cena",
+      cfg.commands["alvo_caixa"].nome_sensor_apoio == C.SENSOR_APOIO
+      and C.SENSOR_APOIO in por_nome)
+check("o limiar de `apoiada` é FRAÇÃO do peso, não newton fixo",
+      hasattr(cfg.commands["alvo_caixa"], "fracao_do_peso_apoiada")
+      and not hasattr(cfg.commands["alvo_caixa"], "limiar_apoio"),
+      "2 N fixo diria `apoiada` com 1 kg e `no ar` com 5 kg mal encostada")
+check("a tabela de cadeias e os sustains CHEGAM ao cfg",
+      len(cfg.commands["alvo_caixa"].prob_por_nivel) == k.nivel.n_niveis
+      and cfg.commands["alvo_caixa"].carregar_s == kc.carregar_s,
+      "sem isto a máquina de elo é INERTE, e em silêncio: o default é `()`")
+check("as tolerâncias de FECHAMENTO são as mesmas da recompensa de sustentação",
+      cfg.commands["alvo_caixa"].tol_pos == k.tarefa.tol_pos
+      and cfg.commands["alvo_caixa"].tol_ang_deg == k.tarefa.tol_ang_deg,
+      "fechar com régua diferente da que paga ensinaria duas coisas contraditórias")
+
+# --- rodando: a cadeia respeita a fatia da F2 ---
+try:
+    import torch as _t9
+
+    _c9 = make_env_cfg(k)
+    _c9.scene.num_envs = 256
+    _e9 = ManagerBasedRlEnv(cfg=_c9, device="cpu")
+    _e9.reset()
+    for _ in range(4):
+        _e9.step(_t9.zeros(_e9.num_envs, _e9.action_manager.total_action_dim))
+    _t9c = _e9.command_manager.get_term("alvo_caixa")
+    _elo9, _cad9 = _t9c._elo, _t9c._cadeia
+
+    # ⚠ O INVARIANTE MAIS IMPORTANTE DA F4. Uma primeira versão sorteava a cadeia e
+    # SOBRESCREVIA o elo com o 1º elo dela — e como três das quatro cadeias começam no
+    # `PEGAR`, TODOS os envs viravam `PEGAR`: a fatia de locomoção da F2 era APAGADA.
+    # O módulo inteiro existe para não entregar as transições cedo demais.
+    check("a cadeia NÃO destrói a fatia de locomoção da F2",
+          abs(float((_elo9 == CMD.ANDAR).float().mean()) - k.forma.fatia_loco) < 0.06,
+          f"fatia medida {float((_elo9 == CMD.ANDAR).float().mean()):.4f}")
+    check("todo env de `ANDAR` fica SEM cadeia",
+          bool((_cad9[_elo9 == CMD.ANDAR] == CMD.CADEIA_NENHUMA).all()))
+    _tem9 = _cad9 >= 0
+    check("toda cadeia sorteada COMEÇA no elo que o currículo sorteou",
+          bool((CMD._PRIMEIRO_ELO.to(_cad9.device)[_cad9[_tem9]]
+                == _elo9[_tem9]).all()),
+          "uma cadeia que começasse noutro elo seria uma 2ª decisão sobre a "
+          "mesma coisa")
+    check("as 4 chaves de métrica do contrato existem",
+          {"sucesso", "passo_final", "avancos", "fatia_cadeia"}
+          <= set(_t9c.metrics))
+    check("o cronômetro nasce em zero e não fica negativo",
+          float(_t9c._sust.min()) >= 0.0)
+    del _e9
+except Exception as _e9x:      # noqa: BLE001
+    _falhas.append(f"a cadeia não pôde ser exercitada: "
+                   f"{type(_e9x).__name__}: {_e9x}")
+
+# --- o AVANÇO: forçado à mão, com a caixa PINADA e medido no MESMO instante ---
+try:
+    import torch as _ta
+
+    _ca = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _ca.scene.num_envs = 8
+    _ca.commands["alvo_caixa"].cadeia_forcada = 3        # (PEGAR, BOTAR)
+    _ea = ManagerBasedRlEnv(cfg=_ca, device="cpu")
+    _ea.reset()
+    _naa = _ea.action_manager.total_action_dim
+    _ea.step(_ta.zeros(_ea.num_envs, _naa))
+    _tac = _ea.command_manager.get_term("alvo_caixa")
+    _ids_a = _ta.arange(_ea.num_envs)
+
+    _elo_antes = _tac._elo.clone()
+    _sig_antes = _tac.sigma_alcance.clone()
+    _dur_antes = int(_ea.episode_length_buf.max())
+
+    _tac.forca_avanco(_ids_a)
+
+    check("o avanço muda o elo, e o novo é o 2º da cadeia forçada",
+          bool((_tac._elo == CMD.BOTAR).all()) and bool((_elo_antes == CMD.PEGAR).all()),
+          f"{_elo_antes.tolist()[:3]} -> {_tac._elo.tolist()[:3]}")
+    check("o `avancou` é marcado", bool(_tac.avancou.all()))
+    check("o `_passo` foi para 1", bool((_tac._passo == 1).all()))
+    check("o cronômetro ZERA no avanço", float(_tac._sust.abs().max()) == 0.0)
+    check("os σ são RECALCULADOS no avanço, contra a pose fresca",
+          float((_tac.sigma_alcance - _sig_antes).abs().max()) > 1e-6,
+          "com σ do elo anterior os níveis difíceis viram sorte")
+
+    # ⚠ O AVANÇO NÃO RESETA. É o critério do plano, e ele se mede pelo contador de
+    # duração do episódio: um reset o zeraria.
+    _ea.step(_ta.zeros(_ea.num_envs, _naa))
+    check("o avanço NÃO reseta o episódio",
+          int(_ea.episode_length_buf.max()) > _dur_antes,
+          f"antes {_dur_antes}, depois {int(_ea.episode_length_buf.max())}")
+
+    # ⚠ O INVARIANTE DA LAJE, medido NO MESMO INSTANTE. Ler o topo agora e o fundo da
+    # caixa dez passos depois compara uma laje escrita em t com uma caixa em t+10 — e
+    # a caixa CAI, porque no pós-avanço nada a segura. Foi o que o inspetor acusou.
+    _topo = (_ea.scene["table"].data.root_link_pos_w[:, 2]
+             + k.cena.prateleira_meia_z)
+    _fundo = (_ea.scene["box"].data.root_link_pos_w[:, 2]
+              - k.cena.caixa_meia_aresta[2])
+    _folga = k.alvo.botar_folga_laje
+    _piso = k.alvo.botar_topo_piso
+    # o clamp só vale onde `fundo − folga` fica ACIMA do piso; abaixo dele o
+    # `maximum(teto, piso)` levanta o teto de propósito, para a laje não enterrar.
+    _vale = (_fundo - _folga) > _piso
+    check("o topo do BOTAR nunca nasce acima do fundo da caixa menos a folga",
+          not bool(_vale.any())
+          or bool((_topo[_vale] <= _fundo[_vale] - _folga + 5e-3).all()),
+          f"topo {[round(float(x),3) for x in _topo[:3]]} vs "
+          f"fundo-folga {[round(float(x-_folga),3) for x in _fundo[:3]]}")
+    check("e a laje nunca fica ENTERRADA",
+          float((_topo - 2.0 * k.cena.prateleira_meia_z).min()) >= -5e-3,
+          "é o outro lado: o `maximum(teto, piso)` existe para isto")
+    del _ea
+except Exception as _eax:      # noqa: BLE001
+    _falhas.append(f"o avanço não pôde ser exercitado: "
+                   f"{type(_eax).__name__}: {_eax}")
 
 # =============================================================================
 print()
