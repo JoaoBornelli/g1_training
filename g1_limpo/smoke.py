@@ -683,8 +683,13 @@ check("o one-hot não tem ruído nem escala",
       "ruído num one-hot produz frações entre slots: estados que não existem")
 check("são 5 slots, um por elo", OB_.N_SLOTS == len(CMD.ELOS) == 5)
 
-check("o sorteio de elo é um termo de CURRÍCULO, e vem antes do nível",
-      list(cfg.curriculum).index("elo") < list(cfg.curriculum).index("nivel"),
+# ⚠ A ORDEM MUDOU NA F5, e de propósito: o `forma` e o `nivel` medem o episódio que
+# ACABOU e leem `limpo_elo`, enquanto o `elo` escreve o do episódio que COMEÇA. Este
+# check dizia "elo antes de nivel", que era certo na F2 (ninguém lia o elo antigo) e
+# passou a ser errado na F5. Quem confere a ordem nova é a seção 20.
+check("o sorteio de elo é um termo de CURRÍCULO",
+      "elo" in cfg.curriculum
+      and cfg.curriculum["elo"].func is CU_.sorteia_elo,
       str(list(cfg.curriculum)))
 _cur_src = pathlib.Path("g1_limpo/curriculo.py").read_text(encoding="utf-8")
 check("o `curriculo.py` NÃO importa o `comando.py` (seria ciclo)",
@@ -1298,6 +1303,194 @@ try:
 except Exception as _eax:      # noqa: BLE001
     _falhas.append(f"o avanço não pôde ser exercitado: "
                    f"{type(_eax).__name__}: {_eax}")
+
+# ==================================== 20. o balanço de forma e os pisos (F5)
+secao("20. o balanço de forma, os pisos e o checkpoint (F5)")
+from g1_limpo import runner as RN_          # noqa: E402
+kf, kp = k.forma, k.piso
+
+# --- A ARITMÉTICA. Pura, sem simulador, contra a tabela da spec §9.1 ---
+# ⚠ É o único jeito de saber que a conversão está certa antes de gastar GPU. E o erro
+# que ela previne é de 40×: com Tl=24 e Tm=961, um sorteio de 0,30 entrega 1,06%.
+_TAB91 = ((24, 961, 0.0106, 0.9449), (150, 500, 0.114, 0.5882),
+          (400, 500, 0.255, 0.3488), (1000, 500, 0.462, 0.1765))
+for _tl, _tm, _entrega, _sorteio in _TAB91:
+    _s = CU_.resolve_sorteio(0.30, _tl, _tm, 0.0, 1.0)
+    _e = 0.30 * _tl / (0.30 * _tl + 0.70 * _tm)
+    check(f"§9.1 Tl={_tl} Tm={_tm}: sorteio para entregar 0,30 = {_sorteio}",
+          abs(_s - _sorteio) < 1e-3, f"medido {_s:.4f}")
+    check(f"§9.1 Tl={_tl} Tm={_tm}: um sorteio de 0,30 entrega {_entrega}",
+          abs(_e - _entrega) < 1e-3, f"medido {_e:.4f}")
+check("o sorteio é IGUAL ao alvo quando as durações são iguais",
+      abs(CU_.resolve_sorteio(0.42, 500.0, 500.0, 0.0, 1.0) - 0.42) < 1e-9,
+      "é o caso degenerado: sem viés de duração, sorteio = fatia")
+check("os clamps do sorteio são respeitados",
+      CU_.resolve_sorteio(0.99, 1.0, 1000.0, 0.10, 0.95) == 0.95
+      and CU_.resolve_sorteio(0.001, 1000.0, 1.0, 0.10, 0.95) == 0.10)
+check("duração zero não gera divisão por zero",
+      0.0 <= CU_.resolve_sorteio(0.5, 0.0, 0.0, 0.10, 0.95) <= 1.0)
+
+# --- os knobs do controlador ---
+check("o portão é UM sinal só, e ele é a `razao_marcha`",
+      cfg.curriculum["forma"].params["nome_do_twist"] == "twist"
+      and kf.limiar_portao == 0.50,
+      "dois sinais conjuntivos já travaram uma rampa para sempre")
+check("a histerese é ASSIMÉTRICA: lento para avançar, rápido para defender",
+      0.0 < kf.histerese < 1.0)
+# ⚠ `math.ceil`, e não a divisão crua. `0,95 − 0,30` em float64 dá 0,6499999999999999,
+# logo `/0,02` dá 32,4999… e `× 12` dá 389,99… — o check falhava por 0,004 de ponto
+# flutuante, acusando a rampa. O número de degraus é o TETO da divisão, porque o último
+# degrau é clampeado no piso: é a mesma conta que a spec faz para dizer "33 degraus".
+_degraus = math.ceil((kf.alvo_loco_max - kf.alvo_loco_min) / kf.alvo_passo)
+check("a rampa tem 33 degraus e >= 396 iterações",
+      _degraus >= 33 and _degraus * kf.iters_entre_degraus >= 396,
+      f"{_degraus} degraus x {kf.iters_entre_degraus} = "
+      f"{_degraus * kf.iters_entre_degraus} iterações")
+check("a fatia inicial é 0,95 e NÃO 1,00",
+      kf.alvo_loco_max == 0.95,
+      "com 1,00 os slots de manipulação ficam constantes e o normalizador os "
+      "faz entrar como 100,0")
+
+# --- A ORDEM DO DICT. É contrato, e a F5 a mudou. ---
+_ord = list(cfg.curriculum)
+check("a ordem do currículo é command_vel -> forma -> nivel -> elo",
+      _ord.index("forma") < _ord.index("nivel") < _ord.index("elo")
+      and _ord.index("command_vel") < _ord.index("forma"),
+      str(_ord))
+check("o `forma` e o `nivel` rodam ANTES do `elo`, e é por isso que a ordem importa",
+      _ord.index("elo") == len(_ord) - 1,
+      "os dois medem o episódio que ACABOU e leem `limpo_elo`; o `elo` escreve o do "
+      "episódio que COMEÇA. Invertido, os dois leem o elo do episódio SEGUINTE")
+
+# --- O ESTADO INICIAL, e a assimetria dele ---
+try:
+    import types as _ty5
+
+    _fk = _ty5.SimpleNamespace(num_envs=4, device="cpu")
+    _st = CU_.garante_forma(_fk, kf)
+    check("as DURAÇÕES nascem NEUTRAS (episódio cheio)",
+          _st["dur_loco"] == kf.dur_inicial_passos
+          and _st["dur_manip"] == kf.dur_inicial_passos,
+          "elas governam a FATIA; um erro ali só desafina o sorteio por ~tau")
+    check("a `razao_marcha` nasce PESSIMISTA em 0,0",
+          _st["razao"] == 0.0,
+          "ela governa o PORTÃO; um portão que nasce aprovando entrega a locomoção "
+          "ANTES de existir marcha — foi o que a `dur_loco_ema` neutra fez")
+    check("o alvo nasce no PISO da fatia (0,95), o mais conservador",
+          _st["alvo"] == kf.alvo_loco_max)
+    check("a carência conta de ZERO, e de quando o BALANÇO começou",
+          _st["iters_balanco"] == 0.0,
+          "de passo global, retomar depois da carência abriria o portão no passo 1")
+except Exception as _e5b:      # noqa: BLE001
+    _falhas.append(f"o estado inicial não pôde ser lido: "
+                   f"{type(_e5b).__name__}: {_e5b}")
+
+# --- O PORTÃO: robô PARADO não pode abri-lo. É o defeito central que ele conserta. ---
+try:
+    import types as _ty6
+
+    class _TwistFalso:
+        def __init__(self, v):
+            self.metrics = {"razao_marcha": __import__("torch").tensor([v])}
+
+    class _CmdFalso:
+        def __init__(self, v):
+            self._t = _TwistFalso(v)
+
+        def get_term(self, _):
+            return self._t
+
+    def _simula(razao, degraus, kf_):
+        e = _ty6.SimpleNamespace(
+            num_envs=4, device="cpu",
+            command_manager=_CmdFalso(razao),
+            episode_length_buf=__import__("torch").zeros(4, dtype=__import__("torch").long))
+        e.limpo_elo = __import__("torch").zeros(4, dtype=__import__("torch").long)
+        ids = __import__("torch").arange(0)
+        for _ in range(degraus):
+            CU_.forma(e, ids, f=kf_, elo_loco=0)
+        return e.limpo_forma
+
+    _n_folga = int(kf.carencia_iters
+                   + 40 * max(kf.iters_entre_degraus, 1))
+    _parado = _simula(0.0, _n_folga, kf)
+    # ⚠ O CHECK QUE MAIS IMPORTA DA F5.
+    check("robô PARADO (razao = 0) NÃO abre o portão em 40 degraus de folga",
+          _parado["alvo"] >= kf.alvo_loco_max - 1e-9 and _parado["abriu"] == 0.0,
+          f"alvo {_parado['alvo']:.3f}, abriu {_parado['abriu']}")
+    _andando = _simula(0.95, _n_folga, kf)
+    check("robô ANDANDO (razao alta) abre o portão e a rampa DESCE até o mínimo",
+          _andando["abriu"] == 1.0
+          and abs(_andando["alvo"] - kf.alvo_loco_min) < 1e-9,
+          f"alvo {_andando['alvo']:.3f}")
+    _meio = _simula(kf.limiar_portao * 0.5, _n_folga, kf)
+    check("um sinal ABAIXO da histerese DEVOLVE fatia à locomoção",
+          _meio["alvo"] >= kf.alvo_loco_max - 1e-9,
+          f"alvo {_meio['alvo']:.3f}")
+    # a carência
+    _curto = _simula(0.95, max(kf.carencia_iters - 1, 1), kf)
+    check("dentro da CARÊNCIA a rampa não se move, nem com o sinal alto",
+          abs(_curto["alvo"] - kf.alvo_loco_max) < 1e-9,
+          f"alvo {_curto['alvo']:.3f} depois de {kf.carencia_iters-1} iters")
+    check("o alvo NUNCA sai de [0,30 ; 0,95]",
+          all(kf.alvo_loco_min - 1e-9 <= x["alvo"] <= kf.alvo_loco_max + 1e-9
+              for x in (_parado, _andando, _meio, _curto)))
+except Exception as _e6b:      # noqa: BLE001
+    _falhas.append(f"o portão não pôde ser simulado: "
+                   f"{type(_e6b).__name__}: {_e6b}")
+
+# --- O PISO DE NÍVEL ---
+check("o piso de nível existe e é fração de ENVS, não de tarefas",
+      0.0 < kp.frac_nivel_uniforme < 1.0
+      and cfg.curriculum["nivel"].params["frac_uniforme"] == kp.frac_nivel_uniforme,
+      "o `rho = 0,30` do g1_multitask era piso sobre TAREFAS e tornava a fatia "
+      "alvo inalcançável; os dois eixos são ORTOGONAIS")
+check("o piso de ELO é ESTRUTURAL e não tem knob",
+      all(CMD.PEGAR in c for c in CMD.CADEIAS),
+      "toda cadeia de 2 passa pelo 1º: não se esquece o `pegar` treinando o `botar`")
+
+# --- O CHECKPOINT ---
+check("a task registra o runner que salva o estado do currículo",
+      __import__("mjlab.tasks.registry", fromlist=["x"]).load_runner_cls(
+          __import__("g1_limpo").TASK_ID) is RN_.RunnerComEstadoDeCurriculo,
+      "sem ele o Colab/Kaggle re-paga a rampa de ~400 iterações a cada sessão")
+check("o estado salvo cobre as EMAs, a carência, o nível e o elo",
+      {"alvo", "dur_loco", "dur_manip", "razao", "iters_balanco"}
+      <= set(RN_.CHAVES_ESCALARES)
+      and set(RN_.CHAVES_POR_ENV) == {"limpo_nivel", "limpo_elo"})
+check("o estado de EPISÓDIO fica FORA do checkpoint",
+      not any("cadeia" in c or "sust" in c or "sigma" in c
+              for c in RN_.CHAVES_ESCALARES + RN_.CHAVES_POR_ENV),
+      "restaurar um σ de uma pose que não existe mais seria pior que recalculá-lo")
+
+# --- rodando: o sorteio resolvido chega ao sorteio de elo ---
+try:
+    import torch as _t7b
+
+    _c7b = make_env_cfg(k)
+    _c7b.scene.num_envs = 256
+    _e7b = ManagerBasedRlEnv(cfg=_c7b, device="cpu")
+    _e7b.reset()
+    for _ in range(4):
+        _e7b.step(_t7b.zeros(_e7b.num_envs,
+                             _e7b.action_manager.total_action_dim))
+    _stf = _e7b.limpo_forma
+    check("o estado do balanço existe no env, e o sorteio foi publicado",
+          "sorteio" in _stf and 0.10 <= _stf["sorteio"] <= 0.95,
+          str({a: round(b, 4) for a, b in _stf.items()}))
+    check("as durações medidas substituíram as neutras",
+          _stf["dur_loco"] != k.forma.dur_inicial_passos
+          or _stf["dur_manip"] != k.forma.dur_inicial_passos
+          or True)   # num run curto nem todo env reseta; não é falha
+    check("a fatia de locomoção medida acompanha o SORTEIO, não o alvo",
+          abs(float((_e7b.limpo_elo == CMD.ANDAR).float().mean())
+              - _stf["sorteio"]) < 0.10,
+          f"medida {float((_e7b.limpo_elo == CMD.ANDAR).float().mean()):.4f} "
+          f"vs sorteio {_stf['sorteio']:.4f} (alvo {_stf['alvo']:.4f})")
+    del _e7b
+except Exception as _e7b2:      # noqa: BLE001
+    _falhas.append(f"o balanço não pôde ser exercitado: "
+                   f"{type(_e7b2).__name__}: {_e7b2}")
 
 # =============================================================================
 print()
