@@ -242,10 +242,85 @@ class Nivel:
 
 
 @dataclass
+class Recompensa:
+    """Os pesos da LOCOMOÇÃO (F1). Um treino tem de ser reproduzível por `git diff`
+    deste bloco, portanto a tabela é escrita INTEIRA — inclusive os pesos que hoje
+    são idênticos ao default do `mjlab`.
+
+    ⚠ Escrever o valor idêntico NÃO é redundância: é a trava contra deriva silenciosa.
+    Um upgrade de `mjlab` que mude um default do molde passaria sem erro e sem log, e
+    o `escala_acao_mult` já é o único número pré-registrado para mexer se o portão
+    falhar — não pode haver um segundo suspeito entrando pela porta de trás.
+
+    ⚠ `scale_rewards_by_dt = True` e `dt = 0,02 s`, portanto **o peso É o valor por
+    segundo**. Duas consequências que já custaram sessões:
+      · `terminacao = −200` NÃO é −200. É `−200 × 0,02 = −4,0` de uma vez, no passo
+        que termina. Contra os ~5,0/s do teto positivo, cair custa ~0,8 s de tudo.
+      · `joint_acc = −2,5e−7` é desprezível de propósito: MEDIDO em 0,0006/s. Ele
+        entra por paridade com o módulo que andou, e não por efeito.
+    """
+
+    # --- os positivos ---
+    track_linear_velocity: float = 2.0
+    track_angular_velocity: float = 2.0
+    upright: float = 1.0
+    pose: float = 1.0                     # `variable_posture`, σ COLHIDOS do molde
+
+    # ⚠ O ÚNICO termo POSITIVO de marcha, e o fabricante o entrega em ZERO. Fica em
+    # zero na F1, e é decisão declarada, não descuido: mexer nele no mesmo bloco que
+    # o `escala_acao_mult` confundiria os dois. MEDIDO nos dois módulos: ausente no
+    # que andou, 0,0 no que não andou — portanto ele NÃO é a explicação do andar.
+    #
+    # ⚠ E peso 0 apaga o `Metrics/air_time_mean` em silêncio (`reward_manager.py:122`
+    # pula termo com peso zero). É por isso que a métrica migra para o
+    # `metricas.py` — ver lá.
+    air_time: float = 0.0
+
+    # --- os freios do molde ---
+    action_rate_l2: float = -0.1          # −0,10 destravou o andar num bloco medido
+    dof_pos_limits: float = -1.0
+    foot_clearance: float = -2.0
+    foot_swing_height: float = -0.25
+    foot_slip: float = -0.1
+    soft_landing: float = -1e-5
+    body_ang_vel: float = -0.05
+    angular_momentum: float = -0.02
+    self_collisions: float = -1.0
+
+    # --- os dois termos NOVOS, do `g1_multitask` (o módulo que andou) ---
+    terminacao: float = -200.0
+    joint_acc: float = -2.5e-7
+
+    # o alvo do `foot_swing_height`, em metros. Do molde.
+    altura_de_balanco: float = 0.10
+
+
+@dataclass
+class Marcha:
+    """A régua da locomoção. Adimensional de propósito.
+
+        razao_marcha = 1 − Σ‖v_cmd_xy − v_xy‖ / Σ‖v_cmd_xy‖
+
+    ⚠ Adimensional porque o currículo de comando do fabricante ALARGA a faixa de
+    velocidade ao longo do treino. Uma régua em m/s subiria de degrau na iteração em
+    que a faixa abre, e o portão leria progresso onde só houve mudança de escala.
+
+    Ela nasce PESSIMISTA em 0,0: um robô imóvel colhe zero, porque o numerador iguala
+    o denominador. É o oposto do portão que media sobrevivência.
+    """
+
+    # abaixo disto o comando conta como "parado" e o passo NÃO entra em nenhuma das
+    # duas somas. Sem o gate, um comando de 0,001 m/s inflaria a razão de graça.
+    limiar_comando: float = 0.05
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
     nivel: Nivel = field(default_factory=Nivel)
+    recompensa: Recompensa = field(default_factory=Recompensa)
+    marcha: Marcha = field(default_factory=Marcha)
 
 
 ATIVO = Knobs()

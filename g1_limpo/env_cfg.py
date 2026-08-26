@@ -11,16 +11,21 @@ COLHIDAS do cfg do fabricante, porque `mjlab` é biblioteca. Redigitá-las custa
 pegue um dígito trocado. E um σ de joelho de 0,35 digitado 0,035 não quebra nada:
 ele achata o passo, e a run morre 1200 iterações depois num painel.
 
-ESCOPO DESTA FASE (F0): esqueleto, cena, ação, física, remoções. A tabela de
-recompensa é a DO FABRICANTE, sem mudança — quem a ajusta é a F1.
+ESCOPO ATÉ AQUI (F0 + F1): esqueleto, cena, ação, física, remoções, a tabela de
+recompensa da locomoção, as métricas de marcha e a `razao_marcha`. O one-hot e os
+gates entram na F2; os sete incentivos de manipulação, na F3.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp import is_terminated, joint_acc_l2
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.reward_manager import RewardTermCfg
 
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 
@@ -28,9 +33,41 @@ from g1_limpo import cena as C
 from g1_limpo import comando as CMD
 from g1_limpo import curriculo as CU
 from g1_limpo import eventos as EV
+from g1_limpo import metricas as MT
+from g1_limpo import recompensas as RC
 from g1_limpo.knobs import ATIVO, Knobs
 
-__all__ = ["make_env_cfg", "colhe_sigmas_de_postura"]
+__all__ = ["make_env_cfg", "colhe_sigmas_de_postura", "aplica_pesos", "ELO_DE_TREINO"]
+
+# ⚠ O ELO QUE O TREINO ABRE, e ele é da FASE, não um número de ajuste — por isso vive
+# aqui e não no `knobs.py`.
+#
+# F1 = LOCOMOÇÃO PURA. A mobília sobe a +5 m, `valida = 0`, e não existe alvo de caixa.
+# É a hipótese central do módulo, e ela foi VALIDADA por medição: o `g1_multitask`
+# andou porque a fase 1 dele não tinha manipulação nenhuma (fatia de 100% para a
+# locomoção), e o `g1_poc` não andou porque entregou 70% das transições à manipulação
+# por volta da iteração 420, com o robô imóvel.
+#
+# A F3 troca isto para `CMD.PEGAR`; a F5 passa a dividir a fatia entre os dois.
+ELO_DE_TREINO = CMD.ANDAR
+
+
+def aplica_pesos(cfg, r) -> None:
+    """Escreve a tabela de pesos da F1 sobre a do molde, termo a termo.
+
+    ⚠ O `assert` é o ponto. Um nome de termo que o `mjlab` renomeie num upgrade
+    passaria como `cfg.rewards["nome_velho"].weight = x` num dict novo — criando um
+    termo ÓRFÃO sem `func`, ou pior, deixando o termo real com o peso do molde. O
+    `assert` transforma isso num erro na montagem, e não num painel estranho 3000
+    iterações depois.
+    """
+    for nome, peso in dataclasses.asdict(r).items():
+        if nome == "altura_de_balanco":      # não é peso, é o alvo em metros
+            continue
+        assert nome in cfg.rewards, (
+            f"termo de recompensa '{nome}' não existe no molde; "
+            f"existentes: {sorted(cfg.rewards)}")
+        cfg.rewards[nome].weight = peso
 
 
 def colhe_sigmas_de_postura(cfg) -> dict:
@@ -57,8 +94,8 @@ def make_env_cfg(
     """Monta o cfg.
 
     `inspecao=True`  trava o robô e desliga as terminações. SÓ para revisão visual.
-    `elo`            força o elo (`comando.ANDAR`..`comando.BOTAR`). `None` = `PEGAR`,
-                     o único que a F0/F1 treina.
+    `elo`            força o elo (`comando.ANDAR`..`comando.BOTAR`). `None` =
+                     `ELO_DE_TREINO`, que na F1 é o `ANDAR`.
 
     ⚠ A LAJE é movida pelo TERMO DE COMANDO, e não por este cfg: o `ANDAR` e o
     `CARREGAR` a mandam para +5 m, e o `BOTAR` a põe num topo novo. É lá que a F4 vai
@@ -66,7 +103,7 @@ def make_env_cfg(
     """
     k = k or ATIVO
     c = k.cena
-    elo_alvo = CMD.PEGAR if elo is None else int(elo)
+    elo_alvo = ELO_DE_TREINO if elo is None else int(elo)
     anda = elo_alvo in (CMD.ANDAR, CMD.CARREGAR)
     segurando = elo_alvo in (CMD.CARREGAR, CMD.BOTAR)
 
@@ -113,6 +150,46 @@ def make_env_cfg(
     assert isinstance(acao, JointPositionActionCfg), type(acao)
     acao.scale = {padrao: v * c.escala_acao_mult
                   for padrao, v in G1_ACTION_SCALE.items()}
+
+    # ------------------------------------------ 2b. a recompensa da locomoção (F1)
+    # Os DOIS termos que o molde não tem, vindos do `g1_multitask` — o módulo que
+    # ANDOU. Entram antes de `aplica_pesos`, que exige que todo nome exista.
+    #
+    # ⚠ `terminacao = −200` NÃO custa 200. Com `scale_rewards_by_dt = True` e
+    # `dt = 0,02`, o passo que termina paga `−200 × 0,02 = −4,0`. E `is_terminated`
+    # exclui o `time_out` (ele lê `termination_manager.terminated`), portanto
+    # terminar o episódio pelo tempo NÃO é punido — só cair é.
+    cfg.rewards["terminacao"] = RewardTermCfg(func=is_terminated, weight=0.0)
+    cfg.rewards["joint_acc"] = RewardTermCfg(func=joint_acc_l2, weight=0.0)
+
+    # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
+    # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele
+    # atravessa o fim do episódio, e o pico do pé que estava no ar quando o robô caiu
+    # entra no episódio seguinte. Ver `recompensas.AlturaDeBalanco`.
+    cfg.rewards["foot_swing_height"].func = RC.AlturaDeBalanco
+    cfg.rewards["foot_swing_height"].params["target_height"] = k.recompensa.altura_de_balanco
+
+    aplica_pesos(cfg, k.recompensa)
+
+    # ------------------------------------------------ 2c. as métricas de marcha
+    # ⚠ Elas saem de DENTRO dos termos de recompensa de propósito:
+    # `reward_manager.py:122` pula termo com peso 0, portanto a medição do fabricante
+    # morre junto com o incentivo. O `air_time` já vem com peso 0,0 no molde — o
+    # `Metrics/air_time_mean` dele NÃO EXISTE. Ver `metricas.py`.
+    #
+    # O `mean_action_acc` do molde FICA: ele já é `MetricsTermCfg` e não depende de peso.
+    cfg.metrics.update(MT.termos())
+
+    # ------------------------------------------ 2d. a régua: `razao_marcha`
+    # ⚠ O twist é RECONSTRUÍDO como subclasse, campo a campo por `dataclasses.fields`,
+    # e não editado. Copiar campos à mão perderia em silêncio qualquer campo que um
+    # upgrade de `mjlab` adicione — e um `rel_standing_envs` perdido mudaria 10% dos
+    # envs sem uma linha de log.
+    antigo = cfg.commands["twist"]
+    campos = {f.name: getattr(antigo, f.name)
+              for f in dataclasses.fields(antigo)}
+    cfg.commands["twist"] = CMD.TwistComRazaoDeMarchaCfg(
+        **campos, limiar_comando=k.marcha.limiar_comando)
 
     # -------------------------------------------------------- 3. os eventos
     # ⚠ `base_com` (`dr.body_com_offset`) SAI, e não é preferência: ele corrompe a
