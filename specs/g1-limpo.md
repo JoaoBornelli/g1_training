@@ -2,11 +2,11 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** F0, F1 e F2 implementadas e verificadas (`smoke` 187 ok / 0 falhas, `paridade`
+**Estado:** F0, F1, F2 e F3 implementadas e verificadas (`smoke` 217 ok / 0 falhas, `paridade`
 85 campos / 0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis,
 `leitura --demo` ok). O alvo do `REORIENTAR` foi redesenhado em 2026-08-26 (§4.3).
 **Nenhuma run rodada ainda** — o portão de treino é remoto, e o venv local não roda
-PPO (ver §11). F3 a F6 pendentes.
+PPO (ver §11). F4 a F6 pendentes.
 
 Um quarto módulo de treino, novo e isolado. `g1_multitask/` e `g1_poc/` ficam **intocados**,
 os dois como referência.
@@ -202,6 +202,80 @@ sem equalização de orçamento. R2 continua respeitada.
 **O one-hot não leva o crédito do andar.** O `g1_poc` já tinha o equivalente funcional (o bit
 `caixa_valida` em `command[:,9]`, `env_cfg.py:243-246`, mais o twist forçado a zero,
 `comando.py:826`) e não andou.
+
+### 4.2b O σ é a DISTÂNCIA INICIAL, e não um número escolhido
+
+Medido em 2026-08-26, e é a regra que decide se a manipulação nasce.
+
+**A pergunta do dono:** a recompensa de ficar parado num elo de manipulação não pode ser
+maior que a de agir com a caixa; senão o ótimo é a estátua. Ela se decompõe em três
+condições, e duas delas foram medidas.
+
+**Condição 1 — o teto da tarefa supera o piso.** Satisfeita com folga. O piso é 5,81/s; um
+robô que fecha a tarefa colhe isso mais os sete incentivos (teto ~12,5/s). Razão ~3:1.
+
+**Condição 2 — mover tem de ser barato.** Medido com a base pinada, movendo as 14 juntas de
+braço:
+
+| movimento | custo /s | % do piso |
+|---|---:|---:|
+| rampa 2,0 s → 0,6 rad, mantém | 0,103 | 1,8% |
+| rampa 1,0 s → 0,6 rad, mantém | 0,176 | 3,0% |
+| rampa 0,5 s → 0,6 rad, mantém | 0,249 | 4,3% |
+| varredura 1,0 Hz | 0,152 | 2,6% |
+
+Mover custa **0,10 a 0,25/s**, isto é 2% a 4% do piso. E 0,133 dos 0,15 vêm de UM termo:
+o `track_angular_velocity`. Os freios de movimento (`action_rate_l2`, `joint_acc`,
+`body_ang_vel`) somam 0,009 — irrelevantes. ⚠ É um **limite inferior**: com a base pinada
+não se conta a inclinação que o braço causa nem a mudança de velocidade do agachamento.
+
+**Condição 3 — o GRADIENTE NO REPOUSO. É esta que matou o `g1_poc`.** A palma nasce a
+**0,339 m** da caixa (mín 0,211, máx 0,481). Um kernel `exp(−d²/σ²)` ali, com peso 3,0:
+
+| σ | valor | derivada | ganho do 1º cm |
+|---:|---:|---:|---:|
+| 0,05 | 1e−20 | 0,00 | 0,0000 |
+| 0,10 | 1e−05 | 0,00 | 0,0000 |
+| 0,20 | 0,056 | 0,95 | 0,029 |
+| 0,30 | 0,278 | 2,10 | 0,063 |
+| 0,50 | 0,631 | 1,71 | 0,051 |
+
+Com σ ≤ 0,10 o termo vale zero **e a derivada é zero**. O robô move a mão 1 cm para perto e
+nada muda; move 1 cm para longe e nada muda. Não existe pista. Não é o robô PREFERINDO a
+estátua — é o robô não ter sinal nenhum que aponte para a caixa.
+
+**PORTANTO O σ NÃO PODE SER FIXO. Ele é a distância inicial daquele env:**
+
+    σ_env = ‖palma − caixa‖ no instante em que o elo abre
+
+Com isso todo env nasce em `exp(−1) = 0,368`, com derivada `2/d₀ × 0,368` — 3,49 no env mais
+perto e 1,53 no mais longe. **Vivo nos dois extremos, e sem número mágico.** É a mesma
+mecânica que a §4.1 já pedia ("os σ recalculados contra a pose fresca"); esta seção fixa o
+valor que ela tem de produzir.
+
+⚠ Sobra declarada: o primeiro centímetro ainda é NEGATIVO — ganha 0,063 e custa 0,15. O
+equilíbrio fica a 2–4 cm. Isso não trava o PPO, e o argumento é que ele otimiza RETORNO e não
+recompensa de passo: fechar 0,34 m paga 3,0/s pelo resto do episódio, contra perder 0,2/s por
+~1 s. E o ruído de exploração move a palma ~0,2 m, contra um vale de 3 cm.
+
+⚠ **Medido depois de implementar, e conserta um defeito meu:** a distância é até a
+**SUPERFÍCIE** da caixa, e não até o centro. Ao centro, o mínimo fisicamente alcançável é
+0,191 m — a caixa colide com a mão antes — logo o kernel saturava em **0,674** e o `staged`
+nunca passava de 3,35 de um teto de 6,0: o robô fazia a tarefa inteira e o termo dizia
+"faltam 33%". Subtraindo a meia-aresta, o kernel chega a 0,887 no contato. Ele não chega a
+1,0 porque o sítio da palma fica DENTRO da mão, e isso é bom: sobra gradiente até o contato,
+que é onde o `squeeze` assume.
+
+⚠ **O piso do elo parado sobe para 8,03/s com a F3** (era 5,81/s), e quase todo o acréscimo é
+o `staged`, que paga 1,95/s a uma estátua — por construção, porque `σ = d₀` faz o kernel
+nascer em `exp(−1)`. Fechar a tarefa paga ~20/s, portanto a razão fica ~2,5:1 e a decisão se
+mantém. Duas consequências de leitura: `Episode_Reward/staged` **não** mede progresso (ele
+nasce em 1/3), e um env de manipulação paga mais que um de locomoção (8,03 contra 4,44) — o
+que o controlador de fatia da F5 tem de levar em conta ao comparar retornos entre elos.
+
+⚠ **PRÉ-REGISTRADO:** se o alcance não aparecer na F3, o primeiro número a mover é o **σ**
+(mais largo), NUNCA o peso. Tornar o 1º centímetro positivo exigiria peso > 12, quatro vezes o
+da locomoção — e aí o robô para de andar.
 
 ### 4.3 O alvo do `REORIENTAR` — uma face marcada, no máximo um quarto de volta
 
