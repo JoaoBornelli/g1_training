@@ -2,11 +2,13 @@
 
 **Branch:** `exp/g1-limpo` (base `exp/g1-poc` @ `3ff4847`)
 **Data:** 2026-08-25
-**Estado:** F0, F1, F2 e F3 implementadas e verificadas (`smoke` 217 ok / 0 falhas, `paridade`
-85 campos / 0 diferenças, `inspeciona --tabela` 0 falhas nos 5 elos e nos 7 níveis,
-`leitura --demo` ok). O alvo do `REORIENTAR` foi redesenhado em 2026-08-26 (§4.3).
-**Nenhuma run rodada ainda** — o portão de treino é remoto, e o venv local não roda
-PPO (ver §11). F4 a F6 pendentes.
+**Estado:** **as sete fases (F0 a F6) implementadas e verificadas** — `smoke` **291 ok / 0
+falhas** (estável em 4 runs), `paridade` 85 campos / 0 diferenças, `inspeciona --tabela` 0
+falhas nas 4 variantes, `leitura --demo` ok.
+
+⚠ **NENHUMA RUN RODADA AINDA.** O portão de treino é remoto: o venv local não roda PPO por
+dois motivos independentes (ver §11). Tudo que está verde é estrutura e aritmética; **nada
+aqui prova que o robô anda ou pega.**
 
 Um quarto módulo de treino, novo e isolado. `g1_multitask/` e `g1_poc/` ficam **intocados**,
 os dois como referência.
