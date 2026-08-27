@@ -223,9 +223,24 @@ def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],
 def unload(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
     """`1 − F_apoio/(m·g)`. A caixa deixou de pesar na laje.
 
-    ⚠ É A PONTE do `pegar`, e ela é contínua: a força de apoio cai de `m·g` a 0
-    conforme o robô assume a carga. MEDIDO no `g1_poc`: 9,7 N -> 0 N. Um "está na mão"
-    booleano não tem esse meio-caminho, e sem o meio-caminho não há gradiente.
+    ⚠ É A PONTE do `pegar`: a força de apoio cai de `m·g` a 0 conforme o robô assume a
+    carga. MEDIDO 2026-08-27, erguendo a caixa da laje: `F_apoio` 9,80 N -> 0,00 N e o
+    termo 0,0005 -> 1,0. Os dois extremos são os que o plano pedia.
+
+    ⚠ MAS A TRANSIÇÃO É ESTREITA, e isto CORRIGE o que este docstring afirmava antes.
+    Erguendo a caixa em degraus, ela salta de 0 a 1 em **2 mm** — o contato é rígido, e
+    a força de apoio não passeia por valores intermediários enquanto a caixa sobe. Como
+    rampa de altura, o `unload` é quase um booleano.
+
+    ⚠ E o meu método não decide o caso que importa. Eu TELEPORTEI a caixa, portanto o
+    teste não modela PARTILHA DE CARGA: numa pega real a força da palma sobe enquanto a
+    do apoio desce, e as duas somam `m·g` — ali a força de apoio PASSA pelos valores do
+    meio, mesmo com a caixa quase imóvel. Isso só uma run com preensão mede.
+
+    Consequência de desenho, e ela é tranquila: o gradiente de aproximação vem do
+    `staged` e o de força vem do `squeeze` (`tanh`, contínuo desde o primeiro newton).
+    O `unload` marca "a caixa saiu da laje". Como quase-booleano ele é um bônus, e não a
+    rampa que o `pegar` precisa — e é bom que os três não dependam um do outro.
 
     ⚠ A massa vem de `env.limpo_massa`, em KG, publicada pelo evento `carga_caixa`.
     Publicar newtons obrigaria este consumidor a desfazer a conta, e é assim que se

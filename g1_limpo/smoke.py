@@ -1636,6 +1636,88 @@ except Exception as _ebx:      # noqa: BLE001
     _falhas.append(f"o fecho natural não pôde ser exercitado: "
                    f"{type(_ebx).__name__}: {_ebx}")
 
+# --- A CURVA DO `unload`, e a TASK DE CADEIA do visualizador ---
+try:
+    import torch as _tc
+
+    import g1_limpo as _gl
+
+    # (a) o `unload` vai de ~0 a ~1 quando a força de apoio cai de m·g a 0.
+    # ⚠ MÉTODO DECLARADO: a caixa é TELEPORTADA para cima. Isso mede os EXTREMOS, que é
+    # o que o critério pede — e NÃO mede a partilha de carga (palma sobe / apoio desce),
+    # que só uma run com preensão mostra. Ver o docstring do termo.
+    _cc = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _cc.scene.num_envs = 6
+    _ec = ManagerBasedRlEnv(cfg=_cc, device="cpu")
+    _ec.reset()
+    _nac = _ec.action_manager.total_action_dim
+    for _ in range(4):
+        _ec.step(_tc.zeros(_ec.num_envs, _nac))
+    _nmc = list(_cc.rewards)
+    _iu = _nmc.index("unload")
+    _cx = _ec.scene["box"]
+    _z0 = _cx.data.root_link_pos_w[:, 2].clone()
+
+    def _mede_unload(dz):
+        for _ in range(4):
+            _p = _cx.data.root_link_pos_w.clone()
+            _p[:, 2] = _z0 + dz
+            _cx.write_root_link_pose_to_sim(
+                _tc.cat([_p, _cx.data.root_link_quat_w], dim=-1))
+            _cx.write_root_link_velocity_to_sim(_tc.zeros(_ec.num_envs, 6))
+            _ec.step(_tc.zeros(_ec.num_envs, _nac))
+        _f = float(_tc.norm(_ec.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
+        return _f, float(_ec.reward_manager._step_reward[:, _iu].mean())
+
+    _f_apoiada, _u_apoiada = _mede_unload(0.0)
+    _f_erguida, _u_erguida = _mede_unload(0.05)
+    _mg = float((_ec.limpo_massa * 9.81).mean())
+    _peso = cfg.rewards["unload"].weight
+
+    check("apoiada, a força de apoio é ~m·g e o `unload` é ~0",
+          abs(_f_apoiada - _mg) / _mg < 0.05 and _u_apoiada / _peso < 0.05,
+          f"F={_f_apoiada:.2f} N de m·g={_mg:.2f} N, unload={_u_apoiada/_peso:.4f}")
+    check("erguida, a força de apoio é 0 e o `unload` é ~1",
+          _f_erguida < 1e-6 and abs(_u_erguida / _peso - 1.0) < 1e-3,
+          f"F={_f_erguida:.2f} N, unload={_u_erguida/_peso:.4f}")
+    print(f"  unload: {_u_apoiada/_peso:.4f} (apoiada, {_f_apoiada:.2f} N) -> "
+          f"{_u_erguida/_peso:.4f} (erguida, {_f_erguida:.2f} N)")
+    del _ec
+
+    # (b) A TASK DE CADEIA do visualizador existe e o avanço DISPARA.
+    # ⚠ Isto é o que faz o `--viewer --cadeia N --avanca-elo` NÃO ser no-op. A primeira
+    # versão dessas flags parseava o argumento e o DESCARTAVA, com um comentário dizendo
+    # que não era possível sem reescrever o `run_play`. O caminho é registrar a task.
+    check("há uma task de inspeção por cadeia de 2 elos",
+          set(_gl.TASK_CADEIA) == {i for i, c in enumerate(CMD.CADEIAS)
+                                   if len(c) > 1},
+          str(sorted(_gl.TASK_CADEIA)))
+    from mjlab.tasks.registry import load_env_cfg as _lec   # noqa: E402
+    _cv = _lec(_gl.TASK_CADEIA[2])
+    check("a task de cadeia força a cadeia E instala o evento de avanço",
+          _cv.commands["alvo_caixa"].cadeia_forcada == 2
+          and "avanca_elo" in _cv.events,
+          str(sorted(_cv.events)))
+    _cv.scene.num_envs = 4
+    _ev = ManagerBasedRlEnv(cfg=_cv, device="cpu")
+    _ev.reset()
+    _nav = _ev.action_manager.total_action_dim
+    _tv = _ev.command_manager.get_term("alvo_caixa")
+    _elo_antes_v = int(_tv._elo[0])
+    _laje_antes = float(_ev.scene["table"].data.root_link_pos_w[0, 2])
+    while float(_ev.episode_length_buf[0]) * _ev.step_dt < _gl.AVANCA_APOS_S + 0.5:
+        _ev.step(_tc.zeros(_ev.num_envs, _nav))
+    check("o evento de avanço DISPARA, e a mesa sobe com o robô parado",
+          int(_tv._elo[0]) == CMD.CARREGAR and _elo_antes_v == CMD.PEGAR
+          and float(_ev.scene["table"].data.root_link_pos_w[0, 2]) > 4.0,
+          f"elo {_elo_antes_v} -> {int(_tv._elo[0])}, laje "
+          f"{_laje_antes:.3f} -> "
+          f"{float(_ev.scene['table'].data.root_link_pos_w[0, 2]):.3f} m")
+    del _ev
+except Exception as _ecx:      # noqa: BLE001
+    _falhas.append(f"a curva do unload / a task de cadeia não pôde ser exercitada: "
+                   f"{type(_ecx).__name__}: {_ecx}")
+
 # ============================= 21. o currículo de nível e de cadeia (F6)
 secao("21. o passeio de nível e a tabela de cadeias (F6)")
 
