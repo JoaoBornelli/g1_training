@@ -15,7 +15,8 @@ import torch
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "staged", "precise_pos",
-           "precise_ori", "squeeze", "unload", "postura_ereta", "sustentacao"]
+           "precise_ori", "squeeze", "unload", "postura_ereta", "sustentacao",
+           "contato_prateleira"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -276,6 +277,37 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
     descarga = unload(env, nome_do_comando, sensor_apoio)
     # ⚠ o `unload` já traz o `VALIDA`; não multiplicar de novo (daria VALIDA²).
     return rampa * preensao * descarga
+
+
+def contato_prateleira(env, sensor: str) -> torch.Tensor:
+    """1,0 se pelve, tronco, quadril ou coxa toca a mesa. Fecha o atalho do ESCORO.
+
+    ⚠ ELE FALTAVA ATÉ 27/08, e a falta foi VISTA no `play` do bloco 1: nos elos de
+    manipulação o robô se joga na mesa. O g1_poc não fazia isso porque nunca aprendeu a
+    mover o corpo — e ele tinha a `contato_ilegal` como TERMINAÇÃO, confirmada no log
+    dele (`Episode_Termination/contato_ilegal`). Aqui a marcha do bloco 1 virou o
+    atalho, porque `staged` e `precise_pos` medem DISTÂNCIA e não qual junta a fechou.
+
+    ⚠ BOOLEANO, e não força. A forma vem de `skills/lift/rewards.py:144-150`, que a
+    treinou assim. Com força crua o tronco escorado daria ~200 N × 1,5 = −300/s e
+    apagaria os 11,5/s de tarefa.
+
+    ⚠ O SENSOR NÃO PEGA O PÉ, e isso é o conserto do defeito A11 do `g1_multitask`. Lá o
+    padrão era `.*_collision`, e 14 dos 31 geoms desse padrão são de pé — pisar na
+    prateleira cobrava −1,5 por passo, sem gate, nas 7 tarefas. Aqui o
+    `cena.CORPOS_QUE_NAO_ESCORAM` é uma tupla EXPLÍCITA de quatro padrões (`pelvis`,
+    `torso`, `.*_hip`, `.*_thigh`), sem pé e sem pad de palma. A palma deve tocar a
+    caixa; o exploit é o tronco escorar.
+
+    ⚠ SEM GATE DE ELO, de propósito: no `ANDAR` a mobília está a +5 m, portanto o sensor
+    não dispara e o gate é automático. Um gate explícito só acrescentaria um caminho a
+    manter.
+
+    ⚠ `any(dim=-1)` e não `squeeze(-1)`: o sensor nasce com `num_slots=1`, logo `found`
+    é `(B, 1)` hoje. O `any` continua correto se alguém subir o número de slots; o
+    `squeeze` passaria a somar slot com env em silêncio.
+    """
+    return (env.scene[sensor].data.found > 0).any(dim=-1).float()
 
 
 class sustentacao:

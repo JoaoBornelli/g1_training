@@ -139,6 +139,65 @@ check("o APOIO pede `force` — é a ponte do `unload`",
       "force" in por_nome[C.SENSOR_APOIO].fields)
 check("os DORSOS são booleanos (magnitude não importa)",
       all("force" not in por_nome[n].fields for n in C.SENSOR_DORSO))
+
+# ⚠ TODO SENSOR PRECISA DE CONSUMIDOR, e esta é a checagem que faltava. O
+# `corpo_prateleira` existiu da reescrita até 27/08 SEM NENHUM LEITOR: a checagem de
+# existência acima passava, o smoke marcava 306 ok, e o robô se jogava na mesa no play
+# porque nada cobrava o escoro. Sensor órfão é invisível para teste de existência.
+#
+# O consumidor é procurado nos `params` de recompensa, métrica, terminação e observação
+# — é por onde um nome de sensor chega a uma função.
+def _nomes_nos_params() -> set[str]:
+    vistos: set[str] = set()
+    grupos = [cfg.rewards, cfg.terminations, getattr(cfg, "metrics", {}) or {}]
+    for grupo in grupos:
+        for termo in grupo.values():
+            for v in (getattr(termo, "params", None) or {}).values():
+                if isinstance(v, str):
+                    vistos.add(v)
+                elif isinstance(v, (tuple, list)):
+                    vistos.update(x for x in v if isinstance(x, str))
+    for g in cfg.observations.values():
+        for termo in g.terms.values():
+            for v in (getattr(termo, "params", None) or {}).values():
+                if isinstance(v, str):
+                    vistos.add(v)
+                elif isinstance(v, (tuple, list)):
+                    vistos.update(x for x in v if isinstance(x, str))
+    return vistos
+
+
+# ⚠ ALLOWLIST COM MOTIVO, e não falha cega. Três destes são dívida CONHECIDA, e dois
+# deles são intencionais — a checagem existe para pegar um órfão NOVO, não para
+# reclamar da dívida já declarada. Um nome que sair desta lista tem de ganhar leitor
+# ou ganhar motivo.
+_ORFAOS_ACEITOS = {
+    # duplicatas deliberadas: trocar o `feet_ground_contact` e o `self_collision` do
+    # molde pelos nossos EXPLODE a obs `foot_air_time` do fabricante, que os
+    # referencia POR NOME. O preço está declarado em `env_cfg.py:145-155`.
+    "pes_chao": "duplicata deliberada do `feet_ground_contact` do molde",
+    "auto_colisao": "duplicata deliberada do `self_collision` do molde",
+    # DÍVIDA REAL: construídos (e testados como booleanos, acima) para um
+    # `back_penalty` que nunca foi fiado. O `g1_multitask` tem o termo em −0,5.
+    "dorso_E": "construído para um `back_penalty` que nunca foi fiado",
+    "dorso_D": "construído para um `back_penalty` que nunca foi fiado",
+}
+
+_consumidos = _nomes_nos_params()
+_orfaos = [n for n in por_nome
+           if n not in _consumidos and n not in _ORFAOS_ACEITOS]
+check("nenhum sensor NOVO ficou sem consumidor",
+      not _orfaos,
+      f"sensores órfãos: {_orfaos}  (o `corpo_prateleira` ficou órfão até 27/08)")
+check("os órfãos aceitos são exatamente os quatro conhecidos",
+      {n for n in por_nome if n not in _consumidos} == set(_ORFAOS_ACEITOS),
+      f"medido: {sorted(n for n in por_nome if n not in _consumidos)}")
+check("o `corpo_prateleira` é lido pelo freio do escoro",
+      cfg.rewards["contato_prateleira"].params["sensor"] == C.SENSOR_CORPO_PRATELEIRA)
+check("o freio do escoro é NEGATIVO e não entra na soma de tarefa",
+      cfg.rewards["contato_prateleira"].weight < 0.0
+      and abs(cfg.rewards["contato_prateleira"].weight - k.recompensa.contato_prateleira)
+      < 1e-12)
 check("os PÉS rastreiam tempo no ar",
       por_nome[C.SENSOR_PES].track_air_time is True)
 check("os PÉS aceitam QUALQUER contato como chão",
@@ -242,11 +301,13 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
-# ⚠ NOVE termos a mais que o molde: dois da F1 (locomoção) e os sete da F3 (tarefa).
-# O teste os NOMEIA em vez de contar — contar deixaria de pegar um termo esquecido.
+# ⚠ DEZ termos a mais que o molde: dois da F1 (locomoção), os sete da F3 (tarefa), e o
+# `contato_prateleira` (o freio do escoro, recuperado em 27/08). O teste os NOMEIA em
+# vez de contar — contar deixaria de pegar um termo esquecido.
 _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
-           "squeeze", "unload", "postura_ereta", "sustentacao"}
-check("a tabela divergE do molde em exatamente NOVE termos, e são estes",
+           "squeeze", "unload", "postura_ereta", "sustentacao",
+           "contato_prateleira"}
+check("a tabela divergE do molde em exatamente DEZ termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))

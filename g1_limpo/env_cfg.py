@@ -184,6 +184,19 @@ def make_env_cfg(
     cfg.rewards["terminacao"] = RewardTermCfg(func=is_terminated, weight=0.0)
     cfg.rewards["joint_acc"] = RewardTermCfg(func=joint_acc_l2, weight=0.0)
 
+    # ⚠ O FREIO DO ESCORO, recuperado em 27/08. Ele NASCE AQUI, com `weight=0.0`, e não
+    # no bloco de tarefa lá embaixo — é o mesmo padrão dos dois termos acima, e ele é
+    # OBRIGATÓRIO: o `aplica_pesos` roda logo depois e exige que todo campo de
+    # `Recompensa` já exista no molde. Criá-lo depois levanta `AssertionError` na
+    # montagem, que é exatamente o que o `assert` existe para fazer.
+    #
+    # ⚠ E ele fica FORA do bloco de sete termos de tarefa de propósito: o `smoke`
+    # confere que a soma daqueles sete é 11,5/s, e este é freio, não tarefa. Por isso o
+    # peso mora em `Recompensa` e não em `Tarefa`.
+    cfg.rewards["contato_prateleira"] = RewardTermCfg(
+        func=RC.contato_prateleira, weight=0.0,
+        params={"sensor": C.SENSOR_CORPO_PRATELEIRA})
+
     # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
     # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele
     # atravessa o fim do episódio, e o pico do pé que estava no ar quando o robô caiu

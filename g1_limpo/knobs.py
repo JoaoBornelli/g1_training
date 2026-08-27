@@ -316,6 +316,30 @@ class Recompensa:
     terminacao: float = -200.0
     joint_acc: float = -2.5e-7
 
+    # --- o freio do ESCORO, recuperado em 27/08 ---
+    # ⚠ ELE FALTAVA, e a falta foi VISTA no `play` do bloco 1: nos elos de manipulação
+    # o robô se joga na mesa. O g1_poc não fazia isso porque nunca aprendeu a mover o
+    # corpo; aqui a marcha do bloco 1 virou o atalho, porque a recompensa de alcance
+    # mede DISTÂNCIA e não qual junta fechou a distância.
+    #
+    # ⚠ O sensor `corpo_prateleira` já existia em `cena.py` desde a reescrita, e NADA o
+    # lia. Um sensor sem consumidor é invisível para teste de existência — é por isso
+    # que o `smoke` ganhou a checagem de consumidor junto com este peso.
+    #
+    # ⚠ PESO E FORMA vêm do módulo que treinou com eles: `table_contact = -1.5`, e a
+    # forma é BOOLEANA (`skills/lift/rewards.py:144-150`), não força. Com força crua o
+    # tronco escorado daria ~200 N × 1,5 = −300/s e dominaria todo o resto.
+    #
+    # ⚠ NÃO É GATEADO, e não precisa: no elo `ANDAR` a mobília está a +5 m, portanto o
+    # sensor não dispara e o gate é automático. Fica FORA do `SETE` do `Tarefa`, para
+    # não mexer na soma de 11,5/s que o smoke confere.
+    #
+    # ⚠ O `com_over_feet` do lift NÃO entra, e a decisão é medida: ele é
+    # `clamp(deriva − 0,05, min=0)²`, logo um mergulho de 30 cm custa 0,25² × 2,0 =
+    # 0,125/s contra 11,5/s de tarefa — 1,1%. Com o peso padrão ele já é quase inerte;
+    # mais fraco seria inerte. O g1_poc passou sem ele por isso, não por sorte.
+    contato_prateleira: float = -1.5
+
     # o alvo do `foot_swing_height`, em metros. Do molde.
     altura_de_balanco: float = 0.10
 
