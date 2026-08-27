@@ -48,7 +48,10 @@ PASSOS_CHEIOS = MAX_EP_S / DT        # 1000
 CH_STD = "Policy/mean_std"
 CH_DURACAO = "Train/mean_episode_length"        # em PASSOS, não em segundos
 CH_RECOMPENSA = "Train/mean_reward"
-CH_RAZAO = "Metrics/twist/razao_marcha"
+CH_RAZAO = "Metrics/twist/razao_marcha"        # DIAGNÓSTICO desde 27/08
+CH_EFIC = "Metrics/twist/eficiencia_min"       # o JUIZ: pior segmento de comando
+CH_EFIC_MED = "Metrics/twist/eficiencia_media"
+CH_SEGMENTOS = "Metrics/twist/segmentos"
 CH_VOO = "Episode_Metrics/tempo_de_voo"
 CH_PICO = "Episode_Metrics/pico_de_altura"
 CH_ESCORREGO = "Episode_Metrics/velocidade_de_escorrego"
@@ -63,7 +66,11 @@ CH_FATIA_CADEIA = "Metrics/alvo_caixa/fatia_cadeia"
 # A ESCADA DE CORTE DA F1. Pare o bloco se uma linha falhar.
 #   (iteração, chave, comparador, alvo, o que significa falhar)
 ESCADA = [
-    (200, CH_STD, ">=", 0.85,
+    # ⚠ ERA 0,85 E ISSO ESTAVA ERRADO. Medido no bloco 1: o `std` cai de 1,00 para 0,83
+    # em 49 iterações, porque o PPO descarta ação obviamente ruim. A linha marcava falha
+    # com o treino saudável. 0,60 é o valor que o bloco 1 passou (0,60 na it 200) e
+    # abaixo de ~0,30 a política para de explorar.
+    (200, CH_STD, ">=", 0.60,
      "as penalidades dominam desde o começo; algum peso ficou grande"),
 
     # ⚠ SOBREVIVÊNCIA, e só isso. Um robô IMÓVEL marca 1000 passos. Foi por medir
@@ -72,10 +79,23 @@ ESCADA = [
     (1000, CH_DURACAO, ">=", 150.0,
      "o robô não sobrevive ao episódio; nada abaixo disto se interpreta"),
 
-    # ⚠ O PORTÃO DE VERDADE DA F1. Adimensional, e nasce em 0,0 para a estátua.
-    (2000, CH_RAZAO, ">=", 0.50,
-     "o robô NÃO ANDA: ele não fecha metade da velocidade comandada. "
-     "PRÉ-REGISTRADO: mover `escala_acao_mult` para 0,8, e NADA MAIS no bloco"),
+    # ⚠⚠ O PORTÃO DE VERDADE, E ELE MUDOU DE CHAVE EM 27/08. Era o `CH_RAZAO`, e a razão
+    # é soma de NORMAS: norma nunca cancela, portanto ruído de média zero SEMPRE a infla.
+    # MEDIDO no bloco 1 — o `std` subiu de 0,43 para 0,61 quando a manipulação entrou e a
+    # razão caiu de 0,514 para 0,426, com DURAÇÃO (984 -> 988) e QUEDA (0,000 -> 0,167)
+    # PARADAS e o `play` determinístico andando bem. Eu li essa queda como regressão da
+    # marcha e estava errado. Esta linha automatizaria o mesmo erro.
+    #
+    # A `eficiencia_min` é a projeção `⟨v_real · v̂_cmd⟩/⟨‖v_cmd‖⟩` por SEGMENTO de
+    # comando, reduzida pelo PIOR: o ruído cancela por integração e nenhum segmento bom
+    # compensa um ruim.
+    #
+    # ⚠ O ALVO É PROVÍSORIO. 0,50 vem da escala antiga e ainda não foi medido nesta. O
+    # bloco 2 tem as duas curvas no log lado a lado — calibrar contra elas.
+    (2000, CH_EFIC, ">=", 0.50,
+     "o robô NÃO ANDA: no pior segmento de comando ele não entrega metade da "
+     "velocidade pedida. PRÉ-REGISTRADO: mover `escala_acao_mult` para 0,8, e "
+     "NADA MAIS no bloco. ⚠ ALVO NÃO CALIBRADO na escala nova"),
 
     # ⚠ O pé sai do chão? É a pergunta que o peso 0 do `air_time` apagava do painel,
     # e a razão de as métricas terem saído dos termos de recompensa.
@@ -175,7 +195,10 @@ def _tabela_de_recompensa(acc, it: int, passos: float) -> None:
 
 def _tabela_de_marcha(acc, it: int) -> None:
     for rot, ch, un in (
-        ("razão de marcha", CH_RAZAO, ""),
+        ("eficiência (PIOR segmento)", CH_EFIC, "  <- o JUIZ"),
+        ("eficiência (média dos segs)", CH_EFIC_MED, ""),
+        ("segmentos válidos/episódio", CH_SEGMENTOS, ""),
+        ("razão de marcha", CH_RAZAO, "  <- diagnóstico; infla com `std`"),
         ("tempo de voo", CH_VOO, " s"),
         ("pico do pé", CH_PICO, " m"),
         ("escorrego do pé", CH_ESCORREGO, " m/s"),

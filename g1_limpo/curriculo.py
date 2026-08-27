@@ -328,11 +328,23 @@ def forma(
             st["dur_manip"] = a * st["dur_manip"] + (1 - a) * float(dur[~eh_loco].mean())
 
     # ------------------------------------------------------ 2. o sinal do portão
-    # ⚠ UM SINAL SÓ, e ele é a `razao_marcha` — adimensional, imune ao alargamento das
-    # faixas de comando na iteração 5000, e ZERO para a estátua.
+    # ⚠ UM SINAL SÓ, e desde 27/08 ele é a `eficiencia_min` — a projeção da velocidade
+    # real na direção comandada, pontuada POR SEGMENTO de comando e reduzida pelo pior.
+    # Adimensional, imune ao alargamento das faixas na it 5000, e ZERO para a estátua.
+    #
+    # ⚠ ELE NÃO É MAIS A `razao_marcha`, e o motivo é medido. Aquela é `1 − Σ‖v_cmd −
+    # v_real‖/Σ‖v_cmd‖`, uma soma de NORMAS: norma nunca cancela, portanto ruído de média
+    # zero sempre a infla. No bloco 1 o `std` foi de 0,43 para 0,61 e a razão caiu de
+    # 0,514 para 0,426 — com DURAÇÃO e QUEDA parados e o `play` determinístico andando
+    # bem. O portão congelou na banda morta e a rampa deu UM degrau em 1341 iterações.
+    # A `razao_marcha` fica no log como diagnóstico, para comparar as duas curvas.
+    #
+    # ⚠ O `min` e não a média: um robô que anda reto e não gira mostra média alta e
+    # mínimo baixo, e é o mínimo que responde "sabe andar". O `error_vel_yaw` está em
+    # ~2,5 há 5000 iterações e nenhum portão olhava para ele.
     try:
         tw = env.command_manager.get_term(nome_do_twist)
-        sinal = float(tw.metrics["razao_marcha"].mean())
+        sinal = float(tw.metrics["eficiencia_min"].mean())
     except (KeyError, AttributeError):
         sinal = st["razao"]
     st["razao"] = f.ema * st["razao"] + (1 - f.ema) * sinal

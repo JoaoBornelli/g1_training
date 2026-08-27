@@ -1003,7 +1003,23 @@ class AlvoCaixaCmd(CommandTerm):
 # A RÉGUA DA LOCOMOÇÃO
 # =============================================================================
 class TwistComRazaoDeMarcha(UniformVelocityCommand):
-    """O twist do fabricante, com UMA métrica a mais: a `razao_marcha`.
+    """O twist do fabricante, com DUAS réguas a mais.
+
+    **JUIZ (desde 27/08) — `eficiencia_min`.** Por SEGMENTO de comando:
+
+        e_s = ⟨v_real · v̂_cmd⟩_s / ⟨‖v_cmd‖⟩_s ,     e o portão lê min(e_s)
+
+    ⚠ POR QUE ELA SUBSTITUIU A `razao_marcha` NO PORTÃO. A razão é soma de NORMAS, e
+    norma nunca cancela: ruído de média zero SEMPRE a infla. MEDIDO no bloco 1 — o `std`
+    subiu de 0,43 para 0,61 (a manipulação entrou, exploração voltou a valer) e a razão
+    caiu de 0,514 para 0,426 com DURAÇÃO (984 -> 988) e QUEDA (0,000 -> 0,167) PARADAS e
+    o `play` determinístico andando bem. O portão congelou na banda morta e a rampa deu
+    UM degrau em 1341 iterações: ele leu ruído de ação como incompetência.
+    A projeção cancela o ruído (`Σ(ruído · v̂_cmd)` tem média zero, encolhe com 1/√N), e o
+    corte por segmento impede o robô de compensar um segmento ruim com outro bom.
+
+    **DIAGNÓSTICO — `razao_marcha`.** Fica no log, fora do portão, para que o bloco 2
+    tenha as duas curvas lado a lado e o limiar novo possa ser calibrado contra medição.
 
         razao_marcha = 1 − Σ‖v_cmd_xy − v_xy‖ / Σ‖v_cmd_xy‖
 
@@ -1045,11 +1061,84 @@ class TwistComRazaoDeMarcha(UniformVelocityCommand):
         self.metrics["soma_cmd_marcha"] = z.clone()
         self.metrics["razao_marcha"] = z.clone()
 
+        # ⚠ A EFICIÊNCIA POR SEGMENTO (27/08). Ela SUBSTITUI o `razao_marcha` como juiz;
+        # ver o docstring da classe para o motivo. Os cinco buffers moram em
+        # `self.metrics` pelo mesmo motivo que as somas: o `reset` do mjlab zera o que
+        # está no dict, e um buffer próprio meu precisaria repetir a ordem à mão.
+        self.metrics["seg_proj"] = z.clone()     # Σ (v_real · v̂_cmd) dt, no segmento
+        self.metrics["seg_pedido"] = z.clone()   # Σ ‖v_cmd‖ dt, no segmento
+        self.metrics["seg_visto"] = z.clone()    # cópia do `command_counter`
+        self.metrics["segmentos"] = z.clone()    # quantos segmentos VÁLIDOS fecharam
+        self.metrics["eficiencia_min"] = z.clone()
+        self.metrics["eficiencia_media"] = z.clone()
+
+    def _fecha_segmento(self, mudou: torch.Tensor) -> None:
+        """Pontua o segmento que acabou, SÓ nos envs de `mudou`, e reinicia os deles.
+
+        ⚠ A MÁSCARA É OBRIGATÓRIA. Num lote de 4096 envs cada um re-sorteia no seu
+        próprio instante, então numa chamada típica só uma fração cruzou a fronteira.
+        Sem a máscara, o zeramento apagaria o acumulador dos envs que estão NO MEIO do
+        segmento deles — e a métrica mediria pedaços aleatórios de segmento.
+
+        ⚠ VALIDADE POR `seg_pedido`, e não por duração. Um segmento só é pontuado se o
+        que foi PEDIDO nele passa de `pedido_min_segmento`. Uma regra só descarta dois
+        casos de uma vez: o comando quase nulo (`is_standing_env` e sorteio perto de
+        zero), cujo denominador é ruído; e o fragmento curto do fim do episódio, onde
+        150 passos ainda não cancelaram o ruído de ação.
+
+        ⚠ E O PRIMEIRO SEGMENTO NÃO PODE ENTRAR NO `min` COMO SE HOUVESSE UM ANTERIOR:
+        com `segmentos == 0` o mínimo É a eficiência dele, e não `min(e, 0.0)` — que
+        travaria a métrica em zero para sempre.
+        """
+        ped = self.metrics["seg_pedido"]
+        vale = mudou & (ped >= self.cfg.pedido_min_segmento)
+        e = self.metrics["seg_proj"] / ped.clamp(min=1e-6)
+
+        n = self.metrics["segmentos"]
+        primeiro = vale & (n == 0.0)
+        demais = vale & (n > 0.0)
+
+        self.metrics["eficiencia_min"][:] = torch.where(
+            primeiro, e,
+            torch.where(demais,
+                        torch.minimum(self.metrics["eficiencia_min"], e),
+                        self.metrics["eficiencia_min"]))
+        # média incremental, para não guardar a soma num sexto buffer
+        self.metrics["eficiencia_media"][:] = torch.where(
+            vale,
+            (self.metrics["eficiencia_media"] * n + e) / (n + 1.0),
+            self.metrics["eficiencia_media"])
+        self.metrics["segmentos"] += vale.float()
+
+        # ⚠ zera onde MUDOU, e não onde VALE: um segmento inválido também terminou, e
+        # deixar o acumulador dele de pé o somaria ao segmento seguinte.
+        z = torch.zeros_like(self.metrics["seg_proj"])
+        self.metrics["seg_proj"][:] = torch.where(
+            mudou, z, self.metrics["seg_proj"])
+        self.metrics["seg_pedido"][:] = torch.where(
+            mudou, z, self.metrics["seg_pedido"])
+
     def _update_metrics(self) -> None:
         super()._update_metrics()
         cmd = self.vel_command_b[:, :2]
         vel = self.robot.data.root_link_lin_vel_b[:, :2]
         norma_cmd = torch.norm(cmd, dim=-1)
+
+        # ⚠ FRONTEIRA DE SEGMENTO, detectada pelo `command_counter`. A ORDEM DO MJLAB
+        # torna isto correto: `CommandTerm.compute` chama `_update_metrics` ANTES do
+        # `_resample` (`command_manager.py:110-115`), portanto nesta chamada o comando e
+        # o contador ainda são os do segmento que está correndo. Quando o contador muda,
+        # a mudança é vista na chamada SEGUINTE — e aí o acumulador a ser fechado é o do
+        # segmento certo, sem nunca somar velocidade nova em comando velho.
+        #
+        # ⚠ O `seg_visto` zera no reset, junto com as outras métricas, e isso é seguro:
+        # no passo seguinte o contador difere de 0, o fecho dispara com `seg_pedido = 0`,
+        # e a regra de validade descarta o segmento vazio. Sem efeito no log.
+        atual = self.command_counter.to(dtype=self.metrics["seg_visto"].dtype)
+        mudou = atual != self.metrics["seg_visto"]
+        if bool(mudou.any()):
+            self._fecha_segmento(mudou)
+            self.metrics["seg_visto"][:] = atual
 
         # ⚠ O GATE. Sem ele um comando de 0,001 m/s entraria nas duas somas com erro
         # quase nulo e inflaria a razão de graça — e o fabricante põe 10% dos envs em
@@ -1069,6 +1158,25 @@ class TwistComRazaoDeMarcha(UniformVelocityCommand):
             torch.zeros_like(soma_cmd),
         )
 
+        # ⚠ A ACUMULAÇÃO DO SEGMENTO. Projeção, e NÃO norma, e essa é a única diferença
+        # que importa contra o `razao_marcha`:
+        #
+        #     Σ‖v_cmd − v_real‖   -> norma nunca cancela; ruído de média zero SEMPRE
+        #                            aumenta a soma, monotonicamente.
+        #     Σ(v_real · v̂_cmd)   -> o ruído entra como Σ(ruído · v̂_cmd), média zero,
+        #                            e encolhe com 1/√N dentro do segmento.
+        #
+        # MEDIDO no bloco 1: o `std` subiu de 0,43 (it 1525) para 0,61 (it 4999) e o
+        # `razao_marcha` caiu de 0,514 para 0,426 — enquanto DURAÇÃO (984 -> 988) e
+        # QUEDA (0,000 -> 0,167) não se moveram, e o `play` determinístico andava bem.
+        # A queda era da forma da métrica, não da política.
+        #
+        # ⚠ `dt` é `self._env.step_dt`, e não `1/50` escrito à mão.
+        dt = self._env.step_dt
+        dir_cmd = cmd / norma_cmd.clamp(min=1e-6).unsqueeze(-1)
+        self.metrics["seg_proj"] += (vel * dir_cmd).sum(dim=-1) * ativo * dt
+        self.metrics["seg_pedido"] += norma_cmd * ativo * dt
+
 
 @dataclass(kw_only=True)
 class TwistComRazaoDeMarchaCfg(UniformVelocityCommandCfg):
@@ -1078,6 +1186,18 @@ class TwistComRazaoDeMarchaCfg(UniformVelocityCommandCfg):
     twist do fabricante — sem a métrica e sem nenhum erro."""
 
     limiar_comando: float = 0.05
+
+    pedido_min_segmento: float = 0.5
+    """Piso de VALIDADE do segmento: `Σ‖v_cmd‖dt` mínimo para ele ser pontuado.
+
+    ⚠ NÃO É UM ALVO. A tarefa continua sendo rastrear velocidade; isto só decide se um
+    segmento tem sinal suficiente para ser julgado. Uma regra descarta dois casos: o
+    comando quase nulo, cujo denominador é ruído, e o fragmento curto no fim do
+    episódio, onde o ruído de ação ainda não cancelou.
+
+    **Derivado:** o comando médio vale ~0,765 m/s, e o re-sorteio do fabricante é de 3 a
+    8 s. Um segmento inteiro rende então ~2,3 no mínimo. 0,5 aceita segmentos a partir
+    de ~0,7 s de comando cheio e descarta os 10% de `is_standing_env` (que somam 0)."""
 
     def build(self, env: ManagerBasedRlEnv) -> TwistComRazaoDeMarcha:
         return TwistComRazaoDeMarcha(self, env)
