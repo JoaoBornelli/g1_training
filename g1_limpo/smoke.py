@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import dataclasses
+import inspect
 import pathlib
 import sys
 import warnings
@@ -606,6 +607,53 @@ check("ir ao CONTRÁRIO dá razão NEGATIVA, e ela não é clampeada",
 check("comando abaixo do limiar não entra em soma nenhuma",
       _razao([]) == 0.0 and k.marcha.limiar_comando > 0.0)
 
+# --- a ARITMÉTICA da eficiência por segmento (o JUIZ, desde 27/08) ---
+# ⚠ Aritmética pura sobre a MESMA forma do termo. O que ela tem de provar é a
+# propriedade que o `razao_marcha` NÃO tem: ruído de média zero não muda o número.
+check("o limiar de validade do segmento vem do knobs",
+      _tw.pedido_min_segmento == k.marcha.pedido_min_segmento)
+
+
+def _efic(passos, dt: float = 0.02) -> float:
+    """passos = [(v_cmd, v_real), ...], cada um vetor 2D. Um segmento só."""
+    proj = ped = 0.0
+    for c, v in passos:
+        nc = (c[0] ** 2 + c[1] ** 2) ** 0.5
+        if nc <= k.marcha.limiar_comando:
+            continue
+        proj += ((v[0] * c[0] + v[1] * c[1]) / nc) * dt
+        ped += nc * dt
+    return proj / ped if ped > 0 else 0.0
+
+
+check("robô IMÓVEL com comando ativo dá eficiência 0,0",
+      abs(_efic([((1.0, 0.0), (0.0, 0.0))] * 50) - 0.0) < 1e-12,
+      "projeção de velocidade nula é zero — a estátua não engana o juiz")
+check("rastreio PERFEITO dá exatamente 1,0",
+      abs(_efic([((1.0, 0.0), (1.0, 0.0))] * 50) - 1.0) < 1e-12)
+check("METADE da velocidade comandada dá exatamente 0,50",
+      abs(_efic([((1.0, 0.0), (0.5, 0.0))] * 50) - 0.50) < 1e-12)
+check("ela é ADIMENSIONAL: metade de 2 e metade de 1 dão o MESMO número",
+      abs(_efic([((2.0, 0.0), (1.0, 0.0))] * 50)
+          - _efic([((1.0, 0.0), (0.5, 0.0))] * 50)) < 1e-12,
+      "é isso que a torna imune ao degrau do currículo de comando na it 5000")
+check("ir ao CONTRÁRIO dá eficiência NEGATIVA, sem clamp",
+      _efic([((1.0, 0.0), (-1.0, 0.0))] * 50) < 0.0)
+check("velocidade PERPENDICULAR ao comando dá 0,0 — andar de lado não conta",
+      abs(_efic([((1.0, 0.0), (0.0, 3.0))] * 50) - 0.0) < 1e-12,
+      "é a projeção, não a norma: correr para o lado errado não paga")
+
+# ⚠⚠ A PROPRIEDADE QUE MOTIVOU A TROCA, e ela é o teste que importa. Ruído SIMÉTRICO
+# somado à velocidade real: a projeção NÃO se move, e a razão de normas PIORA.
+_alt = [((1.0, 0.0), (0.5, +0.4)), ((1.0, 0.0), (0.5, -0.4))] * 25
+check("ruído de média zero NÃO move a eficiência (a projeção cancela)",
+      abs(_efic(_alt) - 0.50) < 1e-12,
+      "Σ(ruído · v̂_cmd) tem média zero; é por isso que ela é o juiz")
+_r_ruido = _razao([(1.0, (0.5 ** 2 + 0.4 ** 2) ** 0.5)] * 50)
+check("o MESMO ruído PIORA a razão de normas (norma nunca cancela)",
+      _r_ruido < 0.50 - 1e-6,
+      f"medido {_r_ruido:.4f} < 0,50 — foi isso que congelou o portão do bloco 1")
+
 # --- a régua rodando de verdade, no env ---
 try:
     import torch as _t2
@@ -619,9 +667,20 @@ try:
         _env2.step(_t2.zeros(_env2.num_envs,
                              _env2.action_manager.total_action_dim))
 
-    check("as três entradas da régua existem em `self.metrics` do twist",
+    check("as três entradas da razão existem em `self.metrics` do twist",
           {"soma_erro_marcha", "soma_cmd_marcha", "razao_marcha"}
           <= set(_tw2.metrics))
+    # ⚠ Os SEIS buffers da eficiência vivem em `self.metrics` de propósito: o `reset` do
+    # mjlab zera o que está no dict, e um buffer próprio precisaria repetir a ordem.
+    check("os seis buffers da EFICIÊNCIA existem em `self.metrics`",
+          {"seg_proj", "seg_pedido", "seg_visto", "segmentos",
+           "eficiencia_min", "eficiencia_media"} <= set(_tw2.metrics),
+          str(sorted(set(_tw2.metrics))))
+    check("a eficiência nasce em 0,0 — pessimista, como o portão exige",
+          float(_tw2.metrics["eficiencia_min"].abs().max()) == 0.0)
+    check("o acumulador do segmento ANDA nos primeiros passos",
+          float(_tw2.metrics["seg_pedido"].max()) > 0.0,
+          "se ficar em zero, o gate do limiar de comando está zerando tudo")
     check("as métricas do fabricante seguem lá",
           {"error_vel_xy", "error_vel_yaw"} <= set(_tw2.metrics))
     # ⚠ A BANDA, e não `<= 0`. Um `<= 0` acusa a FÍSICA: em 5 passos (0,1 s) o robô de
@@ -696,10 +755,21 @@ check("a chave do nível casa com o prefixo do CurriculumManager",
 # ⚠ CONTAR as linhas da escada quebrou quando a F4 acrescentou duas. O invariante que
 # sobrevive às fases é a PRESENÇA das linhas que cada fase exige, nomeada por chave.
 _chaves_escada = {ch for _, ch, _, _, _ in LE_.ESCADA}
-check("a escada tem as quatro linhas da F1, e a do andar é a `razao_marcha`",
-      {LE_.CH_STD, LE_.CH_DURACAO, LE_.CH_RAZAO, LE_.CH_VOO} <= _chaves_escada
-      and any(ch == LE_.CH_RAZAO and alvo == 0.50
+check("a escada tem as quatro linhas da F1, e a do andar é a `eficiencia_min`",
+      {LE_.CH_STD, LE_.CH_DURACAO, LE_.CH_EFIC, LE_.CH_VOO} <= _chaves_escada
+      and any(ch == LE_.CH_EFIC and alvo == 0.50
               for _, ch, _, alvo, _ in LE_.ESCADA))
+# ⚠ E A RAZÃO SAIU DA ESCADA, de propósito. Ela continua IMPRESSA no painel como
+# diagnóstico, mas julgar por ela automatizaria o erro de leitura do bloco 1: ela infla
+# com o `std`, e o `std` sobe quando a manipulação entra.
+check("a `razao_marcha` NÃO é mais linha de corte, e segue impressa",
+      LE_.CH_RAZAO not in _chaves_escada
+      and LE_.CH_RAZAO in inspect.getsource(LE_),
+      "se ela voltar à escada, o portão volta a ler ruído de ação como incompetência")
+check("o degrau do `std` na it 200 é 0,60, e não 0,85",
+      any(ch == LE_.CH_STD and abs(alvo - 0.60) < 1e-9
+          for _, ch, _, alvo, _ in LE_.ESCADA),
+      "0,85 marcava falha com o treino saudável: o `std` cai a 0,83 em 49 iterações")
 check("as duas linhas da F4 são de FIM DE RUN, e não de um número",
       all(it is None for it, ch, _, _, _ in LE_.ESCADA
           if ch in (LE_.CH_FATIA_CADEIA, LE_.CH_SUCESSO_CADEIA))
@@ -1416,10 +1486,15 @@ check("duração zero não gera divisão por zero",
       0.0 <= CU_.resolve_sorteio(0.5, 0.0, 0.0, 0.10, 0.95) <= 1.0)
 
 # --- os knobs do controlador ---
-check("o portão é UM sinal só, e ele é a `razao_marcha`",
+check("o portão é UM sinal só, e desde 27/08 ele é a `eficiencia_min`",
       cfg.curriculum["forma"].params["nome_do_twist"] == "twist"
       and kf.limiar_portao == 0.50,
       "dois sinais conjuntivos já travaram uma rampa para sempre")
+check("o controlador LÊ a `eficiencia_min`, e não a `razao_marcha`",
+      "eficiencia_min" in inspect.getsource(CU_.forma)
+      and 'metrics["razao_marcha"]' not in inspect.getsource(CU_.forma),
+      "a razão é soma de NORMAS: ruído de média zero sempre a infla, e no bloco 1 "
+      "isso congelou a rampa em UM degrau por 1341 iterações")
 check("a histerese é ASSIMÉTRICA: lento para avançar, rápido para defender",
       0.0 < kf.histerese < 1.0)
 # ⚠ `math.ceil`, e não a divisão crua. `0,95 − 0,30` em float64 dá 0,6499999999999999,
@@ -1475,8 +1550,15 @@ try:
     import types as _ty6
 
     class _TwistFalso:
+        # ⚠ A CHAVE É `eficiencia_min` DESDE 27/08. Ela é o sinal do portão; a
+        # `razao_marcha` continua no dict porque continua logada, mas o controlador não a
+        # lê mais. Se este falso voltar a alimentar só a razão, o portão passa a ler o
+        # default pessimista e os dois testes de baixo falham dizendo "a rampa não desce"
+        # — que foi exatamente o que aconteceu ao trocar o sinal.
         def __init__(self, v):
-            self.metrics = {"razao_marcha": __import__("torch").tensor([v])}
+            _t = __import__("torch")
+            self.metrics = {"eficiencia_min": _t.tensor([v]),
+                            "razao_marcha": _t.tensor([v])}
 
     class _CmdFalso:
         def __init__(self, v):

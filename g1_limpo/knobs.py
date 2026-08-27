@@ -346,21 +346,46 @@ class Recompensa:
 
 @dataclass
 class Marcha:
-    """A régua da locomoção. Adimensional de propósito.
+    """As duas réguas da locomoção. Adimensionais de propósito.
 
-        razao_marcha = 1 − Σ‖v_cmd_xy − v_xy‖ / Σ‖v_cmd_xy‖
+    **JUIZ (desde 27/08) — `eficiencia_min`.** Por SEGMENTO de comando:
 
-    ⚠ Adimensional porque o currículo de comando do fabricante ALARGA a faixa de
-    velocidade ao longo do treino. Uma régua em m/s subiria de degrau na iteração em
-    que a faixa abre, e o portão leria progresso onde só houve mudança de escala.
+        e_s = ⟨v_real · v̂_cmd⟩_s / ⟨‖v_cmd‖_s⟩ ,     portão = min(e_s)
 
-    Ela nasce PESSIMISTA em 0,0: um robô imóvel colhe zero, porque o numerador iguala
-    o denominador. É o oposto do portão que media sobrevivência.
+    "Em média, que fração da velocidade comandada você entregou na direção comandada,
+    no pior segmento?" 1,0 = entregou tudo. Negativo = foi para o lado errado.
+
+    **DIAGNÓSTICO — `razao_marcha`.** `1 − Σ‖v_cmd_xy − v_xy‖ / Σ‖v_cmd_xy‖`.
+
+    ⚠ POR QUE A TROCA, e é medição e não gosto. A `razao_marcha` é soma de NORMAS, e
+    norma nunca cancela: com `v_real = v_politica + ruído`,
+    `Σ‖(v_cmd − v_politica) − ruído‖ > Σ‖v_cmd − v_politica‖` para ruído de média zero.
+    Logo ruído SEMPRE a infla, monotonicamente. No bloco 1 o `std` subiu de 0,43 (it
+    1525) para 0,61 (it 4999) — porque a manipulação entrou e exploração voltou a valer
+    — e a razão caiu de 0,514 para 0,426, enquanto DURAÇÃO (984 -> 988) e QUEDA (0,000 ->
+    0,167) NÃO se moveram e o `play` determinístico andava bem. O portão congelou na
+    banda morta e a rampa deu UM degrau em 1341 iterações.
+
+    A projeção conserta pela forma: `Σ(v_real · v̂_cmd) = Σ(v_politica · v̂_cmd) +
+    Σ(ruído · v̂_cmd)`, e o segundo termo tem média zero e encolhe com 1/√N.
+
+    ⚠ E o segmento, em vez do episódio, fecha o outro buraco: média sobre o episódio
+    inteiro deixaria o robô TROCAR TEMPO (parar 10 s e compensar depois). Cada segmento
+    é pontuado sozinho.
+
+    ⚠ AS DUAS nascem PESSIMISTAS em 0,0: robô imóvel projeta zero e tem erro igual ao
+    comando. É o oposto do portão que media sobrevivência, que dava nota máxima à
+    estátua.
     """
 
-    # abaixo disto o comando conta como "parado" e o passo NÃO entra em nenhuma das
-    # duas somas. Sem o gate, um comando de 0,001 m/s inflaria a razão de graça.
+    # abaixo disto o comando conta como "parado" e o passo NÃO entra em soma nenhuma —
+    # nem das normas, nem da projeção. Sem o gate, um comando de 0,001 m/s inflaria a
+    # razão de graça, e o fabricante põe 10% dos envs em `is_standing_env`.
     limiar_comando: float = 0.05
+
+    # piso de VALIDADE do segmento (não é alvo). Ver o docstring do campo homônimo em
+    # `comando.TwistComRazaoDeMarchaCfg` para a derivação.
+    pedido_min_segmento: float = 0.5
 
 
 @dataclass
@@ -412,7 +437,25 @@ class Forma:
     # rampa para sempre: o `erro_giro_ema <= 0,30` ficou plano em 0,587 por 390
     # iterações enquanto a `razao_giro` marcava 0,373. O sinal é o do fabricante: o
     # `terrain_levels_vel` rebaixa quem anda menos de METADE da velocidade comandada.
+    #
+    # ⚠⚠ O SINAL MUDOU EM 27/08: era a `razao_marcha`, agora é a `eficiencia_min`. A
+    # `razao_marcha` continua logada como DIAGNÓSTICO, e saiu do portão porque a forma
+    # dela não sobrevive a ruído de ação: `Σ‖v_cmd − v_real‖` é soma de NORMAS, e norma
+    # nunca cancela, portanto ruído de média zero SEMPRE a infla. MEDIDO no bloco 1: o
+    # `std` subiu de 0,43 para 0,61 e a razão caiu de 0,514 para 0,426, enquanto DURAÇÃO
+    # (984 -> 988) e QUEDA (0,000 -> 0,167) não se moveram e o `play` determinístico
+    # andava bem. O portão congelou em 0,426 na banda morta e a rampa deu UM degrau em
+    # 1341 iterações — ele leu ruído como incompetência.
+    #
+    # A `eficiencia_min` é a projeção `Σ(v_real · v̂_cmd)` por SEGMENTO de comando: o
+    # ruído entra com média zero e encolhe com 1/√N, e cada segmento é pontuado sozinho,
+    # o que impede o robô de compensar um segmento ruim com outro bom.
     limiar_portao: float = 0.50
+    """⚠ PROVISÓRIO E NÃO MEDIDO na escala nova. O 0,50 vinha da `razao_marcha`, e
+    coincide de escala: "entregar metade da velocidade comandada no PIOR segmento" é uma
+    barra defensável. Mas ninguém mediu quanto a política que o `play` mostrou andando
+    bem marca aqui — só o bloco 2 dirá, porque as duas curvas ficam no log lado a lado.
+    Calibrar contra o log, não contra opinião."""
     # ⚠ ASSIMÉTRICO de propósito: lento para avançar, rápido para defender.
     histerese: float = 0.80         # devolve fatia se o sinal cai abaixo de 0,80×limiar
     # ⚠ Contada de quando o BALANÇO COMEÇOU, nunca de passo global absoluto.
@@ -421,9 +464,10 @@ class Forma:
     # as EMAs. ⚠ O estado INICIAL é deliberadamente ASSIMÉTRICO:
     #   as DURAÇÕES nascem NEUTRAS (episódio cheio) — elas governam a FATIA, e um erro
     #   ali só desafina o sorteio por ~tau;
-    #   a `razao_marcha` nasce PESSIMISTA em 0,0 — ela governa o PORTÃO, e um portão que
-    #   nasce aprovando entrega a locomoção ANTES de existir marcha. Foi exatamente o
-    #   que a `dur_loco_ema` neutra em 1000 passos fez.
+    #   o SINAL DO PORTÃO nasce PESSIMISTA em 0,0 — ele governa a entrega da fatia, e um
+    #   portão que nasce aprovando entrega a locomoção ANTES de existir marcha. Foi
+    #   exatamente o que a `dur_loco_ema` neutra em 1000 passos fez. Vale igual para a
+    #   `eficiencia_min`: robô imóvel projeta 0, logo ela também nasce em 0,0.
     ema: float = 0.99
     dur_inicial_passos: float = 1000.0
 

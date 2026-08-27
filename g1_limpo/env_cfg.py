@@ -235,7 +235,8 @@ def make_env_cfg(
     campos = {f.name: getattr(antigo, f.name)
               for f in dataclasses.fields(antigo)}
     cfg.commands["twist"] = CMD.TwistComRazaoDeMarchaCfg(
-        **campos, limiar_comando=k.marcha.limiar_comando)
+        **campos, limiar_comando=k.marcha.limiar_comando,
+        pedido_min_segmento=k.marcha.pedido_min_segmento)
 
     # -------------------------------------------------------- 3. os eventos
     # ⚠ `base_com` (`dr.body_com_offset`) SAI, e não é preferência: ele corrompe a
