@@ -105,6 +105,8 @@ def make_env_cfg(
     *,
     inspecao: bool = False,
     elo: int | None = None,
+    cadeia: int | None = None,
+    avanca_apos_s: float | None = None,
 ) -> ManagerBasedRlEnvCfg:
     """Monta o cfg.
 
@@ -365,6 +367,10 @@ def make_env_cfg(
         pelve_alvo=k.tarefa.pelve_alvo,
         nome_sensor_apoio=C.SENSOR_APOIO,
         elo_forcado=elo_alvo if elo_explicito else None,
+        # ⚠ A cadeia forçada, para o inspetor e o play. Ela VENCE o `elo_forcado`: o elo
+        # passa a ser o 1º da cadeia. Os dois juntos são pedidos contraditórios, e é a
+        # cadeia que manda porque ela carrega mais informação.
+        cadeia_forcada=cadeia,
         debug_vis=True,
     )
 
@@ -428,6 +434,19 @@ def make_env_cfg(
         # entre duas invocações e a tabela deixaria de ser reproduzível.
         import dataclasses as _dc
         cfg.curriculum["forma"].params["f"] = _dc.replace(k.forma, controla=False)
+    if inspecao and avanca_apos_s is not None:
+        # ⚠ O AVANÇO DE ELO NO VISUALIZADOR, como EVENTO DE INTERVALO. O `run_play` do
+        # mjlab roda o próprio laço e não expõe gancho por passo — foi por isso que a
+        # primeira tentativa deixou o `--avanca-elo` como no-op. O evento é o mesmo
+        # idioma do `trava_robo`, e o `forca_avanco` é idempotente.
+        #
+        # O primeiro disparo em `avanca_apos_s` dá tempo de ver o estado ANTES.
+        cfg.events["avanca_elo"] = EventTermCfg(
+            func=EV.avanca_elo_no_viewer, mode="interval",
+            interval_range_s=(avanca_apos_s, avanca_apos_s),
+            params={"nome_do_comando": "alvo_caixa"},
+        )
+
     if inspecao:
         # ⚠ SÓ PARA INSPEÇÃO. Trava o robô na pose de reset, para a cena ficar
         # PARADA enquanto se confere alvo e eixo. Sem isto um robô sem política cai

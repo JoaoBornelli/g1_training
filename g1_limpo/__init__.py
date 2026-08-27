@@ -78,4 +78,34 @@ for _i, _nome in enumerate(ELOS):
         rl_cfg=rl_cfg(),
     )
 
-__all__ = ["TASK_ID", "TASK_INSPECAO", "EXPERIMENT", "make_env_cfg", "rl_cfg"]
+# ---------------------------------------------------------- INSPEÇÃO DE CADEIA
+# ⚠ UMA TASK POR CADEIA DE 2 ELOS, e é o que faz o `--viewer --cadeia N` funcionar de
+# verdade. O `run_play` do mjlab carrega o cfg REGISTRADO e roda o próprio laço — ele
+# não expõe gancho para mutar o cfg nem para chamar o avanço por passo. Registrar a
+# variante é o caminho suportado; a primeira tentativa deixou a flag como no-op com o
+# comentário "não é possível forçar no viewer sem reescrever run_play".
+#
+# ⚠ E elas SEMPRE instalam o avanço, num evento de intervalo: um viewer de cadeia sem o
+# avanço mostraria exatamente o mesmo que `--viewer pegar`. O primeiro disparo espera
+# `AVANCA_APOS_S` para dar tempo de ver o estado ANTES.
+from g1_limpo.comando import CADEIAS  # noqa: E402
+
+AVANCA_APOS_S = 3.0
+TASK_CADEIA = {
+    i: f"Mjlab-G1-Limpo-Inspecao-Cadeia-{i}"
+    for i, cad in enumerate(CADEIAS) if len(cad) > 1
+}
+
+for _i in TASK_CADEIA:
+    register_mjlab_task(
+        task_id=TASK_CADEIA[_i],
+        env_cfg=make_env_cfg(inspecao=True, elo=CADEIAS[_i][0], cadeia=_i,
+                             avanca_apos_s=AVANCA_APOS_S),
+        play_env_cfg=make_env_cfg(play=True, inspecao=True, elo=CADEIAS[_i][0],
+                                  cadeia=_i, avanca_apos_s=AVANCA_APOS_S),
+        rl_cfg=rl_cfg(),
+        runner_cls=RunnerComEstadoDeCurriculo,
+    )
+
+__all__ = ["TASK_ID", "TASK_INSPECAO", "TASK_CADEIA", "AVANCA_APOS_S",
+           "EXPERIMENT", "make_env_cfg", "rl_cfg"]

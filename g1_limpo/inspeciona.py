@@ -258,6 +258,28 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
     return f
 
 
+def _resolve_cadeia(arg: str) -> int | None:
+    """Índice de cadeia a partir de um número ou de um nome. `None` se inválido.
+
+    ⚠ Os nomes são DERIVADOS de `CMD.CADEIAS`. Uma lista paralela digitada à mão sai de
+    sincronia no dia em que uma cadeia mudar, e aí `--cadeia pegar_botar` selecionaria
+    outra coisa em silêncio.
+    """
+    nomes = ["_".join(CMD.ELOS[e] for e in cad) for cad in CMD.CADEIAS]
+    txt = str(arg).strip().lower().replace("-", "_")
+    if txt.isdigit():
+        i = int(txt)
+        if 0 <= i < len(CMD.CADEIAS):
+            return i
+        print(f"✗ cadeia {i} fora da faixa 0..{len(CMD.CADEIAS) - 1}")
+        return None
+    if txt in nomes:
+        return nomes.index(txt)
+    print(f"✗ cadeia {arg!r} desconhecida. Use 0..{len(CMD.CADEIAS) - 1} ou um de "
+          f"{nomes}")
+    return None
+
+
 def _nomes_de_cadeia() -> list[str]:
     """Os nomes das cadeias, DERIVADOS de `CMD.CADEIAS`.
 
@@ -313,6 +335,90 @@ def _cadeia_forcada_prova(env, cadeia_id: int | None) -> None:
         print()
         print("⚠ A máquina de elo ainda não foi implementada (falta _cadeia no cmd_term)")
         print()
+
+
+def viewer(args) -> int:
+    """Abre o viewer com o robô TRAVADO, para conferir alvo e eixo a olho.
+
+    ⚠ `--cadeia N` seleciona uma TASK REGISTRADA por cadeia, e não muta o cfg. O
+    `run_play` do mjlab carrega o cfg registrado e roda o próprio laço: ele não expõe
+    gancho para mutar o cfg nem para chamar o avanço por passo. Uma primeira versão
+    disto parseava o `--cadeia` e o DESCARTAVA, imprimindo um aviso — a flag era no-op,
+    que é exatamente o defeito que o plano avisa ("um `--cadeia` no-op já passou
+    desapercebido neste repo").
+    """
+    import g1_limpo
+    from mjlab.scripts.play import PlayConfig, run_play
+
+    # --- a cadeia, se pedida ---
+    cadeia_id = None
+    if args.cadeia is not None:
+        cadeia_id = _resolve_cadeia(args.cadeia)
+        if cadeia_id is None:
+            return 2
+        if cadeia_id not in g1_limpo.TASK_CADEIA:
+            nomes = _nomes_de_cadeia()
+            print(f"✗ a cadeia {cadeia_id} ({nomes[cadeia_id]}) tem 1 elo só: não há "
+                  f"avanço para ver. Use uma de {sorted(g1_limpo.TASK_CADEIA)}.")
+            return 2
+
+    # ⚠ `--avanca-elo` SÓ tem sentido com `--cadeia`: sem cadeia o env fica com
+    # `CADEIA_NENHUMA` e o `forca_avanco` é um no-op por construção. Recusar é melhor
+    # que aceitar e não fazer nada.
+    if args.avanca_elo and cadeia_id is None:
+        print("✗ `--avanca-elo` exige `--cadeia N`: sem cadeia não há 2º elo para o "
+              "qual avançar, e o avanço seria um no-op.")
+        return 2
+
+    if cadeia_id is not None:
+        task = g1_limpo.TASK_CADEIA[cadeia_id]
+        nome = CMD.ELOS[CMD.CADEIAS[cadeia_id][0]]
+        print(f"task = {task}   |   robô TRAVADO   |   sem política (agent=zero)")
+        print(f"cadeia = {_nomes_de_cadeia()[cadeia_id]}")
+        print(f"⚠ o AVANÇO dispara em {g1_limpo.AVANCA_APOS_S:.0f} s — os primeiros "
+              f"{g1_limpo.AVANCA_APOS_S:.0f} s mostram o 1º elo, depois a cena muda "
+              f"para o 2º")
+        if CMD.CADEIAS[cadeia_id][1] == CMD.CARREGAR:
+            print("  o que olhar: a MESA SOBE (vai para +5 m) e o chão fica livre")
+        if CMD.CADEIAS[cadeia_id][1] == CMD.BOTAR:
+            print("  o que olhar: a laje REAPARECE num topo novo, e o alvo lateral "
+                  "cai em cima dela")
+        if CMD.CADEIAS[cadeia_id][0] == CMD.REORIENTAR:
+            print("  o que olhar: o alvo deixa de ser a ATITUDE e passa a ser o PONTO "
+                  "do peito")
+    else:
+        nome = (args.elo or "pegar").strip().lower()
+        CMD.elo_por_nome(nome)                     # valida
+        task = g1_limpo.TASK_INSPECAO[nome]
+        print(f"task = {task}   |   robô TRAVADO   |   sem política (agent=zero)")
+
+    _k = Knobs()
+    print(f"nível = {_k.nivel.forcado if _k.nivel.forcado is not None else 0}"
+          f"   (mude `Nivel.forcado` em knobs.py para outro)")
+    print()
+    print("o que está desenhado:")
+    print("  eixos da caixa       X vermelho, Y verde, Z azul")
+    print("  seta VERDE           onde a face MARCADA aponta")
+    print("  seta MAGENTA         onde ela DEVE apontar, com o erro e as voltas")
+    print("  esfera CIANA         o alvo deste elo")
+    print("  seta AMARELA         caixa -> alvo (o quanto mover, e o dz)")
+    print("  laje CINZA           o topo da prateleira")
+    print(f"  esfera BRANCA        o alcance de referência da pelve "
+          f"({CMD.ALCANCE_R:.2f} m)")
+    if nome == "andar":
+        print("  seta VERDE           o twist comandado — no `andar` o alvo é uma "
+              "VELOCIDADE, e não existe alvo de caixa (valida = 0)")
+    if nome == "reorientar":
+        print("  ⚠ no `reorientar` a esfera do alvo fica SOBRE a caixa: o que se pede "
+              "é a ATITUDE")
+    if nome == "carregar":
+        print("  ⚠ no `carregar` o alvo é ancorado na BASE: ele anda com o robô")
+    if nome == "botar":
+        print("  ⚠ no `botar` a laje foi para um topo NOVO, travado no fundo da caixa "
+              "menos a folga")
+    print()
+    run_play(task, PlayConfig(agent="zero", no_terminations=True))
+    return 0
 
 
 def tabela(args) -> int:
@@ -530,76 +636,6 @@ def tabela(args) -> int:
         print(f"{total} FALHA(S) DE SANIDADE — não subir para a GPU assim")
         return 1
     print("0 falhas de sanidade")
-    return 0
-
-
-def viewer(args) -> int:
-    import g1_limpo
-    from mjlab.scripts.play import PlayConfig, run_play
-
-    nome = (args.elo or "pegar").strip().lower()
-    CMD.elo_por_nome(nome)                     # valida
-    task = g1_limpo.TASK_INSPECAO[nome]
-
-    print(f"task = {task}   |   robô TRAVADO   |   sem política (agent=zero)")
-    print(f"nível = {Knobs().nivel.forcado if Knobs().nivel.forcado is not None else 0}"
-          f"   (mude `Nivel.forcado` em knobs.py para outro)")
-
-    # ⚠ NOVO: --cadeia
-    if args.cadeia is not None:
-        print(f"cadeia FORÇADA = {args.cadeia}   (será reportada depois que o env montar)")
-    if args.avanca_elo:
-        print(f"--avanca-elo: disparará o avanço manual com relatório ANTES/DEPOIS")
-
-    print()
-    print("o que está desenhado:")
-    print("  eixos da caixa       X vermelho, Y verde, Z azul")
-    print("  seta MAGENTA         a face pedida, em mundo")
-    print("  esfera CIANA         o alvo deste elo")
-    print("  seta AMARELA         caixa -> alvo (o quanto mover, e o dz)")
-    print("  laje CINZA           o topo da prateleira")
-    print("  esfera BRANCA        o alcance de referência da pelve (0,50 m)")
-    if nome == "andar":
-        print("  seta VERDE           o twist comandado — no `andar` o alvo é uma "
-              "VELOCIDADE, e não")
-        print("                       existe alvo de caixa (valida = 0)")
-    if nome == "reorientar":
-        print("  ⚠ no `reorientar` a esfera do alvo fica SOBRE a caixa: o que se pede "
-              "é a ATITUDE")
-    if nome == "carregar":
-        print("  ⚠ no `carregar` o alvo é ancorado na BASE: ele anda com o robô")
-    if nome == "botar":
-        print("  ⚠ no `botar` a laje foi para um topo NOVO, travado no fundo da caixa "
-              "menos a folga")
-
-    # ⚠ NOVO: Passa cadeia_forcada ao cfg se --cadeia foi usado
-    if args.cadeia is not None:
-        try:
-            # Tenta interpretar como índice ou nome de cadeia
-            if args.cadeia.isdigit():
-                cadeia_id = int(args.cadeia)
-            else:
-                # Tenta como nome: ex "PEGAR_CARREGAR"
-                # A ser implementado com getattr na F4
-                cadeia_id = int(args.cadeia)  # fallback: só suporta índice por enquanto
-        except (ValueError, AttributeError):
-            print(f"✗ cadeia {args.cadeia!r} não entendida (use 0-3 ou nome)")
-            return 2
-
-        # Modifica o cfg antes de run_play
-        # O cfg está "dentro" do task. Precisa ser modificado ANTES de rodar.
-        # Infelizmente run_play não expõe o cfg facilmente. Deixa o fallback:
-        # se a máquina de elo existir, ela vai ler o cadeia_forcada;
-        # se não, será ignorado.
-        # Por hora, aviso que não é possível forçar no viewer sem reescrever run_play.
-        print(f"⚠ --cadeia no viewer: a forçagem será feita apenas se a máquina de elo "
-              f"(F4) já estiver implementada")
-
-    # ⚠ NOVO: o --avanca-elo será rodado DEPOIS de run_play, não durante
-    # (ou seria durante, numa callback do viewer — mas run_play é bloqueante)
-
-    run_play(task, PlayConfig(agent="zero", no_terminations=True,
-                              num_envs=args.envs, device=args.device))
     return 0
 
 

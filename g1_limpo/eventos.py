@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 __all__ = ["posiciona_cena", "afasta_cena", "carga_caixa", "trava_robo",
            "segura_caixa", "orientacao_de_nascimento", "POSE_TRAVADA",
-           "reset_base_por_elo"]
+           "reset_base_por_elo", "avanca_elo_no_viewer"]
 
 
 def reset_base_por_elo(
@@ -370,3 +370,30 @@ def segura_caixa(
     caixa.write_root_link_pose_to_sim(pose, env_ids=env_ids)
     caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev),
                                           env_ids=env_ids)
+
+
+def avanca_elo_no_viewer(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    *,
+    nome_do_comando: str = "alvo_caixa",
+) -> None:
+    """Dispara o avanço de elo à mão. SÓ PARA O VISUALIZADOR.
+
+    ⚠ POR QUE UM EVENTO DE INTERVALO, e não uma chamada no laço do viewer: o
+    `run_play` do mjlab roda o próprio laço e não expõe um gancho por passo. O evento de
+    intervalo é o mesmo idioma que o `trava_robo` já usa, e por isso não exige
+    reescrever o `run_play` — que foi o motivo pelo qual este caminho ficou como no-op
+    na primeira tentativa.
+
+    ⚠ IDEMPOTENTE por construção: o `_avanca_elo_force` só avança quem tem elo seguinte
+    na cadeia, e marca `fechou` no último. Portanto disparar de novo não faz nada. É o
+    que permite ao evento repetir sem estragar o que se está olhando.
+
+    ⚠ E ele NÃO faz nada num env sem cadeia (`CADEIA_NENHUMA`): o `--avanca-elo` só tem
+    sentido com uma cadeia forçada, e o inspetor recusa a combinação inválida.
+    """
+    del env_ids
+    termo = env.command_manager.get_term(nome_do_comando)
+    todos = torch.arange(env.num_envs, device=env.device)
+    termo.forca_avanco(todos)
