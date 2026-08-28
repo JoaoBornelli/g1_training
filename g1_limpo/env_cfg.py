@@ -28,6 +28,7 @@ from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 
@@ -38,6 +39,7 @@ from g1_limpo import eventos as EV
 from g1_limpo import metricas as MT
 from g1_limpo import observacoes as OB
 from g1_limpo import recompensas as RC
+from g1_limpo import terminacoes as TE
 from g1_limpo.knobs import ATIVO, Knobs
 
 __all__ = ["make_env_cfg", "colhe_sigmas_de_postura", "aplica_pesos", "ELO_DE_TREINO"]
@@ -184,18 +186,26 @@ def make_env_cfg(
     cfg.rewards["terminacao"] = RewardTermCfg(func=is_terminated, weight=0.0)
     cfg.rewards["joint_acc"] = RewardTermCfg(func=joint_acc_l2, weight=0.0)
 
-    # ⚠ O FREIO DO ESCORO, recuperado em 27/08. Ele NASCE AQUI, com `weight=0.0`, e não
-    # no bloco de tarefa lá embaixo — é o mesmo padrão dos dois termos acima, e ele é
-    # OBRIGATÓRIO: o `aplica_pesos` roda logo depois e exige que todo campo de
-    # `Recompensa` já exista no molde. Criá-lo depois levanta `AssertionError` na
-    # montagem, que é exatamente o que o `assert` existe para fazer.
+    # ---------------------------------------- 2f. A TERMINAÇÃO DO ESCORO (27/08)
+    # ⚠ TERMINAR EM VEZ DE PENALIZAR, e a troca vem de MEDIÇÃO. O escoro entrou primeiro
+    # como `contato_prateleira = -1.5` e rodou 405 iterações do bloco 2: o contato do
+    # tronco caiu monotonicamente (7,5% -> 3,8% -> 2,0% dos passos) E a manipulação caiu
+    # com ele (`staged` 0,36 -> 0,17). Uma multa que o robô pode pagar é uma multa que ele
+    # ORÇA — e com o `action_rate_l2` em −2,04, escorar sai mais barato que se mover. O
+    # g1_poc registra o mesmo mecanismo do outro lado: quando o movimento encareceu, o
+    # `contato_ilegal` dele subiu de 6,4% para 17,5% das terminações.
     #
-    # ⚠ E ele fica FORA do bloco de sete termos de tarefa de propósito: o `smoke`
-    # confere que a soma daqueles sete é 11,5/s, e este é freio, não tarefa. Por isso o
-    # peso mora em `Recompensa` e não em `Tarefa`.
-    cfg.rewards["contato_prateleira"] = RewardTermCfg(
-        func=RC.contato_prateleira, weight=0.0,
-        params={"sensor": C.SENSOR_CORPO_PRATELEIRA})
+    # ⚠ ELA COBRE O CORPO INTEIRO (33 geoms), e o que a torna segura é o LIMIAR DE FORÇA,
+    # não a lista: roçar não termina, apoiar termina. Ver `terminacoes.contato_ilegal` e
+    # `cena.CORPO_INTEIRO`.
+    #
+    # ⚠ O `terminacao = -200` do molde já cobra este evento por `is_terminated`, que
+    # exclui o `time_out`. Portanto o preço é −4,0 no passo MAIS todo o retorno futuro
+    # perdido. Não somar penalidade nenhuma em cima.
+    cfg.terminations["contato_ilegal"] = TerminationTermCfg(
+        func=TE.contato_ilegal,
+        params={"sensor_name": C.SENSOR_CORPO_PRATELEIRA,
+                "limiar_N": k.terminacao.contato_ilegal_N})
 
     # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
     # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele

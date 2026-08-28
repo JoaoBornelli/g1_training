@@ -193,12 +193,26 @@ check("nenhum sensor NOVO ficou sem consumidor",
 check("os órfãos aceitos são exatamente os quatro conhecidos",
       {n for n in por_nome if n not in _consumidos} == set(_ORFAOS_ACEITOS),
       f"medido: {sorted(n for n in por_nome if n not in _consumidos)}")
-check("o `corpo_prateleira` é lido pelo freio do escoro",
-      cfg.rewards["contato_prateleira"].params["sensor"] == C.SENSOR_CORPO_PRATELEIRA)
-check("o freio do escoro é NEGATIVO e não entra na soma de tarefa",
-      cfg.rewards["contato_prateleira"].weight < 0.0
-      and abs(cfg.rewards["contato_prateleira"].weight - k.recompensa.contato_prateleira)
-      < 1e-12)
+# ⚠ O ESCORO É TERMINAÇÃO desde 27/08, e NÃO recompensa. A penalidade de −1,5 rodou 405
+# iterações do bloco 2 e caiu por medição: o contato do tronco caiu monotonicamente
+# (7,5% -> 3,8% -> 2,0%) e a manipulação caiu com ele (`staged` 0,36 -> 0,17). Multa que
+# o robô pode pagar é multa que ele orça.
+check("o `corpo_prateleira` é lido pela TERMINAÇÃO, e não por recompensa",
+      cfg.terminations["contato_ilegal"].params["sensor_name"]
+      == C.SENSOR_CORPO_PRATELEIRA
+      and "contato_prateleira" not in cfg.rewards,
+      str(sorted(cfg.terminations)))
+check("a terminação usa LIMIAR DE FORÇA, e ele vem do knobs",
+      cfg.terminations["contato_ilegal"].params["limiar_N"]
+      == k.terminacao.contato_ilegal_N
+      and k.terminacao.contato_ilegal_N == 50.0,
+      "sem o limiar, cobrir as 33 geoms tornaria pose baixa inganhável")
+check("a lista de geoms é o CORPO INTEIRO, e casa os 33",
+      C.CORPO_INTEIRO == (r".*_collision",),
+      "as mãos, os punhos e os cotovelos estavam livres até 27/08 — e mão na mesa "
+      "foi o que o `play` mostrou")
+check("o sensor do escoro pede `force` — sem isso o limiar é impossível",
+      "force" in por_nome[C.SENSOR_CORPO_PRATELEIRA].fields)
 check("os PÉS rastreiam tempo no ar",
       por_nome[C.SENSOR_PES].track_air_time is True)
 check("os PÉS aceitam QUALQUER contato como chão",
@@ -302,13 +316,13 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
-# ⚠ DEZ termos a mais que o molde: dois da F1 (locomoção), os sete da F3 (tarefa), e o
-# `contato_prateleira` (o freio do escoro, recuperado em 27/08). O teste os NOMEIA em
-# vez de contar — contar deixaria de pegar um termo esquecido.
+# ⚠ NOVE termos a mais que o molde: dois da F1 (locomoção) e os sete da F3 (tarefa). O
+# `contato_prateleira` esteve aqui entre 27/08 e 27/08 e saiu no mesmo dia: ele virou a
+# TERMINAÇÃO `contato_ilegal`, porque multa que o robô pode pagar é multa que ele orça.
+# O teste os NOMEIA em vez de contar — contar deixaria de pegar um termo esquecido.
 _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
-           "squeeze", "unload", "postura_ereta", "sustentacao",
-           "contato_prateleira"}
-check("a tabela divergE do molde em exatamente DEZ termos, e são estes",
+           "squeeze", "unload", "postura_ereta", "sustentacao"}
+check("a tabela divergE do molde em exatamente NOVE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))

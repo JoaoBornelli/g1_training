@@ -52,6 +52,13 @@ CH_RAZAO = "Metrics/twist/razao_marcha"        # DIAGNÓSTICO desde 27/08
 CH_EFIC = "Metrics/twist/eficiencia_min"       # o JUIZ: pior segmento de comando
 CH_EFIC_MED = "Metrics/twist/eficiencia_media"
 CH_SEGMENTOS = "Metrics/twist/segmentos"
+
+# ⚠ AS TERMINAÇÕES SÃO CONTAGEM DE ENVS, não fração — divida pelo total antes de
+# comparar. O `contato_ilegal` nasceu em 27/08 e é o que substituiu a penalidade de
+# escoro; o g1_poc registra que ele SOBE quando o movimento fica caro (6,4% -> 17,5%
+# das terminações quando o `action_rate` encareceu). Espere valor alto no começo.
+CH_CONTATO = "Episode_Termination/contato_ilegal"
+CH_CAIU = "Episode_Termination/fell_over"
 CH_VOO = "Episode_Metrics/tempo_de_voo"
 CH_PICO = "Episode_Metrics/pico_de_altura"
 CH_ESCORREGO = "Episode_Metrics/velocidade_de_escorrego"
@@ -195,6 +202,8 @@ def _tabela_de_recompensa(acc, it: int, passos: float) -> None:
 
 def _tabela_de_marcha(acc, it: int) -> None:
     for rot, ch, un in (
+        ("term: contato ilegal", CH_CONTATO, "  <- escoro na mesa"),
+        ("term: caiu", CH_CAIU, ""),
         ("eficiência (PIOR segmento)", CH_EFIC, "  <- o JUIZ"),
         ("eficiência (média dos segs)", CH_EFIC_MED, ""),
         ("segmentos válidos/episódio", CH_SEGMENTOS, ""),

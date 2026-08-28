@@ -66,25 +66,35 @@ SENSOR_CORPO_PRATELEIRA = "corpo_prateleira"
 SENSOR_AUTO_COLISAO = "auto_colisao"
 SENSOR_PES = "pes_chao"
 
-# Corpos que NÃO podem escorar na prateleira. O antebraço, a mão e o pé ficam de
-# fora: numa pega a 0,04 m o antebraço passa perto do tampo, e esse contato é
-# normal. Escorar o TRONCO ou a COXA é o defeito medido no repo.
+# O CORPO INTEIRO. Nenhuma parte pode tocar a mesa — decisão do dono do projeto em
+# 27/08, depois de VER no `play` do bloco 1 o robô se apoiando na mesa com as MÃOS.
 #
-# ⚠ A CANELA também fica de fora, e por medida: com `prateleira_topo_piso = 0.04` a
-# laje é um degrau de 4 cm na frente dos pés. Cobrar canela ou pé ali faria o robô
-# pagar por PISAR na prateleira, que é exatamente o contato que o `pes_chao` precisa
-# ver.
+# ⚠ ERA UMA LISTA DE QUATRO PADRÕES (pelve, tronco, quadril, coxa), e ela cobria 6 dos
+# 33 geoms de colisão. As mãos, os punhos, os cotovelos, os ombros, as canelas, a cabeça
+# e os 14 geoms de pé ficavam LIVRES. A justificativa escrita era "numa pega a 0,04 m o
+# antebraço passa perto do tampo, e esse contato é normal" — e ela cai junto com a
+# premissa: se a mesa a 0,04 m não deveria existir, contato com ela nunca é normal.
 #
-# ⚠ Os nomes são os do MODELO, não os do URDF: o G1 não tem geom de colisão de
-# cintura nem de joelho (o tronco cobre a cintura; a perna vai de `thigh` a `shin`),
-# e o do quadril é `left_hip_collision` — sem segundo `_`. Um padrão que casa ZERO
-# geom levanta `ValueError` no `resolve_matching_names`, não um aviso.
-CORPOS_QUE_NAO_ESCORAM = (
-    r"pelvis_collision",
-    r"torso_collision",
-    r".*_hip_collision",
-    r".*_thigh_collision",
-)
+# ⚠ O QUE TORNA ISTO SEGURO É O LIMIAR DE FORÇA da terminação, não a lista. Roçar não
+# termina; ESCORAR termina. Sem o limiar, uma lista de corpo inteiro tornaria pose baixa
+# inganhável — que é a classe de erro do `botar_topo_piso`. Ver
+# `terminacoes.contato_ilegal`.
+#
+# ⚠ ACOPLAMENTO LATENTE, e ele está declarado: com `topo_min` chegando a 0,04 m nos
+# níveis 4 a 6, a laje é um degrau de 4 cm na frente dos pés, e PISAR nela passa dos
+# 50 N. Nesses níveis a mesa precisa deixar de existir (`topo_min` -> 0,0 e a mesa
+# afundada em `posiciona_cena`), e isso NÃO está implementado. O bloco 1 e o 2 nunca
+# saíram do nível 0 (`Curriculum/nivel = 0.0000`), onde o topo é >= 0,55 m e o pé não
+# alcança a mesa. Portanto é risco adiado, não ativo.
+#
+# ⚠ Os nomes são os do MODELO, não os do URDF: o G1 não tem geom de colisão de cintura
+# nem de joelho (o tronco cobre a cintura; a perna vai de `thigh` a `shin`), e o do
+# quadril é `left_hip_collision` — sem segundo `_`. Um padrão que casa ZERO geom levanta
+# `ValueError` no `resolve_matching_names`, não um aviso.
+CORPO_INTEIRO = (r".*_collision",)
+
+# nome antigo, mantido para não quebrar referência externa
+CORPOS_QUE_NAO_ESCORAM = CORPO_INTEIRO
 
 
 # ============================================================ specs de entidade

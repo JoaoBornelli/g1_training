@@ -316,29 +316,18 @@ class Recompensa:
     terminacao: float = -200.0
     joint_acc: float = -2.5e-7
 
-    # --- o freio do ESCORO, recuperado em 27/08 ---
-    # ⚠ ELE FALTAVA, e a falta foi VISTA no `play` do bloco 1: nos elos de manipulação
-    # o robô se joga na mesa. O g1_poc não fazia isso porque nunca aprendeu a mover o
-    # corpo; aqui a marcha do bloco 1 virou o atalho, porque a recompensa de alcance
-    # mede DISTÂNCIA e não qual junta fechou a distância.
+    # ⚠ O `contato_prateleira` SAIU em 27/08, e virou a terminação `contato_ilegal`
+    # (`Terminacao.contato_ilegal_N`). O bloco 2 rodou 405 iterações com ele como
+    # penalidade de −1,5 e o resultado decidiu: o contato do tronco caiu monotonicamente
+    # (7,5% -> 3,8% -> 2,0% dos passos) e a manipulação caiu junto (`staged` 0,36 ->
+    # 0,17). Uma multa que o robô pode pagar é uma multa que ele ORÇA — e com o
+    # `action_rate_l2` em −2,04 escorar sai mais barato que se mover. O princípio do
+    # g1_poc é o certo: terminar em vez de penalizar.
     #
-    # ⚠ O sensor `corpo_prateleira` já existia em `cena.py` desde a reescrita, e NADA o
-    # lia. Um sensor sem consumidor é invisível para teste de existência — é por isso
-    # que o `smoke` ganhou a checagem de consumidor junto com este peso.
-    #
-    # ⚠ PESO E FORMA vêm do módulo que treinou com eles: `table_contact = -1.5`, e a
-    # forma é BOOLEANA (`skills/lift/rewards.py:144-150`), não força. Com força crua o
-    # tronco escorado daria ~200 N × 1,5 = −300/s e dominaria todo o resto.
-    #
-    # ⚠ NÃO É GATEADO, e não precisa: no elo `ANDAR` a mobília está a +5 m, portanto o
-    # sensor não dispara e o gate é automático. Fica FORA do `SETE` do `Tarefa`, para
-    # não mexer na soma de 11,5/s que o smoke confere.
-    #
-    # ⚠ O `com_over_feet` do lift NÃO entra, e a decisão é medida: ele é
+    # ⚠ O `com_over_feet` do lift também NÃO entra, e a decisão é medida: ele é
     # `clamp(deriva − 0,05, min=0)²`, logo um mergulho de 30 cm custa 0,25² × 2,0 =
     # 0,125/s contra 11,5/s de tarefa — 1,1%. Com o peso padrão ele já é quase inerte;
     # mais fraco seria inerte. O g1_poc passou sem ele por isso, não por sorte.
-    contato_prateleira: float = -1.5
 
     # o alvo do `foot_swing_height`, em metros. Do molde.
     altura_de_balanco: float = 0.10
@@ -635,6 +624,26 @@ class Cadeia:
 
 
 @dataclass
+class Terminacao:
+    """As terminações próprias. `time_out` e `fell_over` vêm do molde.
+
+    ⚠ Este bloco NASCEU em 27/08. Até então o g1_limpo não tinha terminação própria
+    nenhuma, e o princípio "terminar em vez de penalizar" do g1_poc tinha sido perdido na
+    reescrita junto com os termos.
+    """
+
+    contato_ilegal_N: float = 50.0
+    """Força mínima, em newtons, para o contato com a mesa terminar o episódio.
+
+    ⚠ MEDIDO no `g1_poc` (`knobs.py:328`), onde a mesma terminação rodou com este valor.
+    Não é número novo.
+
+    ⚠ É ELE que torna a lista de CORPO INTEIRO segura: roçar o tampo ao alcançar não
+    termina, apoiar o peso termina. Com booleano, cobrir as 33 geoms tornaria pose baixa
+    inganhável."""
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -645,6 +654,7 @@ class Knobs:
     piso: Piso = field(default_factory=Piso)
     tarefa: Tarefa = field(default_factory=Tarefa)
     cadeia: Cadeia = field(default_factory=Cadeia)
+    terminacao: Terminacao = field(default_factory=Terminacao)
 
 
 ATIVO = Knobs()
