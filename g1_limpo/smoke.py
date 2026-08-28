@@ -168,21 +168,21 @@ def _nomes_nos_params() -> set[str]:
     return vistos
 
 
-# ⚠ ALLOWLIST COM MOTIVO, e não falha cega. Três destes são dívida CONHECIDA, e dois
-# deles são intencionais — a checagem existe para pegar um órfão NOVO, não para
-# reclamar da dívida já declarada. Um nome que sair desta lista tem de ganhar leitor
-# ou ganhar motivo.
+# ⚠ ALLOWLIST COM MOTIVO, e não falha cega. Os dois que restam são intencionais — a
+# checagem existe para pegar um órfão NOVO, não para reclamar da dívida já declarada.
+# Um nome que sair desta lista tem de ganhar leitor ou ganhar motivo.
 _ORFAOS_ACEITOS = {
     # duplicatas deliberadas: trocar o `feet_ground_contact` e o `self_collision` do
     # molde pelos nossos EXPLODE a obs `foot_air_time` do fabricante, que os
     # referencia POR NOME. O preço está declarado em `env_cfg.py:145-155`.
     "pes_chao": "duplicata deliberada do `feet_ground_contact` do molde",
     "auto_colisao": "duplicata deliberada do `self_collision` do molde",
-    # DÍVIDA REAL: construídos (e testados como booleanos, acima) para um
-    # `back_penalty` que nunca foi fiado. O `g1_multitask` tem o termo em −0,5.
-    "dorso_E": "construído para um `back_penalty` que nunca foi fiado",
-    "dorso_D": "construído para um `back_penalty` que nunca foi fiado",
 }
+# ⚠ O `dorso_E`/`dorso_D` SAÍRAM desta lista em 28/08. Eles agora têm leitor: a métrica
+# `dorso_em_contato` (peso zero, medição só). O freio do dorso continua sendo
+# GEOMÉTRICO — o alcance bimanual põe as palmas viradas uma para a outra, que é como o
+# `g1_poc` dispensa o `back_penalty` (`g1_poc/terminacoes.py:13`). A métrica é o que
+# confere se o freio geométrico basta; se ela sair de zero, ele não bastou.
 
 _consumidos = _nomes_nos_params()
 _orfaos = [n for n in por_nome
@@ -190,7 +190,7 @@ _orfaos = [n for n in por_nome
 check("nenhum sensor NOVO ficou sem consumidor",
       not _orfaos,
       f"sensores órfãos: {_orfaos}  (o `corpo_prateleira` ficou órfão até 27/08)")
-check("os órfãos aceitos são exatamente os quatro conhecidos",
+check("os órfãos aceitos são exatamente as duas duplicatas do molde",
       {n for n in por_nome if n not in _consumidos} == set(_ORFAOS_ACEITOS),
       f"medido: {sorted(n for n in por_nome if n not in _consumidos)}")
 # ⚠ O ESCORO É TERMINAÇÃO desde 27/08, e NÃO recompensa. A penalidade de −1,5 rodou 405
@@ -206,11 +206,69 @@ check("a terminação usa LIMIAR DE FORÇA, e ele vem do knobs",
       cfg.terminations["contato_ilegal"].params["limiar_N"]
       == k.terminacao.contato_ilegal_N
       and k.terminacao.contato_ilegal_N == 50.0,
-      "sem o limiar, cobrir as 33 geoms tornaria pose baixa inganhável")
-check("a lista de geoms é o CORPO INTEIRO, e casa os 33",
-      C.CORPO_INTEIRO == (r".*_collision",),
-      "as mãos, os punhos e os cotovelos estavam livres até 27/08 — e mão na mesa "
-      "foi o que o `play` mostrou")
+      "sem o limiar, a lista tornaria pose baixa inganhável")
+# ⚠ O SINAL ESTAVA INVERTIDO até 28/08, e a medição está no bloco 3, it 4251: a lista
+# de CORPO INTEIRO cobria punho e cotovelo — que TÊM de chegar perto do tampo para
+# pegar — e NÃO cobria os pads, porque `add_pads_de_palma` apaga `*_hand_collision` e
+# os pads terminam em `_pad`. Aproximar terminava; escorar com a palma era grátis.
+# Resultado: ~75% dos episódios de manipulação morriam na mesa e o `squeeze` ficou em
+# 0,0002 por 3200 iterações.
+check("os PADS estão na lista — a palma não pode escorar na mesa",
+      r".*_pad" in C.CORPOS_QUE_NAO_ESCORAM,
+      "o pad de palma só pode tocar a CAIXA; o secundário deste sensor é a MESA")
+check("o PUNHO e o COTOVELO estão FORA — eles têm de chegar perto para pegar",
+      not any("wrist" in p or "elbow" in p or p == r".*_collision"
+              for p in C.CORPOS_QUE_NAO_ESCORAM),
+      f"medido: {C.CORPOS_QUE_NAO_ESCORAM}")
+check("o PÉ está fora da lista, como no g1_poc",
+      not any("foot" in p or "ankle" in p for p in C.CORPOS_QUE_NAO_ESCORAM),
+      "com `topo_min` a 0,04 m a laje é um degrau, e pisar nela passa de 50 N")
+
+# --------------------------------------------- a terminação `caixa_largada` (28/08)
+check("existe a terminação `caixa_largada`",
+      "caixa_largada" in cfg.terminations,
+      "ela é a outra metade do porteiro do `unload`: o porteiro tira o pagamento de "
+      "derrubar sem pegar, ela tira o de pegar e largar")
+check("o `caixa_z_min` é a MEIA-ARESTA — a caixa apoiada no chão",
+      k.terminacao.caixa_z_min == k.cena.caixa_meia_aresta[2],
+      "é o piso físico, e não uma tolerância escolhida")
+check("o `caixa_dist_max` é MAIOR que a distância de nascimento da palma",
+      k.terminacao.caixa_dist_max > 0.339,
+      "ela não dispara no reset porque é ARMADA pela primeira preensão, e não "
+      "porque o limiar seja apertado")
+
+# --------------------------- a força de referência do `squeeze` é DERIVADA (28/08)
+# ⚠ ERA UM KNOB FIXO DE 12,0 N, sem derivação. A conta física é `m·g/(2μ)`: com
+# m = 1,0 kg e μ = 0,8 ela dá 6,13 N. O knob pedia o DOBRO e pagava METADE no primeiro
+# newton, que é a faixa em que a preensão tem de nascer.
+_f_ref_fisica = k.cena.caixa_massa * 9.81 / (2.0 * k.tarefa.squeeze_mu)
+check("o `forca_ref` fixo SAIU do knobs — a força de referência é derivada",
+      not hasattr(k.tarefa, "forca_ref"),
+      "um número sem derivação ao lado de uma conta é o segundo suspeito entrando "
+      "pela porta de trás")
+check("`F_ref = m·g/(2μ)` dá 6,13 N, e é MENOS da metade do knob antigo",
+      abs(_f_ref_fisica - 6.13) < 0.01 and _f_ref_fisica < 12.0,
+      f"{_f_ref_fisica:.2f} N contra os 12,0 N fixos de antes")
+check("os três termos de força usam o MESMO μ",
+      cfg.rewards["squeeze"].params["mu"]
+      == cfg.rewards["unload"].params["mu"]
+      == cfg.rewards["postura_ereta"].params["mu"]
+      == k.tarefa.squeeze_mu,
+      "duas referências de força seriam duas definições de `pegou`")
+check("o `unload` tem PORTEIRO DE PREENSÃO",
+      "sensores_palma" in cfg.rewards["unload"].params,
+      "sem ele, derrubar a caixa paga 2,0/s pelo resto do episódio sem mão nenhuma "
+      "— medido no bloco 3: unload 0,0995 com squeeze 0,0002")
+check("a projeção na normal da palma tem os SÍTIOS resolvidos por `params`",
+      all(cfg.rewards[n].params["asset_cfg"].site_names == list(C.PALM_SITES)
+          for n in ("squeeze", "unload", "postura_ereta")),
+      "fora de `params` o `SceneEntityCfg` nunca é resolvido e `site_ids` vira "
+      "`slice(None)` — a projeção leria os SEIS sítios do robô")
+check("cada termo tem a SUA instância de `SceneEntityCfg`",
+      len({id(cfg.rewards[n].params["asset_cfg"])
+           for n in ("squeeze", "unload", "postura_ereta")}) == 3,
+      "o `manager_base` resolve os ids DENTRO do objeto; compartilhar é estado "
+      "mutável compartilhado entre managers")
 check("o sensor do escoro pede `force` — sem isso o limiar é impossível",
       "force" in por_nome[C.SENSOR_CORPO_PRATELEIRA].fields)
 check("os PÉS rastreiam tempo no ar",
@@ -1175,12 +1233,91 @@ try:
     check("a derivada do kernel no repouso é > 1,0 até no env mais distante",
           float((2.0 * _d5 / _s5 ** 2 * _ker).min()) > 1.0,
           f"min {float((2.0*_d5/_s5**2*_ker).min()):.3f} por metro")
-    check("a distância é até a SUPERFÍCIE da caixa, não o centro",
-          float(_d5.max()) < 0.45,
+    check("a distância é até a FACE LATERAL, não o centro",
+          float(_d5.max()) < 0.60,
           "ao centro o mínimo alcançável é 0,191 m e o kernel saturava em 0,674")
     check("o σ de orientação tem piso, e ele é em RADIANOS",
           float(_t5c.sigma_ori.min()) >= _c5.commands["alvo_caixa"].sigma_ori_min
           - 1e-9)
+
+    # ------------------ o canal CAIXA -> ALVO também nasce com derivada viva
+    # ⚠ QUEM É A RAMPA DE CAIXA->ALVO É O `trazer`, dentro do `staged`, e não o
+    # `precise_pos`. O `precise_pos` tem σ FIXO de 0,05 m e vale ~0 a 0,30 m — ele é
+    # um ACEITE ("a caixa está NO alvo?"), e ele TEM de ser apertado: ele é o único
+    # termo de posição que NÃO passa por `alcancar`, portanto alargá-lo pagaria por
+    # empurrar a caixa até o alvo com o pé. Uma run antiga do `g1_poc` aprendeu
+    # exatamente isso. As duas perguntas ficam em dois termos.
+    #
+    # ⚠ A banda é FROUXA de propósito. No `PEGAR` o alvo é reancorado na base a cada
+    # passo, portanto a distância anda um pouco depois de o σ ser fixado. O que se
+    # afirma aqui é a PROPRIEDADE — nem saturado em 0, nem saturado em 1, com
+    # derivada viva —, e não um valor.
+    _dalvo5 = (_e5.scene["box"].data.root_link_pos_w
+               - _t5c.command[:, CMD.ALVO]).norm(dim=-1)
+    _traz5 = _t5.exp(-(_dalvo5 / _t5c.sigma_trazer) ** 2)
+    check("o σ do `trazer` é POR ENV, e não o piso",
+          float(_t5c.sigma_trazer.min()) > k.tarefa.sigma_min + 1e-6,
+          f"min {float(_t5c.sigma_trazer.min()):.4f} m contra piso "
+          f"{k.tarefa.sigma_min:.4f} m")
+    check("o `trazer` nasce longe dos dois extremos — a rampa caixa->alvo está viva",
+          0.15 <= float(_traz5.min()) and float(_traz5.max()) <= 0.75,
+          f"min {float(_traz5.min()):.4f} max {float(_traz5.max()):.4f} "
+          "(saturado em 0 ou em 1 seria derivada zero)")
+    check("a derivada do `trazer` no repouso é > 1,0 no env mais distante",
+          float((2.0 * _dalvo5 / _t5c.sigma_trazer ** 2 * _traz5).min()) > 1.0,
+          f"min {float((2.0*_dalvo5/_t5c.sigma_trazer**2*_traz5).min()):.3f} "
+          "por metro")
+
+    # ------------------------------- o alcance é BIMANUAL e LATERAL (28/08)
+    # ⚠ Até 28/08 era `min` sobre as palmas contra uma ESFERA no centro da caixa.
+    # Dois buracos: com `min` uma mão saturava o kernel e a segunda não tinha
+    # gradiente — mas o `squeeze` é `min` das FORÇAS e exige as duas; e com a
+    # esfera, tocar o topo pagava igual a tocar a lateral. A cadeia ficava sem
+    # ponte entre "uma mão encosta" e "as duas apertam", e o bloco 3 travou ali.
+    # ⚠ TUDO MEDIDO FRESCO NESTE PONTO. O `_d5` acima foi capturado ANTES dos passos
+    # que mediram a deriva da caixa, e comparar aquele valor com um cálculo de agora
+    # acusa o assentamento da caixa em vez do desenho. Foi assim que este check
+    # falhou na primeira escrita.
+    _alv5 = _t5c.alvos_das_palmas(_ids5)
+    _d5_agora = _t5c.dist_palma_caixa(_ids5)
+    _sep5 = (_alv5[:, 0] - _alv5[:, 1]).norm(dim=-1)
+    _mid5 = _alv5.mean(dim=1)
+    _cx5 = _e5.scene["box"].data.root_link_pos_w
+    check("cada palma tem o SEU alvo, e são dois pontos distintos",
+          _alv5.shape[1] == 2 and float(_sep5.min()) > 1e-3)
+    check("os dois alvos ficam nas FACES laterais — separados por 2×meia-aresta",
+          float((_sep5 - 2.0 * k.cena.caixa_meia_aresta[1]).abs().max()) < 1e-5,
+          f"separação medida {float(_sep5.mean()):.4f} m")
+    check("o ponto médio dos dois alvos É o centro da caixa",
+          float((_mid5 - _cx5).norm(dim=-1).max()) < 1e-5,
+          "o offset gira com a caixa, portanto a pose pedida acompanha a "
+          "orientação dela")
+    _por_palma5 = (_e5.scene["robot"].data.site_pos_w[:, _t5c._ids_palma, :]
+                   - _alv5).norm(dim=-1)
+    check("a distância publicada é a MÉDIA das duas, e não o mínimo",
+          float((_d5_agora - _por_palma5.mean(dim=1)).abs().max()) < 1e-6
+          and float((_d5_agora - _por_palma5.min(dim=1).values).abs().max()) > 1e-4,
+          "a média é o que acopla as mãos: uma mão atrasada derruba o termo, e com "
+          "`min` a segunda mão não teria gradiente nenhum")
+
+    # ------------------------- a face pedida CONGELA fora do `REORIENTAR` (28/08)
+    # ⚠ Dois pedidos diferentes. No `REORIENTAR` a direção é VIVA ("vire a face
+    # para o robô"); nos outros elos ela congela na normal da abertura, e aí o
+    # termo pergunta "a caixa girou desde então?" — ele paga por erguer SEM
+    # torcer. Com a direção viva em todo elo, o `precise_ori` ficava inerte no
+    # nível 0 (caixa nasce alinhada, `sigma_ori` com piso de 0,20 rad) E o alvo se
+    # movia com o ROBÔ: andar em volta da caixa mudava o termo sem tocá-la.
+    check("no `PEGAR` a direção pedida está CONGELADA",
+          not bool(_t5c._face_viva.any()),
+          "este env foi forçado no PEGAR — nenhuma face pode estar viva")
+    # ⚠ A TOLERÂNCIA COBRE O ASSENTAMENTO DA CAIXA, e não o desenho: a normal é
+    # congelada na passada do `_pendente` e a caixa continua assentando na laje
+    # depois disso. 2e−2 rad é 1,1°, contra os 0,26 rad (15°) que a direção VIVA
+    # dava no nível 0 — a separação entre os dois regimes é de mais de 10×.
+    check("congelada na normal ATUAL, portanto o erro angular nasce em ZERO",
+          float(_t5c.command[:, CMD.ANG].abs().max()) < 2e-2,
+          f"pior erro {float(_t5c.command[:, CMD.ANG].abs().max()):.5f} rad — "
+          "o pedido é 'erga sem torcer', e no passo da abertura não há giro")
     del _e5
 except Exception as _e5x:      # noqa: BLE001
     _falhas.append(f"o σ não pôde ser medido: {type(_e5x).__name__}: {_e5x}")
@@ -1250,8 +1387,9 @@ try:
     _nm7 = list(_c7.rewards)
     _curva = []
     for _f7 in (1.0, 0.6, 0.3):
-        _novo7 = _palma7 + _dir7 * (_d0_7 * _f7 + k.cena.caixa_meia_aresta[0]
-                                    ).unsqueeze(-1)
+        # ⚠ SEM `+ meia_aresta` desde 28/08: o alvo de cada palma JÁ está na face
+        # lateral, portanto `dist_palma_caixa` não subtrai mais a meia-aresta.
+        _novo7 = _palma7 + _dir7 * (_d0_7 * _f7).unsqueeze(-1)
         _q7 = _caixa7.data.root_link_quat_w.clone()
         for _ in range(3):
             _caixa7.write_root_link_pose_to_sim(
@@ -1834,11 +1972,29 @@ try:
     check("apoiada, a força de apoio é ~m·g e o `unload` é ~0",
           abs(_f_apoiada - _mg) / _mg < 0.05 and _u_apoiada / _peso < 0.05,
           f"F={_f_apoiada:.2f} N de m·g={_mg:.2f} N, unload={_u_apoiada/_peso:.4f}")
-    check("erguida, a força de apoio é 0 e o `unload` é ~1",
-          _f_erguida < 1e-6 and abs(_u_erguida / _peso - 1.0) < 1e-3,
-          f"F={_f_erguida:.2f} N, unload={_u_erguida/_peso:.4f}")
+    # ⚠⚠ ESTE CHECK MUDOU DE SINAL EM 28/08, E É O PORTEIRO DE PREENSÃO.
+    #
+    # Ele afirmava "erguida, a força de apoio é 0 e o `unload` é ~1". A descarga
+    # sozinha continua indo a 1 — mas ela não é mais o termo. Neste teste a caixa é
+    # TELEPORTADA para cima e NENHUMA palma a toca, e era exatamente esse o atalho:
+    # derrubar a caixa da laje zera `F_apoio` para sempre e pagava 2,0/s pelo resto do
+    # episódio, sem mão nenhuma. Medido no bloco 3, it 4251: `unload` 0,0995 com
+    # `squeeze` 0,0002 — descarga sem preensão.
+    #
+    # Portanto o comportamento CERTO aqui é ZERO, e um `unload` de ~1 sem preensão
+    # passa a ser a FALHA. A rampa de descarga continua medida no valor de `descarga`,
+    # que este teste calcula à parte.
+    _desc_erguida = 1.0 - _f_erguida / _mg
+    check("erguida SEM PREENSÃO, o `unload` é ZERO — o porteiro fecha o atalho",
+          _f_erguida < 1e-6 and _u_erguida / _peso < 1e-3,
+          f"F={_f_erguida:.2f} N, unload={_u_erguida/_peso:.4f} "
+          f"(descarga crua {_desc_erguida:.4f})")
+    check("a DESCARGA crua ainda vai de ~0 a ~1 — quem zera é o porteiro, não ela",
+          _desc_erguida > 0.99 and (1.0 - _f_apoiada / _mg) < 0.05,
+          f"apoiada {1.0 - _f_apoiada/_mg:.4f} -> erguida {_desc_erguida:.4f}")
     print(f"  unload: {_u_apoiada/_peso:.4f} (apoiada, {_f_apoiada:.2f} N) -> "
-          f"{_u_erguida/_peso:.4f} (erguida, {_f_erguida:.2f} N)")
+          f"{_u_erguida/_peso:.4f} (erguida SEM preensão, {_f_erguida:.2f} N); "
+          f"descarga crua {_desc_erguida:.4f}")
     del _ec
 
     # (b) A TASK DE CADEIA do visualizador existe e o avanço DISPARA.

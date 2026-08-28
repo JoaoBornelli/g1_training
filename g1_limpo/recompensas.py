@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import torch
 
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
+from mjlab.utils.lab_api.math import quat_apply
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "staged", "precise_pos",
            "precise_ori", "squeeze", "unload", "postura_ereta", "sustentacao"]
@@ -155,14 +157,57 @@ def _alcancar(env, nome: str) -> torch.Tensor:
     return torch.exp(-(d / t.sigma_alcance.clamp(min=1e-6)) ** 2)
 
 
-def _forca_das_palmas(env, sensores: tuple[str, ...]) -> torch.Tensor:
-    """A força na palma MENOS apertada. `min`, e não soma nem média.
+def _forca_das_palmas(env, sensores: tuple[str, ...],
+                      asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """A força NORMAL na palma MENOS apertada. `min`, e não soma nem média.
 
     ⚠ O `min` é o desenho: uma palma sozinha EMPURRA a caixa, ela não a segura. Com
     soma, apertar forte com uma mão pagaria tanto quanto pegar com as duas.
+
+    ⚠ SÓ A COMPONENTE NORMAL AO PAD, e este é um ANTI-HACK que a reescrita tinha
+    perdido. Até 28/08 isto era `‖F‖`, a magnitude inteira. Com a magnitude, apertar a
+    caixa PARA BAIXO contra a prateleira paga como preensão — e aquela força é
+    TANGENCIAL ao pad, não normal. A projeção a descarta sem precisar de um segundo
+    termo. O `g1_poc` declara o mesmo em `recompensas.squeeze`.
+
+    ⚠ A normal vem da ORIENTAÇÃO DO SÍTIO, e não do campo `normal` do sensor: os
+    sensores de palma usam `reduce="netforce"`, que soma todos os contatos num wrench
+    só — e aí "a normal do contato" perde significado. A força sai no frame GLOBAL,
+    porque `netforce` implica global.
+
+    ⚠ A palma esquerda olha para `−y` local e a direita para `+y` local. É o que a
+    geometria dos pads produz: `_add_pad` põe o pad em `pos = (_PALM_X, dz, 0)`, com
+    `dz = −0,015` na esquerda e `+0,015` na direita — o offset é em Y, apesar do nome
+    do parâmetro. Ver `cena.add_pads_de_palma`.
+
+    ⚠ `abs` em vez de sinal: errar a convenção zeraria o termo em silêncio, e o que
+    queremos excluir é a tangencial, que a projeção já removeu.
     """
-    fs = [torch.norm(env.scene[s].data.force, dim=-1).squeeze(-1) for s in sensores]
+    quat = env.scene[asset_cfg.name].data.site_quat_w[:, asset_cfg.site_ids]  # [B,2,4]
+    locais = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
+                          device=quat.device, dtype=quat.dtype)
+    normais = quat_apply(quat, locais.expand(quat.shape[0], 2, 3))            # [B,2,3]
+
+    fs = []
+    for i, s in enumerate(sensores):
+        f = env.scene[s].data.force                       # [B, slots, 3], global
+        assert f is not None, f"sensor '{s}' precisa do field 'force'."
+        fs.append(torch.sum(f * normais[:, i].unsqueeze(1), dim=-1).abs().sum(dim=-1))
     return torch.stack(fs, dim=-1).min(dim=-1).values
+
+
+def _forca_ref(env, mu: float) -> torch.Tensor:
+    """`m·g / (2μ)` — a força de aperto que o atrito precisa para segurar a caixa.
+
+    ⚠ É DERIVADA, e não escolhida, e a diferença é medível. Até 28/08 isto era um knob
+    fixo de 12,0 N. Com a caixa de 1,0 kg e μ = 0,8 o valor físico é **6,13 N**,
+    portanto o knob pedia o DOBRO do necessário e pagava metade no primeiro newton —
+    justo a faixa em que a preensão tem de nascer. O `g1_poc` usa esta mesma conta.
+
+    ⚠ A massa é POR ENV: `env.limpo_massa`, em kg, publicada pelo evento `carga_caixa`.
+    Uma caixa mais pesada exige mais aperto, e o termo acompanha sozinho.
+    """
+    return (env.limpo_massa * 9.81 / (2.0 * mu)).clamp(min=1e-3)
 
 
 def staged(env, nome_do_comando: str) -> torch.Tensor:
@@ -208,19 +253,26 @@ def precise_ori(env, nome_do_comando: str) -> torch.Tensor:
 
 
 def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],
-            forca_ref: float) -> torch.Tensor:
-    """`tanh(min(F_E, F_D)/F_ref)`. Força nas DUAS palmas.
+            mu: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """`tanh(min(F_n_E, F_n_D)/F_ref)`. Força NORMAL nas DUAS palmas.
 
     ⚠ `tanh` e não limiar. Ele é contínuo desde a primeira décima de newton, portanto
     existe gradiente antes de a preensão "existir". Um booleano é platô, e o platô
     travou o `pegar` do `g1_poc` por 22 mil iterações — a ponte que faltava era
     exatamente esta continuidade.
+
+    ⚠ E a continuidade só serve se o passo ANTERIOR da cadeia levar as duas mãos às
+    faces laterais. Ver `comando.dist_palma_caixa`: enquanto o alcance era `min` sobre
+    uma esfera, uma mão saturava o `staged` e a segunda não tinha gradiente — este
+    termo ficava em zero exato porque ele é `min` das duas forças.
     """
-    f = _forca_das_palmas(env, sensores)
-    return torch.tanh(f / forca_ref) * _valida(env, nome_do_comando)
+    f = _forca_das_palmas(env, sensores, asset_cfg)
+    return torch.tanh(f / _forca_ref(env, mu)) * _valida(env, nome_do_comando)
 
 
-def unload(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
+def unload(env, nome_do_comando: str, sensor_apoio: str,
+           sensores_palma: tuple[str, ...], mu: float,
+           asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """`1 − F_apoio/(m·g)`. A caixa deixou de pesar na laje.
 
     ⚠ É A PONTE do `pegar`: a força de apoio cai de `m·g` a 0 conforme o robô assume a
@@ -245,16 +297,28 @@ def unload(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
     ⚠ A massa vem de `env.limpo_massa`, em KG, publicada pelo evento `carga_caixa`.
     Publicar newtons obrigaria este consumidor a desfazer a conta, e é assim que se
     erra um fator 9,81 em silêncio.
+
+    ⚠⚠ PORTEIRO DE PREENSÃO, acrescentado em 28/08 por MEDIÇÃO. Sem ele o termo lê só
+    "a caixa não pesa na laje", e DERRUBAR a caixa satisfaz isso perfeitamente: uma vez
+    no chão, `F_apoio` é zero para sempre e o termo paga 2,0/s pelo resto do episódio,
+    sem mão nenhuma. No bloco 3, it 4251, o `unload` marcava 0,0995 com o `squeeze` em
+    0,0002 — descarga sem preensão, que é a assinatura desse atalho.
+
+    O porteiro é `tanh(F_palmas/F_ref)`, o MESMO fator do `squeeze`. Ele é contínuo
+    desde o primeiro newton, portanto ele fecha o atalho sem virar um degrau.
     """
     f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
     peso = env.limpo_massa * 9.81
-    return (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0) \
-        * _valida(env, nome_do_comando)
+    descarga = (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0)
+    preensao = torch.tanh(
+        _forca_das_palmas(env, sensores_palma, asset_cfg) / _forca_ref(env, mu))
+    return descarga * preensao * _valida(env, nome_do_comando)
 
 
 def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
-                  sensor_apoio: str, forca_ref: float,
-                  pelve_alvo: float, pelve_piso: float) -> torch.Tensor:
+                  sensor_apoio: str, mu: float,
+                  pelve_alvo: float, pelve_piso: float,
+                  asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Rampa na pelve × preensão × descarga. Paga por erguer SEM agachar.
 
     ⚠ É o termo que impede o robô de satisfazer o alvo DESCENDO até a caixa. O alvo já
@@ -265,17 +329,21 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
     linear no meio. Sem o clamp superior, esticar-se além do alvo pagaria cada vez
     mais, e o robô aprenderia a ficar na ponta dos pés.
 
-    ⚠ E ela é MULTIPLICADA pela preensão e pela descarga, não somada. Somado, o robô
-    colheria a rampa só por ficar de pé sem tocar a caixa — que é exatamente o que ele
-    já faz de graça.
+    ⚠ E ela é MULTIPLICADA pela descarga, não somada. Somado, o robô colheria a rampa
+    só por ficar de pé sem tocar a caixa — que é exatamente o que ele já faz de graça.
+
+    ⚠ A PREENSÃO CONTINUA NO PRODUTO, e ela mudou de lugar em 28/08: o porteiro de
+    preensão passou para dentro do `unload`. Multiplicar por ela aqui de novo daria
+    `preensão²`, que aperta a rampa sem acrescentar informação.
     """
     z = (env.scene["robot"].data.root_link_pos_w[:, 2]
          - env.scene.env_origins[:, 2])
     rampa = ((z - pelve_piso) / max(pelve_alvo - pelve_piso, 1e-6)).clamp(0.0, 1.0)
-    preensao = torch.tanh(_forca_das_palmas(env, sensores_palma) / forca_ref)
-    descarga = unload(env, nome_do_comando, sensor_apoio)
-    # ⚠ o `unload` já traz o `VALIDA`; não multiplicar de novo (daria VALIDA²).
-    return rampa * preensao * descarga
+    descarga = unload(env, nome_do_comando, sensor_apoio,
+                      sensores_palma, mu, asset_cfg)
+    # ⚠ o `unload` já traz o `VALIDA` E a preensão desde 28/08; não multiplicar
+    # nenhum dos dois de novo (daria VALIDA² e preensão²).
+    return rampa * descarga
 
 
 class sustentacao:

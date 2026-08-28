@@ -58,7 +58,15 @@ CH_SEGMENTOS = "Metrics/twist/segmentos"
 # escoro; o g1_poc registra que ele SOBE quando o movimento fica caro (6,4% -> 17,5%
 # das terminações quando o `action_rate` encareceu). Espere valor alto no começo.
 CH_CONTATO = "Episode_Termination/contato_ilegal"
+CH_LARGOU = "Episode_Termination/caixa_largada"
 CH_CAIU = "Episode_Termination/fell_over"
+# ⚠ AS DUAS MÉTRICAS QUE DESAMBIGUAM A PEGA, e elas nasceram em 28/08. O `squeeze` é
+# `min` das duas forças, portanto UMA palma na caixa e NENHUMA palma davam o mesmo zero
+# exato — eu li abandono da tarefa onde havia uma mão na caixa. `palmas_em_contato` vale
+# 0, 0,5 ou 1,0 e separa os três estados. `dorso_em_contato` tem de ficar em ZERO: o
+# freio do dorso é geométrico (alcance bimanual), e esta métrica é quem confere.
+CH_PALMAS = "Episode_Metrics/palmas_em_contato"
+CH_DORSO = "Episode_Metrics/dorso_em_contato"
 CH_VOO = "Episode_Metrics/tempo_de_voo"
 CH_PICO = "Episode_Metrics/pico_de_altura"
 CH_ESCORREGO = "Episode_Metrics/velocidade_de_escorrego"
@@ -203,7 +211,10 @@ def _tabela_de_recompensa(acc, it: int, passos: float) -> None:
 def _tabela_de_marcha(acc, it: int) -> None:
     for rot, ch, un in (
         ("term: contato ilegal", CH_CONTATO, "  <- escoro na mesa"),
+        ("term: caixa largada", CH_LARGOU, "  <- pegou e soltou"),
         ("term: caiu", CH_CAIU, ""),
+        ("palmas na caixa", CH_PALMAS, "  <- 0 / 0,5 / 1,0"),
+        ("dorso na caixa", CH_DORSO, "  <- tem de ser ZERO"),
         ("eficiência (PIOR segmento)", CH_EFIC, "  <- o JUIZ"),
         ("eficiência (média dos segs)", CH_EFIC_MED, ""),
         ("segmentos válidos/episódio", CH_SEGMENTOS, ""),

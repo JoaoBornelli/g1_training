@@ -45,6 +45,7 @@ __all__ = [
     "pico_de_altura",
     "velocidade_de_escorrego",
     "forca_de_pouso",
+    "pads_em_contato",
     "PES_NO_CHAO",
     "ALTURA_DO_PE",
     "MOMENTO_ANGULAR",
@@ -60,7 +61,9 @@ MOMENTO_ANGULAR = "robot/root_angmom"
 SITIOS_DOS_PES = ("left_foot", "right_foot")
 
 
-def termos() -> dict[str, MetricsTermCfg]:
+def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
+           sensores_dorso: tuple[str, ...] = ("dorso_E", "dorso_D"),
+           ) -> dict[str, MetricsTermCfg]:
     """Os cinco termos, montados aqui e em nenhum outro lugar.
 
     ⚠ O `SceneEntityCfg` TEM DE VIVER EM `params`, e este é o bug que custou a
@@ -83,6 +86,23 @@ def termos() -> dict[str, MetricsTermCfg]:
             params={**pes, "asset_cfg": SceneEntityCfg(
                 "robot", site_names=SITIOS_DOS_PES)}),
         "forca_de_pouso": MetricsTermCfg(func=forca_de_pouso, params=dict(pes)),
+        # ⚠ AS DUAS MEDIÇÕES QUE FALTAVAM PARA LER A PEGA. Nenhuma tem peso: elas
+        # existem para que um estado e outro deixem de ler igual no painel.
+        #
+        #   `palmas_em_contato`  0 / 0,5 / 1,0 — nenhuma, uma, ou as DUAS palmas na
+        #       caixa. Sem ela, "uma mão encostada" e "nenhuma mão" davam o mesmo
+        #       `squeeze` de zero exato, porque o `squeeze` é `min` das duas forças. Eu
+        #       chamei isso de abandono da tarefa uma vez, e estava errado: era uma mão
+        #       na caixa e a outra fora.
+        #
+        #   `dorso_em_contato`  o pad de DORSO tocando a caixa. Ele não deve tocar
+        #       nunca. O freio é geométrico (o alcance bimanual põe as palmas viradas
+        #       uma para a outra), e esta métrica é o que confere se o freio funciona.
+        #       Se ela sair de zero, o freio geométrico não bastou.
+        "palmas_em_contato": MetricsTermCfg(
+            func=pads_em_contato, params={"sensores": sensores_palma}),
+        "dorso_em_contato": MetricsTermCfg(
+            func=pads_em_contato, params={"sensores": sensores_dorso}),
     }
 
 
@@ -95,6 +115,25 @@ def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
     """
     m = mascara.float()
     return (valor * m).sum(dim=-1) / m.sum(dim=-1).clamp(min=1.0)
+
+
+def pads_em_contato(env, sensores: tuple[str, ...]) -> torch.Tensor:
+    """Fração dos pads da lista que tocam a caixa, por env. 0, 0,5 ou 1,0.
+
+    ⚠ FRAÇÃO, e não `min` nem `any`. O `squeeze` usa `min` das forças, portanto uma
+    palma sozinha e nenhuma palma dão o MESMO zero exato — e essa ambiguidade já me
+    fez ler abandono da tarefa onde havia uma mão na caixa. A fração separa os três
+    estados que importam: nenhuma, uma, as duas.
+
+    ⚠ Lê `found`, e não `force`: a pergunta é de CONTATO, não de intensidade. A
+    intensidade é assunto do `squeeze`, que é contínuo desde o primeiro newton.
+    """
+    partes = []
+    for nome in sensores:
+        achou = env.scene[nome].data.found
+        assert achou is not None, f"sensor '{nome}' precisa do field 'found'."
+        partes.append((achou > 0).any(dim=-1).float())
+    return torch.stack(partes, dim=-1).mean(dim=-1)
 
 
 def momento_angular(env, sensor_name: str = MOMENTO_ANGULAR) -> torch.Tensor:

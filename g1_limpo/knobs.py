@@ -530,12 +530,19 @@ class Tarefa:
     # aproximação é o `staged`, com σ por env.
     precise_pos_sigma: float = 0.05
 
-    # --- squeeze: força de referência das palmas, em newtons ---
-    # ⚠ `tanh(min(F_E, F_D)/F_ref)` e não booleano. O `min` exige as DUAS mãos: uma
+    # --- squeeze: o μ que DERIVA a força de referência das palmas ---
+    # ⚠ `F_ref = m·g/(2μ)` — a força de aperto que o atrito precisa para segurar a
+    # caixa. Com m = 1,0 kg e μ = 0,8 dá **6,13 N**.
+    #
+    # ⚠ ERA UM KNOB FIXO DE 12,0 N até 28/08, e o número não tinha derivação. Ele pedia
+    # o DOBRO do que a física precisa e pagava METADE no primeiro newton — justo a faixa
+    # em que a preensão tem de nascer. O `g1_poc` usa a conta, e não o número.
+    #
+    # ⚠ `tanh(min(F_n_E, F_n_D)/F_ref)` e não booleano. O `min` exige as DUAS mãos: uma
     # palma sozinha empurra a caixa, não a segura. E o `tanh` é contínuo desde a
     # primeira décima de newton — um limiar booleano é platô, e o platô travou o
     # `pegar` do g1_poc por 22k iterações.
-    forca_ref: float = 12.0
+    squeeze_mu: float = 0.8              # μ pessimista da faixa de atrito da caixa
 
     # --- postura ereta: a rampa dupla na pelve ---
     # ⚠ Ela paga por erguer SEM agachar, e é o que impede o robô de satisfazer o alvo
@@ -638,9 +645,22 @@ class Terminacao:
     ⚠ MEDIDO no `g1_poc` (`knobs.py:328`), onde a mesma terminação rodou com este valor.
     Não é número novo.
 
-    ⚠ É ELE que torna a lista de CORPO INTEIRO segura: roçar o tampo ao alcançar não
-    termina, apoiar o peso termina. Com booleano, cobrir as 33 geoms tornaria pose baixa
-    inganhável."""
+    ⚠ É ELE que torna a lista segura: roçar o tampo ao alcançar não termina, apoiar o
+    peso termina. Com booleano, a lista tornaria pose baixa inganhável."""
+
+    caixa_z_min: float = 0.10
+    """Altura da caixa, relativa à origem do env, abaixo da qual ela CAIU.
+
+    ⚠ 0,10 m é a meia-aresta: com o centro nessa altura a caixa está apoiada no CHÃO.
+    Ela é o piso físico, e não uma tolerância escolhida."""
+
+    caixa_dist_max: float = 0.45
+    """Distância, em metros, de AMBAS as palmas ao centro da caixa para ela ter escapado.
+
+    ⚠ A palma nasce a 0,339 m da caixa (mín 0,211, máx 0,481). Portanto este limiar é
+    MAIOR que a distância de nascimento típica — e mesmo assim a terminação não dispara
+    no reset, porque ela é armada pela primeira preensão. Os dois freios são
+    independentes de propósito."""
 
 
 @dataclass

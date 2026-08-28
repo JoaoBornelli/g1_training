@@ -203,6 +203,10 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     face_alvo_b: tuple[float, float, float] = (-1.0, 0.0, 0.0)
     # os sítios das palmas, para a distância que define o σ
     sitios_palma: tuple[str, ...] = ("left_palm", "right_palm")
+    # os SENSORES de palma, para armar o `caixa_largada`. Só o campo `found` é lido:
+    # a pergunta é "as duas palmas já tocaram a caixa neste episódio", e ela é
+    # booleana por natureza. A FORÇA é assunto do `squeeze`, que é contínuo.
+    sensores_palma: tuple[str, ...] = ("palma_E", "palma_D")
 
     # ⚠ O σ NÃO É UM NÚMERO: ele é a DISTÂNCIA INICIAL daquele env, vezes este fator.
     # Ver o bloco de σ no `__init__` e a §4.2b da spec. Medido: com σ fixo de 0,10 a
@@ -249,6 +253,24 @@ class AlvoCaixaCmd(CommandTerm):
         d, n = self.device, self.num_envs
         self._command = torch.zeros(n, DIM, device=d)
         self._face_b = torch.tensor(cfg.face_alvo_b, device=d)
+        # --- A DIREÇÃO PEDIDA PARA A FACE MARCADA, e se ela é VIVA ou CONGELADA.
+        #
+        # ⚠ DOIS PEDIDOS DIFERENTES, e confundi-los apagou o termo. No `REORIENTAR` a
+        # direção pedida é VIVA: "vire a face para o robô", recalculada todo passo. Em
+        # todos os outros elos ela é CONGELADA na normal ATUAL no instante em que o elo
+        # abre, e aí o termo pergunta "a caixa girou desde então?" — isto é, ele paga
+        # por ERGUER SEM TORCER.
+        #
+        # Até 28/08 a direção era viva em TODO elo, e o `precise_ori` (peso 1,0) ficava
+        # inerte: no nível 0 a caixa nasce alinhada (`voltas_max = 0`, desalinho <= 15°)
+        # e `sigma_ori` tem piso de 0,20 rad, portanto o termo nascia satisfeito com
+        # derivada ~zero. Pior, o alvo se movia com o ROBÔ: andar em volta da caixa
+        # mudava o termo sem tocar nela.
+        #
+        # O `g1_poc` faz exatamente esta separação (`g1_poc/comando.py:246`) e declara
+        # o motivo: o `precise_ori` congelado é o que substitui o `box_shake` de −0,15.
+        self._face_alvo_w = torch.zeros(n, 3, device=d)
+        self._face_viva = torch.zeros(n, dtype=torch.bool, device=d)
         self._elo = torch.full((n,), PEGAR, dtype=torch.long, device=d)
         # ⚠⚠ O `_pendente` existe por causa de uma armadilha MEDIDA em 25/08.
         #
@@ -312,6 +334,43 @@ class AlvoCaixaCmd(CommandTerm):
         # os sítios das palmas, resolvidos UMA vez
         self._ids_palma, _ = self.robot.find_sites(list(cfg.sitios_palma))
 
+        # ---------------------------------------------- a ARMA do `caixa_largada`
+        # ⚠ "As duas palmas já tocaram a caixa NESTE episódio." A terminação de caixa
+        # largada é armada por ela e nunca antes: no reset a caixa está na laje e as
+        # palmas estão longe, que é exatamente a condição de `escapou`. Sem a arma,
+        # todo episódio começaria terminando.
+        #
+        # ⚠ Ela mora AQUI, e não na terminação, porque aqui existe escopo de episódio:
+        # o `_resample_command` roda no reset e zera o buffer. Um termo de terminação é
+        # uma função sem `reset`, e o estado dele vazaria de um episódio para o outro.
+        self._pegou = torch.zeros(n, dtype=torch.bool, device=d)
+        env.limpo_ids_palma = self._ids_palma
+        # ⚠ Publica ZEROS aqui, e não o resultado de `_publica_pegou`: no `__init__` os
+        # buffers de sensor ainda não foram preenchidos. A leitura real começa no
+        # primeiro `_update_command`.
+        env.limpo_pegou = self._pegou.float()
+
+    def _publica_pegou(self) -> None:
+        """Atualiza a arma e a publica em `env.limpo_pegou`.
+
+        ⚠ Monotônica DENTRO do episódio (`|=`), e zerada só no `_resample_command`.
+        Soltar a caixa para reposicionar não desarma a terminação — se desarmasse,
+        largar de vez deixaria de terminar.
+
+        ⚠ Republica o tensor todo passo em vez de guardar uma referência: `.float()`
+        cria um tensor NOVO, portanto uma publicação única no `__init__` congelaria o
+        valor em zero para sempre.
+        """
+        tocou = None
+        for nome in self.cfg.sensores_palma:
+            achou = self._env.scene[nome].data.found
+            assert achou is not None, f"sensor '{nome}' precisa do field 'found'."
+            aqui = (achou > 0).any(dim=-1)
+            tocou = aqui if tocou is None else (tocou & aqui)
+        if tocou is not None:
+            self._pegou |= tocou
+        self._env.limpo_pegou = self._pegou.float()
+
     # -------------------------------------------------------------- o contrato
     @property
     def command(self) -> torch.Tensor:
@@ -359,6 +418,12 @@ class AlvoCaixaCmd(CommandTerm):
             return
         d = self.device
         n = len(env_ids)
+
+        # ⚠ A ARMA DA TERMINAÇÃO `caixa_largada` ZERA AQUI, e ela precisa zerar em
+        # algum lugar com escopo de EPISÓDIO. Sem isso um episódio que pegou a caixa
+        # armaria todos os seguintes daquele env, e o reset — em que a caixa está na
+        # laje e as palmas estão longe — dispararia `escapou` na hora.
+        self._pegou[env_ids] = False
 
         # O ELO. Desde a F2 ele é SORTEADO POR ENV, e o sorteio mora no currículo
         # (`curriculo.sorteia_elo`) porque a ordem de reset é currículo -> eventos ->
@@ -461,6 +526,10 @@ class AlvoCaixaCmd(CommandTerm):
         self._alvo_ancorado_na_base(todos[self._elo == PEGAR])
         # e o que impede o robô de andar no `pegar` é o twist em ZERO
         self._zera_twist_nos_parados()
+
+        # a arma do `caixa_largada`, ANTES do avanço de elo: uma cadeia que avança não
+        # desarma a terminação, porque a caixa continua sendo a mesma caixa.
+        self._publica_pegou()
 
         # --- F4: AVANÇO DE ELO ---
         # Deve rodar APÓS a atualização do alvo e da face, porque usa pose fresca.
@@ -707,6 +776,13 @@ class AlvoCaixaCmd(CommandTerm):
         self._command[ids, ELO] = self._elo[ids].float()
         origem = self._env.scene.env_origins[ids]
 
+        # ⚠ O REGIME DA FACE, e ele é por elo. Só o `REORIENTAR` pede uma direção
+        # VIVA; os outros congelam a normal do instante da abertura e passam a medir
+        # "a caixa girou desde então?". Escrito ANTES do laço porque o `_congela_face`
+        # precisa da normal fresca, e esta função roda na passada do `_pendente`.
+        self._face_viva[ids] = self._elo[ids] == REORIENTAR
+        self._congela_face(ids[self._elo[ids] != REORIENTAR])
+
         for elo in (ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR):
             m = ids[self._elo[ids] == elo]
             if len(m) == 0:
@@ -841,23 +917,55 @@ class AlvoCaixaCmd(CommandTerm):
         a[:, 2] = self.cfg.altura_carregar
         self._command[ids, ALVO] = a
 
+    def alvos_das_palmas(self, ids: torch.Tensor) -> torch.Tensor:
+        """[k,2,3] — o ponto que CADA palma deve alcançar, em MUNDO.
+
+        O alvo de cada palma é o centro da SUA face lateral. O offset gira com a
+        caixa, portanto a pose pedida acompanha a orientação dela.
+
+        ⚠ Ordem (esquerda, direita) = ordem de `cfg.sitios_palma`. A esquerda mira
+        `+y` da caixa e a direita mira `−y`. É a convenção do `g1_poc`
+        (`observacoes.alvos_das_palmas`), e ela casa com a geometria dos pads: o pad
+        esquerdo fica em `y = −0,015` local e o direito em `y = +0,015`, portanto as
+        duas palmas olham UMA PARA A OUTRA.
+        """
+        caixa = self.caixa.data.root_link_pos_w[ids]
+        off = torch.zeros_like(caixa)
+        off[:, 1] = self.cfg.caixa_meia_aresta
+        off = quat_apply(self.caixa.data.root_link_quat_w[ids], off)
+        return torch.stack((caixa + off, caixa - off), dim=1)
+
     def dist_palma_caixa(self, ids: torch.Tensor) -> torch.Tensor:
-        """Distância da palma MAIS PRÓXIMA à SUPERFÍCIE da caixa, por env.
+        """Distância MÉDIA das duas palmas às SUAS faces laterais, por env.
 
-        ⚠ `min` sobre as duas palmas, e não média: no início do treino uma mão chega
-        antes da outra, e a média diluiria o sinal da que está chegando. O `squeeze`
-        é que exige as DUAS.
+        ⚠ BIMANUAL E LATERAL, e as duas metades vêm de medição. Até 28/08 isto era
+        `min` sobre as palmas contra a SUPERFÍCIE de uma esfera em volta do centro:
 
-        ⚠ SUPERFÍCIE, E NÃO CENTRO, e isso foi um DEFEITO MEDIDO em 2026-08-26. Ao
-        centro, a distância mínima fisicamente alcançável é 0,191 m (a caixa colide com
-        a mão antes) — logo `exp(−(d/σ)²)` saturava em **0,674** e o `staged` nunca
-        passava de 3,35 de um teto de 6,0. O robô fazia a tarefa inteira e o termo
-        dizia "faltam 33%".
+            d = ‖palma − centro‖.min(palmas) − meia_aresta
+
+        Aquilo tem dois buracos, e o bloco 3 caiu nos dois. Com `min`, UMA mão satura
+        o kernel e a segunda não tem gradiente nenhum — mas o `squeeze` exige as DUAS
+        (ele é `min` das forças). A cadeia ficava sem ponte entre "uma mão encosta" e
+        "as duas apertam", que é exatamente onde a run travou: `staged` parado no valor
+        de nascimento e `squeeze` em 0,0002 depois de 3200 iterações.
+        E com a esfera, tocar o TOPO, a FRENTE ou a BASE paga igual a tocar a lateral,
+        portanto não existe gradiente para a pose de pega.
+
+        O `g1_poc` já tinha consertado isto e escreveu o porquê
+        (`g1_poc/observacoes.py:47`): "Com o centro, o `reaching` estagnava com UMA mão
+        na face próxima, sem gradiente para o abraço."
+
+        A MÉDIA é o que acopla as duas mãos: uma mão atrasada derruba o termo, portanto
+        as duas se aproximam juntas. O máximo é a pose PRÉ-PEGA, com as palmas
+        flanqueando a caixa — e é ela que torna o pad de DORSO geometricamente errado,
+        que é como o `g1_poc` dispensa o `back_penalty` (`g1_poc/terminacoes.py:13`).
+
+        ⚠ NÃO subtrai mais a meia-aresta: o alvo JÁ está na superfície. Subtrair de
+        novo deixaria o kernel saturado antes do contato.
         """
         palmas = self.robot.data.site_pos_w[ids][:, self._ids_palma, :]
-        centro = self.caixa.data.root_link_pos_w[ids].unsqueeze(1)
-        d = torch.norm(palmas - centro, dim=-1).min(dim=1).values
-        return (d - self.cfg.caixa_meia_aresta).clamp(min=0.0)
+        alvos = self.alvos_das_palmas(ids)
+        return torch.norm(palmas - alvos, dim=-1).mean(dim=1)
 
     def _recalcula_sigmas(self, ids: torch.Tensor) -> None:
         """σ = distância inicial × fator, com piso. Ver o bloco do `__init__`.
@@ -881,13 +989,31 @@ class AlvoCaixaCmd(CommandTerm):
         self.sigma_ori[ids] = (self._command[ids, ANG] * c.sigma_fator).clamp(
             min=c.sigma_ori_min)
 
+    def _congela_face(self, ids: torch.Tensor) -> None:
+        """Fixa a direção pedida na normal ATUAL da face marcada.
+
+        Chamado no instante em que um elo que NÃO é o `REORIENTAR` abre. A partir daí
+        o `precise_ori` mede o giro acumulado desde a abertura do elo — ele paga por
+        erguer sem torcer, e não por apontar a face a lugar nenhum.
+        """
+        if len(ids) == 0:
+            return
+        fb = self._face_b.expand(len(ids), 3)
+        self._face_alvo_w[ids] = quat_apply(
+            self.caixa.data.root_link_quat_w[ids], fb)
+
     def _atualiza_face(self, ids: torch.Tensor) -> None:
         """Publica a DIREÇÃO DESEJADA e o ERRO angular da face marcada.
 
-            FACE  a direção em que a face marcada DEVE apontar — da caixa para o robô,
-                  na horizontal.
+            FACE  a direção em que a face marcada DEVE apontar.
             ANG   o erro angular ATUAL, em radianos, entre a normal da face marcada e
                   essa direção. Zero = alinhada.
+
+        ⚠ A DIREÇÃO PEDIDA TEM DOIS REGIMES, e é isso que dá função ao termo em todo
+        elo. Ver o bloco de `_face_viva` no `__init__`:
+
+            REORIENTAR   VIVA — da caixa para o robô, na horizontal, todo passo.
+            os outros    CONGELADA na normal do instante em que o elo abriu.
 
         ⚠ O erro é o ângulo entre dois vetores 3D, e não uma rotação em torno de Z. É
         de propósito: se a caixa estiver TOMBADA, a normal da face marcada aponta para
@@ -903,7 +1029,12 @@ class AlvoCaixaCmd(CommandTerm):
                        - self.caixa.data.root_link_pos_w[ids])
         para_o_robo = para_o_robo.clone()
         para_o_robo[:, 2] = 0.0        # a direção pedida é HORIZONTAL
-        desejada = para_o_robo / para_o_robo.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        viva = para_o_robo / para_o_robo.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+
+        # ⚠ `where` e não indexação por máscara: os dois ramos são densos e do mesmo
+        # tamanho, e assim não há um segundo caminho de escrita para manter em dia.
+        desejada = torch.where(
+            self._face_viva[ids].unsqueeze(-1), viva, self._face_alvo_w[ids])
 
         self._command[ids, FACE] = desejada
         cos = (normal_w * desejada).sum(-1).clamp(-1.0, 1.0)

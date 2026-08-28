@@ -28,6 +28,7 @@ from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
@@ -195,9 +196,12 @@ def make_env_cfg(
     # g1_poc registra o mesmo mecanismo do outro lado: quando o movimento encareceu, o
     # `contato_ilegal` dele subiu de 6,4% para 17,5% das terminações.
     #
-    # ⚠ ELA COBRE O CORPO INTEIRO (33 geoms), e o que a torna segura é o LIMIAR DE FORÇA,
-    # não a lista: roçar não termina, apoiar termina. Ver `terminacoes.contato_ilegal` e
-    # `cena.CORPO_INTEIRO`.
+    # ⚠ A LISTA DE CORPO INTEIRO (33 geoms) RODOU E FALHOU. Medido no bloco 3, it 4251:
+    # `contato_ilegal` fez 18,5% das terminações contra uma fatia de manipulação de
+    # 24,7%, isto é ~75% dos episódios de manipulação morriam na mesa, com `squeeze` em
+    # 0,0002. A lista cobria punho e cotovelo — que TÊM de chegar perto do tampo — e não
+    # cobria os pads, que eram a superfície que escorava. Ver
+    # `cena.CORPOS_QUE_NAO_ESCORAM` para a lista de hoje e o porquê.
     #
     # ⚠ O `terminacao = -200` do molde já cobra este evento por `is_terminated`, que
     # exclui o `time_out`. Portanto o preço é −4,0 no passo MAIS todo o retorno futuro
@@ -206,6 +210,15 @@ def make_env_cfg(
         func=TE.contato_ilegal,
         params={"sensor_name": C.SENSOR_CORPO_PRATELEIRA,
                 "limiar_N": k.terminacao.contato_ilegal_N})
+
+    # ⚠ A OUTRA METADE DO PORTEIRO DO `unload`. O porteiro tira o pagamento de
+    # "derrubar sem pegar"; esta terminação tira o de "pegar e largar". Ela é ARMADA
+    # pela primeira preensão (`env.limpo_pegou`), portanto não dispara no reset, onde a
+    # caixa está na laje e as palmas estão longe.
+    cfg.terminations["caixa_largada"] = TerminationTermCfg(
+        func=TE.caixa_largada,
+        params={"z_min": k.terminacao.caixa_z_min,
+                "dist_max": k.terminacao.caixa_dist_max})
 
     # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
     # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele
@@ -234,7 +247,7 @@ def make_env_cfg(
     # `Metrics/air_time_mean` dele NÃO EXISTE. Ver `metricas.py`.
     #
     # O `mean_action_acc` do molde FICA: ele já é `MetricsTermCfg` e não depende de peso.
-    cfg.metrics.update(MT.termos())
+    cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO))
 
     # ------------------------------------------ 2d. a régua: `razao_marcha`
     # ⚠ O twist é RECONSTRUÍDO como subclasse, campo a campo por `dataclasses.fields`,
@@ -371,6 +384,10 @@ def make_env_cfg(
         caixa_meia_z=c.caixa_meia_aresta[2],
         face_alvo_b=c.face_alvo_b,
         sitios_palma=C.PALM_SITES,
+        # ⚠ Fiado explicitamente, e não deixado no default: o comando lê o `found`
+        # destes sensores para armar o `caixa_largada`. Um default que divergisse de
+        # `C.SENSOR_PALMA` desarmaria a terminação em silêncio.
+        sensores_palma=C.SENSOR_PALMA,
         caixa_meia_aresta=c.caixa_meia_aresta[0],
         sigma_fator=k.tarefa.sigma_fator,
         sigma_min=k.tarefa.sigma_min,
@@ -433,18 +450,34 @@ def make_env_cfg(
     cfg.rewards["precise_ori"] = RewardTermCfg(
         func=RC.precise_ori, weight=tr.precise_ori,
         params={"nome_do_comando": _cmd})
+    # ⚠ O `SceneEntityCfg` TEM DE VIVER EM `params`: `manager_base.py:141-145` só
+    # resolve os que estão lá. Como argumento default de função ele nunca é resolvido,
+    # `site_ids` fica `slice(None)`, e a projeção leria os SEIS sítios do robô em vez
+    # das duas palmas — sem erro, e com o termo medindo outra coisa.
+    # ⚠ UMA INSTÂNCIA POR TERMO, e não uma compartilhada: o `manager_base` RESOLVE os
+    # ids DENTRO do objeto, portanto um `SceneEntityCfg` compartilhado por três termos
+    # é estado mutável compartilhado entre managers.
+    # ⚠ A FONTE É `C.PALM_SITES`, a MESMA que o comando recebe em `sitios_palma`. Um
+    # segundo lugar com a lista de sítios seria uma segunda fonte de verdade, e a
+    # projeção da força passaria a ler outros sítios que o kernel de alcance.
+    def _palmas() -> SceneEntityCfg:
+        return SceneEntityCfg("robot", site_names=list(C.PALM_SITES))
+
     cfg.rewards["squeeze"] = RewardTermCfg(
         func=RC.squeeze, weight=tr.squeeze,
         params={"nome_do_comando": _cmd, "sensores": C.SENSOR_PALMA,
-                "forca_ref": tr.forca_ref})
+                "mu": tr.squeeze_mu, "asset_cfg": _palmas()})
     cfg.rewards["unload"] = RewardTermCfg(
         func=RC.unload, weight=tr.unload,
-        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO})
+        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO,
+                "sensores_palma": C.SENSOR_PALMA, "mu": tr.squeeze_mu,
+                "asset_cfg": _palmas()})
     cfg.rewards["postura_ereta"] = RewardTermCfg(
         func=RC.postura_ereta, weight=tr.postura_ereta,
         params={"nome_do_comando": _cmd, "sensores_palma": C.SENSOR_PALMA,
-                "sensor_apoio": C.SENSOR_APOIO, "forca_ref": tr.forca_ref,
-                "pelve_alvo": tr.pelve_alvo, "pelve_piso": tr.pelve_piso})
+                "sensor_apoio": C.SENSOR_APOIO, "mu": tr.squeeze_mu,
+                "pelve_alvo": tr.pelve_alvo, "pelve_piso": tr.pelve_piso,
+                "asset_cfg": _palmas()})
     cfg.rewards["sustentacao"] = RewardTermCfg(
         func=RC.sustentacao, weight=tr.sustentacao,
         params={"nome_do_comando": _cmd, "tol_pos": tr.tol_pos,

@@ -30,7 +30,7 @@ __all__ = [
     "BOX_GEOM", "TABLE_GEOM", "MARCADOR_GEOM",
     "PALM_SITES", "PALM_PAD_GEOMS", "BACK_PAD_GEOMS", "FOOT_SITES",
     "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CORPO_PRATELEIRA",
-    "SENSOR_AUTO_COLISAO", "SENSOR_PES",
+    "SENSOR_AUTO_COLISAO", "SENSOR_PES", "CORPOS_QUE_NAO_ESCORAM",
     "spec_caixa", "spec_prateleira", "add_pads_de_palma", "robot_cfg",
     "regroup", "entidades", "sensores", "geometria_de_repouso",
 ]
@@ -66,35 +66,57 @@ SENSOR_CORPO_PRATELEIRA = "corpo_prateleira"
 SENSOR_AUTO_COLISAO = "auto_colisao"
 SENSOR_PES = "pes_chao"
 
-# O CORPO INTEIRO. Nenhuma parte pode tocar a mesa — decisão do dono do projeto em
-# 27/08, depois de VER no `play` do bloco 1 o robô se apoiando na mesa com as MÃOS.
+# O que NÃO PODE tocar a mesa. Nenhuma parte do corpo escora — decisão do dono do
+# projeto em 27/08, depois de VER no `play` o robô se apoiando na mesa com as MÃOS.
 #
-# ⚠ ERA UMA LISTA DE QUATRO PADRÕES (pelve, tronco, quadril, coxa), e ela cobria 6 dos
-# 33 geoms de colisão. As mãos, os punhos, os cotovelos, os ombros, as canelas, a cabeça
-# e os 14 geoms de pé ficavam LIVRES. A justificativa escrita era "numa pega a 0,04 m o
-# antebraço passa perto do tampo, e esse contato é normal" — e ela cai junto com a
-# premissa: se a mesa a 0,04 m não deveria existir, contato com ela nunca é normal.
+# ⚠ A LISTA DE CORPO INTEIRO (`.*_collision`) RODOU E FALHOU, e a medição está no
+# bloco 3, it 4251: `contato_ilegal` fez 18,5% das terminações contra uma fatia de
+# manipulação de 24,7% — cerca de 75% dos episódios de manipulação morriam na mesa,
+# com `squeeze` em 0,0002 depois de 3200 iterações. O sinal estava INVERTIDO, por
+# duas razões que se somavam:
+#
+#   1. `add_pads_de_palma` APAGA `*_hand_collision` e cria `*_palm_pad` e
+#      `*_hand_back_pad`. Nenhum `_pad` casa com `.*_collision`, portanto a MÃO não
+#      tinha geom nenhum neste sensor. Ela era a única superfície do corpo com custo
+#      ZERO para escorar — exatamente a que o dono viu escorando.
+#   2. `.*_collision` cobre punho, cotovelo e ombro — as peças que TÊM de chegar perto
+#      do tampo para pegar a caixa. Aproximar terminava; escorar era grátis.
+#
+# A lista de hoje inverte os dois: os pads ENTRAM, o punho e o cotovelo SAEM. É a
+# mesma escolha do `g1_poc`, que a declara em `g1_poc/terminacoes.py:78-81` — "o
+# antebraço, a mão e o pé NÃO estão no sensor" — com a diferença de que lá a mão
+# ficava de fora e aqui ela entra, porque aqui ela é pad e não cápsula: o pad de palma
+# só deve tocar a CAIXA, e o de dorso não deve tocar nada.
 #
 # ⚠ O QUE TORNA ISTO SEGURO É O LIMIAR DE FORÇA da terminação, não a lista. Roçar não
-# termina; ESCORAR termina. Sem o limiar, uma lista de corpo inteiro tornaria pose baixa
-# inganhável — que é a classe de erro do `botar_topo_piso`. Ver
-# `terminacoes.contato_ilegal`.
+# termina; ESCORAR termina. Ver `terminacoes.contato_ilegal`.
 #
 # ⚠ ACOPLAMENTO LATENTE, e ele está declarado: com `topo_min` chegando a 0,04 m nos
 # níveis 4 a 6, a laje é um degrau de 4 cm na frente dos pés, e PISAR nela passa dos
 # 50 N. Nesses níveis a mesa precisa deixar de existir (`topo_min` -> 0,0 e a mesa
-# afundada em `posiciona_cena`), e isso NÃO está implementado. O bloco 1 e o 2 nunca
+# afundada em `posiciona_cena`), e isso NÃO está implementado. Os blocos 1 a 3 nunca
 # saíram do nível 0 (`Curriculum/nivel = 0.0000`), onde o topo é >= 0,55 m e o pé não
-# alcança a mesa. Portanto é risco adiado, não ativo.
+# alcança a mesa. Portanto é risco adiado, não ativo. O pé fica FORA da lista de
+# qualquer forma, que é o que o `g1_poc` também faz.
 #
 # ⚠ Os nomes são os do MODELO, não os do URDF: o G1 não tem geom de colisão de cintura
 # nem de joelho (o tronco cobre a cintura; a perna vai de `thigh` a `shin`), e o do
 # quadril é `left_hip_collision` — sem segundo `_`. Um padrão que casa ZERO geom levanta
 # `ValueError` no `resolve_matching_names`, não um aviso.
-CORPO_INTEIRO = (r".*_collision",)
+CORPOS_QUE_NAO_ESCORAM = (
+    r"pelvis_collision",
+    r"torso_collision",
+    r".*_hip_collision",
+    r".*_thigh_collision",
+    # os pads. O secundário deste sensor é a MESA, portanto isto proíbe pad->mesa e
+    # não toca em pad->caixa, que é outro sensor (`palma_E`/`palma_D`). A palma pode
+    # tocar a caixa e não pode tocar a mesa, que é exatamente o pedido.
+    r".*_pad",
+)
 
-# nome antigo, mantido para não quebrar referência externa
-CORPOS_QUE_NAO_ESCORAM = CORPO_INTEIRO
+# ⚠ O alias `CORPO_INTEIRO` FOI REMOVIDO em 28/08. A lista não é mais o corpo inteiro,
+# e um nome que mente é pior que um nome ausente: quem lesse `CORPO_INTEIRO` acharia
+# que punho e cotovelo continuam cobertos.
 
 
 # ============================================================ specs de entidade
