@@ -49,8 +49,21 @@ CH_STD = "Policy/mean_std"
 CH_DURACAO = "Train/mean_episode_length"        # em PASSOS, não em segundos
 CH_RECOMPENSA = "Train/mean_reward"
 CH_RAZAO = "Metrics/twist/razao_marcha"        # DIAGNÓSTICO desde 27/08
+# ⚠⚠ ESTE CANAL É DILUÍDO PELA FATIA DE MANIPULAÇÃO, e a des-diluição é EXATA. O twist é
+# forçado a zero nos elos de manipulação, portanto `eficiencia_min` fica em zero exato
+# naqueles envs e a média do log os inclui. `Curriculum/forma` É a fração de locomoção,
+# logo a eficiência de quem ANDA é `CH_EFIC / forma`.
+#
+# MEDIDO no bloco 6, iteração 785: 0,5844 / 0,7277 = 0,803. O portão do currículo lia o
+# número diluído até 31/08 e se envenenava com a própria rampa — ver `curriculo.forma`.
+# O portão foi consertado com uma máscara; o LOG segue diluído, e é o `desdilui` abaixo
+# que o corrige na leitura.
 CH_EFIC = "Metrics/twist/eficiencia_min"       # o JUIZ: pior segmento de comando
 CH_EFIC_MED = "Metrics/twist/eficiencia_media"
+CH_FORMA = "Curriculum/forma"                  # É a fração de locomoção
+# ⚠ CALCULADO, e não lido: `_serie` o deriva. Ele mora aqui, junto dos outros canais,
+# porque a `ESCADA` o referencia e ela é montada ANTES de `_serie` no arquivo.
+CH_EFIC_LOCO = "derivado/eficiencia_dos_que_andam"
 CH_SEGMENTOS = "Metrics/twist/segmentos"
 
 # ⚠ AS TERMINAÇÕES SÃO CONTAGEM DE ENVS, não fração — divida pelo total antes de
@@ -114,7 +127,14 @@ ESCADA = [
     #
     # ⚠ O ALVO É PROVÍSORIO. 0,50 vem da escala antiga e ainda não foi medido nesta. O
     # bloco 2 tem as duas curvas no log lado a lado — calibrar contra elas.
-    (2000, CH_EFIC, ">=", 0.50,
+    #
+    # ⚠⚠ LÊ O DERIVADO, e não o canal cru. O canal cru é diluído pela fatia de
+    # manipulação, e a diluição CRESCE com a rampa. No destino da rampa
+    # (`alvo_loco_min = 0,30`, isto é 30% de LOCOMOÇÃO e 70% de manipulação) passar no
+    # cru exigiria `0,50/0,30 = 1,67` dos envs que andam — IMPOSSÍVEL, porque a
+    # eficiência é limitada a 1. A linha não ficaria difícil: ela ficaria inalcançável.
+    # Ver `_serie`.
+    (2000, CH_EFIC_LOCO, ">=", 0.50,
      "o robô NÃO ANDA: no pior segmento de comando ele não entrega metade da "
      "velocidade pedida. PRÉ-REGISTRADO: mover `escala_acao_mult` para 0,8, e "
      "NADA MAIS no bloco. ⚠ ALVO NÃO CALIBRADO na escala nova"),
@@ -163,6 +183,39 @@ def _acumulador(run: pathlib.Path):
 
 
 def _serie(acc, chave: str) -> list[tuple[int, float]]:
+    """A série de um canal. Chaves `derivado/*` são CALCULADAS, e não lidas.
+
+    ⚠ A eficiência do log é DILUÍDA pela fatia de manipulação: o twist é forçado a zero
+    nos elos de manipulação, portanto `eficiencia_min` é zero exato naqueles envs e a
+    média do painel os inclui. A des-diluição é EXATA, porque `Curriculum/forma` É a
+    fração de locomoção:
+
+        eficiência de quem ANDA = eficiencia_min / forma
+
+    MEDIDO no bloco 6, iteração 785: 0,5844 / 0,7277 = 0,803.
+
+    ⚠ POR QUE A ESCADA TEM DE LER O DERIVADO. O alvo de 0,50 aplicado ao número diluído
+    fica mais duro conforme a fatia cresce, e no destino ele fica IMPOSSÍVEL:
+
+        fatia de locomoção   exige de quem anda
+              1,00                 0,50
+              0,73 (hoje)          0,69
+              0,30 (o destino)     1,67   <- acima de 1: inalcançável
+
+    `alvo_loco_min = 0,30` é 30% de LOCOMOÇÃO, isto é 70% de manipulação. A linha
+    marcaria falha num robô que anda perfeitamente, que é exatamente o erro que ela
+    existe para não cometer.
+    """
+    if chave == CH_EFIC_LOCO:
+        efic = dict(_serie(acc, CH_EFIC))
+        forma = dict(_serie(acc, CH_FORMA))
+        if not efic or not forma:
+            return []
+        # ⚠ Só passos que existem NOS DOIS canais, e piso no denominador: `forma` tem
+        # `sorteio_min = 0,10`, portanto ela nunca é zero, mas dividir por um valor lido
+        # sem piso é como se erra por 10× no dia em que o knob mudar.
+        return [(s, efic[s] / max(forma[s], 1e-3))
+                for s in sorted(set(efic) & set(forma))]
     if chave not in acc.Tags().get("scalars", []):
         return []
     return [(e.step, e.value) for e in acc.Scalars(chave)]
@@ -224,8 +277,10 @@ def _tabela_de_marcha(acc, it: int) -> None:
         ("term: caiu", CH_CAIU, ""),
         ("palmas na caixa", CH_PALMAS, "  <- 0 / 0,5 / 1,0"),
         ("dorso na caixa", CH_DORSO, "  <- tem de ser ZERO"),
-        ("eficiência (PIOR segmento)", CH_EFIC, "  <- o JUIZ"),
+        ("efic. de QUEM ANDA", CH_EFIC_LOCO, "  <- o JUIZ (des-diluído)"),
+        ("eficiência (PIOR seg, cru)", CH_EFIC, "  <- diluído pela fatia"),
         ("eficiência (média dos segs)", CH_EFIC_MED, ""),
+        ("fatia de locomoção", CH_FORMA, "  <- 1 − isto = manipulação"),
         ("segmentos válidos/episódio", CH_SEGMENTOS, ""),
         ("razão de marcha", CH_RAZAO, "  <- diagnóstico; infla com `std`"),
         ("tempo de voo", CH_VOO, " s"),
@@ -326,6 +381,48 @@ def _demo() -> int:
     confere("a correção é LINEAR nos passos",
             por_segundo(1.0, 250.0) / por_segundo(1.0, 500.0), 2.0)
     print(f"\n  ⚠ −0,34 no painel é −{abs(-0.34 * fator):.2f}/s de verdade.")
+
+    # ------------------------------ a OUTRA diluição: a da eficiência pela fatia
+    # ⚠ SÃO DUAS DILUIÇÕES DIFERENTES, e confundi-las erra o diagnóstico. A de cima é
+    # do `Episode_Reward/*`, pela DURAÇÃO do episódio. Esta é da `eficiencia_min`, pela
+    # FATIA de manipulação: o twist é forçado a zero nos elos de manipulação, portanto
+    # `eficiencia_min` é zero exato naqueles envs e a média do painel os inclui.
+    #
+    # Os números são os do bloco 6, iteração 785, e é com eles que o defeito do portão
+    # foi identificado.
+    print("\n--- demo: a des-diluição da eficiência pela fatia")
+
+    class _AccFalso:
+        """Um acumulador mínimo, só com os dois canais que o derivado usa."""
+
+        def __init__(self, series):
+            self._s = series
+
+        def Tags(self):        # noqa: N802  (a API do TensorBoard é assim)
+            return {"scalars": list(self._s)}
+
+        def Scalars(self, ch):  # noqa: N802
+            import types
+            return [types.SimpleNamespace(step=s, value=v)
+                    for s, v in self._s[ch]]
+
+    _acc = _AccFalso({CH_EFIC: [(785, 0.5844)], CH_FORMA: [(785, 0.7277)]})
+    _der = _serie(_acc, CH_EFIC_LOCO)
+    confere("a eficiência de quem ANDA, des-diluída", _der[0][1],
+            0.5844 / 0.7277, tol=1e-6)
+    confere("sem manipulação (forma = 1,0) não há correção",
+            _serie(_AccFalso({CH_EFIC: [(0, 0.7)],
+                              CH_FORMA: [(0, 1.0)]}), CH_EFIC_LOCO)[0][1],
+            0.7, tol=1e-9)
+    # ⚠ O ALVO DA ESCADA É 0,50 sobre o DES-DILUÍDO. Sobre o cru ele ficaria IMPOSSÍVEL
+    # no destino da rampa: `alvo_loco_min = 0,30` é 30% de LOCOMOÇÃO, logo o cru vale
+    # `efic × 0,30` e passar exigiria `efic >= 1,67` — acima do teto de 1,0.
+    _exige_no_destino = 0.50 / 0.30
+    confere("no destino da rampa o alvo no canal CRU fica ACIMA DE 1, logo impossível",
+            1.0 if _exige_no_destino > 1.0 else 0.0, 1.0)
+    print(f"  ⚠ 0,5844 no painel é {0.5844 / 0.7277:.3f} de quem realmente anda.")
+    print(f"  ⚠ no destino (30% loco) o canal cru exigiria "
+          f"{_exige_no_destino:.2f} — acima do teto de 1,0.")
 
     # ---------------------------------------------- a busca na série
     # ⚠ Uma versão anterior deste bloco "testava" `0,10 >= 0,05`. Isso exercita o

@@ -342,9 +342,40 @@ def forma(
     # ⚠ O `min` e não a média: um robô que anda reto e não gira mostra média alta e
     # mínimo baixo, e é o mínimo que responde "sabe andar". O `error_vel_yaw` está em
     # ~2,5 há 5000 iterações e nenhum portão olhava para ele.
+    #
+    # ⚠⚠ A MÉDIA É SÓ DOS ENVS QUE ANDAM, e a máscara nasceu de um defeito MEDIDO em
+    # 31/08. Até então a média era sobre TODOS os envs. O twist é forçado a zero nos
+    # elos de manipulação, portanto `seg_pedido` nunca alcança `pedido_min_segmento` e
+    # `eficiencia_min` fica em ZERO EXATO naqueles envs. O portão se envenenava com a
+    # própria rampa:
+    #
+    #     rampa desce -> fatia de manipulação cresce -> média DILUÍDA cai
+    #          ^                                                 |
+    #          +------- portão abre <- média sobe <- rampa REVERTE
+    #
+    # A aritmética fecha em três casas no bloco 6, iteração 785: eficiência dos envs que
+    # andam ~0,80, fatia de manipulação 0,272, média diluída prevista 0,582 contra
+    # 0,5844 medida. E o ponto fixo do laço é `efic × (1 − fatia) = limiar`, isto é
+    # fatia <= 0,375 com `limiar_portao = 0,50`. O destino `alvo_loco_min = 0,30` era
+    # INALCANÇÁVEL por construção, e a rampa parou em ~0,79 de 33 degraus possíveis.
+    #
+    # ⚠ A máscara é `segmentos > 0`, e não o canal do elo. Ela se autodescreve — "a
+    # eficiência de quem foi PEDIDO para andar" — e não acopla este termo ao layout do
+    # comando de caixa. Um env de `CARREGAR` tem twist ativo e entra na conta, que é o
+    # correto: ali andar É a tarefa.
+    #
+    # ⚠ DECISÃO DO DONO (31/08): o portão olha SÓ para as tarefas de andar. Conforme o
+    # robô fica bom em andar, a manipulação ganha chão até 30%, INDEPENDENTE de o robô
+    # estar conseguindo pegar a caixa. Sucesso de manipulação move o `nivel`, e nunca a
+    # `forma`.
     try:
         tw = env.command_manager.get_term(nome_do_twist)
-        sinal = float(tw.metrics["eficiencia_min"].mean())
+        efic = tw.metrics["eficiencia_min"]
+        pedidos = tw.metrics["segmentos"] > 0
+        # ⚠ Sem nenhum env pedido a andar, MANTÉM o sinal anterior em vez de ler 0. Ler
+        # zero fecharia o portão por ausência de dado, que é o defeito acima com outro
+        # nome.
+        sinal = float(efic[pedidos].mean()) if bool(pedidos.any()) else st["razao"]
     except (KeyError, AttributeError):
         sinal = st["razao"]
     st["razao"] = f.ema * st["razao"] + (1 - f.ema) * sinal

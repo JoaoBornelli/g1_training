@@ -853,9 +853,14 @@ check("a chave do nível casa com o prefixo do CurriculumManager",
 # ⚠ CONTAR as linhas da escada quebrou quando a F4 acrescentou duas. O invariante que
 # sobrevive às fases é a PRESENÇA das linhas que cada fase exige, nomeada por chave.
 _chaves_escada = {ch for _, ch, _, _, _ in LE_.ESCADA}
-check("a escada tem as quatro linhas da F1, e a do andar é a `eficiencia_min`",
-      {LE_.CH_STD, LE_.CH_DURACAO, LE_.CH_EFIC, LE_.CH_VOO} <= _chaves_escada
-      and any(ch == LE_.CH_EFIC and alvo == 0.50
+# ⚠ A LINHA DO ANDAR PASSOU A LER O DERIVADO em 31/08. O canal cru é diluído pela fatia
+# de manipulação (twist em zero -> `eficiencia_min` zero exato naqueles envs), e o alvo
+# de 0,50 no cru fica mais duro conforme a rampa desce. No destino (`alvo_loco_min` =
+# 0,30, isto é 30% de LOCOMOÇÃO) ele exigiria `0,50/0,30 = 1,67` de quem anda — acima do
+# teto de 1,0, logo IMPOSSÍVEL. A linha marcaria falha num robô que anda perfeitamente.
+check("a escada tem as quatro linhas da F1, e a do andar é a eficiência DES-DILUÍDA",
+      {LE_.CH_STD, LE_.CH_DURACAO, LE_.CH_EFIC_LOCO, LE_.CH_VOO} <= _chaves_escada
+      and any(ch == LE_.CH_EFIC_LOCO and alvo == 0.50
               for _, ch, _, alvo, _ in LE_.ESCADA))
 # ⚠ E A RAZÃO SAIU DA ESCADA, de propósito. Ela continua IMPRESSA no painel como
 # diagnóstico, mas julgar por ela automatizaria o erro de leitura do bloco 1: ela infla
@@ -1733,6 +1738,71 @@ check("a fatia inicial é 0,95 e NÃO 1,00",
       "com 1,00 os slots de manipulação ficam constantes e o normalizador os "
       "faz entrar como 100,0")
 
+# ============ O PORTÃO OLHA SÓ PARA QUEM ANDA. É a trava do defeito de 31/08. ========
+# ⚠⚠ O DEFEITO: até 31/08 o sinal era `eficiencia_min.mean()` sobre TODOS os envs. O
+# twist é forçado a zero nos elos de manipulação, portanto `seg_pedido` nunca alcança
+# `pedido_min_segmento`, nenhum segmento válido fecha, e `eficiencia_min` é ZERO EXATO
+# naqueles envs. O portão se envenenava com a própria rampa:
+#
+#     rampa baixa forma -> fatia de manipulação cresce -> mais zeros na média
+#          ^                                                        |
+#          +---- portão abre <- média sobe <- rampa REVERTE <- média cai
+#
+# O laço tem PONTO FIXO, e ele é um teto: `efic x (1 − fatia) = limiar`, isto é
+# fatia <= 0,375 com `limiar = 0,50`. O destino `alvo_loco_min = 0,30` era INALCANÇÁVEL.
+#
+# MEDIDO no bloco 6, iteração 785: efic de quem anda ~0,80, fatia 0,272, média diluída
+# prevista 0,582 contra 0,5844 medida. E a rampa parou em `alvo` ~0,79 de 33 degraus,
+# depois SUBIU (o ramo de histerese disparou).
+check("o portão MASCARA o sinal pelos envs que foram pedidos a andar",
+      'metrics["segmentos"]' in inspect.getsource(CU_.forma)
+      and ".mean()" in inspect.getsource(CU_.forma),
+      "sem a máscara a fatia de manipulação dilui o próprio juiz, e a rampa para "
+      "num ponto fixo em vez de chegar ao piso")
+check("a máscara é `segmentos > 0`, e NÃO o canal do elo",
+      "segmentos\"] > 0" in inspect.getsource(CU_.forma)
+      and "canal_do_elo" not in inspect.getsource(CU_.forma),
+      "`segmentos > 0` se autodescreve e não acopla o currículo ao layout do "
+      "comando de caixa; e um env de CARREGAR tem twist ativo e DEVE entrar")
+
+# --- a ARITMÉTICA do ponto fixo, para o teto ficar declarado e não redescoberto ---
+# ⚠ Isto não testa código: testa a CONTA que explica o defeito. Ela fica aqui porque foi
+# ela que o identificou, e porque um `limiar_portao` novo muda o teto sem avisar.
+_EFIC_QUE_ANDA = 0.80                 # medido no bloco 6: 0,5844 / 0,7277 = 0,803
+_teto_fatia = 1.0 - kf.limiar_portao / _EFIC_QUE_ANDA
+check("SEM máscara, o teto da fatia seria 0,375 — abaixo do destino de 0,70",
+      abs(_teto_fatia - 0.375) < 0.01
+      and _teto_fatia < (1.0 - kf.alvo_loco_min),
+      f"teto {_teto_fatia:.3f} contra o destino {1.0 - kf.alvo_loco_min:.3f} — "
+      "é isto que a máscara remove")
+check("a média diluída prevista casa com a MEDIDA no bloco 6",
+      abs(_EFIC_QUE_ANDA * 0.728 - 0.5844) < 0.01,
+      f"previsto {_EFIC_QUE_ANDA * 0.728:.4f} contra 0,5844 medido — "
+      "a diluição explica o número inteiro, sem termo sobrando")
+
+# --- a ESCADA lê o DERIVADO, e não o canal cru ---
+# ⚠ O alvo de 0,50 no canal cru fica MAIS DURO conforme a rampa desce, e no destino ele
+# fica IMPOSSÍVEL: `alvo_loco_min = 0,30` é 30% de LOCOMOÇÃO, o cru vale `efic × 0,30`, e
+# passar exigiria `efic >= 1,67` — acima do teto de 1,0. A linha marcaria falha num robô
+# que anda perfeitamente, que é o erro que ela existe para não cometer.
+check("no destino da rampa, o alvo no canal CRU seria inalcançável",
+      kf.limiar_portao / kf.alvo_loco_min > 1.0
+      and 0.50 / kf.alvo_loco_min > 1.0,
+      f"exigiria {0.50 / kf.alvo_loco_min:.2f} de quem anda, e o teto é 1,0")
+_linha_efic = [l for l in LE_.ESCADA if l[1] == LE_.CH_EFIC_LOCO]
+check("a linha do andar na escada lê o canal DES-DILUÍDO",
+      len(_linha_efic) == 1 and not any(l[1] == LE_.CH_EFIC for l in LE_.ESCADA),
+      f"escada: {[l[1] for l in LE_.ESCADA]}")
+check("o derivado é `eficiencia_min / forma`, e a des-diluição é EXATA",
+      LE_.CH_FORMA == "Curriculum/forma"
+      and "CH_FORMA" in inspect.getsource(LE_._serie)
+      and "CH_EFIC" in inspect.getsource(LE_._serie),
+      "`Curriculum/forma` É a fração de locomoção, portanto a divisão não é "
+      "aproximação")
+check("o denominador tem PISO — dividir por leitura crua erra por 10x um dia",
+      "max(forma[s]" in inspect.getsource(LE_._serie),
+      "`sorteio_min` é 0,10 hoje; um knob novo em 0,0 daria divisão por zero")
+
 # --- A ORDEM DO DICT. É contrato, e a F5 a mudou. ---
 _ord = list(cfg.curriculum)
 check("a ordem do currículo é command_vel -> forma -> nivel -> elo",
@@ -1777,10 +1847,16 @@ try:
         # lê mais. Se este falso voltar a alimentar só a razão, o portão passa a ler o
         # default pessimista e os dois testes de baixo falham dizendo "a rampa não desce"
         # — que foi exatamente o que aconteceu ao trocar o sinal.
+        # ⚠ E DESDE 31/08 ELE PRECISA DE `segmentos`. O controlador mascara o sinal por
+        # `segmentos > 0` — a eficiência de quem foi PEDIDO a andar. Sem a chave, o
+        # `except KeyError` do controlador devolve o default pessimista, o portão nunca
+        # abre, e os dois testes de baixo falham dizendo "a rampa não desce". Foi
+        # exatamente o que aconteceu ao acrescentar a máscara.
         def __init__(self, v):
             _t = __import__("torch")
             self.metrics = {"eficiencia_min": _t.tensor([v]),
-                            "razao_marcha": _t.tensor([v])}
+                            "razao_marcha": _t.tensor([v]),
+                            "segmentos": _t.tensor([2.0])}
 
     class _CmdFalso:
         def __init__(self, v):
@@ -1827,6 +1903,61 @@ try:
     check("um sinal ABAIXO da histerese DEVOLVE fatia à locomoção",
           _meio["alvo"] >= kf.alvo_loco_max - 1e-9,
           f"alvo {_meio['alvo']:.3f}")
+
+    # ======= A MÁSCARA DERROTA A DILUIÇÃO. É o teste de COMPORTAMENTO do conserto. =====
+    # ⚠ Os checks de fonte acima afirmam que a máscara EXISTE. Este afirma que ela
+    # FUNCIONA, e ele é construído para FALHAR sem ela.
+    #
+    # A frota: metade anda com eficiência 0,80 e 2 segmentos; metade está num elo de
+    # manipulação, com eficiência ZERO EXATO e ZERO segmento (twist forçado a zero ->
+    # nenhum segmento válido fecha).
+    #
+    #     média SEM máscara  =  0,40   -> abaixo da histerese (0,40) -> rampa REVERTE
+    #     média COM máscara  =  0,80   -> acima do limiar (0,50)     -> rampa DESCE
+    #
+    # Os dois lados do portão, com a MESMA frota. É o defeito medido no bloco 6: a
+    # fatia de manipulação diluía o próprio juiz e a rampa parava num ponto fixo
+    # (`efic x (1 − fatia) = limiar`, isto é fatia <= 0,375) em vez de chegar ao piso.
+    class _TwistDiluido:
+        def __init__(self):
+            _t = __import__("torch")
+            self.metrics = {
+                "eficiencia_min": _t.tensor([0.80, 0.80, 0.0, 0.0]),
+                "razao_marcha": _t.tensor([0.80, 0.80, 0.0, 0.0]),
+                "segmentos": _t.tensor([2.0, 2.0, 0.0, 0.0]),
+            }
+
+    class _CmdDiluido:
+        def __init__(self):
+            self._t = _TwistDiluido()
+
+        def get_term(self, _):
+            return self._t
+
+    _t7d = __import__("torch")
+    _ed = _ty6.SimpleNamespace(
+        num_envs=4, device="cpu", common_step_counter=0,
+        command_manager=_CmdDiluido(),
+        episode_length_buf=_t7d.zeros(4, dtype=_t7d.long))
+    _ed.limpo_elo = _t7d.zeros(4, dtype=_t7d.long)
+    for _ in range(_n_folga):
+        for _p in range(kf.passos_por_iteracao):
+            _ed.common_step_counter += 1
+            CU_.forma(_ed, _t7d.arange(0), f=kf, elo_loco=0)
+    _dil = _ed.limpo_forma
+    _media_crua = 0.80 * 0.5
+    check("a média CRUA desta frota ficaria ABAIXO da histerese",
+          _media_crua < kf.histerese * kf.limiar_portao + 1e-9,
+          f"crua {_media_crua:.3f} contra defende<{kf.histerese*kf.limiar_portao:.3f} "
+          "— é isto que revertia a rampa")
+    check("com a MÁSCARA, meia frota parada NÃO impede a rampa de chegar ao piso",
+          _dil["abriu"] == 1.0
+          and abs(_dil["alvo"] - kf.alvo_loco_min) < 1e-9,
+          f"alvo {_dil['alvo']:.3f}, abriu {_dil['abriu']} — sem a máscara este "
+          f"alvo fica em {kf.alvo_loco_max:.2f}")
+    check("e o sinal lido É a eficiência de quem anda, não a diluída",
+          abs(_dil["razao"] - 0.80) < 0.02,
+          f"razao {_dil['razao']:.4f} — diluída daria ~{_media_crua:.2f}")
     # a carência
     _curto = _simula(0.95, max(kf.carencia_iters - 1, 1), kf)
     check("dentro da CARÊNCIA a rampa não se move, nem com o sinal alto",
