@@ -57,7 +57,14 @@ CH_SEGMENTOS = "Metrics/twist/segmentos"
 # comparar. O `contato_ilegal` nasceu em 27/08 e é o que substituiu a penalidade de
 # escoro; o g1_poc registra que ele SOBE quando o movimento fica caro (6,4% -> 17,5%
 # das terminações quando o `action_rate` encareceu). Espere valor alto no começo.
-CH_CONTATO = "Episode_Termination/contato_ilegal"
+# ⚠ TRÊS CANAIS DE CONTATO desde 31/08, e a partição é de MEDIÇÃO: mesmos geoms, mesmo
+# limiar, mesma união. `reduce="netforce"` entrega UM número por sensor, portanto o
+# canal único dizia "encostou" e não dizia com o quê. No bloco 4 o contato ilegal era
+# ~46% dos episódios de manipulação e não havia como saber se era o tronco, a coxa ou o
+# pad da palma — e sem isso o conserto seguinte seria chute.
+CH_CONTATO_TRONCO = "Episode_Termination/contato_tronco"
+CH_CONTATO_PALMA = "Episode_Termination/contato_palma"
+CH_CONTATO_DORSO = "Episode_Termination/contato_dorso"
 CH_LARGOU = "Episode_Termination/caixa_largada"
 CH_CAIU = "Episode_Termination/fell_over"
 # ⚠ AS DUAS MÉTRICAS QUE DESAMBIGUAM A PEGA, e elas nasceram em 28/08. O `squeeze` é
@@ -210,7 +217,9 @@ def _tabela_de_recompensa(acc, it: int, passos: float) -> None:
 
 def _tabela_de_marcha(acc, it: int) -> None:
     for rot, ch, un in (
-        ("term: contato ilegal", CH_CONTATO, "  <- escoro na mesa"),
+        ("term: mesa/tronco", CH_CONTATO_TRONCO, "  <- escoro do corpo"),
+        ("term: mesa/palma", CH_CONTATO_PALMA, "  <- a mão apoiou"),
+        ("term: mesa/dorso", CH_CONTATO_DORSO, "  <- aproximação torta"),
         ("term: caixa largada", CH_LARGOU, "  <- pegou e soltou"),
         ("term: caiu", CH_CAIU, ""),
         ("palmas na caixa", CH_PALMAS, "  <- 0 / 0,5 / 1,0"),

@@ -130,8 +130,9 @@ check("o topo mais alto do currículo é o teto de repouso",
 secao("4. sensores")
 por_nome = {s.name: s for s in cfg.scene.sensors}
 esperados = (*C.SENSOR_PALMA, *C.SENSOR_DORSO, C.SENSOR_APOIO,
-             C.SENSOR_CORPO_PRATELEIRA, C.SENSOR_AUTO_COLISAO, C.SENSOR_PES)
-check("os 6 sensores do pacote existem",
+             C.SENSOR_CORPO_PRATELEIRA, C.SENSOR_PALMA_PRATELEIRA,
+             C.SENSOR_DORSO_PRATELEIRA, C.SENSOR_AUTO_COLISAO, C.SENSOR_PES)
+check("os 8 sensores do pacote existem",
       all(nome in por_nome for nome in esperados),
       str([n for n in esperados if n not in por_nome]))
 check("as PALMAS pedem `force` — sem isso o `squeeze` é impossível",
@@ -197,16 +198,42 @@ check("os órfãos aceitos são exatamente as duas duplicatas do molde",
 # iterações do bloco 2 e caiu por medição: o contato do tronco caiu monotonicamente
 # (7,5% -> 3,8% -> 2,0%) e a manipulação caiu com ele (`staged` 0,36 -> 0,17). Multa que
 # o robô pode pagar é multa que ele orça.
-check("o `corpo_prateleira` é lido pela TERMINAÇÃO, e não por recompensa",
-      cfg.terminations["contato_ilegal"].params["sensor_name"]
-      == C.SENSOR_CORPO_PRATELEIRA
+check("os sensores de mesa são lidos por TERMINAÇÃO, e não por recompensa",
+      all(cfg.terminations[nome].params["sensor_name"] == sensor
+          for sensor, nome in C.MESA_POR_GRUPO)
       and "contato_prateleira" not in cfg.rewards,
       str(sorted(cfg.terminations)))
-check("a terminação usa LIMIAR DE FORÇA, e ele vem do knobs",
-      cfg.terminations["contato_ilegal"].params["limiar_N"]
-      == k.terminacao.contato_ilegal_N
+check("as TRÊS usam o MESMO limiar de força, e ele vem do knobs",
+      all(cfg.terminations[nome].params["limiar_N"]
+          == k.terminacao.contato_ilegal_N for _, nome in C.MESA_POR_GRUPO)
       and k.terminacao.contato_ilegal_N == 50.0,
-      "sem o limiar, a lista tornaria pose baixa inganhável")
+      "sem o limiar, a lista tornaria pose baixa inganhável; limiares diferentes "
+      "por parte fariam a partição mudar o COMPORTAMENTO, e ela é só medição")
+
+# ----------------------- a PARTIÇÃO em três é de MEDIÇÃO, e a união não muda (31/08)
+# ⚠ ESTE É O CHECK QUE TORNA A PARTIÇÃO SEGURA. `reduce="netforce"` entrega UM número
+# por sensor, portanto um sensor único diz "encostou" e não diz com o quê — no bloco 4
+# isso era ~46% dos episódios de manipulação, sem saber se era tronco, coxa ou pad.
+# Três sensores resolvem, MAS só se a união continuar a mesma. Se ela mudar, a
+# partição deixou de ser medição e passou a ser mudança de comportamento em silêncio.
+check("a união dos três grupos É a lista de quem não escora",
+      C.GRUPO_TRONCO + C.GRUPO_PALMA + C.GRUPO_DORSO
+      == C.CORPOS_QUE_NAO_ESCORAM,
+      f"tronco {C.GRUPO_TRONCO} palma {C.GRUPO_PALMA} dorso {C.GRUPO_DORSO}")
+check("os três grupos são DISJUNTOS — nenhum geom conta duas vezes",
+      len(set(C.CORPOS_QUE_NAO_ESCORAM)) == len(C.CORPOS_QUE_NAO_ESCORAM),
+      "um padrão repetido faria duas terminações dispararem no mesmo contato e a "
+      "leitura da fração por parte somaria mais de 100%")
+check("há uma terminação por sensor de mesa, e são três",
+      len(C.MESA_POR_GRUPO) == 3
+      and all(nome in cfg.terminations for _, nome in C.MESA_POR_GRUPO),
+      str([nome for _, nome in C.MESA_POR_GRUPO]))
+check("cada sensor de mesa pede `force` — sem isso o limiar é impossível",
+      all("force" in por_nome[sensor].fields
+          for sensor, _ in C.MESA_POR_GRUPO))
+check("os três sensores de mesa têm a MESMA mesa como secundário",
+      len({por_nome[s].secondary.pattern for s, _ in C.MESA_POR_GRUPO}) == 1,
+      "grupos diferentes contra secundários diferentes não seriam uma partição")
 # ⚠ O SINAL ESTAVA INVERTIDO até 28/08, e a medição está no bloco 3, it 4251: a lista
 # de CORPO INTEIRO cobria punho e cotovelo — que TÊM de chegar perto do tampo para
 # pegar — e NÃO cobria os pads, porque `add_pads_de_palma` apaga `*_hand_collision` e
@@ -214,7 +241,8 @@ check("a terminação usa LIMIAR DE FORÇA, e ele vem do knobs",
 # Resultado: ~75% dos episódios de manipulação morriam na mesa e o `squeeze` ficou em
 # 0,0002 por 3200 iterações.
 check("os PADS estão na lista — a palma não pode escorar na mesa",
-      r".*_pad" in C.CORPOS_QUE_NAO_ESCORAM,
+      C.GRUPO_PALMA and C.GRUPO_DORSO
+      and all(p.endswith("_pad") for p in C.GRUPO_PALMA + C.GRUPO_DORSO),
       "o pad de palma só pode tocar a CAIXA; o secundário deste sensor é a MESA")
 check("o PUNHO e o COTOVELO estão FORA — eles têm de chegar perto para pegar",
       not any("wrist" in p or "elbow" in p or p == r".*_collision"
@@ -269,8 +297,6 @@ check("cada termo tem a SUA instância de `SceneEntityCfg`",
            for n in ("squeeze", "unload", "postura_ereta")}) == 3,
       "o `manager_base` resolve os ids DENTRO do objeto; compartilhar é estado "
       "mutável compartilhado entre managers")
-check("o sensor do escoro pede `force` — sem isso o limiar é impossível",
-      "force" in por_nome[C.SENSOR_CORPO_PRATELEIRA].fields)
 check("os PÉS rastreiam tempo no ar",
       por_nome[C.SENSOR_PES].track_air_time is True)
 check("os PÉS aceitam QUALQUER contato como chão",

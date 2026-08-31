@@ -206,10 +206,19 @@ def make_env_cfg(
     # ⚠ O `terminacao = -200` do molde já cobra este evento por `is_terminated`, que
     # exclui o `time_out`. Portanto o preço é −4,0 no passo MAIS todo o retorno futuro
     # perdido. Não somar penalidade nenhuma em cima.
-    cfg.terminations["contato_ilegal"] = TerminationTermCfg(
-        func=TE.contato_ilegal,
-        params={"sensor_name": C.SENSOR_CORPO_PRATELEIRA,
-                "limiar_N": k.terminacao.contato_ilegal_N})
+    # ⚠⚠ TRÊS TERMOS, E A UNIÃO É IDÊNTICA AO TERMO ÚNICO. A partição é de MEDIÇÃO e
+    # não de comportamento: mesmos geoms, mesmo limiar, mesmo `terminacao = −200`. O
+    # robô não vê diferença nenhuma — o que muda é que o `TerminationManager` loga cada
+    # termo separado, e o painel passa a dizer QUAL parte encostou.
+    #
+    # Isso existe porque `reduce="netforce"` entrega UM número por sensor. No bloco 4 o
+    # `contato_ilegal` era ~46% dos episódios de manipulação e o log não distinguia
+    # tronco de coxa de pad da palma — qualquer conserto seguinte seria chute.
+    for _sensor, _nome_term in C.MESA_POR_GRUPO:
+        cfg.terminations[_nome_term] = TerminationTermCfg(
+            func=TE.contato_ilegal,
+            params={"sensor_name": _sensor,
+                    "limiar_N": k.terminacao.contato_ilegal_N})
 
     # ⚠ A OUTRA METADE DO PORTEIRO DO `unload`. O porteiro tira o pagamento de
     # "derrubar sem pegar"; esta terminação tira o de "pegar e largar". Ela é ARMADA

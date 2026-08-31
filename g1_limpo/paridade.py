@@ -183,9 +183,24 @@ try:
 
     nossos = {s.name: s for s in C.sensores()}
     deles = {s.name: s for s in PC.sensores()}
-    cmp("sensores.quantidade", [len(nossos)], [len(deles)])
-    # os nomes são os mesmos do poc (transcritos de propósito)
-    cmp("sensores.nomes", sorted(nossos), sorted(deles))
+    # ⚠⚠ DIVERGÊNCIA DECLARADA, e ela é a partição de 31/08. O `g1_poc` tem UM sensor
+    # de mesa (`corpo_prateleira`); nós temos TRÊS, um por grupo de geom. O motivo é
+    # `reduce="netforce"`: cada sensor entrega UM número para todos os seus geoms,
+    # portanto um sensor único diz "encostou" e não diz COM O QUÊ. No bloco 4 o contato
+    # ilegal era ~46% dos episódios de manipulação e o log não distinguia tronco de
+    # coxa de pad da palma — e sem isso o conserto seguinte seria chute.
+    #
+    # A partição é de MEDIÇÃO: a união dos grupos é a mesma, o limiar é o mesmo, e o
+    # `smoke` afirma as duas coisas. O que muda é o log.
+    #
+    # ⚠ Declarar aqui NÃO é silenciar: os dois extras são NOMEADOS, e um terceiro nome
+    # novo aparecendo faz o check falhar. A comparação de contrato dos sensores que os
+    # dois módulos têm em comum continua byte a byte, abaixo.
+    NOSSOS_A_MAIS = {C.SENSOR_PALMA_PRATELEIRA, C.SENSOR_DORSO_PRATELEIRA}
+    cmp("sensores.nossos_a_mais", sorted(set(nossos) - set(deles)),
+        sorted(NOSSOS_A_MAIS))
+    cmp("sensores.nenhum_do_poc_falta", sorted(set(deles) - set(nossos)), [])
+    cmp("sensores.quantidade", [len(nossos)], [len(deles) + len(NOSSOS_A_MAIS)])
     for nome in sorted(set(nossos) & set(deles)):
         a, b = nossos[nome], deles[nome]
         cmp(f"sensores.{nome}.fields", list(a.fields), list(b.fields))

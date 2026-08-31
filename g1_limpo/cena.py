@@ -30,7 +30,9 @@ __all__ = [
     "BOX_GEOM", "TABLE_GEOM", "MARCADOR_GEOM",
     "PALM_SITES", "PALM_PAD_GEOMS", "BACK_PAD_GEOMS", "FOOT_SITES",
     "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CORPO_PRATELEIRA",
+    "SENSOR_PALMA_PRATELEIRA", "SENSOR_DORSO_PRATELEIRA", "MESA_POR_GRUPO",
     "SENSOR_AUTO_COLISAO", "SENSOR_PES", "CORPOS_QUE_NAO_ESCORAM",
+    "GRUPO_TRONCO", "GRUPO_PALMA", "GRUPO_DORSO",
     "spec_caixa", "spec_prateleira", "add_pads_de_palma", "robot_cfg",
     "regroup", "entidades", "sensores", "geometria_de_repouso",
 ]
@@ -62,7 +64,19 @@ _PALM_X = 0.10                      # ao longo da mão, na região da palma
 SENSOR_PALMA = ("palma_E", "palma_D")
 SENSOR_DORSO = ("dorso_E", "dorso_D")
 SENSOR_APOIO = "apoio_caixa"
+# ⚠ TRÊS sensores de mesa, um por grupo de geom. Ver o bloco dos grupos: a partição é
+# de MEDIÇÃO, e a união deles é o mesmo conjunto que o sensor único cobria.
 SENSOR_CORPO_PRATELEIRA = "corpo_prateleira"
+SENSOR_PALMA_PRATELEIRA = "palma_prateleira"
+SENSOR_DORSO_PRATELEIRA = "dorso_prateleira"
+# a tabela que amarra grupo -> sensor. Um lugar só, e o `env_cfg` itera sobre ela para
+# montar as três terminações — assim acrescentar um grupo não pede edição em dois
+# arquivos com risco de esquecer um.
+MESA_POR_GRUPO = (
+    (SENSOR_CORPO_PRATELEIRA, "contato_tronco"),
+    (SENSOR_PALMA_PRATELEIRA, "contato_palma"),
+    (SENSOR_DORSO_PRATELEIRA, "contato_dorso"),
+)
 SENSOR_AUTO_COLISAO = "auto_colisao"
 SENSOR_PES = "pes_chao"
 
@@ -103,16 +117,33 @@ SENSOR_PES = "pes_chao"
 # nem de joelho (o tronco cobre a cintura; a perna vai de `thigh` a `shin`), e o do
 # quadril é `left_hip_collision` — sem segundo `_`. Um padrão que casa ZERO geom levanta
 # `ValueError` no `resolve_matching_names`, não um aviso.
-CORPOS_QUE_NAO_ESCORAM = (
+# ⚠⚠ TRÊS GRUPOS, E A UNIÃO É IDÊNTICA À LISTA ÚNICA DE 28/08. A partição é PURAMENTE
+# DE MEDIÇÃO, e ela existe porque `reduce="netforce"` entrega UM número para todos os
+# geoms de um sensor: com uma lista só, `Episode_Termination/contato_ilegal` diz que o
+# robô encostou e não diz COM O QUÊ. No bloco 4 isso era ~46% dos episódios de
+# manipulação e eu não sabia se era o tronco, a coxa ou o pad da palma.
+#
+# Três sensores e três terminações resolvem, e o robô não vê diferença: mesmos geoms,
+# mesmo limiar de 50 N, mesmo `terminacao = −200` por `is_terminated`. O que muda é que
+# o `TerminationManager` loga cada termo separado.
+#
+# ⚠ QUEM ACRESCENTAR UM GRUPO tem de acrescentar o sensor E a terminação. O `smoke`
+# confere que a união dos três é igual a `CORPOS_QUE_NAO_ESCORAM`, portanto esquecer
+# uma das pontas falha alto em vez de abrir um buraco.
+GRUPO_TRONCO = (
     r"pelvis_collision",
     r"torso_collision",
     r".*_hip_collision",
     r".*_thigh_collision",
-    # os pads. O secundário deste sensor é a MESA, portanto isto proíbe pad->mesa e
-    # não toca em pad->caixa, que é outro sensor (`palma_E`/`palma_D`). A palma pode
-    # tocar a caixa e não pode tocar a mesa, que é exatamente o pedido.
-    r".*_pad",
 )
+# ⚠ O secundário destes sensores é a MESA, portanto isto proíbe pad->mesa e não toca em
+# pad->caixa, que é outro sensor (`palma_E`/`palma_D`). A palma PODE tocar a caixa e não
+# pode tocar a mesa, que é exatamente o pedido do dono do projeto.
+GRUPO_PALMA = (r".*_palm_pad",)
+GRUPO_DORSO = (r".*_hand_back_pad",)
+
+# a união. Ela é o contrato: nenhuma destas partes escora na mesa.
+CORPOS_QUE_NAO_ESCORAM = GRUPO_TRONCO + GRUPO_PALMA + GRUPO_DORSO
 
 # ⚠ O alias `CORPO_INTEIRO` FOI REMOVIDO em 28/08. A lista não é mais o corpo inteiro,
 # e um nome que mente é pior que um nome ausente: quem lesse `CORPO_INTEIRO` acharia
@@ -352,14 +383,23 @@ def sensores() -> tuple[ContactSensorCfg, ...]:
         reduce="netforce",
         num_slots=1,
     )
-    corpo = ContactSensorCfg(
-        name=SENSOR_CORPO_PRATELEIRA,
-        primary=ContactMatch(
-            mode="geom", pattern=CORPOS_QUE_NAO_ESCORAM, entity="robot"),
-        secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),
-        fields=("found", "force"),
-        reduce="netforce",
-        num_slots=1,
+    # ⚠ TRÊS sensores de mesa, e não um. Com `reduce="netforce"` cada sensor entrega UM
+    # número para todos os seus geoms, portanto um sensor único diz "encostou" e não diz
+    # com o quê. A união dos três é o mesmo conjunto, e o `smoke` afirma isso.
+    mesa = tuple(
+        ContactSensorCfg(
+            name=nome,
+            primary=ContactMatch(mode="geom", pattern=grupo, entity="robot"),
+            secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),
+            fields=("found", "force"),
+            reduce="netforce",
+            num_slots=1,
+        )
+        for nome, grupo in (
+            (SENSOR_CORPO_PRATELEIRA, GRUPO_TRONCO),
+            (SENSOR_PALMA_PRATELEIRA, GRUPO_PALMA),
+            (SENSOR_DORSO_PRATELEIRA, GRUPO_DORSO),
+        )
     )
     auto = ContactSensorCfg(
         name=SENSOR_AUTO_COLISAO,
@@ -386,7 +426,7 @@ def sensores() -> tuple[ContactSensorCfg, ...]:
         num_slots=1,
         track_air_time=True,
     )
-    return palmas + dorsos + (apoio, corpo, auto, pes)
+    return palmas + dorsos + mesa + (apoio, auto, pes)
 
 
 # ===================================================================== smoke
