@@ -247,6 +247,29 @@ def make_env_cfg(
         canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
         elos_que_andam=ELOS_QUE_ANDAM)
 
+    # ⚠⚠ OS DOIS TERMOS DE RASTREIO VÃO A ZERO NOS ELOS QUE NÃO ANDAM (31/08), e a
+    # razão é a medição mais decisiva do módulo até hoje. O `smoke` mede o piso da
+    # estátua por elo:
+    #
+    #     piso ANDAR = 3,863/s      piso PEGAR = 8,265/s
+    #
+    # No `PEGAR` o twist é FORÇADO A ZERO, portanto ficar imóvel é resposta PERFEITA
+    # para a locomoção e os dois rastreios pagam cheio (2,0 + 2,0) por rastrear nada. O
+    # elo de manipulação era o lugar mais confortável do ambiente, e a política estava
+    # certa em ficar parada: 145 de retorno contra 102 de explorar, com 60% de morte na
+    # mesa. O `play` do bloco 6 confirmou direto — na ação MÉDIA o robô fica imóvel na
+    # pose default e não tenta pegar.
+    #
+    # ⚠ O `func` original entra em `params`, e não numa subclasse: os dois termos do
+    # fabricante são FUNÇÕES, não classes, portanto não há o que herdar. O `PosturaPorElo`
+    # é classe porque `variable_posture` é classe.
+    for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
+        _t = cfg.rewards[_nome_rastreio]
+        _t.params["func"] = _t.func
+        _t.func = RC.rastreio_por_elo
+        _t.params.update(canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
+                         elos_que_andam=ELOS_QUE_ANDAM)
+
     aplica_pesos(cfg, k.recompensa)
 
     # ------------------------------------------------ 2c. as métricas de marcha

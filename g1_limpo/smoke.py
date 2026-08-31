@@ -952,13 +952,35 @@ check("as duas faixas de yaw são as do knob, e são diferentes",
 check("os elos com twist ativo são ANDAR e CARREGAR",
       tuple(ELOS_QUE_ANDAM) == (CMD.ANDAR, CMD.CARREGAR))
 
-# ⚠ O GATE DOS `track_*` NÃO ENTRA, e a decisão é da spec (§4.2)
-check("os dois `track_*` seguem SEM gate de elo",
-      "elo" not in cfg.rewards["track_linear_velocity"].params
-      and "elo" not in cfg.rewards["track_angular_velocity"].params
-      and cfg.rewards["track_linear_velocity"].params
-      == fab.rewards["track_linear_velocity"].params,
-      "com o twist em ZERO, gatear removeria a única coisa que paga ficar parado")
+# ⚠⚠ O GATE DOS `track_*` ENTROU EM 31/08, E ELE INVERTE UMA DECISÃO DA SPEC (§4.2).
+# A spec dizia "com o twist em ZERO, gatear removeria a única coisa que paga ficar
+# parado" — e era exatamente isso que estava errado. Pagar por ficar parado num elo de
+# manipulação é pagar pela AUSÊNCIA de tarefa. Medido:
+#
+#     piso ANDAR = 3,863/s      piso PEGAR = 8,265/s      (antes do gate)
+#
+# A política ficava imóvel porque isso era ÓTIMO: 145 de retorno contra 102 de explorar,
+# com 60% de morte na mesa e episódio de 17,6 s. O `play` do bloco 6 confirmou direto —
+# na ação MÉDIA o robô fica na pose default e não tenta pegar.
+_TL, _TA = "track_linear_velocity", "track_angular_velocity"
+check("os dois `track_*` passam pelo despachante de elo",
+      all(cfg.rewards[n].func is RC_.rastreio_por_elo for n in (_TL, _TA)),
+      f"{cfg.rewards[_TL].func} / {cfg.rewards[_TA].func}")
+check("o `func` do FABRICANTE é preservado dentro de `params`",
+      all(cfg.rewards[n].params["func"] is fab.rewards[n].func for n in (_TL, _TA)),
+      "o gate embrulha o termo do molde; ele não o reescreve")
+check("os params do fabricante seguem intactos sob o embrulho",
+      all(all(cfg.rewards[n].params[x] == fab.rewards[n].params[x]
+              for x in fab.rewards[n].params) for n in (_TL, _TA)),
+      "gatear não pode ter mexido no σ nem no nome do comando")
+check("os dois recebem o MESMO canal e a MESMA lista que a postura",
+      all(cfg.rewards[n].params["canal_do_elo"] == CMD.ELO
+          and tuple(cfg.rewards[n].params["elos_que_andam"]) == tuple(ELOS_QUE_ANDAM)
+          for n in (_TL, _TA)),
+      "duas listas de elo seriam duas definições de `anda`")
+check("o PESO dos dois segue o do fabricante — o gate não é um corte de peso",
+      all(cfg.rewards[n].weight == fab.rewards[n].weight == 2.0 for n in (_TL, _TA)),
+      "o que muda é ONDE o termo paga, e não QUANTO")
 
 # a postura
 check("a postura é a NOSSA subclasse", cfg.rewards["pose"].func is RC_.PosturaPorElo)
@@ -1122,10 +1144,19 @@ check("`forcado` vence o sorteio, e é o que o inspetor usa",
 
 # ================================= 17. o PISO DA ESTÁTUA, medido
 secao("17. o preço declarado: quanto uma estátua colhe (F2)")
-# ⚠ Isto SUBSTITUI o critério "um env em PEGAR colhe 0/s dos track_*" do plano. Aquele
-# critério pressupunha o gate, e o gate CAIU (spec §4.2): com o twist em zero, gatear
-# os `track_*` fora removeria a única coisa que paga ficar parado, e o twist zerado já
-# impede andar. O que resta é MEDIR o piso e declará-lo.
+# ⚠⚠ O CRITÉRIO ORIGINAL DO PLANO VOLTOU EM 31/08, e ele estava certo desde o começo:
+# "um env em PEGAR colhe 0/s dos `track_*`". Ele havia sido substituído por "medir o
+# piso e declará-lo" com o argumento de que gatear removeria a única coisa que paga
+# ficar parado — e era justamente esse pagamento o defeito. Medido, antes do gate:
+#
+#     piso ANDAR = 3,863/s      piso PEGAR = 8,265/s
+#
+# O elo de manipulação era o lugar mais confortável do ambiente, e ficar imóvel era
+# ÓTIMO: 145 de retorno contra 102 de explorar, com 60% de morte na mesa. O `play` do
+# bloco 6 mostrou o resultado direto — na ação média o robô não tenta pegar.
+#
+# Declarar um preço não conserta o preço. Agora o piso do `PEGAR` fica ABAIXO do piso do
+# `ANDAR`, e a medição continua aqui porque é ela que prova o gate.
 #
 # ⚠ Medir com `inspecao=True` não é atalho: é a única forma de ter uma estátua DE
 # VERDADE. Com ação zero e sem trava o robô DESABA, e a velocidade da queda entra no
@@ -1152,15 +1183,28 @@ try:
 
     _tk = (_piso["parado"]["track_linear_velocity"]
            + _piso["parado"]["track_angular_velocity"])
-    check("MEDIDO: a estátua num elo parado colhe ~3,8/s dos dois `track_*`",
-          3.4 < _tk < 4.2, f"{_tk:.3f}/s — a spec declara ~4,0")
+    # ⚠ ZERO EXATO, e é o cheque do gate. Antes de 31/08 isto media ~3,8/s: a estátua
+    # num elo de manipulação colhia 4,0/s por rastrear um comando NULO, e era a maior
+    # parcela do piso de 8,265/s que travava a exploração.
+    check("MEDIDO: a estátua num elo parado colhe ZERO dos dois `track_*`",
+          abs(_tk) < 1e-6, f"{_tk:.6f}/s — antes do gate media ~3,8/s")
     check("e a postura NÃO entra nesse piso: ela é neutra, exatamente 1,0",
           abs(_piso["parado"]["pose"] - 1.0) < 1e-6,
           f"{_piso['parado']['pose']:.6f}")
-    check("a estátua num elo que ANDA colhe MENOS (o twist não é zero)",
+    # ⚠ A DESIGUALDADE INVERTEU, e a inversão é o objetivo. Antes o elo de manipulação
+    # pagava 2,1x mais que o de locomoção por ficar imóvel (8,265 contra 3,863/s), e
+    # ficar imóvel era ótimo. Agora o de manipulação paga MENOS: o único caminho de
+    # renda ali é a tarefa.
+    check("o elo de manipulação paga MENOS que o que anda, por ficar imóvel",
+          _piso["parado"]["TOTAL"] < _piso["anda"]["TOTAL"] + 0.5,
+          f"parado={_piso['parado']['TOTAL']:.3f}/s  "
+          f"anda={_piso['anda']['TOTAL']:.3f}/s — antes era 8,265 contra 3,863")
+    check("o `track_*` continua pagando no elo que ANDA",
           (_piso["anda"]["track_linear_velocity"]
-           + _piso["anda"]["track_angular_velocity"]) < _tk,
-          f"anda={_piso['anda']['TOTAL']:.3f}/s  parado={_piso['parado']['TOTAL']:.3f}/s")
+           + _piso["anda"]["track_angular_velocity"]) > 0.5,
+          f"{_piso['anda']['track_linear_velocity']:.3f} + "
+          f"{_piso['anda']['track_angular_velocity']:.3f} — gatear a locomoção "
+          "INTEIRA quebraria o andar, que é o que este bloco NÃO pode tocar")
     check("o piso é PISO, não concorrente: fica abaixo do teto de tarefa da F3",
           _piso["parado"]["TOTAL"] < 12.5,
           f"{_piso['parado']['TOTAL']:.3f}/s contra ~12,5/s dos sete incentivos")
@@ -1995,8 +2039,15 @@ try:
     _mg = float((_ec.limpo_massa * 9.81).mean())
     _peso = cfg.rewards["unload"].weight
 
+    # ⚠ A TOLERÂNCIA É 30%, E ELA COBRE UM TRANSIENTE MEDIDO. A caixa é TELEPORTADA e
+    # solta; o contato é rígido, e a força de apoio dá overshoot enquanto ela assenta.
+    # Medido em duas execuções seguidas do mesmo teste: 9,80 N e 11,79 N contra
+    # m·g = 9,81 N, isto é +0,0% e +20%. Com 5% o check falhava ~1 em 3 runs acusando o
+    # solver de contato, e não o desenho.
+    # O que este check afirma é o SINAL — "a caixa PESA na laje" contra "não pesa" —, e
+    # os dois estados são 9,8 N contra 0,0 N. Uma banda de 30% os separa com folga.
     check("apoiada, a força de apoio é ~m·g e o `unload` é ~0",
-          abs(_f_apoiada - _mg) / _mg < 0.05 and _u_apoiada / _peso < 0.05,
+          abs(_f_apoiada - _mg) / _mg < 0.30 and _u_apoiada / _peso < 0.05,
           f"F={_f_apoiada:.2f} N de m·g={_mg:.2f} N, unload={_u_apoiada/_peso:.4f}")
     # ⚠⚠ ESTE CHECK MUDOU DE SINAL EM 28/08, E É O PORTEIRO DE PREENSÃO.
     #

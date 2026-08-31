@@ -16,8 +16,9 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
 from mjlab.utils.lab_api.math import quat_apply
 
-__all__ = ["AlturaDeBalanco", "PosturaPorElo", "staged", "precise_pos",
-           "precise_ori", "squeeze", "unload", "postura_ereta", "sustentacao"]
+__all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "staged",
+           "precise_pos", "precise_ori", "squeeze", "unload", "postura_ereta",
+           "sustentacao"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -105,6 +106,75 @@ class PosturaPorElo(variable_posture):
         elo = comando[:, canal_do_elo].long()
         anda = torch.isin(elo, torch.tensor(elos_que_andam, device=valor.device))
         return torch.where(anda, valor, torch.ones_like(valor))
+
+
+def _anda_neste_elo(env, canal_do_elo: int, nome_do_comando: str,
+                    elos_que_andam: tuple[int, ...],
+                    ref: torch.Tensor) -> torch.Tensor:
+    """Máscara booleana: este env está num elo em que ANDAR é a tarefa?
+
+    Um lugar só para a leitura do canal do elo. O `PosturaPorElo` faz a mesma coisa
+    inline por herança; quem escrever um terceiro consumidor usa isto.
+    """
+    comando = env.command_manager.get_command(nome_do_comando)
+    assert comando is not None
+    elo = comando[:, canal_do_elo].long()
+    return torch.isin(elo, torch.tensor(elos_que_andam, device=ref.device))
+
+
+def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
+                     elos_que_andam: tuple[int, ...], **kwargs) -> torch.Tensor:
+    """O termo de rastreio do fabricante, ZERO nos elos que NÃO andam.
+
+    ⚠⚠ ESTE TERMO EXISTE POR UMA MEDIÇÃO, e ela é a mais decisiva do módulo até hoje.
+    O `smoke` mede o piso da estátua por elo — robô travado, sem fazer nada:
+
+        piso ANDAR  = 3,863/s
+        piso PEGAR  = 8,265/s      <- 2,1x mais
+
+    No elo `PEGAR` o twist é FORÇADO A ZERO. Portanto ficar imóvel é a resposta
+    PERFEITA para a metade de locomoção: os dois termos de rastreio pagam cheio
+    (2,0 + 2,0 = 4,0/s) por rastrear um comando nulo. O elo de manipulação era o lugar
+    mais confortável do ambiente.
+
+    A conta que a política fazia, com episódio de 17,6 s e 60% de morte na mesa
+    (bloco 6, iteração 785 de 8192 envs = 1571 equivalentes):
+
+        ficar parado   8,265 x 17,6                        = 145
+        explorar       0,6 x (8,265 x 8,8) + 0,4 x 145     = 102
+
+    Ficar parado ganhava por 43%. A política estava no ótimo — e o `play` confirmou de
+    forma direta: **na ação MÉDIA o robô fica imóvel na pose default e não tenta pegar.**
+    Não era gradiente morto nem preguiça. Era aritmética, e ela estava certa.
+
+    Zerar os dois nos elos de manipulação derruba o piso para ~4,27/s e inverte o sinal:
+
+        ficar parado    75
+        explorar        88
+
+    ⚠ RETORNA ZERO, e não 1,0 como o `PosturaPorElo`. A diferença é o propósito: lá o
+    termo NÃO TEM O QUE DIZER num elo de manipulação, e 1,0 o deixa neutro. Aqui o
+    termo tem algo a dizer e o que ele diz está ERRADO — pagar pela ausência de tarefa.
+    O que se quer é remover a renda, e 1,0 a manteria.
+
+    ⚠ E o offset constante por elo NÃO enviesa a política. O canal do elo está nas duas
+    observações (`actor` e `critic`), portanto a função de valor condiciona nele e
+    absorve o degrau; a vantagem é medida contra essa baseline. O argumento do
+    `PosturaPorElo` sobre "manter a escala de retorno comparável entre elos" era para o
+    controlador de fatia — e ele lê DURAÇÃO, não retorno (`curriculo.forma`).
+
+    ⚠ O QUE NÃO SAI: `upright` (fundação, e é o que guarda o eixo vertical) e `pose`.
+    Só os dois de rastreio. E `fell_over` continua guardando a queda.
+
+    ⚠ O RISCO DECLARADO: sem o rastreio, nada paga por o robô ficar PARADO durante a
+    pega, portanto ele pode vagar. Mas o alvo do `PEGAR` é ancorado na BASE — vagar
+    move o alvo junto, e não há ganho em vagar. Se `eficiencia_min` cair junto com
+    `palmas_em_contato` subindo, é este risco se realizando.
+    """
+    valor = func(env, **kwargs)
+    anda = _anda_neste_elo(env, canal_do_elo, nome_do_comando,
+                           elos_que_andam, valor)
+    return torch.where(anda, valor, torch.zeros_like(valor))
 
 
 # =============================================================================
