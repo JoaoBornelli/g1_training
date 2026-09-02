@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
 **Estado:** APROVADO COM EMENDAS em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v7 — espera FINAL depois do botar: publicado ANDAR, larga e fica parado; nenhuma aposta sobra)
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v8 — toda espera é 0,5 a 1,5 s; giro no lugar via `rel_turning_envs`)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -492,10 +492,11 @@ Por que é melhor que a janela de hoje:
 **O que `espera_s` passa a significar.** Hoje, no código, é "`PEGAR` com o objetivo
 desligado por 0,3 a 1,0 s". Depois da mudança é **"tempo em `ANDAR` com twist zero antes
 de o `PEGAR` chegar"** — mesmo buffer, mesmo sorteio, one-hot publicado diferente.
-Decisão do dono (02/09): é esta segunda coisa. Faixa: manter (0,3, 1,0) na primeira run
-da v2, para que a única diferença nos episódios de manipulação contra a `bloco7` seja o
-one-hot — atribuição limpa. Alongar depois, se a transição precisar de mais exposição.
-Sorteada, para a política não contar passos.
+Decisão do dono (02/09): é esta segunda coisa. **Faixa: 0,5 a 1,5 s**, sorteada para a
+política não contar passos. E a faixa é **uma só para toda espera** — ver §6.5: o
+"segurar parado" antes do botar usa o mesmo knob. Regra do dono: toda fase de "andar
+dentro da manipulação com velocidade zero" espera de 0,5 a 1,5 s antes de o comando
+trocar.
 
 ⚠ **O `_aplica_espera` recalcula o publicado a partir do interno, e não do próprio
 publicado.** É a lição do bit destrutivo de 02/09: ler o que se escreveu no passo
@@ -557,9 +558,10 @@ E a transição `CARREGAR(v=0) → BOTAR` sai da aposta e vira **treinada**.
    continua andando.
 3. ⚠ **O fecho do `CARREGAR` da cadeia 3 é por TEMPO, não por distância.** Hoje o
    `CARREGAR` fecha quando o robô **andou** `carregar_dist_m` — com twist zero ele nunca
-   fecharia e o `BOTAR` nunca chegaria. Na cadeia 3 o fecho é `t_no_elo ≥ segurar_s`,
-   sorteado (knob; ponto de partida: 0,5 a 1,5 s), no padrão do `carregar_s`. Regra **por
-   cadeia** no `_fecha_elo_corrente`.
+   fecharia e o `BOTAR` nunca chegaria. Na cadeia 3 o fecho é `t_no_elo ≥ espera`, com a
+   espera sorteada do **mesmo knob `espera_s = (0,5, 1,5)` da espera inicial** (decisão do
+   dono, 02/09: toda espera é a mesma faixa). Regra **por cadeia** no
+   `_fecha_elo_corrente`. Não existe `segurar_s` separado.
 4. **`prob_por_nivel` não muda de forma** — continuam 4 cadeias.
 
 **O que NÃO muda:** recompensa nenhuma. Durante o "segurar parado", o rastreio paga por
@@ -780,10 +782,17 @@ do sorteio.
 rad/s — o erro de guinada é maior que a faixa do comando. (Definição exata da métrica a
 confirmar antes de citar como medida absoluta; a ordem de grandeza sustenta a suspeita.)
 
-**O conserto é um ramo no sorteador, e não toca recompensa nenhuma:** um
-`rel_turning_envs` análogo ao `rel_standing_envs` — fração de envs com `lin = 0` e
-`ang_z` sorteado na faixa. O `track_angular_velocity` já paga por rastreá-lo. O termo
-`TwistComRazaoDeMarcha` já é subclasse do fabricante; o ramo entra lá.
+**O conserto é um ramo no sorteador, e não toca recompensa nenhuma.** O dono pôs duas
+formas na mesa: (a) incluir "só velocidade angular" na lista de comandos sorteados, ou
+(b) definir envs só para o giro. **Decisão: (b), `rel_turning_envs`**, análogo ao
+`rel_standing_envs` — e as duas formas são o mesmo mecanismo no idioma do fabricante: as
+flags `is_standing_env`, `is_forward_env` e `is_heading_env` são **re-sorteadas a cada
+re-sorteio de comando** (3 a 8 s), não fixas por env. Um `is_turning_env` entra na mesma
+lista: `lin = 0`, `ang_z` sorteado na faixa. O `track_angular_velocity` já paga por
+rastreá-lo. O termo `TwistComRazaoDeMarcha` já é subclasse do fabricante; o ramo entra lá.
+
+⚠ **Com `|ang_z|` mínimo**, como o ramo `forward` faz com `vx ≥ 0,3`: um giro sorteado
+perto de zero seria um `standing` disfarçado. Ponto de partida: `|wz| ≥ 0,2 rad/s`.
 
 ⚠ **Duas coisas a saber antes de ligar:**
 
@@ -1015,8 +1024,15 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
   do episódio — o robô larga e fica parado. `escapou` desarmado, `caiu` armado. Sem
   cronômetro. `BOTAR → ANDAR(v=0)` sai da aposta. **Nenhuma aposta sobra.**
 
+**Tomadas (02/09, quarta rodada):**
+
+- **Toda espera é 0,5 a 1,5 s.** Um knob, `espera_s = (0,5, 1,5)`, para a espera inicial
+  (§6.3) e para o "segurar parado" da cadeia 3 (§6.5). A espera final não tem
+  cronômetro (§6.6). Não existe `segurar_s`.
+- **Giro no lugar via `rel_turning_envs`** (§9) — flag re-sorteada a cada re-sorteio de
+  comando, no idioma do fabricante. Com `|wz|` mínimo.
+
 **Pendentes:**
 
-1. **`segurar_s`** — a faixa do "segurar parado" na cadeia 3. Ponto de partida: 0,5 a
-   1,5 s.
-2. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`.
+1. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`. E o
+   `|wz|` mínimo: 0,2 rad/s de partida.
