@@ -598,6 +598,25 @@ def make_env_cfg(
         # este modo simula só a segunda metade. O robô PARTE na mesa, de frente para
         # ela. A primeira metade é outro exercício.
         cfg.events["reset_base"].params["elos_que_andam"] = ()
+        # ⚠⚠ O TWIST É ZERADO PELO `_zera_twist_nos_parados`, e NÃO pelo evento. Zerar
+        # no evento de intervalo é o lugar ERRADO, e foi medido: o `reset()` chama
+        # `command_manager.compute(dt=0.0)` (`manager_based_rl_env.py:372`) e NÃO roda
+        # evento de intervalo. Portanto a PRIMEIRA observação de todo episódio saía com
+        # comando de até 2 m/s — `cmd_obs_max = 1,97` medido —, a política dava o
+        # primeiro passo contra "ande a 2 m/s", e depois tinha de frear o movimento que
+        # ela mesma começou. No viewer isso lê como deriva lateral lenta.
+        #
+        # O `_zera_twist_nos_parados` roda DENTRO do `_update_command` do termo
+        # `alvo_caixa`, que vem depois do `twist` no dict — portanto ele cobre a passada
+        # do reset também. É o mesmo caminho que já zera o `PEGAR`, o `REORIENTAR` e o
+        # `BOTAR`, e ele é o provado.
+        #
+        # ⚠ `elos_parados` é lido SÓ pelo `_zera_twist_nos_parados`. Ele não é o
+        # `ELOS_QUE_ANDAM`: no modo de entrega o env de `ANDAR` segue sendo elo que
+        # anda, portanto o rastreio paga por manter velocidade zero — o mesmo contrato
+        # da janela de espera.
+        cfg.commands["alvo_caixa"].elos_parados = tuple(
+            cfg.commands["alvo_caixa"].elos_parados) + (CMD.ANDAR,)
 
     if inspecao:
         # ⚠ SÓ PARA INSPEÇÃO. Trava o robô na pose de reset, para a cena ficar

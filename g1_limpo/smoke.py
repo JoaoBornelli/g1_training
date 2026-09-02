@@ -1569,6 +1569,31 @@ try:
     check("e o comando de velocidade é ZERO em todos os envs",
           _twA < 1e-9 and _twB < 1e-9,
           f"|twist| = {_twA:.4f} / {_twB:.4f}")
+    # ⚠⚠ E ZERO **NA OBSERVAÇÃO DO RESET**, que é o check que faltava. A primeira
+    # versão zerava o twist no evento de INTERVALO, e o `reset()` chama
+    # `command_manager.compute(dt=0.0)` SEM rodar evento de intervalo: a primeira
+    # observação de todo episódio saía com comando de até 2 m/s. Medido:
+    # `cmd_obs_max = 1,97`. A política dava o primeiro passo contra "ande a 2 m/s" e
+    # depois tinha de frear o que ela mesma começou — deriva lateral lenta no viewer,
+    # relatada pelo dono.
+    #
+    # ⚠ E O CHECK ANTERIOR NÃO PEGAVA, porque ele lia o BUFFER depois do `step` — isto
+    # é, depois do evento. Ler o buffer não é ler o que a política viu. Este mede
+    # ANTES de qualquer passo, que é onde o defeito vivia.
+    _cr = make_env_cfg(k, play=True, elo=CMD.ANDAR, entrega_apos_s=3.0)
+    _cr.scene.num_envs = 32
+    _er = ManagerBasedRlEnv(cfg=_cr, device="cpu")
+    _er.reset()
+    _cmd_reset = float(
+        _er.command_manager.get_command("twist").abs().max())
+    check("o comando é zero JÁ NA OBSERVAÇÃO DO RESET, antes do 1º passo",
+          _cmd_reset < 1e-9,
+          f"cmd_obs_max = {_cmd_reset:.4f} — o `reset` não roda evento de intervalo")
+    check("e quem zera é o `_zera_twist_nos_parados`, com o ANDAR em `elos_parados`",
+          CMD.ANDAR in tuple(_cr.commands["alvo_caixa"].elos_parados)
+          and CMD.ANDAR not in tuple(cfg.commands["alvo_caixa"].elos_parados),
+          "no treino o ANDAR NÃO pode ser elo parado — aquilo é a locomoção")
+    del _er
     check("antes do prazo a tarefa NÃO chegou, e o objetivo segue desligado",
           _eB == CMD.ANDAR and _vB == 0.0,
           f"elo={_eB} VALIDA={_vB} a 1,5 s de um prazo de 3,0 s")

@@ -407,7 +407,6 @@ def entrega_tarefa_no_viewer(
     cena: dict,
     entrega_apos_s: float,
     nome_do_comando: str = "alvo_caixa",
-    nome_do_twist: str = "twist",
 ) -> None:
     """A cena do `pegar` POSTA, o robô PARADO, e a tarefa chegando aos N segundos.
 
@@ -421,7 +420,7 @@ def entrega_tarefa_no_viewer(
     passo; sem o evento de intervalo este caminho seria um no-op, que foi como o
     `--avanca-elo` nasceu quebrado.
 
-    TRÊS COISAS, e cada uma existe por um motivo:
+    DUAS COISAS, e cada uma existe por um motivo:
 
     1. **A MOBÍLIA VOLTA.** No `ANDAR` o termo de comando manda a laje a +5 m com a
        caixa em cima, e ele roda DEPOIS dos eventos de reset (`currículo -> eventos ->
@@ -429,12 +428,17 @@ def entrega_tarefa_no_viewer(
        `caixa guardada`, e não um contador: ele é idempotente por construção (uma vez
        posta, a caixa deixa de estar guardada) e se refaz sozinho depois de um reset.
 
-    2. **O TWIST FICA EM ZERO.** É o "comando de andar como 0" — sem isto o `ANDAR`
-       sorteia velocidade e o robô sai andando para dentro da mesa antes de a tarefa
-       chegar. O `ANDAR` não está em `elos_parados` e não pode estar: isso é treino.
-
-    3. **A ENTREGA**, por `episode_length_buf`, portanto POR ENV. Um cronômetro global
+    2. **A ENTREGA**, por `episode_length_buf`, portanto POR ENV. Um cronômetro global
        entregaria a tarefa no meio do episódio de quem resetou fora de fase.
+
+    ⚠⚠ O TWIST **NÃO** É ZERADO AQUI, e a primeira versão o zerava — estava errado. O
+    `reset()` chama `command_manager.compute(dt=0.0)` e NÃO roda evento de intervalo,
+    portanto a PRIMEIRA observação de todo episódio saía com comando de até 2 m/s
+    (`cmd_obs_max = 1,97` medido). A política dava o primeiro passo contra "ande a
+    2 m/s" e depois tinha de frear o que ela mesma começou: deriva lateral lenta no
+    viewer. Quem zera é o `_zera_twist_nos_parados`, que roda DENTRO da passada do
+    command manager e por isso cobre o reset — o `env_cfg` põe o `ANDAR` em
+    `elos_parados` neste modo.
     """
     from g1_limpo.comando import ANDAR
 
@@ -451,11 +455,7 @@ def entrega_tarefa_no_viewer(
     if bool(posta.any()):
         posiciona_cena(env, posta.nonzero().flatten(), **cena)
 
-    # 2. parado. O twist é escrito no buffer, como o `_zera_twist_nos_parados` faz.
-    tw = env.command_manager.get_term(nome_do_twist)
-    tw.vel_command_b[anda] = 0.0
-
-    # 3. a entrega, por env.
+    # 2. a entrega, por env.
     t = env.episode_length_buf.float() * env.step_dt
     entrega = anda & (t >= entrega_apos_s)
     if bool(entrega.any()):
