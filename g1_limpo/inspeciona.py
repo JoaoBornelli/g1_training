@@ -62,6 +62,21 @@ def _ambiente(nivel: int | None, elo: int, *, n_envs: int, device: str,
     if cadeia_forcada is not None and hasattr(cfg.commands["alvo_caixa"], 'cadeia_forcada'):
         cfg.commands["alvo_caixa"].cadeia_forcada = cadeia_forcada
 
+    # ⚠ A JANELA DE ESPERA FICA EM ZERO **NO INSPETOR**, e a divergência mora aqui e não
+    # no `make_env_cfg`. O inspetor é um visualizador de geometria: ele dá dois passos e
+    # lê alvo, eixo e o bit `VALIDA`. Com a janela viva ele mediria DENTRO dela (0,04 s
+    # contra 0,3 a 1,0 s), o bit sairia 0 em todo elo de manipulação, e as quatro
+    # linhas acusariam "o objetivo devia estar LIGADO" — o teste medindo antes de o
+    # objetivo existir, e não o desenho quebrado.
+    #
+    # ⚠ E QUEIMAR A JANELA NO LAÇO ABAIXO NÃO SERVE: 55 passos deixam o elo AVANÇAR (no
+    # `REORIENTAR` o alvo é a própria caixa, portanto `perto` é trivial), e a tabela
+    # passaria a mostrar um elo que não é o pedido.
+    #
+    # ⚠ Zerar aqui, e não em `make_env_cfg(inspecao=True)`: o `smoke` precisa do modo de
+    # inspeção COM a janela viva para medir a borda 0->1.
+    cfg.commands["alvo_caixa"].espera_s = (0.0, 0.0)
+
     cfg.scene.num_envs = n_envs
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env.reset()
