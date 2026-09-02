@@ -1332,6 +1332,19 @@ check("só UM elo zera o VALIDA no `_aplica_elo`, e é o ANDAR",
       and _src_elo.count("VALIDA] = 1.0") == len(CMD.ELOS) - 1,
       f"zeram {_src_elo.count('VALIDA] = 0.0')}, ligam "
       f"{_src_elo.count('VALIDA] = 1.0')}, elos {len(CMD.ELOS)}")
+# ⚠ A JANELA CONTA COMO ELO QUE ANDA no rastreio. Sem esta linha ela é um terceiro
+# regime onde nada mede o corpo do robô, e alcançar a caixa ali fica de graça.
+check("o rastreio de velocidade trata a janela como elo que ANDA",
+      "limpo_aguardando" in inspect.getsource(RC_.rastreio_por_elo),
+      "sem isto a janela paga só `pose` + `upright` (2,00/s) e esperar não vale nada")
+# ⚠⚠ E O INVARIANTE QUE SUSTENTA ISSO: a janela só ocorre em elo PARADO, portanto o
+# twist é ZERO nela e o rastreio paga por MANTER velocidade zero. Se uma cadeia nova
+# abrisse em `CARREGAR` — o único elo de manipulação que anda — a janela passaria a
+# pagar por rastrear um comando NÃO nulo com o objetivo desligado, que é outra coisa.
+check("toda cadeia ABRE num elo parado — o twist é zero em toda janela",
+      all(c[0] in cfg.commands["alvo_caixa"].elos_parados for c in CMD.CADEIAS),
+      f"abrem em {[CMD.ELOS[c[0]] for c in CMD.CADEIAS]}, parados são "
+      f"{[CMD.ELOS[e] for e in cfg.commands['alvo_caixa'].elos_parados]}")
 
 # --- O COMPORTAMENTO, medido. É o check que reprova o módulo sem a janela. ---
 try:
@@ -1345,13 +1358,21 @@ try:
     _ej.step(_tj.zeros(_ej.num_envs, _naj))
     _val0 = _ej.command_manager.get_command("alvo_caixa")[:, CMD.VALIDA].clone()
     _nmj = list(_cj.rewards)
+
+    def _somaj(nomes):
+        _sr = _ej.reward_manager._step_reward
+        return float(sum(_sr[:, _nmj.index(n)].mean() for n in nomes))
+
     _staged0 = float(_ej.reward_manager._step_reward[:, _nmj.index("staged")].mean())
+    _trk0 = _somaj((_TL, _TA))
+    _piso_j0 = float(_ej.reward_manager._step_reward.mean(0).sum())
 
     # ⚠ passos suficientes para a maior janela sorteada terminar
     for _ in range(int(_esp[1] / _ej.step_dt) + 5):
         _ej.step(_tj.zeros(_ej.num_envs, _naj))
     _val1 = _ej.command_manager.get_command("alvo_caixa")[:, CMD.VALIDA]
     _staged1 = float(_ej.reward_manager._step_reward[:, _nmj.index("staged")].mean())
+    _trk1 = _somaj((_TL, _TA))
 
     check("no PRIMEIRO passo de um elo de manipulação o VALIDA é ZERO",
           float(_val0.max()) == 0.0,
@@ -1365,9 +1386,23 @@ try:
     check("e o `staged` volta a pagar — a descontinuidade É o sinal",
           _staged1 > 0.0,
           f"antes {_staged0:.4f} depois {_staged1:.4f}")
+    # ⚠⚠ A JANELA É `ANDAR` COM COMANDO ZERO (02/09). Sem isto ela era um TERCEIRO
+    # regime, mais pobre que os dois: 2,00/s de `pose` + `upright` contra 4,08/s do
+    # `ANDAR` e 4,49/s do `PEGAR` ativo. Nada media o corpo do robô, portanto alcançar a
+    # caixa na janela era GRÁTIS e a política ótima ignorava a janela inteira.
+    check("os dois `track_*` PAGAM durante a janela — ela é `andar` com comando zero",
+          _trk0 > 0.5,
+          f"{_trk0:.4f}/s — em zero, alcançar durante a janela volta a ser grátis")
+    # ⚠ E O GATE POR ELO NÃO PODE TER SIDO AFROUXADO JUNTO. Passada a borda, a estátua
+    # num elo parado tem de voltar a colher ZERO — é o conserto de 31/08, e a janela não
+    # pode ser a porta por onde ele sai.
+    check("e voltam a ZERO passada a borda — o gate por elo continua de pé",
+          abs(_trk1) < 1e-6,
+          f"{_trk1:.6f}/s — o piso da estátua de 8,265/s voltaria por aqui")
     print(f"  VALIDA: {float(_val0.max()):.0f} na abertura -> "
           f"{float(_val1.min()):.0f} depois de {_esp[1]} s   |   "
-          f"staged {_staged0:.4f} -> {_staged1:.4f}")
+          f"staged {_staged0:.4f} -> {_staged1:.4f}   |   "
+          f"track {_trk0:.3f} -> {_trk1:.3f}   |   piso na janela {_piso_j0:.3f}/s")
     del _ej
 
     # --- no ANDAR a janela é ZERO: a locomoção não paga por ela ---

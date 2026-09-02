@@ -205,10 +205,47 @@ def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
     pega, portanto ele pode vagar. Mas o alvo do `PEGAR` é ancorado na BASE — vagar
     move o alvo junto, e não há ganho em vagar. Se `eficiencia_min` cair junto com
     `palmas_em_contato` subindo, é este risco se realizando.
+
+    ⚠⚠ A JANELA DE ESPERA CONTA COMO ELO QUE ANDA (02/09). Durante ela o twist é ZERO
+    (a janela só ocorre em elo parado: nenhuma cadeia abre em `CARREGAR`), portanto o
+    rastreio paga por MANTER VELOCIDADE ZERO — que é o contrato "fique parado, e ainda
+    não existe tarefa".
+
+    O QUE ISSO CONSERTA. Sem esta linha a janela era um TERCEIRO regime, mais pobre que
+    os dois: só `pose` e `upright` pagavam, 2,00/s contra 4,08/s do `ANDAR` e 4,49/s do
+    `PEGAR` ativo. Nada media o corpo do robô durante a janela, portanto alcançar a
+    caixa ali era GRÁTIS — e a política ótima ignorava a janela inteira. Com o rastreio
+    vivo, inclinar o tronco para a caixa move a base e CUSTA. Esperar passa a ser a
+    melhor jogada, e a transição treinada passa a ser parado→manipular, que é o que a
+    janela existe para ensinar.
+
+    ⚠ E ISTO NÃO REABRE A ESTÁTUA. O defeito de 31/08 era 8,265/s pelo EPISÓDIO INTEIRO
+    e ESCOLHÍVEL: a política preferia ficar imóvel para sempre. A janela dura 0,3 a
+    1,0 s, termina por RELÓGIO (`_espera.sub_(step_dt)` roda sem condição), e não existe
+    política que a estenda. Passada a borda, o gate por elo volta e ficar imóvel paga
+    2,0/s contra 4,5/s de piso mais até 12,5/s de tarefa.
+
+    ⚠ AS MÉTRICAS DE MARCHA NÃO SENTEM. O `_update_metrics` do twist acumula com
+    `ativo = ‖v_cmd‖ > limiar`, e o `_zera_twist_nos_parados` escreve zero NO BUFFER.
+    Portanto `seg_proj`, `seg_pedido` e as duas somas de marcha ganham exatamente nada
+    na janela, e o estimador `seg_proj/seg_pedido` que alimenta o portão da `forma` fica
+    intacto.
+
+    ⚠ O RISCO RESIDUAL, declarado: a lição da estátua é que pagar por ficar parado num
+    elo de manipulação faz o robô ficar parado. Aqui isso volta em 3% dos passos, com um
+    bit dizendo quando — e o `VALIDA` está nas DUAS observações, portanto a política
+    pode separar os dois regimes. Se `palmas_em_contato` estagnar enquanto
+    `fracao_esperando` segue normal, é este risco se realizando.
     """
     valor = func(env, **kwargs)
     anda = _anda_neste_elo(env, canal_do_elo, nome_do_comando,
                            elos_que_andam, valor)
+    # ⚠ `getattr` com default, e não acesso direto: o atributo nasce no `__init__` do
+    # termo de comando, e um módulo montado sem ele (ou o inspetor, que zera a janela)
+    # tem de ler "ninguém aguarda" em vez de estourar.
+    aguardando = getattr(env, "limpo_aguardando", None)
+    if aguardando is not None:
+        anda = anda | (aguardando > 0.5)
     return torch.where(anda, valor, torch.zeros_like(valor))
 
 
