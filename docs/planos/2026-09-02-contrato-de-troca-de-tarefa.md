@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
 **Estado:** APROVADA, SEM PENDÊNCIAS, em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v10 — FECHADA: a rede vê o tamanho; 112 canais; nenhuma pendência)
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v11 — tamanho por env SEM mesh: `geom_size` por mundo no startup, como o `foot_friction`; mesh vira plano B)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -62,9 +62,10 @@ por elo e a multa de mesa ficam como estão. **Decisão do dono (02/09), explíc
 - **a terminação `caixa_largada` ganha um guarda**: na espera final, depois do botar,
   as mãos saem da caixa e `escapou` não pode disparar; `caiu` continua armado (§6.6).
   Fora da espera final ela não muda;
-- **a caixa vira entidade com variantes de tamanho** (§6.7). A pega foi aprendida com
-  uma caixa de 20 cm; passa a ser aprendida com 14 a 26 cm. É DR pedida pelo dono
-  **desde o começo**, e é a mudança desta spec com mais efeito sobre a manipulação.
+- **o tamanho da caixa varia por env** (§6.7). A pega foi aprendida com uma caixa de
+  20 cm; passa a ser aprendida com 14 a 26 cm. É DR pedida pelo dono **desde o começo**,
+  e é a mudança desta spec com mais efeito sobre a manipulação. A caixa **continua `box`
+  primitivo**; o colisor não muda.
 
 O que este documento muda está **inteiro** na §6: observação, um canal de comando, a
 cadeia 3, um guarda de terminação e a geometria da caixa. Nenhuma recompensa, nenhum
@@ -666,29 +667,74 @@ Tamanho é geometria. Não há força externa que finja uma caixa maior. O `geom
 por mundo no `mujoco_warp` (`array("*", "ngeom", vec3)`), mas escrever nele em runtime é a
 mesma classe de operação que corrompeu a heap. O caminho suportado é outro:
 
-#### O mecanismo: `VariantEntityCfg` — variantes na CONSTRUÇÃO
+#### O mecanismo: `geom_size` por mundo, escrito UMA vez no startup — sem mesh
 
-O `mjlab` tem `entity/variants.py`: uma entidade com **K variantes**, cada uma um `MjSpec`
-próprio, todas com a mesma topologia cinemática. Na inicialização da simulação, cada
-variante é compilada uma vez e os campos dependentes de geometria são espalhados por
-mundo: `geom_size`, `geom_rbound`, `geom_aabb`, `body_mass`, `body_inertia`, e mais.
+**Pergunta do dono (02/09): trocar a caixa de `box` para mesh não quebra o treino?**
+Não quebra a mecânica — recompensas, sensores e cadeias são por par de geom e por corpo,
+e nada disso lê o tipo do geom. Mas **troca a física de contato**, e isso foi verificado
+na tabela de colisão do `mujoco_warp` (`collision_driver.py`):
 
-⚠ **Três restrições do mecanismo, e as três entram no desenho:**
+```
+(BOX, BOX)   PRIMITIVE   — colisor analítico box_box; é o de hoje: pad-caixa, laje-caixa
+(BOX, MESH)  CONVEX      — GJK/EPA; com a caixa em mesh, TODO contato dela vai por aqui
+```
 
-1. **"Only mesh geoms can differ."** A caixa hoje é um `box` **primitivo**. Para variar
-   por mundo ela tem de virar **mesh** — um mesh de caixa (8 vértices) por tamanho. É
-   mudança em `cena.py` (`_spec_box`). ⚠ E troca o caminho de colisão: mesh convexo em
-   vez de box primitivo. A pega foi aprendida com box primitivo. É o risco declarado
-   desta mudança — ver verificação, §11.1 item 14.
-2. **A atribuição de mundo → variante é fixa na inicialização.** Não re-sorteia no reset.
-   "Aleatória para todos os envs" vale **entre envs**: cada env vê sempre a mesma caixa
-   durante a run. Com 4096–8192 envs e K tamanhos, a frota cobre a distribuição (~500 a
-   1000 envs por tamanho com K = 8). A política vê todos os tamanhos; cada env, um.
-3. **`body_mass` é compilado por variante.** Com `mass=` **explícito e igual** em todas
-   (o `get_box_spec` já recebe `caixa_massa`, não densidade), a massa não muda com o
-   tamanho. A **independência do peso** é garantida na construção, e a força externa do
-   `carga_caixa` segue por cima, como hoje. A **inércia** varia com o tamanho — correto
-   para "mesma massa, tamanho diferente".
+Menos pontos de contato por par, normais e penetrações de outra natureza, caixa apoiada
+na laje com outra estabilidade, distribuição do `squeeze` diferente, e mais lento. A pega
+foi aprendida contra `box_box`. O efeito no aprendizado é **desconhecido**, e só uma run
+em GPU mede — o smoke só mede estática.
+
+**E o mesh não é necessário.** Dois fatos do `mujoco_warp` e um do próprio módulo:
+
+1. **`geom_size` é lido por mundo em TODO colisor**, primitivo ou convexo —
+   `collision_core.py:101`: `geom1.size = geom_size[worldid % geom_size.shape[0], g1]`.
+   O `% shape[0]` é a convenção dos campos `*`: forma `(1, ngeom)` transmite, forma
+   `(nworld, ngeom)` é por mundo. O `box_box` analítico lê por esse caminho. É
+   **exatamente** o que o mecanismo de variantes explora — ele só acrescenta o mesh por
+   cima.
+2. **`geom_rbound` e `geom_aabb` são os limites do broadphase**, e têm de acompanhar: uma
+   caixa de 0,13 m com o `rbound` de 0,10 m perderia contato nos cantos. Os três campos
+   são os primeiros de `VARIANT_DEPENDENT_FIELDS` do `variants.py` — é a lista do que
+   depende de geometria.
+3. **O `g1_limpo` já faz uma escrita dessa classe, e ela treinou a `bloco7`.** O evento
+   `foot_friction` é `mode="startup"` sobre `geom_friction` — `array("*", ngeom, vec3)`,
+   mesma classe de campo que `geom_size` —, por mundo, uma vez, antes do primeiro passo.
+   ⚠ A corrupção de heap registrada no `carga_caixa` era **outra coisa**: `body_mass` e
+   `pseudo_inertia` em **runtime**, campos de massa com derivados (`body_subtreemass`,
+   `body_invweight0`) que ficam inconsistentes. Startup, geometria, campos
+   auto-contidos do broadphase: é a classe do `foot_friction`, não a do `body_mass`.
+
+**O desenho:** um evento `mode="startup"` (`tamanho_caixa`) que, para o geom da caixa,
+escreve por mundo `geom_size`, `geom_rbound` e `geom_aabb` a partir do meio-lado sorteado
+— e publica `env.limpo_meia_aresta`. A caixa **continua `box` primitivo**. O colisor
+**não muda**. O `paridade` **não ganha divergência**.
+
+⚠ **Três consequências, declaradas:**
+
+1. **Fixo na run, como o `foot_friction`.** Startup, não reset. "Aleatória para todos os
+   envs" vale **entre envs**: cada env vê sempre a mesma caixa durante a run. Com
+   4096–8192 envs a frota cobre a distribuição. Re-sortear no reset seria mutação em
+   runtime — a classe que corrompeu a heap. Não se faz.
+2. **`body_inertia` fica na de 0,10 m.** Escrever inércia é a classe de `body_mass`, e
+   não se toca. Uma caixa de 0,13 m com a inércia da de 0,10 m é inconsistência **do
+   mesmo tipo e do mesmo tamanho** da que o módulo já aceita: "a caixa de 5 kg fica com a
+   INÉRCIA de 1 kg" (`carga_caixa`). A DR endurece a estática, não a dinâmica. Declarado.
+3. **Massa não muda, por construção:** `body_mass` não é escrito. A independência do peso
+   vem de graça — o wrench do `carga_caixa` segue por cima.
+
+⚠ **A única incerteza real, e onde ela se resolve:** a escrita de startup em `geom_size`
+nunca foi feita neste módulo — só em `geom_friction`. O smoke prova em CPU que ela roda e
+que o colisor lê o tamanho novo (§11.1 item 13). **Só a GPU prova que a heap não reclama**
+— nos primeiros passos da primeira run da v2. Se reclamar, o plano B está pronto:
+
+#### Plano B: `VariantEntityCfg` com mesh
+
+O `mjlab` tem `entity/variants.py`: K variantes de `MjSpec`, compiladas na inicialização,
+com `geom_size`, `geom_rbound`, `geom_aabb`, `body_mass`, `body_inertia` espalhados por
+mundo. **"Only mesh geoms can differ"** — a caixa teria de virar mesh (8 vértices por
+tamanho), e todo contato dela passaria a `CONVEX`. Atribuição fixa na inicialização;
+`mass=` explícito e igual em todas garante a independência do peso; a inércia varia com o
+tamanho (aqui, correto). Só se o plano A falhar na GPU.
 
 #### O desenho
 
@@ -700,13 +746,16 @@ atribuição               = aleatória por env, com semente, fixa na run
 massa                    = igual em todas as variantes; a carga segue pelo wrench
 ```
 
-**Escala uniforme (cubo), e não por eixo.** Por eixo daria 3 graus de liberdade e K³
-combinações, e mudaria a forma da pega (uma caixa achatada pede outra abertura de mãos).
-O pedido foi "tamanho"; cubo é a leitura direta. Por eixo fica registrado como extensão.
+**Escala uniforme (cubo), e não por eixo.** Por eixo daria 3 graus de liberdade e
+mudaria a forma da pega (uma caixa achatada pede outra abertura de mãos). O pedido foi
+"tamanho"; cubo é a leitura direta. Por eixo fica registrado como extensão.
 
-**Fonte de verdade por env: o modelo.** Uma vez, na inicialização, lê-se
-`geom_size[world, geom_da_caixa]` e publica-se `env.limpo_meia_aresta` (n, 3). Todo
-consumidor lê dali. Hoje **oito sítios** leem um escalar de `knobs`, e cada um passa a ler
+**K = 8 tamanhos discretos, e não contínuo**, mesmo sem a restrição das variantes: com
+tamanhos discretos o smoke afirma "estes 8 e só estes" e a leitura do painel por tamanho
+fica possível. Contínuo é uma linha a mais, se um dia valer.
+
+**Fonte de verdade por env: o modelo.** O evento de startup publica `env.limpo_meia_aresta`
+(n, 3) a partir do que escreveu em `geom_size`. Todo consumidor lê dali. Hoje **oito sítios** leem um escalar de `knobs`, e cada um passa a ler
 o tensor por env:
 
 | onde | o que lê hoje | passa a ler |
@@ -717,9 +766,8 @@ o tensor por env:
 | `eventos.afasta_cena` | `caixa_meia_z` | idem |
 | `inspeciona`, `paridade` | `k.cena.caixa_meia_aresta` | a variante de referência (0,10) |
 
-⚠ **`paridade.py` passa a ter uma divergência declarada:** a caixa de referência é um
-`box` primitivo no `g1_poc`; aqui vira mesh. O `paridade` compara a variante de 0,10 m e
-aceita a diferença de tipo de geom como divergência **nomeada**, não como falha.
+**`paridade.py` não muda:** a caixa segue `box` primitivo, e o spec de referência (0,10 m)
+é o mesmo de antes. O tamanho por env é do modelo batched, não do spec.
 
 #### A pergunta que a DR de tamanho abre: a rede VÊ o tamanho?
 
@@ -1058,12 +1106,14 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     **não** termina o episódio; derrubar a caixa (`caiu`) **termina**. Antes do fecho do
     `BOTAR`, afastar as palmas continua terminando (`escapou` armado). E `sucesso` marca
     no fecho do `BOTAR`, não depois.
-13. **As variantes existem e são K.** `geom_size` da caixa difere entre mundos; a
-    contagem de mundos por variante bate com a atribuição; **`body_mass` é igual em
-    todas** (independência do peso); `limpo_meia_aresta` bate com `geom_size` env a env.
-14. ⚠ **A pega sobrevive ao mesh.** O `descarga` medido no smoke (caixa apoiada → erguida)
-    na variante de referência (0,10 m) fica onde estava com o `box` primitivo. É a trava
-    contra o risco 1 da §6.7.
+13. **O tamanho por mundo está no modelo e o colisor o lê.** `geom_size`, `geom_rbound` e
+    `geom_aabb` da caixa diferem entre mundos e são exatamente os K valores; `body_mass`
+    **não** mudou (independência do peso); `limpo_meia_aresta` bate com `geom_size` env
+    a env; e — a prova de que o colisor lê — uma caixa de 0,13 m apoiada na laje repousa
+    com o centro 3 cm mais alto que uma de 0,10 m no env vizinho. A caixa **segue `box`**.
+14. ⚠ **A pega não mudou de física.** O `descarga` do smoke (caixa apoiada → erguida) num
+    env de 0,10 m fica onde estava. Sem mesh, isto é quase tautológico — e é por isso que
+    o plano A é o plano A.
 15. **Todo consumidor lê o tamanho por env.** Com duas variantes de tamanhos bem
     diferentes, `alvos_das_palmas` e o z de repouso da caixa na laje diferem entre os
     envs das duas — nenhum sítio ficou lendo o escalar de `knobs`.
@@ -1108,11 +1158,12 @@ um guarda em `caixa_largada` (§6.6), a caixa como entidade com variantes e oito
 lendo tamanho por env (§6.7), e as travas da §11. **Nenhuma mudança em recompensa,
 currículo ou reset.**
 
-⚠ **Dois itens com risco de regressão, e os dois estão nomeados:** a cadeia 3 toca a
-máquina de elo (`_TETO_ELOS = 3` nunca foi exercitado), e a caixa vira mesh (a pega foi
-aprendida com box primitivo). **Sentinelas na primeira run:** `descarga` e `rampa` para a
-pega; `seg_proj/seg_pedido` para o andar. Se a pega cair e o andar não, o suspeito é a
-§6.7 antes da §6.5.
+⚠ **Dois itens com risco, e os dois estão nomeados:** a cadeia 3 toca a máquina de elo
+(`_TETO_ELOS = 3` nunca foi exercitado), e a escrita de startup em `geom_size` nunca foi
+feita neste módulo — só a GPU prova que a heap não reclama, nos primeiros passos da run
+(§6.7; plano B pronto). **Sentinelas na primeira run:** `descarga` e `rampa` para a pega;
+`seg_proj/seg_pedido` para o andar. A pega **não** mudou de física — se ela cair, o
+suspeito é a distribuição de tamanhos, não o colisor.
 
 O custo real é o treino, não o código.
 
@@ -1174,9 +1225,11 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
 
 **Tomadas (02/09, quinta rodada):**
 
-- **DR de tamanho da caixa desde a FASE 1** (§6.7): variantes de entidade, escala uniforme
-  (cubo), 14 a 26 cm, K = 8, atribuição aleatória por env fixa na run, massa igual em
-  todas. A caixa vira mesh.
+- **DR de tamanho da caixa desde a FASE 1** (§6.7): `geom_size` + `rbound` + `aabb` por
+  mundo, escritos uma vez no startup — a classe do `foot_friction`. Cubo, 14 a 26 cm,
+  K = 8, aleatório por env, fixo na run. A caixa **segue `box` primitivo**; o colisor não
+  muda; `paridade` não diverge. Mesh (`VariantEntityCfg`) é o plano B, só se a GPU
+  reclamar.
 
 **Tomadas (02/09, sexta rodada — fecha a spec):**
 
