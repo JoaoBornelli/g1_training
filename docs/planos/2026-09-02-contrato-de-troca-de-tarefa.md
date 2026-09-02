@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
 **Estado:** APROVADO COM EMENDAS em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v6 — só os quatro comportamentos; a cadeia 3 vira (PEGAR, CARREGAR[v=0], BOTAR); PEGAR→BOTAR direto não é treinado)
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v7 — espera FINAL depois do botar: publicado ANDAR, larga e fica parado; nenhuma aposta sobra)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -54,12 +54,17 @@ Medido, não suposto. Números de `bloco7`, iteração ~2514, salvo indicado.
 piso de 30% de locomoção, o currículo de forma e de nível, as terminações, o rastreio
 por elo e a multa de mesa ficam como estão. **Decisão do dono (02/09), explícita.**
 
-⚠ **Uma exceção, pedida pelo dono (02/09, terceira rodada): a cadeia 3 muda** de
-`(PEGAR, BOTAR)` para `(PEGAR, CARREGAR, BOTAR)` — o `botar` passa a vir de "segurar
-parado", e não direto da pega (§3.0, §6.5). As outras três cadeias não mudam.
+⚠ **Duas exceções, pedidas pelo dono (02/09, terceira rodada):**
 
-O que este documento muda está **inteiro** na §6: observação, um canal de comando, e a
-cadeia 3. Nenhuma recompensa, nenhum currículo.
+- **a cadeia 3 muda** de `(PEGAR, BOTAR)` para `(PEGAR, CARREGAR, BOTAR)` — o `botar`
+  passa a vir de "segurar parado", e não direto da pega (§3.0, §6.5). As outras três
+  cadeias não mudam;
+- **a terminação `caixa_largada` ganha um guarda**: na espera final, depois do botar,
+  as mãos saem da caixa e `escapou` não pode disparar; `caiu` continua armado (§6.6).
+  Fora da espera final ela não muda.
+
+O que este documento muda está **inteiro** na §6: observação, um canal de comando, a
+cadeia 3 e um guarda de terminação. Nenhuma recompensa, nenhum currículo.
 
 ---
 
@@ -85,7 +90,7 @@ fato precisa aprender. O restante é derivado — composto pelo controlador, via
 | **andar** | rastrear comando linear e angular, em 0 e > 0 | 30% de locomoção pura, mais o ramo de giro (§9) |
 | **pegar** | a transição parado (`andar = 0`) → pegar uma caixa | espera publicando `ANDAR` (§6.3); cadeia 0 |
 | **carregar** | pegar + andar com o bit de caixa em 1 — **não deixar cair** | cadeia 2 `(PEGAR, CARREGAR)` |
-| **botar** | pegar + `andar = 0` segurando + botar num alvo (**não jogar**) + `andar = 0` | cadeia 3 `(PEGAR, CARREGAR[v=0], BOTAR)` (§6.5) |
+| **botar** | pegar + `andar = 0` segurando + botar num alvo (**não jogar**) + `andar = 0` — **larga e fica parado** | cadeia 3 `(PEGAR, CARREGAR[v=0], BOTAR)` + espera final (§6.5, §6.6) |
 
 Tudo comandado por **um** one-hot, passado pelo controlador. O `REORIENTAR` é habilidade
 futura (§8.3) e fica sorteável pelo motivo de lá.
@@ -103,8 +108,10 @@ andar v=0        ->  pegar                TREINADA  (a espera publica ANDAR, §6
 pegar            ->  carregar, v>0        TREINADA  (cadeia 2: andar com a caixa)
 pegar            ->  carregar, v=0        TREINADA  (cadeia 3: segurar parado, §6.5)
 carregar, v=0    ->  botar                TREINADA  (cadeia 3, §6.5)
-botar            ->  andar, sem caixa     aposta    (§7.2)
+botar            ->  andar v=0, sem caixa TREINADA  (espera FINAL, §6.6)
 ```
+
+**Nenhuma transição do cenário fica como aposta.**
 
 ⚠ **`pegar -> botar` direto NÃO é treinado.** Decisão do dono (02/09): é comportamento
 derivado — o controlador nunca manda `BOTAR` a partir de `PEGAR`; ele passa por
@@ -301,10 +308,16 @@ FASE 6 — BOTAR                          <- o botão
   ANG        0,05 rad                   A BORDO: face pedida para o botar
   fim: caixa apoiada — no sim, força de apoio ≥ fração do peso; em campo, o operador vê
 
-FASE 7 — ANDAR (esquecer a caixa)
-  twist    ( 0,50   0,00   0,00 )      PILOTO
+FASE 7 — ANDAR v=0 (larga e fica parado — a ESPERA final)
+  twist    ( 0,00   0,00   0,00 )      PILOTO zera — o controlador manda ANDAR com v=0
   elo      [ 1  0  0  0  0 ]            OPERADOR
   caixa    tudo 0                       <- a percepção AINDA vê a caixa na laje; a camada zera (regra 1)
+  o robô solta a caixa e volta à postura de pé. TREINADO: é a espera final da cadeia 3 (§6.6)
+
+FASE 8 — ANDAR (piloto retoma)
+  twist    ( 0,50   0,00   0,00 )      PILOTO
+  elo      [ 1  0  0  0  0 ]
+  caixa    tudo 0
 ```
 
 ⚠ **A rede NÃO decide quando trocar.** Quem aperta o botão é o operador, ou o algoritmo
@@ -314,9 +327,9 @@ caixa apoiada. No sim esses instantes são as condições de sustain das cadeias
 são olho ou sensor. Um algoritmo de troca automática é trabalho separado (§10, "o robô
 decidir sozinho").
 
-**Quais dessas trocas o treino produz** está na §7: 2→3, 3→4, 4→5 e 5→6 são treinadas;
-só 6→7 é a aposta da §7.2. ⚠ 3→6 direto (`PEGAR → BOTAR`) não é treinado, e o controlador
-não o manda (§3.2).
+**Quais dessas trocas o treino produz** está na §7: 2→3, 3→4, 4→5, 5→6 e 6→7 são
+**todas** treinadas. 7→8 é só o piloto retomar o comando de velocidade — locomoção pura.
+⚠ 3→6 direto (`PEGAR → BOTAR`) não é treinado, e o controlador não o manda (§3.2).
 
 ---
 
@@ -347,8 +360,8 @@ ao vivo com a caixa perto.
 
 ## 6. O QUE MUDA
 
-Quatro mudanças: três em **observação e canal de comando**, e uma na **cadeia 3**.
-Nenhuma em recompensa ou currículo.
+Cinco mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, e um
+**guarda de terminação**. Nenhuma em recompensa ou currículo.
 
 ### 6.0 Os dois `elo` — o PUBLICADO e o INTERNO
 
@@ -561,6 +574,63 @@ cadeia — só do elo. A alternativa seria um elo novo (`SEGURAR`), mas o contra
 do dono é claro: o controlador manda `CARREGAR` com `v = 0`, e não um sexto one-hot. A
 regra por cadeia é o que espelha isso.
 
+### 6.6 A espera FINAL — depois do botar, "larga e fica parado"
+
+**Decisão do dono (02/09):** no fim do `botar`, o comando esperado é a **ESPERA** —
+`ANDAR` com velocidade zero. O robô larga a caixa e fica parado.
+
+**É o espelho da espera inicial, com o mesmo mecanismo.** Quando o `BOTAR` fecha (caixa
+apoiada, condição sustentada), o one-hot **publicado** vira `ANDAR` até o fim do
+episódio. O elo **interno fica `BOTAR`**.
+
+```
+espera inicial   publicado ANDAR    twist 0   caixa 0      interno PEGAR
+PEGAR            publicado PEGAR    twist 0   caixa viva
+CARREGAR v=0     publicado CARREGAR twist 0   caixa viva   (segurar parado)
+BOTAR            publicado BOTAR    twist 0   caixa viva, alvo = topo
+espera final     publicado ANDAR    twist 0   caixa 0      interno BOTAR
+```
+
+Por que o interno ficar `BOTAR` dá quase tudo de graça:
+
+| a espera final precisa de | quem garante | lê |
+|---|---|---|
+| twist zero | `_zera_twist_nos_parados` — `BOTAR ∈ elos_parados` | interno |
+| mobília no lugar, caixa na laje | o ramo `BOTAR` do `_aplica_elo` não guarda a laje | interno |
+| canais de caixa zero | o gate, sobre o publicado = `ANDAR` | publicado |
+| rastreio pagar por ficar parado | `rastreio_por_elo`, publicado = `ANDAR` | publicado |
+| os braços voltarem à postura de pé — **o largar** | `PosturaPorElo`, publicado = `ANDAR` → postura do fabricante | publicado |
+| incentivos de caixa em zero | `objetivo_ativo` = publicado ≠ `ANDAR` = falso | publicado |
+
+⚠ **A única coisa que NÃO vem de graça: a terminação `caixa_largada`.** Ela é
+`(caiu | escapou) & pegou`, e `escapou` é "as duas palmas longe da caixa". Na espera final
+as mãos **têm** de sair da caixa — `escapou` dispararia no primeiro passo e mataria o
+episódio por fazer a coisa certa. Portanto:
+
+```
+caixa_largada = (caiu | (escapou & ~soltou)) & pegou
+```
+
+onde `soltou` é publicado pelo comando (`env.limpo_soltou`) quando a espera final começa.
+**`caiu` continua armado:** largar é permitido, **derrubar não** — é o "não jogar" do
+dono, estendido ao depois. É uma linha na terminação, e é a segunda exceção da §2.
+
+**Sem cronômetro.** A espera final dura até o fim do episódio. Não há o que sortear: o
+robô larga e fica de pé, e o tempo restante é prática de "parado, sem tarefa, com uma
+mesa perto" — que é exatamente o estado de campo depois de botar.
+
+**`sucesso` e `fechou` continuam marcados no fecho do `BOTAR`**, não no fim da espera. A
+tarefa é botar; a espera final é o que vem depois dela.
+
+⚠ **Por que não um 4º elo `ANDAR` na cadeia 3** (a v6 deste documento o anotava como
+pendente): ele exigiria quatro regras especiais num `ANDAR` que não é `ANDAR` — não
+guardar a mobília (o ramo de hoje manda a laje a +5 m em z, através das mãos), twist zero
+(`ANDAR ∈ ELOS_QUE_ANDAM`), desarmar o `_pegou`, e fecho por tempo. A espera final é uma
+regra e um guarda, e é o mesmo mecanismo da espera inicial.
+
+**Consequência:** `BOTAR → ANDAR(v=0)` sai da aposta e vira treinada. **Nenhuma transição
+do cenário fica como aposta** (§7.2).
+
 ---
 
 ## 7. O QUE É TREINADO, E O QUE É APOSTA
@@ -573,31 +643,31 @@ regra por cadeia é o que espelha isso.
 | `PEGAR → CARREGAR (v>0)` | cadeia 2 | one-hot vira; twist acende; caixa segue viva |
 | `PEGAR → CARREGAR (v=0)` | cadeia 3 (§6.5) | one-hot vira; twist segue zero; caixa segue viva — "segurar parado" |
 | `CARREGAR (v=0) → BOTAR` | cadeia 3 (§6.5) | one-hot vira; `alvo_b` muda para o topo novo |
+| `BOTAR → ANDAR (v=0)` | espera final, cadeia 3 (§6.6) | one-hot vira; canais de caixa apagam; as mãos saem da caixa sem terminar o episódio |
 
 ⚠ A primeira era a **aposta** da v1 deste documento. Deixa de ser: a espera a treina a
 partir da postura real de parado, e o resíduo "configuração de juntas no instante da
 troca" deixa de existir. (Decisão do dono, 02/09: em `v = 0` a pose é praticamente a
 default — e agora isso nem precisa ser assumido.)
 
-### 7.2 Aposta — o que resta dela
+### 7.2 Aposta — não sobrou nenhuma
 
-Uma transição do cenário **não** é treinada:
+Na v5 deste documento duas transições eram aposta; na v6, uma. **Na v7, nenhuma:**
 
-| transição | por que é aposta razoável |
-|---|---|
-| `BOTAR → ANDAR` | com o gate, o estado de chegada é locomoção pura: canais zero, twist ativo. É 30% do treino. |
+- `CARREGAR → BOTAR` — treinada pela cadeia 3 (§6.5)
+- `BOTAR → ANDAR(v=0)` — treinada pela espera final (§6.6)
 
-⚠ `CARREGAR → BOTAR` **era** aposta na v5 deste documento. A cadeia 3 da §6.5 a torna
-treinada.
+Toda troca do cenário de campo (§3, §4.4) acontece em algum episódio do treino. O que a
+política vê em campo, ela viu no sim.
 
-**Por que a aposta é razoável: a política é SEM MEMÓRIA.** Medido: `history_length =
-None` nos dois grupos, e nenhum termo com histórico. O ator é um MLP. O que a política vê
-no instante da troca é o corpo **agora**, e não a história. Se houvesse recorrência, o
-buffer carregaria a tarefa anterior e nenhum gate consertaria.
+**O que sustenta isso é a política ser SEM MEMÓRIA.** Medido: `history_length = None` nos
+dois grupos, e nenhum termo com histórico. O ator é um MLP. O que a política vê no
+instante da troca é o corpo **agora**, e não a história — portanto "o mesmo estado" no
+sim e em campo é de fato o mesmo estado. Se houvesse recorrência, o buffer carregaria a
+tarefa anterior e nenhum gate consertaria.
 
-**Se a aposta falhar, o conserto é conhecido:** um 4º elo `ANDAR` na cadeia 3, com um
-ramo `ANDAR` que **não** guarda a mobília — o de hoje manda a laje a +5 m em z, através
-das mãos (§13). Decidir com o painel, não agora.
+**O que continua sem garantia, e não é transição:** a *qualidade* de cada comportamento
+(a pega ainda não fecha o `sustentacao`, §2), e o sim-to-real dos contatos (§10.1).
 
 ### 7.3 Por que "andar até a mesa" fica fora
 
@@ -625,10 +695,10 @@ Era lacuna na v5: `_TETO_ELOS = 2`, e a perna `CARREGAR → BOTAR` era aposta. D
 dono (02/09): a cadeia 3 vira `(PEGAR, CARREGAR, BOTAR)`. Fica aqui só o registro de que
 a lacuna existiu e de onde foi fechada.
 
-### 8.2 `BOTAR → ANDAR` não é treinado
+### 8.2 `BOTAR → ANDAR` — RESOLVIDA pela §6.6
 
-Nenhuma cadeia volta ao `ANDAR`. Aposta da §7.2, de baixo risco. **Custo se não bastar:**
-um 4º elo `ANDAR` na cadeia 3 — ver §13, pendente 2, para o porquê de não ser de graça.
+Era aposta até a v6. A espera final publica `ANDAR` depois do fecho do `BOTAR`, com o
+guarda em `caixa_largada`. Registro de onde a lacuna foi fechada.
 
 ### 8.3 O `REORIENTAR` avança de graça — habilidade FUTURA, defeito registrado
 
@@ -850,6 +920,11 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     todo passo. No `CARREGAR` da cadeia 2 o twist segue sorteado.
 11. **O `CARREGAR` da cadeia 3 fecha por tempo**, dentro da faixa de `segurar_s`, com o
     robô parado — e o da cadeia 2 continua fechando por distância andada.
+12. **A espera final.** Depois do fecho do `BOTAR`: publicado `ANDAR`, interno `BOTAR`,
+    twist zero, canais de caixa zero, `limpo_soltou = 1`. Afastar as palmas da caixa
+    **não** termina o episódio; derrubar a caixa (`caiu`) **termina**. Antes do fecho do
+    `BOTAR`, afastar as palmas continua terminando (`escapou` armado). E `sucesso` marca
+    no fecho do `BOTAR`, não depois.
 
 ### 11.2 Simulação do caminho de campo
 
@@ -885,10 +960,10 @@ checkpoint, e o reinício reaprende com as mesmas recompensas.
 
 **Tamanho da mudança de código:** o gate (duas linhas em `observacoes.py`), o `VALIDA`
 fora da observação (uma linha), o publicado em `ANDAR` na espera (uma condição em
-`_aplica_espera`), o ramo de giro (§9), a cadeia 3 com duas regras por cadeia (§6.5), e
-as travas da §11. **Nenhuma mudança em recompensa, currículo ou reset.** ⚠ A cadeia 3 é
-o único item que toca a máquina de elo, que funciona — e `_TETO_ELOS = 3` nunca foi
-exercitado. É onde a regressão pode vir.
+`_aplica_espera`), o ramo de giro (§9), a cadeia 3 com duas regras por cadeia (§6.5), a espera final com
+um guarda em `caixa_largada` (§6.6), e as travas da §11. **Nenhuma mudança em recompensa,
+currículo ou reset.** ⚠ A cadeia 3 é o único item que toca a máquina de elo, que
+funciona — e `_TETO_ELOS = 3` nunca foi exercitado. É onde a regressão pode vir.
 
 O custo real é o treino, não o código.
 
@@ -936,17 +1011,12 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
 - **`PEGAR → BOTAR` direto não é treinado.** O controlador nunca manda isso.
 - **A cadeia 3 vira `(PEGAR, CARREGAR, BOTAR)`**, com o `CARREGAR` do meio em `v = 0` e
   fecho por tempo (§6.5). `CARREGAR(v=0) → BOTAR` sai da aposta.
+- **A espera FINAL** (§6.6): depois do `BOTAR`, publicado `ANDAR` com `v = 0` até o fim
+  do episódio — o robô larga e fica parado. `escapou` desarmado, `caiu` armado. Sem
+  cronômetro. `BOTAR → ANDAR(v=0)` sai da aposta. **Nenhuma aposta sobra.**
 
 **Pendentes:**
 
 1. **`segurar_s`** — a faixa do "segurar parado" na cadeia 3. Ponto de partida: 0,5 a
    1,5 s.
-2. **`BOTAR → ANDAR`** — a única aposta que sobrou (§7.2). Se falhar: 4º elo `ANDAR` na
-   cadeia 3, com um ramo `ANDAR` que não guarda a mobília. ⚠ O de hoje manda a laje a
-   +5 m em z — com a caixa recém-apoiada e as mãos sobre ela, a laje subiria através das
-   mãos. Não é de graça.
-3. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`.
-4. ⚠ **Interpretação a confirmar:** o "`+ andar = 0`" no fim do comportamento **botar**
-   (§3.0) foi lido como "o robô fica parado durante e depois do botar", com a volta ao
-   `ANDAR` continuando aposta — porque a tabela do dono a manteve como aposta. Se a
-   intenção era treinar a volta, é o item 2.
+2. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`.
