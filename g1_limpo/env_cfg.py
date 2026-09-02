@@ -422,6 +422,10 @@ def make_env_cfg(
         # ⚠ Fiado explicitamente, e não deixado no default: o comando lê o `found`
         # destes sensores para armar o `caixa_largada`. Um default que divergisse de
         # `C.SENSOR_PALMA` desarmaria a terminação em silêncio.
+        # ⚠ A JANELA DE ESPERA. Sem esta linha o cfg fica no default e o número real
+        # deixa de ser reproduzível por `git diff` do `knobs.py`, que é a regra do
+        # pacote.
+        espera_s=k.alvo.espera_s,
         sensores_palma=C.SENSOR_PALMA,
         caixa_meia_aresta=c.caixa_meia_aresta[0],
         sigma_fator=k.tarefa.sigma_fator,

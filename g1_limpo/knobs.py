@@ -194,6 +194,26 @@ class Alvo:
     # laje nasceria DENTRO da caixa.
     botar_folga_laje: float = 0.05
 
+    # ⚠ A JANELA DE ESPERA, em segundos, SORTEADA por episódio. Portada do `g1_poc`
+    # (`knobs.py:366`) em 02/09 — a manipulação do g1_limpo foi inspirada nele e esta
+    # peça não tinha vindo na reescrita.
+    #
+    # O QUE ELA FAZ: enquanto ela corre, o bit `VALIDA` fica em ZERO num elo de
+    # manipulação. Os sete incentivos pagam nada, e o elo NÃO pode fechar. Na borda ela
+    # vai 0->1 com a caixa já assentada, e essa DESCONTINUIDADE é o sinal de "o objetivo
+    # chegou" (`g1_poc/comando.py:374-381`).
+    #
+    # ⚠ SORTEADA, e não fixa. Fixa é aprendível como "conte N passos e depois mova";
+    # sorteada, a política TEM de ler o canal de comando — que é o que o deploy exige.
+    #
+    # ⚠ E NÃO existe canal de tempo restante na observação, de propósito: o `g1_poc`
+    # publica só o bit. A política reage à descontinuidade em vez de contar.
+    #
+    # ⚠ SÓ NA MANIPULAÇÃO. No `ANDAR` ela é ZERO. O `g1_poc` a tirou da locomoção em
+    # 24/08 porque atrasava o aprendizado da marcha; na manipulação, com episódio de
+    # 800+ passos, ela custa ~4%.
+    espera_s: tuple[float, float] = (0.3, 1.0)
+
 
 @dataclass
 class Piso:

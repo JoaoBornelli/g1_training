@@ -203,6 +203,8 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     face_alvo_b: tuple[float, float, float] = (-1.0, 0.0, 0.0)
     # os sítios das palmas, para a distância que define o σ
     sitios_palma: tuple[str, ...] = ("left_palm", "right_palm")
+    # a JANELA DE ESPERA, em segundos, sorteada por episódio. Ver `knobs.Alvo`.
+    espera_s: tuple[float, float] = (0.3, 1.0)
     # os SENSORES de palma, para armar o `caixa_largada`. Só o campo `found` é lido:
     # a pergunta é "as duas palmas já tocaram a caixa neste episódio", e ela é
     # booleana por natureza. A FORÇA é assunto do `squeeze`, que é contínuo.
@@ -343,12 +345,42 @@ class AlvoCaixaCmd(CommandTerm):
         # ⚠ Ela mora AQUI, e não na terminação, porque aqui existe escopo de episódio:
         # o `_resample_command` roda no reset e zera o buffer. Um termo de terminação é
         # uma função sem `reset`, e o estado dele vazaria de um episódio para o outro.
+        # ---------------------------------------------- a JANELA DE ESPERA (02/09)
+        # ⚠ Segundos RESTANTES, por env. Enquanto > 0 num elo de manipulação, o bit
+        # `VALIDA` fica em zero: os sete incentivos pagam nada e o elo não fecha. Ver
+        # `knobs.Alvo.espera_s` para o porquê e para a origem no `g1_poc`.
+        self._espera = torch.zeros(n, device=d)
+        env.limpo_aguardando = torch.zeros(n, device=d)
+
         self._pegou = torch.zeros(n, dtype=torch.bool, device=d)
         env.limpo_ids_palma = self._ids_palma
         # ⚠ Publica ZEROS aqui, e não o resultado de `_publica_pegou`: no `__init__` os
         # buffers de sensor ainda não foram preenchidos. A leitura real começa no
         # primeiro `_update_command`.
         env.limpo_pegou = self._pegou.float()
+
+    def _aplica_espera(self) -> None:
+        """Decrementa a janela e zera o `VALIDA` de quem ainda aguarda.
+
+        ⚠⚠ A BASE É RECALCULADA DO ELO, e não lida do próprio `VALIDA`. Uma versão
+        anterior fazia `where(aguardando, 0, self._command[:, VALIDA])` — e isso é
+        DESTRUTIVO: no passo seguinte ele lia o zero que ele mesmo tinha escrito, e o
+        bit nunca voltava a 1. Medido no smoke: `VALIDA` ficava 0 para sempre, o `staged`
+        pagava zero, e o `piso PEGAR` caía para 2,000/s exatos (só `pose` + `upright`).
+
+        A base é `elo != ANDAR`, que é o MESMO critério que o `_aplica_elo` usa quando
+        escreve o bit por elo. O `smoke` afirma que os dois concordam, para um elo novo
+        com `VALIDA = 0` não passar a divergir em silêncio.
+
+        ⚠ Publica `env.limpo_aguardando` para a métrica de peso zero. Sem ela, "o robô
+        não espera" e "a janela não existe" leem igual no painel — que é exatamente a
+        confusão que a falta desta peça já causou.
+        """
+        self._espera.sub_(self._env.step_dt).clamp_(min=0.0)
+        aguardando = self._espera > 0.0
+        self._env.limpo_aguardando.copy_(aguardando.float())
+        base = (self._elo != ANDAR).float()
+        self._command[:, VALIDA] = base * (~aguardando).float()
 
     def _publica_pegou(self) -> None:
         """Atualiza a arma e a publica em `env.limpo_pegou`.
@@ -439,6 +471,18 @@ class AlvoCaixaCmd(CommandTerm):
             self._elo[env_ids] = int(self.cfg.elo_forcado)
         else:
             self._elo[env_ids] = garante_elo(self._env, ANDAR)[env_ids]
+
+        # ⚠ A JANELA DE ESPERA, sorteada, e DEPOIS do elo — ela depende dele: no `ANDAR`
+        # a espera é ZERO. Sortear antes leria o elo do episódio ANTERIOR, que é a mesma
+        # classe de defeito que a ordem do currículo já custou a este projeto.
+        #
+        # ⚠ E ela é sorteada AQUI, e não na passada do `_pendente`: ela não depende de
+        # pose nenhuma, só do elo. Adiá-la para lá custaria um passo de janela.
+        lo, hi = self.cfg.espera_s
+        _sorteio_espera = lo + (hi - lo) * torch.rand(n, device=d)
+        _anda = self._elo[env_ids] == ANDAR
+        self._espera[env_ids] = torch.where(
+            _anda, torch.zeros_like(_sorteio_espera), _sorteio_espera)
 
         # --- F4: A CADEIA, CONDICIONADA NO ELO QUE O CURRÍCULO JÁ SORTEOU ---
         #
@@ -531,6 +575,12 @@ class AlvoCaixaCmd(CommandTerm):
         # desarma a terminação, porque a caixa continua sendo a mesma caixa.
         self._publica_pegou()
 
+        # ⚠⚠ A JANELA DE ESPERA, e ela roda ANTES do `_avanca_elo` de propósito: durante
+        # a espera o elo NÃO pode fechar. O `_fecha_elo_corrente` lê o `VALIDA`, e é
+        # este bloco que o zera — na ordem invertida, um `REORIENTAR` fecharia DENTRO da
+        # espera, porque ali o alvo É a própria caixa e `perto` é trivial.
+        self._aplica_espera()
+
         # --- F4: AVANÇO DE ELO ---
         # Deve rodar APÓS a atualização do alvo e da face, porque usa pose fresca.
         self._avanca_elo()
@@ -576,6 +626,13 @@ class AlvoCaixaCmd(CommandTerm):
 
         c = self.cfg
         d = self.device
+
+        # ⚠⚠ O OBJETIVO TEM DE ESTAR ATIVO. Sem isto o elo fecharia DURANTE a janela de
+        # espera — e no `REORIENTAR` o alvo É a própria caixa, portanto `perto` é
+        # trivialmente verdadeiro e ele fecharia no passo ZERO, sempre. Era o que fazia
+        # `avancos = 0,43` conviver com `sucesso = 0,0000`: a cadeia avançava de graça no
+        # primeiro elo e travava no `PEGAR`.
+        ativo = self._command[ids, VALIDA] > 0.5
 
         # Condições "perto" e "alinhado"
         dist_alvo = torch.norm(
@@ -625,7 +682,9 @@ class AlvoCaixaCmd(CommandTerm):
             elif elo_tipo == BOTAR:
                 fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 
-        return fecha
+        # ⚠ O `ativo` entra NO FIM, e sobre todos os elos de uma vez. Pôr o `& ativo`
+        # dentro de cada ramo seria quatro lugares para esquecer um.
+        return fecha & ativo
 
     def _avanca_elo(self) -> None:
         """Avança de elo quando a condição de fechamento é satisfeita por sustain.

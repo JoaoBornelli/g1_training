@@ -46,6 +46,7 @@ __all__ = [
     "velocidade_de_escorrego",
     "forca_de_pouso",
     "pads_em_contato",
+    "fracao_esperando",
     "PES_NO_CHAO",
     "ALTURA_DO_PE",
     "MOMENTO_ANGULAR",
@@ -103,6 +104,11 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
             func=pads_em_contato, params={"sensores": sensores_palma}),
         "dorso_em_contato": MetricsTermCfg(
             func=pads_em_contato, params={"sensores": sensores_dorso}),
+        # ⚠ A FRAÇÃO DE PASSOS COM A JANELA DE ESPERA CORRENDO. Sem ela, "o robô não
+        # espera" e "a janela não existe no módulo" leem IGUAL no painel — e essa
+        # confusão custou uma conversa inteira. O `MetricsManager` divide por
+        # `step_count`, portanto isto sai direto como fração.
+        "fracao_esperando": MetricsTermCfg(func=fracao_esperando),
     }
 
 
@@ -115,6 +121,23 @@ def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
     """
     m = mascara.float()
     return (valor * m).sum(dim=-1) / m.sum(dim=-1).clamp(min=1.0)
+
+
+def fracao_esperando(env) -> torch.Tensor:
+    """1 enquanto a janela de espera corre, 0 depois dela. Por env.
+
+    ⚠ Ela lê `env.limpo_aguardando`, publicado pelo termo de comando a cada passo. Não
+    é import de módulo do projeto — é o mesmo contrato por atributo de env que o
+    `limpo_massa` e o `limpo_topo` já usam.
+
+    ⚠ No `ANDAR` a janela é ZERO, portanto esta métrica também mede a fatia: com 30% de
+    locomoção e janela média de 0,65 s em episódio de ~800 passos, espere algo da ordem
+    de 0,7 × 0,04 = 0,03.
+    """
+    v = getattr(env, "limpo_aguardando", None)
+    if v is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return v
 
 
 def pads_em_contato(env, sensores: tuple[str, ...]) -> torch.Tensor:
