@@ -19,11 +19,31 @@ import torch
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-__all__ = ["um_de_cinco", "caixa_no_frame_da_base", "N_SLOTS", "N_CAIXA"]
+__all__ = ["um_de_cinco", "caixa_no_frame_da_base", "fatia_do_elo",
+           "N_SLOTS", "N_CAIXA"]
 
 N_CAIXA = 8
 
 N_SLOTS = 5
+
+
+def fatia_do_elo(dim_total: int) -> slice:
+    """A fatia do one-hot do elo dentro da observação CONCATENADA do ator.
+
+    ⚠ CONTADA DO FIM, e isso é o contrato e não uma conveniência. O `env_cfg` acrescenta
+    os canais próprios por APPEND, nesta ordem: `elo` e depois `caixa`
+    (`env_cfg.py:456` e `:465`). Portanto o elo é o penúltimo bloco, sempre.
+
+    Contar do INÍCIO exigiria somar as dimensões dos termos do molde, e um upgrade do
+    `mjlab` que acrescente um canal deslocaria tudo em silêncio. Contando do fim, só
+    quebra quem acrescentar termo DEPOIS do `caixa` — e aí o invariante de one-hot no
+    consumidor pega na primeira iteração.
+
+    MEDIDO: com a observação de ator em 112, isto devolve `slice(99, 104)`, que é onde o
+    `observation_manager` põe o termo. O `smoke` afirma isso contra o manager vivo.
+    """
+    fim = dim_total - N_CAIXA
+    return slice(fim - N_SLOTS, fim)
 
 
 def um_de_cinco(env: "ManagerBasedRlEnv", command_name: str,

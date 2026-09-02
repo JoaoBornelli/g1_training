@@ -169,6 +169,12 @@ def _nomes_nos_params() -> set[str]:
     return vistos
 
 
+def _rampa(forca: float, kn) -> float:
+    """A aritmética da rampa de contato, isolada para o smoke poder afirmá-la."""
+    faixa = max(kn.contato.saturacao_N - kn.contato.joelho_N, 1e-6)
+    return min(max((forca - kn.contato.joelho_N) / faixa, 0.0), 1.0)
+
+
 # ⚠ ALLOWLIST COM MOTIVO, e não falha cega. Os dois que restam são intencionais — a
 # checagem existe para pegar um órfão NOVO, não para reclamar da dívida já declarada.
 # Um nome que sair desta lista tem de ganhar leitor ou ganhar motivo.
@@ -194,21 +200,48 @@ check("nenhum sensor NOVO ficou sem consumidor",
 check("os órfãos aceitos são exatamente as duas duplicatas do molde",
       {n for n in por_nome if n not in _consumidos} == set(_ORFAOS_ACEITOS),
       f"medido: {sorted(n for n in por_nome if n not in _consumidos)}")
-# ⚠ O ESCORO É TERMINAÇÃO desde 27/08, e NÃO recompensa. A penalidade de −1,5 rodou 405
-# iterações do bloco 2 e caiu por medição: o contato do tronco caiu monotonicamente
-# (7,5% -> 3,8% -> 2,0%) e a manipulação caiu com ele (`staged` 0,36 -> 0,17). Multa que
-# o robô pode pagar é multa que ele orça.
-check("os sensores de mesa são lidos por TERMINAÇÃO, e não por recompensa",
-      all(cfg.terminations[nome].params["sensor_name"] == sensor
+# ⚠⚠ O ESCORO É MULTA desde 01/09, e NÃO terminação. A troca é medida dos dois lados:
+# com a terminação, 76% dos episódios de manipulação morriam na mesa e o `play` mostrou
+# que a ação MÉDIA nem se aproximava — aqueles 76% eram RUÍDO de exploração, e a
+# terminação matava a exploração antes de ela refinar a pega. Depois da troca, `descarga`
+# (a caixa fora da laje) foi de 0,0 a 0,994 e o `postura_ereta` saiu de ZERO.
+#
+# ⚠ E o precedente de 27/08 não vale: o `contato_prateleira = −1,5` do bloco 2 rodou num
+# sistema com quatro defeitos desde então consertados, e a conta dele nem fecha (−0,11/s
+# contra um teto de 11,5/s).
+check("os sensores de mesa são lidos por MULTA, e não por terminação",
+      all(cfg.rewards[nome].params["sensor_name"] == sensor
           for sensor, nome in C.MESA_POR_GRUPO)
-      and "contato_prateleira" not in cfg.rewards,
-      str(sorted(cfg.terminations)))
-check("as TRÊS usam o MESMO limiar de força, e ele vem do knobs",
-      all(cfg.terminations[nome].params["limiar_N"]
-          == k.terminacao.contato_ilegal_N for _, nome in C.MESA_POR_GRUPO)
-      and k.terminacao.contato_ilegal_N == 50.0,
-      "sem o limiar, a lista tornaria pose baixa inganhável; limiares diferentes "
-      "por parte fariam a partição mudar o COMPORTAMENTO, e ela é só medição")
+      and not any(nome in cfg.terminations for _, nome in C.MESA_POR_GRUPO),
+      f"recompensas={sorted(cfg.rewards)} terminações={sorted(cfg.terminations)}")
+check("as TRÊS multas usam o MESMO peso, e ele vem do knobs",
+      len({cfg.rewards[nome].weight for _, nome in C.MESA_POR_GRUPO}) == 1
+      and cfg.rewards["contato_tronco"].weight == k.recompensa.contato_tronco,
+      "pesos diferentes por parte fariam a partição mudar o COMPORTAMENTO, e ela é "
+      "só medição")
+# ⚠ O PESO É DERIVADO do `postura_ereta`, e não escolhido: o que escorar COMPRA é
+# alcançar sem pagar postura. Com os dois em 2,0, a pega ereta e a escorada ficam a
+# quatro pontos de distância.
+check("o peso da multa casa com o do `postura_ereta` — a derivação",
+      abs(k.recompensa.contato_tronco) == k.tarefa.postura_ereta == 2.0,
+      f"multa {k.recompensa.contato_tronco} contra postura {k.tarefa.postura_ereta}")
+# ⚠ RAMPA e não booleano: abaixo do joelho é ZERO (roçar sai de graça), e entre o joelho
+# e a saturação existe gradiente para TIRAR o peso. Booleano seria platô.
+check("as TRÊS usam a MESMA rampa de força, e ela vem do knobs",
+      all(cfg.rewards[nome].params["joelho_N"] == k.contato.joelho_N
+          and cfg.rewards[nome].params["saturacao_N"] == k.contato.saturacao_N
+          for _, nome in C.MESA_POR_GRUPO)
+      and k.contato.joelho_N == 50.0 and k.contato.saturacao_N == 100.0,
+      "o joelho é o MESMO 50 N que governava a terminação, medido no g1_poc")
+check("a rampa é ZERO abaixo do joelho e SATURA acima — roçar sai de graça",
+      _rampa(25.0, k) == 0.0 and _rampa(50.0, k) == 0.0
+      and abs(_rampa(75.0, k) - 0.5) < 1e-9
+      and _rampa(100.0, k) == 1.0 and _rampa(500.0, k) == 1.0,
+      f"25N={_rampa(25.0,k)} 50N={_rampa(50.0,k)} 75N={_rampa(75.0,k)} "
+      f"100N={_rampa(100.0,k)}")
+check("o limiar de força SAIU do bloco de terminação",
+      not hasattr(k.terminacao, "contato_ilegal_N"),
+      "ele é parâmetro de multa desde 01/09, e mora em `Contato`")
 
 # ----------------------- a PARTIÇÃO em três é de MEDIÇÃO, e a união não muda (31/08)
 # ⚠ ESTE É O CHECK QUE TORNA A PARTIÇÃO SEGURA. `reduce="netforce"` entrega UM número
@@ -222,13 +255,13 @@ check("a união dos três grupos É a lista de quem não escora",
       f"tronco {C.GRUPO_TRONCO} palma {C.GRUPO_PALMA} dorso {C.GRUPO_DORSO}")
 check("os três grupos são DISJUNTOS — nenhum geom conta duas vezes",
       len(set(C.CORPOS_QUE_NAO_ESCORAM)) == len(C.CORPOS_QUE_NAO_ESCORAM),
-      "um padrão repetido faria duas terminações dispararem no mesmo contato e a "
-      "leitura da fração por parte somaria mais de 100%")
-check("há uma terminação por sensor de mesa, e são três",
+      "um padrão repetido faria duas MULTAS cobrarem o mesmo contato, e a leitura "
+      "por parte somaria mais que o total")
+check("há uma MULTA por sensor de mesa, e são três",
       len(C.MESA_POR_GRUPO) == 3
-      and all(nome in cfg.terminations for _, nome in C.MESA_POR_GRUPO),
+      and all(nome in cfg.rewards for _, nome in C.MESA_POR_GRUPO),
       str([nome for _, nome in C.MESA_POR_GRUPO]))
-check("cada sensor de mesa pede `force` — sem isso o limiar é impossível",
+check("cada sensor de mesa pede `force` — sem isso a rampa é impossível",
       all("force" in por_nome[sensor].fields
           for sensor, _ in C.MESA_POR_GRUPO))
 check("os três sensores de mesa têm a MESMA mesa como secundário",
@@ -383,6 +416,62 @@ check("nenhum fonte do pacote contém `knee` (prova do colhimento)",
       not any("knee" in p.read_text(encoding="utf-8") for p in _fontes),
       str([p.name for p in _fontes if "knee" in p.read_text(encoding='utf-8')]))
 
+# ============ 9b. O ALGORITMO: vantagem normalizada POR ELO (01/09) ============
+secao("9b. a vantagem é normalizada por grupo de elo")
+# ⚠⚠ O DEFEITO: `rsl_rl/algorithms/ppo.py:188` normaliza a vantagem sobre o LOTE
+# INTEIRO, misturando envs de locomoção e de manipulação. Quando a manipulação destrava,
+# as vantagens dela ficam dispersas, o `std` do lote cresce, e as da LOCOMOÇÃO encolhem
+# para perto de zero — ela para de receber sinal e segue arrastada pelo gradiente da
+# outra tarefa.
+#
+# MEDIDO no bloco 7, com ~32% dos envs em locomoção:
+#     it 1600  loco 0,112  manip 0,446  razão 0,251  -> fatia no gradiente 10,4%
+#     it 1800  loco 0,164  manip 1,174  razão 0,139  -> fatia no gradiente  5,6%
+# E o resultado na MESMA iteração com o MESMO nível de manipulação (descarga ~0,99):
+#     marcha 0,484 -> 0,762   |   fell_over 51,9% -> 0,9%   |   duração 425 -> 888
+#
+# ⚠ ISTO NÃO SEPARA AS TAREFAS. Os pesos seguem INTEIRAMENTE compartilhados, e é isso
+# que o elo `CARREGAR` precisa. Só a estatística de agregação muda, e ela não carrega
+# conhecimento nenhum.
+import g1_limpo as _PKG                                                 # noqa: E402
+from g1_limpo import algoritmo as ALG                                   # noqa: E402
+from g1_limpo import observacoes as _OB                                 # noqa: E402
+from rsl_rl.algorithms import PPO as _PPO                               # noqa: E402
+from rsl_rl.utils import resolve_callable as _resolve                   # noqa: E402
+
+_rl = _PKG.rl_cfg()
+check("o `class_name` do algoritmo aponta para a nossa subclasse",
+      _rl.algorithm.class_name == ALG.CAMINHO == "g1_limpo.algoritmo:PPOPorElo",
+      f"medido: {_rl.algorithm.class_name}")
+# ⚠ STRING e não a classe: o logger do mjlab despeja o cfg em disco, e uma classe não
+# serializa. O `resolve_callable` do rsl_rl aceita `"modulo:Atributo"`.
+check("ele é uma STRING resolvível, e não o objeto de classe",
+      isinstance(_rl.algorithm.class_name, str))
+check("o `resolve_callable` do rsl_rl acha a classe pelo caminho",
+      _resolve(ALG.CAMINHO) is ALG.PPOPorElo)
+check("ela SUBCLASSA o PPO do rsl_rl — não reimplementa o GAE",
+      issubclass(ALG.PPOPorElo, _PPO)
+      and "super().compute_returns" in inspect.getsource(ALG.PPOPorElo),
+      "reimplementar o GAE criaria uma segunda fonte de verdade para a parte CERTA")
+check("ela normaliza sobre a vantagem CRUA, e não sobre a já normalizada",
+      "st.returns - st.values" in inspect.getsource(ALG.PPOPorElo.compute_returns),
+      "renormalizar o que o super() normalizou misturaria as duas escalas")
+check("a subclasse afirma o INVARIANTE de one-hot em runtime",
+      "allclose" in inspect.getsource(ALG.PPOPorElo.compute_returns),
+      "sem ele, uma fatia errada viraria treino silenciosamente errado")
+check("grupo com menos de 2 amostras é PULADO — `std` de uma amostra é NaN",
+      "< 2" in inspect.getsource(ALG.PPOPorElo.compute_returns),
+      "um NaN aqui se propaga para o gradiente inteiro no passo seguinte")
+
+# ⚠ A FATIA DO ELO é contada DO FIM, e o `env_cfg` garante a ordem por append: `elo` e
+# depois `caixa`. A aritmética se confere sem env; a comparação contra o
+# `observation_manager` VIVO está na seção do one-hot, mais abaixo.
+check("`fatia_do_elo` devolve o penúltimo bloco, de N_SLOTS canais",
+      _OB.fatia_do_elo(112) == slice(99, 104)
+      and _OB.fatia_do_elo(200) == slice(200 - _OB.N_CAIXA - _OB.N_SLOTS,
+                                        200 - _OB.N_CAIXA),
+      f"em 112 devolveu {_OB.fatia_do_elo(112)}")
+
 # ------------------------------------------------- 10. contrato de NÃO-IMPORT
 secao("10. contrato de não-import")
 _proibidos = ("g1_training", "g1_poc", "g1_multitask")
@@ -400,13 +489,13 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
-# ⚠ NOVE termos a mais que o molde: dois da F1 (locomoção) e os sete da F3 (tarefa). O
-# `contato_prateleira` esteve aqui entre 27/08 e 27/08 e saiu no mesmo dia: ele virou a
-# TERMINAÇÃO `contato_ilegal`, porque multa que o robô pode pagar é multa que ele orça.
+# ⚠ DOZE termos a mais que o molde: dois da F1 (locomoção), os sete da F3 (tarefa) e as
+# TRÊS multas de contato com a mesa, que entraram em 01/09 no lugar das três terminações.
 # O teste os NOMEIA em vez de contar — contar deixaria de pegar um termo esquecido.
 _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
-           "squeeze", "unload", "postura_ereta", "sustentacao"}
-check("a tabela divergE do molde em exatamente NOVE termos, e são estes",
+           "squeeze", "unload", "postura_ereta", "sustentacao",
+           "contato_tronco", "contato_palma", "contato_dorso"}
+check("a tabela divergE do molde em exatamente DOZE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))
@@ -1074,10 +1163,28 @@ try:
                             _t3.tensor([CMD.CARREGAR, CMD.BOTAR])).any()))
 
     # o one-hot, por passo, e a soma
-    # ⚠ O one-hot NÃO está mais no fim do vetor: os 8 canais da caixa vieram depois
-    # dele na F3. Fatiar com `[-N_SLOTS:]` leria os últimos 5 canais da CAIXA e o teste
-    # passaria medindo a coisa errada. O offset é calculado, não digitado.
-    _FAT_OH = slice(-(OB_.N_SLOTS + OB_.N_CAIXA), -OB_.N_CAIXA)
+    # ⚠ O one-hot NÃO está no fim do vetor: os 8 canais da caixa vieram depois dele na
+    # F3. Fatiar com `[-N_SLOTS:]` leria os últimos 5 canais da CAIXA e o teste passaria
+    # medindo a coisa errada.
+    #
+    # ⚠ E a fatia vem de `observacoes.fatia_do_elo`, que é a MESMA função que o
+    # `algoritmo.PPOPorElo` usa para achar o elo dentro da observação. Uma segunda conta
+    # aqui deixaria o teste passar com o algoritmo lendo o lugar errado.
+    _om3 = _env3.observation_manager
+    _FAT_OH = OB_.fatia_do_elo(_om3.group_obs_dim["actor"][0])
+    _off3, _acc3 = None, 0
+    for _n3, _d3 in zip(_om3.active_terms["actor"], _om3.group_obs_term_dim["actor"]):
+        if _n3 == "elo":
+            _off3 = _acc3
+            break
+        _acc3 += _d3[0]
+    check("a fatia do elo casa com onde o observation_manager VIVO põe o termo",
+          _off3 is not None
+          and _FAT_OH == slice(_off3, _off3 + OB_.N_SLOTS),
+          f"a função devolveu {_FAT_OH}, o manager põe em {_off3}")
+    check("o `caixa` vem DEPOIS do `elo` — é o que faz a contagem do fim valer",
+          list(_om3.active_terms["actor"])[-2:] == ["elo", "caixa"],
+          str(list(_om3.active_terms["actor"])))
     _oh = _env3.observation_manager.compute()["actor"][:, _FAT_OH]
     check("o one-hot soma 1,0 em toda linha",
           float((_oh.sum(-1) - 1.0).abs().max()) < 1e-6)
@@ -1386,11 +1493,15 @@ try:
           not bool(_t5c._face_viva.any()),
           "este env foi forçado no PEGAR — nenhuma face pode estar viva")
     # ⚠ A TOLERÂNCIA COBRE O ASSENTAMENTO DA CAIXA, e não o desenho: a normal é
-    # congelada na passada do `_pendente` e a caixa continua assentando na laje
-    # depois disso. 2e−2 rad é 1,1°, contra os 0,26 rad (15°) que a direção VIVA
-    # dava no nível 0 — a separação entre os dois regimes é de mais de 10×.
+    # congelada na passada do `_pendente` e a caixa continua assentando na laje depois
+    # disso. MEDIDO em execuções seguidas: até 0,024 rad. Com 2e−2 o check falhava
+    # acusando o solver de contato, e não o desenho.
+    #
+    # 4e−2 rad são 2,3°, contra os 0,26 rad (15°) que a direção VIVA dava no nível 0.
+    # A separação entre os dois regimes segue sendo de mais de 6× — que é o que este
+    # check afirma.
     check("congelada na normal ATUAL, portanto o erro angular nasce em ZERO",
-          float(_t5c.command[:, CMD.ANG].abs().max()) < 2e-2,
+          float(_t5c.command[:, CMD.ANG].abs().max()) < 4e-2,
           f"pior erro {float(_t5c.command[:, CMD.ANG].abs().max()):.5f} rad — "
           "o pedido é 'erga sem torcer', e no passo da abertura não há giro")
     del _e5

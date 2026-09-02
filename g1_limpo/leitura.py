@@ -67,17 +67,23 @@ CH_EFIC_LOCO = "derivado/eficiencia_dos_que_andam"
 CH_SEGMENTOS = "Metrics/twist/segmentos"
 
 # ⚠ AS TERMINAÇÕES SÃO CONTAGEM DE ENVS, não fração — divida pelo total antes de
-# comparar. O `contato_ilegal` nasceu em 27/08 e é o que substituiu a penalidade de
-# escoro; o g1_poc registra que ele SOBE quando o movimento fica caro (6,4% -> 17,5%
-# das terminações quando o `action_rate` encareceu). Espere valor alto no começo.
+# comparar. Some TODAS as `Episode_Termination/*` e divida; sem isso um valor de 8,5 não
+# diz nada, porque ele depende de quantos episódios acabaram na janela.
 # ⚠ TRÊS CANAIS DE CONTATO desde 31/08, e a partição é de MEDIÇÃO: mesmos geoms, mesmo
-# limiar, mesma união. `reduce="netforce"` entrega UM número por sensor, portanto o
-# canal único dizia "encostou" e não dizia com o quê. No bloco 4 o contato ilegal era
-# ~46% dos episódios de manipulação e não havia como saber se era o tronco, a coxa ou o
-# pad da palma — e sem isso o conserto seguinte seria chute.
-CH_CONTATO_TRONCO = "Episode_Termination/contato_tronco"
-CH_CONTATO_PALMA = "Episode_Termination/contato_palma"
-CH_CONTATO_DORSO = "Episode_Termination/contato_dorso"
+# joelho de força, mesmo peso. `reduce="netforce"` entrega UM número por sensor, portanto
+# um canal único dizia "encostou" e não dizia com o quê — e coxa batendo na quina em pé
+# pede conserto oposto ao de tronco mergulhando.
+#
+# ⚠⚠ ELES MUDARAM DE FAMÍLIA em 01/09: eram `Episode_Termination/*` e viraram
+# `Episode_Reward/*`, porque o contato deixou de terminar e passou a multar. Um log
+# anterior a essa data não tem estes canais, e o leitor vai marcar CHAVE AUSENTE — é o
+# comportamento certo, e não um defeito.
+#
+# ⚠ E o SINAL inverte a leitura: como terminação, valor alto era contagem de mortes; como
+# multa, é `Episode_Reward` NEGATIVO. Mais negativo = mais escoro.
+CH_CONTATO_TRONCO = "Episode_Reward/contato_tronco"
+CH_CONTATO_PALMA = "Episode_Reward/contato_palma"
+CH_CONTATO_DORSO = "Episode_Reward/contato_dorso"
 CH_LARGOU = "Episode_Termination/caixa_largada"
 CH_CAIU = "Episode_Termination/fell_over"
 # ⚠ AS DUAS MÉTRICAS QUE DESAMBIGUAM A PEGA, e elas nasceram em 28/08. O `squeeze` é
@@ -270,9 +276,9 @@ def _tabela_de_recompensa(acc, it: int, passos: float) -> None:
 
 def _tabela_de_marcha(acc, it: int) -> None:
     for rot, ch, un in (
-        ("term: mesa/tronco", CH_CONTATO_TRONCO, "  <- escoro do corpo"),
-        ("term: mesa/palma", CH_CONTATO_PALMA, "  <- a mão apoiou"),
-        ("term: mesa/dorso", CH_CONTATO_DORSO, "  <- aproximação torta"),
+        ("multa: mesa/tronco", CH_CONTATO_TRONCO, "  <- escoro do corpo"),
+        ("multa: mesa/palma", CH_CONTATO_PALMA, "  <- a mão apoiou"),
+        ("multa: mesa/dorso", CH_CONTATO_DORSO, "  <- aproximação torta"),
         ("term: caixa largada", CH_LARGOU, "  <- pegou e soltou"),
         ("term: caiu", CH_CAIU, ""),
         ("palmas na caixa", CH_PALMAS, "  <- 0 / 0,5 / 1,0"),

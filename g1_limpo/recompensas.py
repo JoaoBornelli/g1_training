@@ -16,9 +16,9 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
 from mjlab.utils.lab_api.math import quat_apply
 
-__all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "staged",
-           "precise_pos", "precise_ori", "squeeze", "unload", "postura_ereta",
-           "sustentacao"]
+__all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "contato_mesa",
+           "staged", "precise_pos", "precise_ori", "squeeze", "unload",
+           "postura_ereta", "sustentacao"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -106,6 +106,41 @@ class PosturaPorElo(variable_posture):
         elo = comando[:, canal_do_elo].long()
         anda = torch.isin(elo, torch.tensor(elos_que_andam, device=valor.device))
         return torch.where(anda, valor, torch.ones_like(valor))
+
+
+def contato_mesa(env, sensor_name: str, joelho_N: float,
+                 saturacao_N: float) -> torch.Tensor:
+    """Rampa de 0 a 1 na força contra a mesa. O PESO é negativo, no `knobs`.
+
+    ⚠⚠ ISTO SUBSTITUI UMA TERMINAÇÃO, e a troca é decisão do dono em 01/09 apoiada em
+    medição. Com a terminação, 76% dos episódios de manipulação morriam na mesa e a
+    aritmética favorecia ficar parado: 90 de retorno contra 66 de tentar. E o `play`
+    fechou o caso — a ação MÉDIA nem se aproximava da mesa, portanto aqueles 76% eram
+    RUÍDO de exploração encostando, não uma política que tenta e falha. A terminação
+    matava a exploração antes de ela refinar a pega.
+
+    MEDIDO depois da troca: `descarga` de 0,0 a 0,994 e `postura_ereta` saindo de zero
+    pela primeira vez no módulo.
+
+    ⚠ RAMPA, e não booleano. Abaixo do joelho a multa é ZERO — roçar o tampo ao alcançar
+    sai de graça, exatamente como o limiar da terminação já fazia. Entre o joelho e a
+    saturação existe GRADIENTE para tirar o peso da mesa; booleano seria platô, que é o
+    defeito que travou o `squeeze` por 22 mil iterações.
+
+    ⚠ O joelho é o MESMO 50 N que governava a terminação, medido no `g1_poc`
+    (`knobs.py:328`). Não é número novo.
+
+    ⚠ `amax` sobre os slots, e não `sum`: a pergunta é "algum ponto de contato passa do
+    joelho", não "a soma de todos passa". Com `reduce="netforce"` e `num_slots=1` os dois
+    coincidem hoje; o `amax` continua certo se alguém subir os slots.
+
+    ⚠ Devolve POSITIVO em [0, 1]. Quem faz dela penalidade é o peso negativo, que é a
+    convenção do molde — o `action_rate_l2` também devolve positivo.
+    """
+    f = env.scene[sensor_name].data.force
+    assert f is not None, f"sensor '{sensor_name}' precisa do field 'force'."
+    forca = torch.norm(f, dim=-1).amax(dim=-1)
+    return ((forca - joelho_N) / max(saturacao_N - joelho_N, 1e-6)).clamp(0.0, 1.0)
 
 
 def _anda_neste_elo(env, canal_do_elo: int, nome_do_comando: str,

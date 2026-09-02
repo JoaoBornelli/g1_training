@@ -41,6 +41,13 @@ def rl_cfg():
     """
     cfg = unitree_g1_ppo_runner_cfg()
     cfg.experiment_name = EXPERIMENT
+    # ⚠ A VANTAGEM É NORMALIZADA POR ELO, e não sobre o lote inteiro. O `ppo.py:188` do
+    # rsl_rl divide todas as vantagens pelo MESMO `std`; com a manipulação dispersa, as
+    # da locomoção encolhiam para perto de zero e ela recebia 5,6% do gradiente sendo
+    # 32% dos dados. MEDIDO: na mesma iteração e no mesmo nível de manipulação, a marcha
+    # foi de 0,484 para 0,762 e o `fell_over` de 51,9% para 0,9%. Ver `algoritmo.py`.
+    from g1_limpo.algoritmo import CAMINHO as ALGORITMO  # noqa: PLC0415
+    cfg.algorithm.class_name = ALGORITMO
     return cfg
 
 

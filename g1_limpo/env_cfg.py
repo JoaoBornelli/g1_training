@@ -187,38 +187,41 @@ def make_env_cfg(
     cfg.rewards["terminacao"] = RewardTermCfg(func=is_terminated, weight=0.0)
     cfg.rewards["joint_acc"] = RewardTermCfg(func=joint_acc_l2, weight=0.0)
 
-    # ---------------------------------------- 2f. A TERMINAÇÃO DO ESCORO (27/08)
-    # ⚠ TERMINAR EM VEZ DE PENALIZAR, e a troca vem de MEDIÇÃO. O escoro entrou primeiro
-    # como `contato_prateleira = -1.5` e rodou 405 iterações do bloco 2: o contato do
-    # tronco caiu monotonicamente (7,5% -> 3,8% -> 2,0% dos passos) E a manipulação caiu
-    # com ele (`staged` 0,36 -> 0,17). Uma multa que o robô pode pagar é uma multa que ele
-    # ORÇA — e com o `action_rate_l2` em −2,04, escorar sai mais barato que se mover. O
-    # g1_poc registra o mesmo mecanismo do outro lado: quando o movimento encareceu, o
-    # `contato_ilegal` dele subiu de 6,4% para 17,5% das terminações.
+    # ------------------------------------------- 2f. A MULTA DO ESCORO (01/09)
+    # ⚠⚠ TRÊS MULTAS, E ELAS SUBSTITUEM TRÊS TERMINAÇÕES. Decisão do dono, e a troca é
+    # apoiada em medição dos dois lados.
     #
-    # ⚠ A LISTA DE CORPO INTEIRO (33 geoms) RODOU E FALHOU. Medido no bloco 3, it 4251:
-    # `contato_ilegal` fez 18,5% das terminações contra uma fatia de manipulação de
-    # 24,7%, isto é ~75% dos episódios de manipulação morriam na mesa, com `squeeze` em
-    # 0,0002. A lista cobria punho e cotovelo — que TÊM de chegar perto do tampo — e não
-    # cobria os pads, que eram a superfície que escorava. Ver
-    # `cena.CORPOS_QUE_NAO_ESCORAM` para a lista de hoje e o porquê.
+    # CONTRA a terminação: com ela, 76% dos episódios de manipulação morriam na mesa e a
+    # aritmética favorecia ficar parado — 90 de retorno contra 66 de tentar. E o `play`
+    # fechou o caso: a ação MÉDIA nem se aproximava da mesa, portanto aqueles 76% eram
+    # RUÍDO de exploração encostando, e não uma política que tenta e falha. A terminação
+    # matava a exploração antes de ela refinar a pega.
     #
-    # ⚠ O `terminacao = -200` do molde já cobra este evento por `is_terminated`, que
-    # exclui o `time_out`. Portanto o preço é −4,0 no passo MAIS todo o retorno futuro
-    # perdido. Não somar penalidade nenhuma em cima.
-    # ⚠⚠ TRÊS TERMOS, E A UNIÃO É IDÊNTICA AO TERMO ÚNICO. A partição é de MEDIÇÃO e
-    # não de comportamento: mesmos geoms, mesmo limiar, mesmo `terminacao = −200`. O
-    # robô não vê diferença nenhuma — o que muda é que o `TerminationManager` loga cada
-    # termo separado, e o painel passa a dizer QUAL parte encostou.
+    # A FAVOR da multa, medido no bloco 7 depois da troca: `descarga` (a caixa fora da
+    # laje) foi de 0,0 a 0,994, `palmas_em_contato` de 0,09 a 0,63, e o `postura_ereta`
+    # — que exige pelve alta E preensão E descarga ao mesmo tempo — saiu de ZERO pela
+    # primeira vez no módulo.
     #
-    # Isso existe porque `reduce="netforce"` entrega UM número por sensor. No bloco 4 o
-    # `contato_ilegal` era ~46% dos episódios de manipulação e o log não distinguia
-    # tronco de coxa de pad da palma — qualquer conserto seguinte seria chute.
-    for _sensor, _nome_term in C.MESA_POR_GRUPO:
-        cfg.terminations[_nome_term] = TerminationTermCfg(
-            func=TE.contato_ilegal,
+    # ⚠ E o precedente contrário não se aplicava. O `contato_prateleira = −1,5` do bloco
+    # 2 caiu por medição, mas rodou num sistema com quatro defeitos desde então
+    # consertados: piso da estátua em 8,265/s, alcance `min` sobre esfera, `unload` sem
+    # porteiro, e a lista da mesa invertida. A conta dele nem fecha: −1,5 sobre 7,5% dos
+    # passos são −0,11/s contra um teto de tarefa de 11,5/s.
+    #
+    # ⚠ A PARTIÇÃO EM TRÊS FICA, e continua sendo medição: mesmos geoms, mesmo joelho de
+    # força, mesmo peso. Ela é a única coisa que separa "a coxa bateu na quina em pé" de
+    # "o tronco mergulhou", e as duas pedem consertos opostos. Ver
+    # `cena.CORPOS_QUE_NAO_ESCORAM` para a lista e o porquê dela.
+    #
+    # ⚠ CRIADAS COM PESO ZERO, e ANTES do `aplica_pesos`. Ele afirma que TODO campo de
+    # `Recompensa` existe em `cfg.rewards`, e é ele quem escreve o peso real. Criar
+    # depois levanta AssertionError; criar já com o peso duplicaria a fonte do número.
+    for _sensor, _nome_multa in C.MESA_POR_GRUPO:
+        cfg.rewards[_nome_multa] = RewardTermCfg(
+            func=RC.contato_mesa, weight=0.0,
             params={"sensor_name": _sensor,
-                    "limiar_N": k.terminacao.contato_ilegal_N})
+                    "joelho_N": k.contato.joelho_N,
+                    "saturacao_N": k.contato.saturacao_N})
 
     # ⚠ A OUTRA METADE DO PORTEIRO DO `unload`. O porteiro tira o pagamento de
     # "derrubar sem pegar"; esta terminação tira o de "pegar e largar". Ela é ARMADA

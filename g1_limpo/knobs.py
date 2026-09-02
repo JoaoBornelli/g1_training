@@ -316,6 +316,24 @@ class Recompensa:
     terminacao: float = -200.0
     joint_acc: float = -2.5e-7
 
+    # --- a MULTA DE CONTATO COM A MESA (01/09), uma por parte do corpo ---
+    # ⚠ O PESO É DERIVADO, e não escolhido. O que escorar COMPRA é alcançar sem pagar
+    # postura, e quem paga postura é o `postura_ereta`, com peso 2,0. Com −2,0 aqui:
+    #
+    #     pega ERETA      +2,0 de postura_ereta,   0,0 de multa   ->  +2,0
+    #     pega ESCORADA    0,0 de postura_ereta,  −2,0 de multa   ->  −2,0
+    #
+    # Quatro pontos de diferença, e continua PAGÁVEL: 2,0/s contra um teto de tarefa de
+    # 11,5/s são 17%, não um penhasco. A terminação que isto substitui custava −4,0 no
+    # passo MAIS o retorno restante do episódio, da ordem de 90 — ~45x mais pesada.
+    #
+    # ⚠ TRÊS PESOS IGUAIS, e não um termo só. A partição por parte é MEDIÇÃO: ela é a
+    # única coisa que separa "a coxa bateu na quina em pé" de "o tronco mergulhou", e as
+    # duas pedem consertos opostos.
+    contato_tronco: float = -2.0
+    contato_palma: float = -2.0
+    contato_dorso: float = -2.0
+
     # ⚠ O `contato_prateleira` SAIU em 27/08, e virou a terminação `contato_ilegal`
     # (`Terminacao.contato_ilegal_N`). O bloco 2 rodou 405 iterações com ele como
     # penalidade de −1,5 e o resultado decidiu: o contato do tronco caiu monotonicamente
@@ -631,22 +649,55 @@ class Cadeia:
 
 
 @dataclass
+class Contato:
+    """A RAMPA da multa de contato com a mesa. Os PESOS vivem em `Recompensa`.
+
+    ⚠⚠ ISTO ERA TERMINAÇÃO ATÉ 01/09, e a troca é decisão do dono apoiada em medição.
+    Com a terminação, 76% dos episódios de manipulação morriam na mesa e ficar parado
+    rendia 90 de retorno contra 66 de tentar. Pior: o `play` mostrou que a ação MÉDIA
+    nem se aproximava da mesa — aqueles 76% eram RUÍDO de exploração encostando, e a
+    terminação matava a exploração antes de ela refinar a pega.
+
+    MEDIDO depois da troca, no bloco 7: `descarga` (caixa fora da laje) foi de 0,0 a
+    0,994, `palmas_em_contato` de 0,09 a 0,63, e o `postura_ereta` — que exige pelve
+    alta E preensão E descarga ao mesmo tempo — saiu de zero pela primeira vez.
+
+    ⚠ E o precedente contrário NÃO se aplicava. O `contato_prateleira = −1,5` do bloco 2
+    caiu por medição, mas rodou num sistema com quatro defeitos desde então consertados:
+    piso da estátua em 8,265/s, alcance `min` sobre esfera, `unload` sem porteiro, e a
+    lista da mesa invertida. A conta dele nem fecha: −1,5 sobre 7,5% dos passos são
+    −0,11/s contra um teto de 11,5/s.
+
+    ⚠ A FORMA É RAMPA, e não booleano. Booleano é platô — o defeito que travou o
+    `squeeze` por 22 mil iterações — e apaga a distinção que o limiar existe para fazer:
+    roçar não é escorar.
+    """
+
+    joelho_N: float = 50.0
+    """Abaixo desta força a multa é ZERO. Roçar o tampo ao alcançar sai de graça.
+
+    ⚠ MEDIDO no `g1_poc` (`knobs.py:328`), onde a mesma força governava a terminação.
+    Não é número novo: é o mesmo joelho, com rampa no lugar do penhasco."""
+
+    saturacao_N: float = 100.0
+    """Acima desta força a multa satura no peso cheio.
+
+    ⚠ O DOBRO do joelho, e a razão é a semântica: de 50 a 100 N existe gradiente para
+    TIRAR o peso da mesa. Sem a faixa, o robô não teria pista de que aliviar ajuda."""
+
+
+@dataclass
 class Terminacao:
     """As terminações próprias. `time_out` e `fell_over` vêm do molde.
 
     ⚠ Este bloco NASCEU em 27/08. Até então o g1_limpo não tinha terminação própria
     nenhuma, e o princípio "terminar em vez de penalizar" do g1_poc tinha sido perdido na
     reescrita junto com os termos.
+
+    ⚠ O CONTATO COM A MESA SAIU daqui em 01/09 e virou multa — ver `Contato`. O que
+    sobra é a caixa largada, que continua terminação porque não há como "pagar" por ter
+    perdido a caixa: com ela no chão, a tarefa acabou.
     """
-
-    contato_ilegal_N: float = 50.0
-    """Força mínima, em newtons, para o contato com a mesa terminar o episódio.
-
-    ⚠ MEDIDO no `g1_poc` (`knobs.py:328`), onde a mesma terminação rodou com este valor.
-    Não é número novo.
-
-    ⚠ É ELE que torna a lista segura: roçar o tampo ao alcançar não termina, apoiar o
-    peso termina. Com booleano, a lista tornaria pose baixa inganhável."""
 
     caixa_z_min: float = 0.10
     """Altura da caixa, relativa à origem do env, abaixo da qual ela CAIU.
@@ -675,6 +726,7 @@ class Knobs:
     tarefa: Tarefa = field(default_factory=Tarefa)
     cadeia: Cadeia = field(default_factory=Cadeia)
     terminacao: Terminacao = field(default_factory=Terminacao)
+    contato: Contato = field(default_factory=Contato)
 
 
 ATIVO = Knobs()

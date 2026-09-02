@@ -4,24 +4,29 @@
 `out_of_terrain_bounds`, que o `env_cfg` remove: o terreno é plano e a mobília tem pose
 absoluta.
 
-**Princípio: TERMINAR EM VEZ DE PENALIZAR.** Uma trajetória inválida acaba; ela não paga
-multa. É o que a tarefa `tracking` do mjlab faz, e é o que o `g1_poc` adotou trocando
-quatro penalidades por duas terminações (`g1_poc/terminacoes.py:8-14`).
+**Princípio: TERMINAR SÓ O QUE NÃO TEM COMO SER PAGO.** É a forma REVISADA, em 01/09, do
+"terminar em vez de penalizar" que o `g1_poc` adotou. A revisão vem de medição, e ela
+distingue dois casos que antes eram tratados como um:
 
-⚠ A REESCRITA PERDEU O PRINCÍPIO JUNTO COM OS TERMOS. Até 27/08 o `g1_limpo` não tinha
-terminação própria NENHUMA — só as duas do molde. E o freio do escoro entrou primeiro como
-penalidade (`contato_prateleira = -1.5`), que rodou 405 iterações do bloco 2 e mostrou o
-problema da forma: o contato do tronco caiu monotonicamente (7,5% -> 3,8% -> 2,0% dos
-passos) e a manipulação caiu com ele (`staged` 0,36 -> 0,17), porque uma multa que o robô
-pode pagar é uma multa que ele orça. A terminação não é orçável.
+  · **encostar na mesa TEM como ser pago** — o robô alivia o peso e segue a tarefa.
+    Terminar ali mata a exploração antes de ela refinar a pega. Virou multa em rampa.
+  · **largar a caixa NÃO tem** — com ela no chão a tarefa acabou. Continua terminação.
 
-As DUAS terminações próprias, e o que cada uma fecha:
+⚠ E o argumento "multa que o robô pode pagar é multa que ele ORÇA" NÃO foi abandonado —
+ele foi medido e não se realizou. A previsão era `contato_tronco` cada vez mais negativo
+com `staged` parado; o medido foi `contato_tronco` em −0,09 (7% da conta do
+`action_rate`) com `staged` DOBRANDO. O risco existe e o discriminador fica registrado.
 
-    contato_ilegal   escorar o corpo na mesa
-    caixa_largada    derrubar a caixa DEPOIS de tê-la pegado
+A ÚNICA terminação própria é a `caixa_largada`: derrubar a caixa depois de tê-la
+pegado. Ela é a metade que faltava do porteiro do `unload` — o porteiro tira o pagamento
+de "derrubar sem pegar", e ela tira o de "pegar e largar".
 
-A segunda entrou em 28/08 e ela é a metade que faltava do porteiro do `unload`: o
-porteiro tira o pagamento de "derrubar sem pegar", e esta tira o de "pegar e largar".
+⚠ O CONTATO COM A MESA SAIU DAQUI em 01/09 e virou MULTA (`recompensas.contato_mesa`).
+Não é abandono do princípio: largar a caixa não tem como ser pago — com ela no chão a
+tarefa acabou —, enquanto encostar na mesa tem. E a medição decidiu: com a terminação,
+76% dos episódios de manipulação morriam na mesa, e o `play` mostrou que a ação MÉDIA
+nem se aproximava, portanto aqueles 76% eram RUÍDO de exploração. A terminação matava a
+exploração antes de ela refinar a pega. Depois da troca, `descarga` foi de 0,0 a 0,994.
 """
 from __future__ import annotations
 
@@ -62,37 +67,3 @@ def caixa_largada(env: "ManagerBasedRlEnv", z_min: float,
     caiu = (caixa[:, 2] - env.scene.env_origins[:, 2]) < z_min
     escapou = (dist > dist_max).all(dim=-1)
     return (caiu | escapou) & (pegou > 0.5)
-
-
-def contato_ilegal(env: "ManagerBasedRlEnv", sensor_name: str,
-                   limiar_N: float) -> torch.Tensor:
-    """Uma parte do corpo que não deve escorar toca a mesa com força acima do limiar.
-
-    ⚠ QUEM ESTÁ NA LISTA importa tanto quanto o limiar, e a lista de CORPO INTEIRO
-    falhou por medição — ver o bloco de `cena.CORPOS_QUE_NAO_ESCORAM`. Em resumo: ela
-    cobria punho e cotovelo, que TÊM de chegar perto do tampo para pegar, e não cobria
-    os pads, que eram a superfície que escorava. O sinal estava invertido, e ~75% dos
-    episódios de manipulação morriam na aproximação.
-
-    ⚠ LIMIAR DE FORÇA, e não booleano. Roçar o tampo ao alcançar não termina; APOIAR o
-    peso termina. Com um booleano, a lista tornaria pose baixa inganhável, que é a
-    classe de erro do `botar_topo_piso` neste módulo.
-
-    ⚠ 50 N é MEDIDO no `g1_poc` (`knobs.py:328`), onde a mesma terminação rodou. Não é
-    escolha nova.
-
-    ⚠ E há um registro do g1_poc que se aplica direto aqui: quando o movimento ficou
-    caro (o `action_rate` degrau para −1,00), o `contato_ilegal` subiu de 6,4% para 17,5%
-    das terminações — "com movimento caro, escorar o tronco na prateleira economiza
-    esforço". O PESO do `action_rate_l2` no g1_limpo é −0,10 (o do fabricante), mas o
-    `Episode_Reward` dele mede −2,3/s, a maior conta do conjunto. A mesma pressão
-    existe, portanto ESPERE esta terminação disparar, e leia a fração dela antes de
-    concluir que o robô piorou.
-
-    ⚠ `amax` sobre os slots, e não `sum`: a pergunta é "algum ponto de contato passa de
-    50 N", não "a soma de todos passa". Com `reduce="netforce"` e `num_slots=1` os dois
-    coincidem hoje; o `amax` continua certo se alguém subir os slots.
-    """
-    f = env.scene[sensor_name].data.force
-    assert f is not None, f"sensor '{sensor_name}' precisa do field 'force'."
-    return torch.norm(f, dim=-1).amax(dim=-1) > limiar_N
