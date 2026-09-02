@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
-**Estado:** APROVADO COM EMENDAS em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v9 — DR de TAMANHO da caixa desde a FASE 1, via variantes de entidade)
+**Estado:** APROVADA, SEM PENDÊNCIAS, em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v10 — FECHADA: a rede vê o tamanho; 112 canais; nenhuma pendência)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -135,7 +135,7 @@ outra abordagem, se vier a ser. A razão técnica está na §7.3.
 Esta seção é a que importa em campo. Ela lista **tudo** que a rede recebe, e de onde
 cada coisa vem no mundo real.
 
-A observação do `actor` tem **111 canais**, nesta ordem:
+A observação do `actor` tem **112 canais**, nesta ordem:
 
 | # | canal | dim | de onde vem em campo |
 |---|---|---|---|
@@ -147,28 +147,31 @@ A observação do `actor` tem **111 canais**, nesta ordem:
 | 5 | `actions` | 29 | última ação, a bordo |
 | 6 | `command` (twist) | 3 | **EXTERNO** — o piloto: `vx, vy, wz` |
 | 7 | `elo` (one-hot) | 5 | **EXTERNO** — o botão de tarefa |
-| 8 | `caixa` | 7 | ver §4.1 |
+| 8 | `caixa` | 8 | ver §4.1 |
 
-Total: `3+3+3+29+29+29+3+5+7 = 111`.
+Total: `3+3+3+29+29+29+3+5+8 = 112`.
 
-⚠ **Eram 112.** O canal `VALIDA` sai da observação (§6.2). Ele continua existindo
-**dentro** do sim, como porta de recompensa e de fecho de elo — só não é mais entrada da
-rede.
+⚠ **112 antes e 112 depois — mas não os mesmos 112.** O canal `VALIDA` **sai** da
+observação (§6.2); ele continua dentro do sim como porta de recompensa e de fecho de elo.
+O canal `meia_aresta` — o tamanho da caixa — **entra**, no fim do termo `caixa` (§6.7). A
+contagem coincide por acaso; o significado da primeira camada muda, e o checkpoint antigo
+não serve (§12).
 
-⚠ **E podem voltar a ser 112**, por outro motivo: a §6.7 propõe que o **tamanho da caixa**
-entre como canal (`meia_aresta`, 1), no fim do termo `caixa`. Pendente do dono (§13).
-
-### 4.1 Os 7 canais de caixa, em detalhe
+### 4.1 Os 8 canais de caixa, em detalhe
 
 | canal | dim | o que é | de onde vem em campo |
 |---|---|---|---|
 | `caixa_b` | 3 | **posição** da caixa, no frame da base | **PERCEPÇÃO** |
 | `alvo_b` | 3 | **posição** do alvo, no frame da base | calculado A BORDO (exceto `BOTAR`) |
 | `ANG` | 1 | **escalar**, em radianos: erro angular entre a normal da face marcada e a face pedida | calculado A BORDO, de percepção + tarefa |
+| `meia_aresta` | 1 | **escalar**, em metros: meio-lado da caixa (§6.7) | **PERCEPÇÃO** — o bounding box |
 
-⚠⚠ **Os 7 canais são ZERO quando o one-hot publicado é `ANDAR`**, e vivos em todo outro
+⚠⚠ **Os 8 canais são ZERO quando o one-hot publicado é `ANDAR`**, e vivos em todo outro
 caso. Não existe terceiro estado. Esta é a **invariante que substitui o bit**, e é o que
 a rede lê como "existe tarefa de caixa": canais preenchidos, ou canais em zero.
+
+**O tamanho é input, e é decisão do dono (02/09).** Sem ele a política chutaria a abertura
+das mãos — ver a tabela da §6.7.
 
 **A posição da caixa é input em todo elo de manipulação** — `PEGAR` incluído. Ela é o
 canal que guia o alcance. O que NÃO é input externo é o `alvo_b`, na maioria dos elos.
@@ -205,7 +208,7 @@ odometria de altura do robô — nada externo.
   campo, a percepção tem de identificar essa face — fiducial, ou geometria conhecida.
   Sem isso o `ANG` não é computável.
 - **Não existe bit "a caixa existe".** Ele era redundante com o one-hot (§6.2). Em campo,
-  "a caixa existe" é a camada de tarefa **preencher** os 7 canais ou **zerá-los** — a
+  "a caixa existe" é a camada de tarefa **preencher** os 8 canais ou **zerá-los** — a
   mesma regra que o sim aplica.
 
 ### 4.2 O que o operador manda, no total
@@ -218,15 +221,16 @@ alvo BOTAR   3 números    só no BOTAR
                           11 números, no máximo
 ```
 
-Mais, da percepção: **posição da caixa (3)** e **orientação da caixa (4)**, para o
-cálculo a bordo de `caixa_b` e `ANG`.
+Mais, da percepção: **posição da caixa (3)**, **orientação da caixa (4)** e **tamanho da
+caixa (1)** — os dois primeiros para o cálculo a bordo de `caixa_b` e `ANG`, o terceiro
+entra direto como `meia_aresta`.
 
 #### As regras da camada de tarefa — do lado do robô real
 
 Quatro regras, e todas espelham algo que o **sim** faz por conta própria. Em campo,
 **nada as faz sozinho** — a camada de tarefa tem de implementá-las.
 
-1. **`elo = ANDAR` ⟹ os 7 canais de caixa em zero.** Sempre, mesmo com a caixa à vista da
+1. **`elo = ANDAR` ⟹ os 8 canais de caixa em zero.** Sempre, mesmo com a caixa à vista da
    percepção. É a regra que substitui o bit. (Sim: o gate da §6.1.)
 2. ⚠ **`elo ∈ {PEGAR, REORIENTAR, BOTAR}` ⟹ twist forçado a zero**, seja o que for que o
    piloto mande. (Sim: `_zera_twist_nos_parados`.) Sem isso, um joystick encostado
@@ -261,13 +265,13 @@ item separado, e ela mexe na locomoção, que hoje funciona.
 
 ### 4.4 Uma movimentação completa, canal a canal
 
-Dos 111 canais, **85 são proprioceptivos e automáticos** (IMU, encoders, última ação).
-Os **15 que carregam tarefa** são montados pela camada de tarefa a cada passo, a 50 Hz:
+Dos 112 canais, **85 são proprioceptivos e automáticos** (IMU, encoders, última ação).
+Os **16 que carregam tarefa** são montados pela camada de tarefa a cada passo, a 50 Hz:
 
 ```
 command   3   vx  vy  wz
 elo       5   [ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR]
-caixa     7   caixa_b(3)  alvo_b(3)  ANG(1)
+caixa     8   caixa_b(3)  alvo_b(3)  ANG(1)  meia_aresta(1)
 ```
 
 Valores de exemplo com os constantes reais: `peito_b = (0,25, 0, 0,15)`,
@@ -280,6 +284,7 @@ FASE 1 — ANDAR até a mesa (piloto)
   caixa_b  ( 0,00   0,00   0,00 )      camada ZERA  <- a percepção pode já ver a caixa; não passa
   alvo_b   ( 0,00   0,00   0,00 )      zera
   ANG        0,00                       zera
+  meia       0,00                       zera
 
 FASE 2 — parado na mesa (v = 0)
   twist    ( 0,00   0,00   0,00 )      PILOTO zera
@@ -293,6 +298,7 @@ FASE 3 — PEGAR                          <- o botão
   caixa_b  ( 0,55   0,00  -0,15 )      PERCEPÇÃO: 55 cm à frente, 15 cm abaixo da pelve
   alvo_b   ( 0,25   0,00  +0,15 )      A BORDO: (0,25, 0, 0,95 − 0,80)
   ANG        0,12 rad                   A BORDO
+  meia       0,10 m                     PERCEPÇÃO: meio-lado da caixa — esta é de 20 cm
   fim: caixa erguida e segura — no sim, condição sustentada 0,5 s; em campo, o operador vê
 
 FASE 4 — CARREGAR (andar com a caixa)
@@ -301,6 +307,7 @@ FASE 4 — CARREGAR (andar com a caixa)
   caixa_b  ( 0,24   0,01  +0,12 )      PERCEPÇÃO: agora perto do peito
   alvo_b   ( 0,25   0,00  +0,15 )      A BORDO: mesma âncora — a caixa deve ficar nela
   ANG        0,05 rad                   A BORDO
+  meia       0,10 m                     PERCEPÇÃO
 
 FASE 5 — parado no destino, caixa na mão (v = 0)
   twist    ( 0,00   0,00   0,00 )      PILOTO zera
@@ -313,6 +320,7 @@ FASE 6 — BOTAR                          <- o botão
   caixa_b  ( 0,24   0,01  +0,12 )      PERCEPÇÃO
   alvo_b   ( 0,35   0,00  -0,20 )      EXTERNO — o único alvo enviado: onde botar, no frame da base
   ANG        0,05 rad                   A BORDO: face pedida para o botar
+  meia       0,10 m                     PERCEPÇÃO
   fim: caixa apoiada — no sim, força de apoio ≥ fração do peso; em campo, o operador vê
 
 FASE 7 — ANDAR v=0 (larga e fica parado — a ESPERA final)
@@ -399,8 +407,8 @@ isso do bit ao one-hot, e então o bit fica redundante (§6.2).
 
 ### 6.1 Gate dos canais de caixa
 
-`caixa_b`, `alvo_b` e `ANG` vão a **zero** quando o **elo publicado** é `ANDAR`. Vivos em
-todo outro caso. Não existe terceiro estado.
+`caixa_b`, `alvo_b`, `ANG` e `meia_aresta` vão a **zero** quando o **elo publicado** é
+`ANDAR`. Vivos em todo outro caso. Não existe terceiro estado.
 
 Consequências:
 
@@ -449,7 +457,7 @@ locomoção paga por ficar parado). E a separação de magnitude entre `|caixa_b
 0,5–1,0 m` normalizado e a constante do zero é grande. O `g1_poc` mantém o bit — tirar é
 divergir do precedente que funcionou. Aceito, com a trava da §11.1 item 2.
 
-**A mudança de dimensão (112 → 111) é de graça agora:** o gate já força reinício (§12).
+**Tirar um canal é de graça agora:** o gate já força reinício (§12). E o `meia_aresta` da §6.7 entra no lugar — 112 antes e depois, com significado diferente.
 
 ### 6.3 A espera publica `ANDAR` — a transição TREINADA
 
@@ -685,8 +693,8 @@ mundo: `geom_size`, `geom_rbound`, `geom_aabb`, `body_mass`, `body_inertia`, e m
 #### O desenho
 
 ```
-caixa_meia_aresta_faixa  = (0,07, 0,13)   m      ±30% em torno dos 0,10 de hoje   (knob)
-caixa_n_variantes        = 8                      passo de ~0,86 cm                 (knob)
+caixa_meia_aresta_faixa  = (0,07, 0,13)   m      ±30% em torno dos 0,10 de hoje   (decisão do dono, 02/09)
+caixa_n_variantes        = 8                      passo de ~0,86 cm                 (decisão do dono, 02/09)
 escala                   = UNIFORME nos 3 eixos   a caixa segue cubo                (decisão)
 atribuição               = aleatória por env, com semente, fixa na run
 massa                    = igual em todas as variantes; a carga segue pelo wrench
@@ -727,11 +735,11 @@ envs — e a recompensa sabe o tamanho certo de cada env, mas a política não.
 | custo | zero | +1 canal, gateado como os outros 7; 111 → 112 |
 | risco | pega pior em todos os tamanhos, pela média | nenhum específico |
 
-**Recomendação: observar.** Um canal `meia_aresta` (o meio-lado, em metros) no fim do
-termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros sete. Em campo
-ele vem da percepção, como `caixa_b`. A política é sem memória (§7.2): ela não tem como
-"descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta. **Pendente do dono
-(§13).**
+**Decisão do dono (02/09): observar.** Um canal `meia_aresta` (o meio-lado, em metros)
+no fim do termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros sete. Em
+campo ele vem da percepção, como `caixa_b`. A política é sem memória (§7.2): ela não tem
+como "descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta. O termo
+`caixa` volta a ter 8 canais e a observação volta a 112 (§4).
 
 #### O que NÃO muda
 
@@ -1011,15 +1019,17 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 
 ### 11.1 Travas de smoke
 
-1. **O gate.** Com o elo publicado em `ANDAR`, os 7 canais de caixa são **exatamente
+1. **O gate.** Com o elo publicado em `ANDAR`, os 8 canais de caixa são **exatamente
    zero** — e o teste teleporta a caixa para perto antes de medir, para provar que o
    zero vem do gate e não da distância. Nos dois grupos, `actor` e `critic`.
 2. **A invariante que substitui o bit.** Em nenhum passo do treino existe
    `|caixa_b| = 0` com publicado ≠ `ANDAR`, nem `|caixa_b| ≠ 0` com publicado = `ANDAR`.
    Não há terceiro estado.
-3. **A dimensão.** 111 canais no `actor`; o `VALIDA` não está na observação. Ele
-   continua existindo no comando (é a porta dos sete incentivos), e o smoke afirma que
-   ele vale exatamente `publicado ≠ ANDAR`.
+3. **A dimensão.** 112 canais no `actor`: o `VALIDA` **não** está na observação e o
+   `meia_aresta` **está**, como último canal do termo `caixa`. O `VALIDA` continua
+   existindo no comando (é a porta dos sete incentivos), e o smoke afirma que ele vale
+   exatamente `publicado ≠ ANDAR`. E `meia_aresta` na observação bate com
+   `limpo_meia_aresta` env a env quando o publicado ≠ `ANDAR`.
 4. **A espera publica `ANDAR`.** Num episódio de manipulação, na observação do **reset**
    (antes de qualquer passo): one-hot `ANDAR`, twist zero, canais de caixa zero. Na
    borda: one-hot `PEGAR`, canais vivos, **no mesmo passo**. E o elo **interno** é `PEGAR`
@@ -1081,9 +1091,10 @@ as duas apostas da §7.2 é a afirmação que o teste faz.
 ## 12. CUSTO
 
 ⚠ **O checkpoint atual é invalidado, por duas razões independentes.** Sete canais que
-valiam ~4,3 no `ANDAR` passam a valer 0 (distribuição de observação), e a observação
-perde um canal (112 → 111, a primeira camada muda de forma). Resume não resolve
-nenhuma das duas. **Treino do zero.**
+valiam ~4,3 no `ANDAR` passam a valer 0 (distribuição de observação), e um canal troca de
+significado (sai `VALIDA`, entra `meia_aresta` — 112 antes e depois, mas a primeira
+camada lê outra coisa naquela coluna). Resume não resolve nenhuma das duas. **Treino do
+zero.**
 
 A run `bloco7` (it ~2514, `precise_pos` subindo, `descarga = 0,965`) fica inconsistente
 com o código novo. Ela pode seguir até onde valer, mas não recebe estas mudanças. O que
@@ -1125,7 +1136,7 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
   deixa de ser "PEGAR com objetivo desligado" e vira "ANDAR parado, e então PEGAR". Sem
   cadeia nova, sem tocar currículo.
 - **O `VALIDA` sai da observação** (§6.2). Fica no sim como porta de recompensa e de
-  fecho de elo. 111 canais.
+  fecho de elo. (Com o `meia_aresta` da sexta rodada, a observação fica em 112.)
 - **`REORIENTAR` é habilidade futura:** fica no código E no sorteio (§8.3); o defeito
   do avanço grátis fica registrado, não consertado.
 - **Primeiro funcionar no sim, depois complicar.** DR é a FASE 2 e LIDAR em todas as
@@ -1167,10 +1178,11 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
   (cubo), 14 a 26 cm, K = 8, atribuição aleatória por env fixa na run, massa igual em
   todas. A caixa vira mesh.
 
-**Pendentes:**
+**Tomadas (02/09, sexta rodada — fecha a spec):**
 
-1. **A rede vê o tamanho?** Recomendação: sim, +1 canal `meia_aresta` gateado (111 → 112).
-   Ver a tabela da §6.7. Sem ele a política chuta a abertura das mãos.
-2. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`. E o
-   `|wz|` mínimo: 0,2 rad/s de partida.
-3. **Faixa e K do tamanho** — (0,07, 0,13) m e 8 são pontos de partida.
+- **A rede vê o tamanho.** Canal `meia_aresta` no fim do termo `caixa`, gateado. 112
+  canais (§4, §6.7).
+- **`rel_turning_envs = 0,10`**, com `|wz| ≥ 0,2 rad/s` (§9).
+- **Tamanho: (0,07, 0,13) m, K = 8** (§6.7).
+
+**Pendentes: nenhuma.** O próximo passo é o plano de implementação.
