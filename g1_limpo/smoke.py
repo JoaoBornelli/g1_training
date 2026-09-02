@@ -1435,6 +1435,168 @@ except Exception as _insx:      # noqa: BLE001
     _falhas.append(f"o inspetor não pôde ser lido: "
                    f"{type(_insx).__name__}: {_insx}")
 
+# ============ 16c. A ENTREGA DA TAREFA AO VIVO (só visualizador, 02/09) ===========
+secao("16c. a entrega da tarefa ao vivo")
+# ⚠ Ela simula o DEPLOY: a caixa na laje à vista do robô desde o começo, o robô de pé
+# com comando de velocidade ZERO, e a tarefa chegando aos N segundos. No treino isto
+# NÃO existe — o elo é sorteado no reset e nunca troca no meio. Este bloco existe para
+# que o caminho de visualizador não possa vazar para o treino, e o risco aqui é MAIOR
+# que o do `avanca_elo`: este evento também zera o twist, portanto no treino ele
+# apagaria a locomoção inteira.
+check("o cfg de TREINO não tem o evento de entrega",
+      "entrega_tarefa" not in cfg.events,
+      "no treino ele zeraria o twist e apagaria a locomoção, sem erro nenhum")
+check("nem o `play` sozinho o cria — ele exige `entrega_apos_s` explícito",
+      "entrega_tarefa" not in play.events)
+_cfg_tr = make_env_cfg(k, play=True, elo=CMD.ANDAR, entrega_apos_s=3.0)
+check("com `entrega_apos_s` no play o evento existe, e é de INTERVALO",
+      "entrega_tarefa" in _cfg_tr.events
+      and _cfg_tr.events["entrega_tarefa"].mode == "interval",
+      "o `run_play` do mjlab não expõe gancho por passo; intervalo é o idioma")
+# ⚠ INTERVALO DE UM PASSO, e não do prazo da entrega: o evento tem de rodar todo passo
+# para manter o twist em zero. Com o intervalo no prazo, o robô sairia andando.
+_dt_esp = _cfg_tr.sim.mujoco.timestep * _cfg_tr.decimation
+check("o intervalo é de UM PASSO, como o `trava_robo`",
+      _cfg_tr.events["entrega_tarefa"].interval_range_s == (_dt_esp, _dt_esp),
+      f"{_cfg_tr.events['entrega_tarefa'].interval_range_s} contra dt={_dt_esp}")
+check("o prazo da entrega vai em `params`, e não no intervalo",
+      _cfg_tr.events["entrega_tarefa"].params["entrega_apos_s"] == 3.0)
+# ⚠ A TASK REGISTRADA, e a assimetria dela é o ponto: o `run_play` carrega o cfg
+# REGISTRADO e roda o próprio laço — ele não expõe gancho para mutar cfg. Portanto a
+# variante tem de existir no registro. E o `env_cfg` dela é o SIMPLES, porque
+# `entrega_apos_s` estoura fora de play/inspecao de propósito.
+check("a task de entrega está registrada, e o robô fica LIVRE nela",
+      _PKG.TASK_ENTREGA in __import__(
+          "mjlab.tasks.registry", fromlist=["list_tasks"]).list_tasks()
+      and "trava_robo" not in _PKG.make_env_cfg(
+          play=True, elo=CMD.ANDAR,
+          entrega_apos_s=_PKG.ENTREGA_APOS_S).events,
+      "com `trava_robo` o robô fica pinado e a transição não tem o que mostrar")
+# ⚠ OS PARAMS DA CENA SÃO REUSADOS do evento de reset. Duas cópias sairiam de sincronia
+# no dia em que um nível novo entrar, e a entrega posicionaria a mobília com a tabela
+# velha — a caixa nasceria numa altura que a recompensa não espera.
+check("os params de cena vêm do evento de reset, e não redigitados",
+      _cfg_tr.events["entrega_tarefa"].params["cena"]
+      == dict(_cfg_tr.events["posiciona_cena"].params))
+# ⚠⚠ A BASE RESETA NA FAIXA DE MANIPULAÇÃO, e sem isto o modo é INÚTIL. O
+# `reset_base_por_elo` escolhe a faixa pelo ELO, e aqui o elo de abertura é o `ANDAR`:
+# o robô caía em x ±0,50 m, y ±0,50 m e yaw ±3,14 contra uma mobília de pose ABSOLUTA.
+# Medido no viewer — ele nascia DENTRO da mesa, longe dela, ou de costas. A máscara
+# vazia manda todo env para o `faixa_manipula`, sem ramo novo no despachante.
+check("a base reseta na faixa de MANIPULAÇÃO, e não na de locomoção",
+      _cfg_tr.events["reset_base"].params["elos_que_andam"] == (),
+      "com a faixa de loco o robô nasce dentro da mesa ou de costas para ela")
+check("e o cfg de TREINO segue com a lista de verdade",
+      tuple(cfg.events["reset_base"].params["elos_que_andam"])
+      == tuple(ELOS_QUE_ANDAM),
+      "zerar isto no treino faria todo env de locomoção nascer alinhado — foi o "
+      "defeito espelhado que custou um bloco")
+for _kw, _msg in ((dict(entrega_apos_s=3.0), "sem play nem inspecao"),
+                  (dict(play=True, elo=CMD.ANDAR, entrega_apos_s=3.0,
+                        entrega_para=CMD.ANDAR), "entregando ANDAR"),
+                  (dict(play=True, elo=CMD.PEGAR, entrega_apos_s=3.0),
+                   "partindo de um elo que não é ANDAR")):
+    try:
+        make_env_cfg(k, **_kw)
+        check(f"`entrega_apos_s` {_msg} tem de ESTOURAR", False,
+              "passou em silêncio")
+    except AssertionError:
+        check(f"`entrega_apos_s` {_msg} estoura, e é assert", True)
+
+# --- O COMPORTAMENTO: a sequência inteira, medida ---
+try:
+    import torch as _tt
+
+    _ct = make_env_cfg(k, inspecao=True, elo=CMD.ANDAR, entrega_apos_s=3.0)
+    _ct.scene.num_envs = 8
+    # ⚠ janela FIXA aqui: com faixa, o passo em que o bit liga varia e o teste ficaria
+    # flaky. O sorteio já é testado no 16b.
+    _ct.commands["alvo_caixa"].espera_s = (1.0, 1.0)
+    _et = ManagerBasedRlEnv(cfg=_ct, device="cpu")
+    _et.reset()
+    _nat = _et.action_manager.total_action_dim
+    _ttc = _et.command_manager.get_term("alvo_caixa")
+
+    def _leitura():
+        _cm = _et.command_manager.get_command("alvo_caixa")
+        _tw = _et.command_manager.get_term("twist").vel_command_b
+        return (int(_ttc._elo[0]), float(_cm[0, CMD.VALIDA]),
+                float(_ttc._espera[0]),
+                float(_et.scene["box"].data.root_link_pos_w[0, 2]
+                      - _et.scene.env_origins[0, 2]),
+                float(_tw.norm(dim=-1).max()))
+
+    def _anda_ate(t_s):
+        for _ in range(int(t_s / _et.step_dt)):
+            _et.step(_tt.zeros(_et.num_envs, _nat))
+
+    _anda_ate(0.2)
+    _eA, _vA, _spA, _zA, _twA = _leitura()
+    _anda_ate(1.3)
+    _eB, _vB, _spB, _zB, _twB = _leitura()
+    _anda_ate(1.6)
+    _eC, _vC, _spC, _zC, _twC = _leitura()
+    _anda_ate(1.1)
+    _eD, _vD, _spD, _zD, _twD = _leitura()
+
+    # ⚠ A CENA DO `PEGAR` DESDE O COMEÇO, com o elo ainda em `ANDAR`. É o pedido, e ele
+    # não é de graça: no `ANDAR` o termo de comando manda a laje a +5 m, e ele roda
+    # DEPOIS dos eventos de reset (`currículo -> eventos -> comando`). Um
+    # `posiciona_cena` no reset seria desfeito em silêncio.
+    check("a cena do `pegar` está POSTA, com o elo ainda em ANDAR",
+          _eA == CMD.ANDAR and _zA < 2.0,
+          f"elo={_eA} caixa_z={_zA:+.2f} — a laje voltou de +5 m?")
+    # ⚠ E O ROBÔ PARTE NA MESA, DE FRENTE PARA ELA. Sem o reset na faixa de
+    # manipulação ele nascia em qualquer lugar a ±0,50 m com qualquer rumo — dentro da
+    # mesa, longe, ou de costas. O deploy é "chegou andando -> velocidade zero ->
+    # pega", e este modo simula só a segunda metade.
+    _pr = _tt.tensor(k.cena.prateleira_xy)
+    _pb = (_et.scene["robot"].data.root_link_pos_w
+           - _et.scene.env_origins)[:, :2]
+    _dl = _tt.norm(_pb - _pr, dim=-1)
+    _qb = _et.scene["robot"].data.root_link_quat_w
+    _yw = _tt.atan2(2 * (_qb[:, 0] * _qb[:, 3] + _qb[:, 1] * _qb[:, 2]),
+                    1 - 2 * (_qb[:, 2] ** 2 + _qb[:, 3] ** 2)).abs()
+    check("o robô parte NA MESA, e não a ±0,50 m dela",
+          float(_dl.max()) < 0.75,
+          f"dist_laje max {float(_dl.max()):.2f} m — a laje está a "
+          f"{float(_pr.norm()):.2f} m da origem")
+    check("e DE FRENTE para ela — o rumo não é sorteio",
+          float(_yw.max()) < 0.5,
+          f"|yaw| max {float(_yw.max()):.2f} rad de um limite de ±0,2")
+    # ⚠ O TWIST EM ZERO É O "comando de andar como 0". Sem ele o `ANDAR` sorteia
+    # velocidade e o robô sai andando para dentro da mesa antes de a tarefa chegar.
+    check("e o comando de velocidade é ZERO em todos os envs",
+          _twA < 1e-9 and _twB < 1e-9,
+          f"|twist| = {_twA:.4f} / {_twB:.4f}")
+    check("antes do prazo a tarefa NÃO chegou, e o objetivo segue desligado",
+          _eB == CMD.ANDAR and _vB == 0.0,
+          f"elo={_eB} VALIDA={_vB} a 1,5 s de um prazo de 3,0 s")
+    check("no prazo o elo vira o pedido e a janela é ARMADA",
+          _eC == CMD.PEGAR and _spC > 0.9,
+          f"elo={_eC} espera={_spC:.2f}")
+    # ⚠ O BIT TEM DE CAIR NO MESMO INSTANTE. O `_aplica_elo` escreve `VALIDA = 1` num
+    # elo de manipulação, e o `_aplica_espera` só corrigiria isso no passo SEGUINTE —
+    # o evento roda fora da passada do `command_manager`. Um passo de objetivo ligado
+    # com a janela armada estragaria exatamente o instante que se quer olhar.
+    check("e o objetivo NÃO liga no instante da entrega",
+          _vC == 0.0,
+          f"VALIDA={_vC} com espera={_spC:.2f} — o bit vazou um passo")
+    check("passada a janela o objetivo LIGA",
+          _vD == 1.0 and _spD == 0.0,
+          f"VALIDA={_vD} espera={_spD:.2f}")
+    check("a cadeia entregue ABRE no elo entregue",
+          int(_ttc._cadeia[0]) >= 0
+          and int(CMD.CADEIAS[int(_ttc._cadeia[0])][0]) == CMD.PEGAR,
+          f"cadeia={int(_ttc._cadeia[0])}")
+    print(f"  entrega: caixa_z {_zA:+.2f} posta e twist 0 desde 0,2 s  |  "
+          f"elo {_eB}->{_eC} no prazo  |  VALIDA {_vC:.0f} -> {_vD:.0f} "
+          f"depois de {_spC:.1f} s")
+    del _et
+except Exception as _ttx:      # noqa: BLE001
+    _falhas.append(f"a entrega ao vivo não pôde ser medida: "
+                   f"{type(_ttx).__name__}: {_ttx}")
+
 # ================================= 17. o PISO DA ESTÁTUA, medido
 secao("17. o preço declarado: quanto uma estátua colhe (F2)")
 # ⚠⚠ O CRITÉRIO ORIGINAL DO PLANO VOLTOU EM 31/08, e ele estava certo desde o começo:
@@ -2475,16 +2637,23 @@ try:
     _mg = float((_ec.limpo_massa * 9.81).mean())
     _peso = cfg.rewards["unload"].weight
 
-    # ⚠ A TOLERÂNCIA É 30%, E ELA COBRE UM TRANSIENTE MEDIDO. A caixa é TELEPORTADA e
-    # solta; o contato é rígido, e a força de apoio dá overshoot enquanto ela assenta.
-    # Medido em duas execuções seguidas do mesmo teste: 9,80 N e 11,79 N contra
-    # m·g = 9,81 N, isto é +0,0% e +20%. Com 5% o check falhava ~1 em 3 runs acusando o
-    # solver de contato, e não o desenho.
-    # O que este check afirma é o SINAL — "a caixa PESA na laje" contra "não pesa" —, e
-    # os dois estados são 9,8 N contra 0,0 N. Uma banda de 30% os separa com folga.
-    check("apoiada, a força de apoio é ~m·g e o `unload` é ~0",
-          abs(_f_apoiada - _mg) / _mg < 0.30 and _u_apoiada / _peso < 0.05,
-          f"F={_f_apoiada:.2f} N de m·g={_mg:.2f} N, unload={_u_apoiada/_peso:.4f}")
+    # ⚠⚠ O LIMITE É DE UM LADO SÓ, e a banda de dois lados era o defeito do TESTE. A
+    # caixa é reescrita na mesma pose a cada passo, portanto a força NÃO é um transiente
+    # no tempo: ela é fixada pela PENETRAÇÃO INICIAL do contato, que vem do `_z0` medido
+    # depois de 4 passos de assentamento e do `jitter_z` do topo da laje. Ela varia POR
+    # RUN, e não ao longo do passo. Medido no mesmo teste, sem mudança de código:
+    # 9,80 N, 11,79 N e 13,36 N contra m·g = 9,81 N — isto é +0%, +20% e +36%. A banda
+    # subiu de 5% para 30% perseguindo esse ruído, e o overshoot não tem cota de
+    # desenho: perseguir mais seria escrever o ruído no teste.
+    #
+    # O que este check AFIRMA é o sinal: "a caixa PESA na laje" contra "não pesa", e os
+    # dois estados são ~10 N contra 0,0 N. Portanto o piso é `m·g` menos folga, e o teto
+    # existe só para pegar um sensor lendo a coisa errada — o robô inteiro pesa ~350 N.
+    check("apoiada, a força de apoio PESA (>= ~m·g) e o `unload` é ~0",
+          _f_apoiada > 0.90 * _mg and _f_apoiada < 3.0 * _mg
+          and _u_apoiada / _peso < 0.05,
+          f"F={_f_apoiada:.2f} N de m·g={_mg:.2f} N "
+          f"({_f_apoiada/_mg:.2f}x), unload={_u_apoiada/_peso:.4f}")
     # ⚠⚠ ESTE CHECK MUDOU DE SINAL EM 28/08, E É O PORTEIRO DE PREENSÃO.
     #
     # Ele afirmava "erguida, a força de apoio é 0 e o `unload` é ~1". A descarga
