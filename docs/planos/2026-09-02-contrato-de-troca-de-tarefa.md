@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
 **Estado:** APROVADO COM EMENDAS em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v8 — toda espera é 0,5 a 1,5 s; giro no lugar via `rel_turning_envs`)
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v9 — DR de TAMANHO da caixa desde a FASE 1, via variantes de entidade)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -61,10 +61,14 @@ por elo e a multa de mesa ficam como estão. **Decisão do dono (02/09), explíc
   cadeias não mudam;
 - **a terminação `caixa_largada` ganha um guarda**: na espera final, depois do botar,
   as mãos saem da caixa e `escapou` não pode disparar; `caiu` continua armado (§6.6).
-  Fora da espera final ela não muda.
+  Fora da espera final ela não muda;
+- **a caixa vira entidade com variantes de tamanho** (§6.7). A pega foi aprendida com
+  uma caixa de 20 cm; passa a ser aprendida com 14 a 26 cm. É DR pedida pelo dono
+  **desde o começo**, e é a mudança desta spec com mais efeito sobre a manipulação.
 
 O que este documento muda está **inteiro** na §6: observação, um canal de comando, a
-cadeia 3 e um guarda de terminação. Nenhuma recompensa, nenhum currículo.
+cadeia 3, um guarda de terminação e a geometria da caixa. Nenhuma recompensa, nenhum
+currículo.
 
 ---
 
@@ -150,6 +154,9 @@ Total: `3+3+3+29+29+29+3+5+7 = 111`.
 ⚠ **Eram 112.** O canal `VALIDA` sai da observação (§6.2). Ele continua existindo
 **dentro** do sim, como porta de recompensa e de fecho de elo — só não é mais entrada da
 rede.
+
+⚠ **E podem voltar a ser 112**, por outro motivo: a §6.7 propõe que o **tamanho da caixa**
+entre como canal (`meia_aresta`, 1), no fim do termo `caixa`. Pendente do dono (§13).
 
 ### 4.1 Os 7 canais de caixa, em detalhe
 
@@ -360,8 +367,9 @@ ao vivo com a caixa perto.
 
 ## 6. O QUE MUDA
 
-Cinco mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, e um
-**guarda de terminação**. Nenhuma em recompensa ou currículo.
+Seis mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, um
+**guarda de terminação**, e a **geometria da caixa** (DR de tamanho). Nenhuma em
+recompensa ou currículo.
 
 ### 6.0 Os dois `elo` — o PUBLICADO e o INTERNO
 
@@ -633,6 +641,109 @@ regra e um guarda, e é o mesmo mecanismo da espera inicial.
 **Consequência:** `BOTAR → ANDAR(v=0)` sai da aposta e vira treinada. **Nenhuma transição
 do cenário fica como aposta** (§7.2).
 
+### 6.7 DR de TAMANHO da caixa — desde a FASE 1
+
+**Decisão do dono (02/09):** variar aleatoriamente o **tamanho** da caixa, não só o peso.
+Independente do peso. Para todos os envs, **desde o começo** do treino de manipulação — e
+não na FASE 2.
+
+#### Por que tamanho não é um knob como massa
+
+A massa hoje **não muda no modelo**: `carga_caixa` aplica uma **força externa** vertical
+(`write_external_wrench_to_sim`) que finge a carga. O docstring diz por quê: "NUNCA
+`dr.body_mass` nem `dr.pseudo_inertia`: os dois corrompem a heap (CUDA illegal memory
+access). Está MEDIDO no repositório." Mutar o modelo em runtime já quebrou aqui.
+
+Tamanho é geometria. Não há força externa que finja uma caixa maior. O `geom_size` **é**
+por mundo no `mujoco_warp` (`array("*", "ngeom", vec3)`), mas escrever nele em runtime é a
+mesma classe de operação que corrompeu a heap. O caminho suportado é outro:
+
+#### O mecanismo: `VariantEntityCfg` — variantes na CONSTRUÇÃO
+
+O `mjlab` tem `entity/variants.py`: uma entidade com **K variantes**, cada uma um `MjSpec`
+próprio, todas com a mesma topologia cinemática. Na inicialização da simulação, cada
+variante é compilada uma vez e os campos dependentes de geometria são espalhados por
+mundo: `geom_size`, `geom_rbound`, `geom_aabb`, `body_mass`, `body_inertia`, e mais.
+
+⚠ **Três restrições do mecanismo, e as três entram no desenho:**
+
+1. **"Only mesh geoms can differ."** A caixa hoje é um `box` **primitivo**. Para variar
+   por mundo ela tem de virar **mesh** — um mesh de caixa (8 vértices) por tamanho. É
+   mudança em `cena.py` (`_spec_box`). ⚠ E troca o caminho de colisão: mesh convexo em
+   vez de box primitivo. A pega foi aprendida com box primitivo. É o risco declarado
+   desta mudança — ver verificação, §11.1 item 14.
+2. **A atribuição de mundo → variante é fixa na inicialização.** Não re-sorteia no reset.
+   "Aleatória para todos os envs" vale **entre envs**: cada env vê sempre a mesma caixa
+   durante a run. Com 4096–8192 envs e K tamanhos, a frota cobre a distribuição (~500 a
+   1000 envs por tamanho com K = 8). A política vê todos os tamanhos; cada env, um.
+3. **`body_mass` é compilado por variante.** Com `mass=` **explícito e igual** em todas
+   (o `get_box_spec` já recebe `caixa_massa`, não densidade), a massa não muda com o
+   tamanho. A **independência do peso** é garantida na construção, e a força externa do
+   `carga_caixa` segue por cima, como hoje. A **inércia** varia com o tamanho — correto
+   para "mesma massa, tamanho diferente".
+
+#### O desenho
+
+```
+caixa_meia_aresta_faixa  = (0,07, 0,13)   m      ±30% em torno dos 0,10 de hoje   (knob)
+caixa_n_variantes        = 8                      passo de ~0,86 cm                 (knob)
+escala                   = UNIFORME nos 3 eixos   a caixa segue cubo                (decisão)
+atribuição               = aleatória por env, com semente, fixa na run
+massa                    = igual em todas as variantes; a carga segue pelo wrench
+```
+
+**Escala uniforme (cubo), e não por eixo.** Por eixo daria 3 graus de liberdade e K³
+combinações, e mudaria a forma da pega (uma caixa achatada pede outra abertura de mãos).
+O pedido foi "tamanho"; cubo é a leitura direta. Por eixo fica registrado como extensão.
+
+**Fonte de verdade por env: o modelo.** Uma vez, na inicialização, lê-se
+`geom_size[world, geom_da_caixa]` e publica-se `env.limpo_meia_aresta` (n, 3). Todo
+consumidor lê dali. Hoje **oito sítios** leem um escalar de `knobs`, e cada um passa a ler
+o tensor por env:
+
+| onde | o que lê hoje | passa a ler |
+|---|---|---|
+| `comando.alvos_das_palmas` | `cfg.caixa_meia_aresta` — o offset lateral das palmas | `limpo_meia_aresta[ids, 1]` |
+| `comando` ramo `BOTAR` (3 sítios) | `cfg.caixa_meia_z` — fundo da caixa e z do alvo | `limpo_meia_aresta[ids, 2]` |
+| `eventos.posiciona_cena` | `caixa_meia_z` — z de repouso na laje | `limpo_meia_aresta[ids, 2]` |
+| `eventos.afasta_cena` | `caixa_meia_z` | idem |
+| `inspeciona`, `paridade` | `k.cena.caixa_meia_aresta` | a variante de referência (0,10) |
+
+⚠ **`paridade.py` passa a ter uma divergência declarada:** a caixa de referência é um
+`box` primitivo no `g1_poc`; aqui vira mesh. O `paridade` compara a variante de 0,10 m e
+aceita a diferença de tipo de geom como divergência **nomeada**, não como falha.
+
+#### A pergunta que a DR de tamanho abre: a rede VÊ o tamanho?
+
+Hoje `caixa_b` é o **centro** da caixa. O tamanho não está na observação. Com K tamanhos
+de 14 a 26 cm, o alvo das palmas (§4.1, `alvos_das_palmas`) muda **±3 cm por lado** entre
+envs — e a recompensa sabe o tamanho certo de cada env, mas a política não.
+
+| | sem observar | observando (+1 canal) |
+|---|---|---|
+| o que a política aprende | uma abertura de mãos **média**, e corrige por contato | a abertura **certa** para cada caixa |
+| contato como sinal | só via `joint_pos`/`joint_vel` — não há força de palma na observação | idem, mas não precisa |
+| em campo | a percepção **tem** o tamanho (é um bounding box) e ele seria jogado fora | o que o campo tem, a rede recebe — é o princípio da §4 |
+| custo | zero | +1 canal, gateado como os outros 7; 111 → 112 |
+| risco | pega pior em todos os tamanhos, pela média | nenhum específico |
+
+**Recomendação: observar.** Um canal `meia_aresta` (o meio-lado, em metros) no fim do
+termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros sete. Em campo
+ele vem da percepção, como `caixa_b`. A política é sem memória (§7.2): ela não tem como
+"descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta. **Pendente do dono
+(§13).**
+
+#### O que NÃO muda
+
+Recompensa nenhuma. `unload` e `squeeze` derivam de `limpo_massa`, que segue igual.
+`staged` usa `dist_palma_caixa`, que já lê `alvos_das_palmas` — e este passa a ler o
+tamanho por env. As terminações não mudam (`caixa_dist_max = 0,45` é absoluto e cobre
+todos os tamanhos). O currículo não muda.
+
+⚠ **O que muda de fato é a dificuldade da pega**, e é pedido: a política deixa de poder
+memorizar "20 cm". É a mudança desta spec com mais efeito sobre a manipulação, e é a
+razão de o `descarga` ser sentinela na primeira run da v2 (§12).
+
 ---
 
 ## 7. O QUE É TREINADO, E O QUE É APOSTA
@@ -839,6 +950,9 @@ interval   push_robot        empurrão a cada 1–3 s
 reset      carga_caixa       MASSA da caixa, 1 a 5 kg por nível (próprio do módulo)
 ```
 
+⚠ **Tamanho da caixa saiu desta lista:** decisão do dono (02/09), ele entra **desde a
+FASE 1** (§6.7), por variantes de entidade.
+
 O que **não** randomiza, e que a FASE 2 tem de avaliar — em ordem de risco para a pega:
 
 - **Ruído de observação nos canais de caixa.** Hoje `caixa` tem `noise = None`, enquanto
@@ -934,6 +1048,15 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     **não** termina o episódio; derrubar a caixa (`caiu`) **termina**. Antes do fecho do
     `BOTAR`, afastar as palmas continua terminando (`escapou` armado). E `sucesso` marca
     no fecho do `BOTAR`, não depois.
+13. **As variantes existem e são K.** `geom_size` da caixa difere entre mundos; a
+    contagem de mundos por variante bate com a atribuição; **`body_mass` é igual em
+    todas** (independência do peso); `limpo_meia_aresta` bate com `geom_size` env a env.
+14. ⚠ **A pega sobrevive ao mesh.** O `descarga` medido no smoke (caixa apoiada → erguida)
+    na variante de referência (0,10 m) fica onde estava com o `box` primitivo. É a trava
+    contra o risco 1 da §6.7.
+15. **Todo consumidor lê o tamanho por env.** Com duas variantes de tamanhos bem
+    diferentes, `alvos_das_palmas` e o z de repouso da caixa na laje diferem entre os
+    envs das duas — nenhum sítio ficou lendo o escalar de `knobs`.
 
 ### 11.2 Simulação do caminho de campo
 
@@ -970,9 +1093,15 @@ checkpoint, e o reinício reaprende com as mesmas recompensas.
 **Tamanho da mudança de código:** o gate (duas linhas em `observacoes.py`), o `VALIDA`
 fora da observação (uma linha), o publicado em `ANDAR` na espera (uma condição em
 `_aplica_espera`), o ramo de giro (§9), a cadeia 3 com duas regras por cadeia (§6.5), a espera final com
-um guarda em `caixa_largada` (§6.6), e as travas da §11. **Nenhuma mudança em recompensa,
-currículo ou reset.** ⚠ A cadeia 3 é o único item que toca a máquina de elo, que
-funciona — e `_TETO_ELOS = 3` nunca foi exercitado. É onde a regressão pode vir.
+um guarda em `caixa_largada` (§6.6), a caixa como entidade com variantes e oito sítios
+lendo tamanho por env (§6.7), e as travas da §11. **Nenhuma mudança em recompensa,
+currículo ou reset.**
+
+⚠ **Dois itens com risco de regressão, e os dois estão nomeados:** a cadeia 3 toca a
+máquina de elo (`_TETO_ELOS = 3` nunca foi exercitado), e a caixa vira mesh (a pega foi
+aprendida com box primitivo). **Sentinelas na primeira run:** `descarga` e `rampa` para a
+pega; `seg_proj/seg_pedido` para o andar. Se a pega cair e o andar não, o suspeito é a
+§6.7 antes da §6.5.
 
 O custo real é o treino, não o código.
 
@@ -1032,7 +1161,16 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
 - **Giro no lugar via `rel_turning_envs`** (§9) — flag re-sorteada a cada re-sorteio de
   comando, no idioma do fabricante. Com `|wz|` mínimo.
 
+**Tomadas (02/09, quinta rodada):**
+
+- **DR de tamanho da caixa desde a FASE 1** (§6.7): variantes de entidade, escala uniforme
+  (cubo), 14 a 26 cm, K = 8, atribuição aleatória por env fixa na run, massa igual em
+  todas. A caixa vira mesh.
+
 **Pendentes:**
 
-1. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`. E o
+1. **A rede vê o tamanho?** Recomendação: sim, +1 canal `meia_aresta` gateado (111 → 112).
+   Ver a tabela da §6.7. Sem ele a política chuta a abertura das mãos.
+2. **`rel_turning_envs`** — 0,10 é ponto de partida; ajustar com `error_vel_yaw`. E o
    `|wz|` mínimo: 0,2 rad/s de partida.
+3. **Faixa e K do tamanho** — (0,07, 0,13) m e 8 são pontos de partida.
