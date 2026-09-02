@@ -52,6 +52,20 @@ def secao(t: str) -> None:
 
 # =============================================================================
 k = Knobs()
+
+
+def _passa_janela(env, na, tmod) -> None:
+    """Queima a JANELA DE ESPERA do elo, e devolve o env com o objetivo ATIVO.
+
+    ⚠ Ela existe porque a janela nasceu em 02/09 e QUATRO testes anteriores a ela
+    mediam com 3 a 6 passos — isto é 0,06 a 0,12 s, dentro de uma janela que vai a
+    1,0 s. Todos passaram a ler `VALIDA = 0`, e portanto `staged`, `sustentacao` e o
+    fecho de elo em ZERO. Não era o desenho quebrando; era o teste medindo antes de o
+    objetivo existir.
+    """
+    for _ in range(int(k.alvo.espera_s[1] / env.step_dt) + 5):
+        env.step(tmod.zeros(env.num_envs, na))
+
 c = k.cena
 cfg = make_env_cfg(k, play=False)
 play = make_env_cfg(k, play=True)
@@ -692,8 +706,12 @@ try:
     check("a direção desejada é unitária e HORIZONTAL",
           abs(float(_cmd[:, CMD.FACE].norm(dim=-1).min()) - 1.0) < 1e-4
           and float(_cmd[:, CMD.FACE][:, 2].abs().max()) < 1e-6)
-    check("o objetivo da caixa nasce ATIVO no elo de manipulação",
-          float(_cmd[:, CMD.VALIDA].min()) == 1.0)
+    # ⚠ ELE INVERTEU EM 02/09. Antes o objetivo nascia ATIVO; com a janela de espera ele
+    # nasce DESLIGADO num elo de manipulação, e liga na borda da janela. A
+    # descontinuidade 0->1 É o sinal de "o objetivo chegou" — ver `knobs.Alvo.espera_s`.
+    check("o objetivo da caixa nasce DESLIGADO — a janela de espera corre",
+          float(_cmd[:, CMD.VALIDA].max()) == 0.0,
+          "a janela mínima é 0,3 s e este env tem 1 passo de vida")
     check("o topo e a massa são publicados pelo evento",
           hasattr(_env, "limpo_topo") and hasattr(_env, "limpo_massa"))
     del _env
@@ -1254,6 +1272,134 @@ check("`forcado` vence o sorteio, e é o que o inspetor usa",
                       forcado=CMD.BOTAR) == float(CMD.BOTAR)
       and bool((_falso.limpo_elo == CMD.BOTAR).all()))
 
+# ==================== 16b. A JANELA DE ESPERA (portada do g1_poc, 02/09) ==========
+secao("16b. a janela de espera")
+# ⚠ ELA NÃO EXISTIA no g1_limpo até 02/09, e o dono notou pelo `play`: "o robô não está
+# esperando o tempinho antes de receber o comando". A manipulação foi inspirada no
+# `g1_poc`, e esta peça não veio na reescrita.
+#
+# O QUE ELA FAZ: enquanto corre, o `VALIDA` fica em ZERO num elo de manipulação. Os sete
+# incentivos pagam nada e o elo NÃO fecha. Na borda ela vai 0->1 com a caixa já
+# assentada, e essa descontinuidade é o sinal de "o objetivo chegou".
+_esp = k.alvo.espera_s
+check("a janela é uma FAIXA, e não um valor fixo",
+      _esp[0] < _esp[1],
+      "fixa é aprendível como `conte N passos e depois mova`; sorteada, a política TEM "
+      "de ler o canal de comando — que é o que o deploy exige")
+check("os dois limites são POSITIVOS",
+      _esp[0] > 0.0 and _esp[1] > 0.0, str(_esp))
+check("ela é os 0,3 a 1,0 s do g1_poc, transcritos",
+      _esp == (0.3, 1.0), str(_esp))
+check("o knob chega ao termo de comando — não fica no default",
+      cfg.commands["alvo_caixa"].espera_s == _esp,
+      f"cfg tem {cfg.commands['alvo_caixa'].espera_s}, knobs tem {_esp}")
+# ⚠ Ela custa uma FRAÇÃO do episódio, e a conta importa: o g1_poc a tirou da locomoção
+# porque lá o episódio morria DENTRO dela.
+check("a janela máxima cabe com folga no episódio",
+      _esp[1] < 0.10 * cfg.episode_length_s,
+      f"{_esp[1]} s contra episódio de {cfg.episode_length_s} s")
+check("existe a métrica de peso zero que mede se ela está correndo",
+      "fracao_esperando" in cfg.metrics,
+      "sem ela, `o robô não espera` e `a janela não existe` leem igual no painel")
+# ⚠ O FECHO DE ELO TEM DE LER O `VALIDA`. Sem isso a janela é decorativa: no
+# `REORIENTAR` o alvo É a própria caixa, portanto `perto` é trivial e ele fecharia no
+# passo ZERO. Era o que fazia `avancos = 0,43` conviver com `sucesso = 0,0000`.
+_src_fecha = inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
+check("o fecho de elo exige o objetivo ATIVO",
+      "VALIDA] > 0.5" in _src_fecha and "& ativo" in _src_fecha,
+      "sem isto o REORIENTAL fecharia dentro da própria janela de espera")
+# ⚠ Compara as CHAMADAS, e não a menção: o comentário do `_aplica_espera` cita o
+# `_avanca_elo`, e procurar o nome cru achava o comentário primeiro. O check falhava
+# com o código certo.
+_src_upd = inspect.getsource(CMD.AlvoCaixaCmd._update_command)
+check("a espera roda ANTES do avanço de elo",
+      _src_upd.index("self._aplica_espera()") < _src_upd.index("self._avanca_elo()"),
+      "na ordem invertida o elo fecharia com o VALIDA ainda em 1")
+# ⚠ A BASE DO BIT VEM DO ELO, e não do próprio `VALIDA`. Ler o `VALIDA` para
+# recalculá-lo é DESTRUTIVO: no passo seguinte lê-se o zero já escrito, e o bit nunca
+# volta a 1. Medido: `piso PEGAR` caía para 2,000/s exatos.
+_src_esp = inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
+check("a base do bit é recalculada do ELO, e não lida do próprio VALIDA",
+      "self._elo != ANDAR" in _src_esp,
+      "ler o VALIDA para reescrevê-lo zera o bit para sempre")
+# ⚠ As duas fontes do bit têm de concordar: o `_aplica_elo` escreve `VALIDA = 0` só no
+# `ANDAR`, e o `_aplica_espera` recalcula a base como `elo != ANDAR`. Um elo novo com
+# `VALIDA = 0` faria as duas divergirem em silêncio — este check lê o FONTE do
+# `_aplica_elo` e conta quantos elos zeram o bit.
+_src_elo = inspect.getsource(CMD.AlvoCaixaCmd._aplica_elo)
+check("só UM elo zera o VALIDA no `_aplica_elo`, e é o ANDAR",
+      _src_elo.count("VALIDA] = 0.0") == 1
+      and _src_elo.count("VALIDA] = 1.0") == len(CMD.ELOS) - 1,
+      f"zeram {_src_elo.count('VALIDA] = 0.0')}, ligam "
+      f"{_src_elo.count('VALIDA] = 1.0')}, elos {len(CMD.ELOS)}")
+
+# --- O COMPORTAMENTO, medido. É o check que reprova o módulo sem a janela. ---
+try:
+    import torch as _tj
+
+    _cj = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _cj.scene.num_envs = 32
+    _ej = ManagerBasedRlEnv(cfg=_cj, device="cpu")
+    _ej.reset()
+    _naj = _ej.action_manager.total_action_dim
+    _ej.step(_tj.zeros(_ej.num_envs, _naj))
+    _val0 = _ej.command_manager.get_command("alvo_caixa")[:, CMD.VALIDA].clone()
+    _nmj = list(_cj.rewards)
+    _staged0 = float(_ej.reward_manager._step_reward[:, _nmj.index("staged")].mean())
+
+    # ⚠ passos suficientes para a maior janela sorteada terminar
+    for _ in range(int(_esp[1] / _ej.step_dt) + 5):
+        _ej.step(_tj.zeros(_ej.num_envs, _naj))
+    _val1 = _ej.command_manager.get_command("alvo_caixa")[:, CMD.VALIDA]
+    _staged1 = float(_ej.reward_manager._step_reward[:, _nmj.index("staged")].mean())
+
+    check("no PRIMEIRO passo de um elo de manipulação o VALIDA é ZERO",
+          float(_val0.max()) == 0.0,
+          f"máximo medido {float(_val0.max())} — a janela mínima é {_esp[0]} s")
+    check("e o `staged` paga ZERO enquanto a janela corre",
+          abs(_staged0) < 1e-9,
+          f"medido {_staged0:.6f}/passo — prêmio antes de haver objetivo")
+    check("DEPOIS da janela o VALIDA é UM em todos os envs",
+          float(_val1.min()) == 1.0,
+          f"mínimo medido {float(_val1.min())}")
+    check("e o `staged` volta a pagar — a descontinuidade É o sinal",
+          _staged1 > 0.0,
+          f"antes {_staged0:.4f} depois {_staged1:.4f}")
+    print(f"  VALIDA: {float(_val0.max()):.0f} na abertura -> "
+          f"{float(_val1.min()):.0f} depois de {_esp[1]} s   |   "
+          f"staged {_staged0:.4f} -> {_staged1:.4f}")
+    del _ej
+
+    # --- no ANDAR a janela é ZERO: a locomoção não paga por ela ---
+    _cl = make_env_cfg(k, inspecao=True, elo=CMD.ANDAR)
+    _cl.scene.num_envs = 16
+    _el = ManagerBasedRlEnv(cfg=_cl, device="cpu")
+    _el.reset()
+    _el.step(_tj.zeros(_el.num_envs, _el.action_manager.total_action_dim))
+    check("no ANDAR a janela é ZERO — ela atrasava o aprendizado da marcha",
+          float(_el.limpo_aguardando.max()) == 0.0,
+          "o g1_poc a tirou da locomoção em 24/08 por medição")
+    del _el
+except Exception as _ejx:      # noqa: BLE001
+    _falhas.append(f"a janela de espera não pôde ser medida: "
+                   f"{type(_ejx).__name__}: {_ejx}")
+
+# ⚠ O INSPETOR TEM DE ZERAR A JANELA, e a trava existe porque o contrário JÁ aconteceu:
+# ele dá dois passos (0,04 s) e lê o bit, portanto com a janela viva as quatro linhas de
+# manipulação acusam "o objetivo devia estar LIGADO" — o inspetor reprovando o desenho
+# por medir antes de o objetivo existir. Queimar a janela no laço dele não serve: 55
+# passos deixam o elo AVANÇAR e a tabela mostra um elo que não é o pedido.
+try:
+    from g1_limpo import inspeciona as _INS
+
+    check("o INSPETOR zera a janela de espera, e o `make_env_cfg` não",
+          "espera_s = (0.0, 0.0)" in inspect.getsource(_INS._ambiente)
+          and cfg.commands["alvo_caixa"].espera_s == _esp,
+          "o smoke precisa do modo de inspeção COM a janela viva para medir a borda")
+except Exception as _insx:      # noqa: BLE001
+    _falhas.append(f"o inspetor não pôde ser lido: "
+                   f"{type(_insx).__name__}: {_insx}")
+
 # ================================= 17. o PISO DA ESTÁTUA, medido
 secao("17. o preço declarado: quanto uma estátua colhe (F2)")
 # ⚠⚠ O CRITÉRIO ORIGINAL DO PLANO VOLTOU EM 31/08, e ele estava certo desde o começo:
@@ -1282,7 +1428,12 @@ try:
         _c4.scene.num_envs = 32
         _e4 = ManagerBasedRlEnv(cfg=_c4, device="cpu")
         _e4.reset()
-        for _ in range(6):
+        # ⚠ PASSOS SUFICIENTES PARA A JANELA DE ESPERA TERMINAR. Ela vai a 1,0 s no
+        # sorteio, isto é 50 passos, e durante ela o `VALIDA` é ZERO — os sete
+        # incentivos pagam nada. Medir o piso com 6 passos (0,12 s) mediria o objetivo
+        # DESLIGADO, e o piso do `PEGAR` sairia falsamente baixo.
+        _passos4 = int(k.alvo.espera_s[1] / _c4.decimation / 0.005) + 10
+        for _ in range(_passos4):
             _e4.step(_t4.zeros(_e4.num_envs, _e4.action_manager.total_action_dim))
         _nm = list(_c4.rewards)
         _sr = _e4.reward_manager._step_reward
@@ -1518,9 +1669,7 @@ try:
         _c6.scene.num_envs = 16
         _e6 = ManagerBasedRlEnv(cfg=_c6, device="cpu")
         _e6.reset()
-        for _ in range(5):
-            _e6.step(_t6.zeros(_e6.num_envs,
-                               _e6.action_manager.total_action_dim))
+        _passa_janela(_e6, _e6.action_manager.total_action_dim, _t6)
         _nm6 = list(_c6.rewards)
         _sr6 = _e6.reward_manager._step_reward
         _vals[_rot] = {n: float(_sr6[:, _nm6.index(n)].mean()) for n in SETE}
@@ -1562,7 +1711,7 @@ try:
     _e7 = ManagerBasedRlEnv(cfg=_c7, device="cpu")
     _e7.reset()
     _na7 = _e7.action_manager.total_action_dim
-    _e7.step(_t7.zeros(_e7.num_envs, _na7))
+    _passa_janela(_e7, _na7, _t7)
     _t7c = _e7.command_manager.get_term("alvo_caixa")
     _robo7, _caixa7 = _e7.scene["robot"], _e7.scene["box"]
     _idp7, _ = _robo7.find_sites(list(C.PALM_SITES))
@@ -1607,6 +1756,7 @@ try:
     _e8.step(_t8.zeros(_e8.num_envs, _na8))
     _t8c = _e8.command_manager.get_term("alvo_caixa")
     _caixa8 = _e8.scene["box"]
+    _passa_janela(_e8, _na8, _t8)
     # põe a caixa NO alvo, com a face certa, e conta
     for _ in range(6):
         _caixa8.write_root_link_pose_to_sim(
@@ -1696,6 +1846,11 @@ try:
     _c9.scene.num_envs = 256
     _e9 = ManagerBasedRlEnv(cfg=_c9, device="cpu")
     _e9.reset()
+    # ⚠⚠ AQUI A JANELA DE ESPERA **NÃO** PODE SER QUEIMADA, e o contrário custou uma
+    # falha: este bloco mede o invariante de ABERTURA (`cadeia[0] == elo sorteado`), e
+    # 55 passos deixam o elo AVANÇAR — no `REORIENTAR` o alvo é a própria caixa,
+    # portanto `perto` é trivial e ele fecha assim que o objetivo liga. O elo medido
+    # deixava de ser o de abertura, e o teste acusava o desenho em vez de si mesmo.
     for _ in range(4):
         _e9.step(_t9.zeros(_e9.num_envs, _e9.action_manager.total_action_dim))
     _t9c = _e9.command_manager.get_term("alvo_caixa")
@@ -2211,7 +2366,11 @@ try:
     _eb = ManagerBasedRlEnv(cfg=_cb, device="cpu")
     _eb.reset()
     _nab = _eb.action_manager.total_action_dim
-    _eb.step(_tb.zeros(_eb.num_envs, _nab))
+    # ⚠ A JANELA DE ESPERA PRIMEIRO. O sustain só acumula com o objetivo ATIVO — o
+    # `_fecha_elo_corrente` exige `VALIDA > 0.5` desde 02/09. Com um passo só de
+    # aquecimento, o teste gastava a janela dentro do laço de contagem e chegava a
+    # 0,28 s de 0,5 s, acusando o desenho em vez do próprio orçamento de passos.
+    _passa_janela(_eb, _nab, _tb)
     _tbc = _eb.command_manager.get_term("alvo_caixa")
     _caixab = _eb.scene["box"]
     _elo_ini = int(_tbc._elo[0])
