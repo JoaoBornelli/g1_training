@@ -110,12 +110,19 @@ def make_env_cfg(
     elo: int | None = None,
     cadeia: int | None = None,
     avanca_apos_s: float | None = None,
+    entrega_apos_s: float | None = None,
+    entrega_para: int = CMD.PEGAR,
 ) -> ManagerBasedRlEnvCfg:
     """Monta o cfg.
 
     `inspecao=True`  trava o robô e desliga as terminações. SÓ para revisão visual.
     `elo`            força o elo (`comando.ANDAR`..`comando.BOTAR`). `None` =
                      `ELO_DE_TREINO`, que na F1 é o `ANDAR`.
+    `entrega_apos_s` SÓ com `play` ou `inspecao`. Põe a cena do `pegar` desde o reset,
+                     zera o comando de velocidade, e entrega `entrega_para` aos N
+                     segundos. Simula o DEPLOY — a caixa à vista, o robô parado, e a
+                     tarefa chegando. Ver `eventos.entrega_tarefa_no_viewer`.
+                     Use com `elo=comando.ANDAR`.
 
     ⚠ A LAJE é movida pelo TERMO DE COMANDO, e não por este cfg: o `ANDAR` e o
     `CARREGAR` a mandam para +5 m, e o `BOTAR` a põe num topo novo. É lá que a F4 vai
@@ -542,6 +549,55 @@ def make_env_cfg(
             interval_range_s=(avanca_apos_s, avanca_apos_s),
             params={"nome_do_comando": "alvo_caixa"},
         )
+
+    if entrega_apos_s is not None:
+        # ⚠⚠ A ENTREGA DA TAREFA AO VIVO, e ela é SÓ de visualizador. Ela existe para
+        # simular o deploy: a caixa na laje à vista do robô desde o começo, o robô de
+        # pé com comando de velocidade ZERO, e a tarefa chegando aos N segundos.
+        #
+        # ⚠ NUNCA NO TREINO. No treino o elo é sorteado no reset e não troca no meio —
+        # um evento que trocasse anularia a fatia da F2 sem uma linha de erro, que é a
+        # mesma classe de defeito que o `elo` explícito já custou uma vez. E este aqui
+        # é pior: ele também ZERA O TWIST, portanto no treino ele apagaria a locomoção
+        # inteira. O `smoke` afirma que o cfg de treino não tem este evento.
+        assert play or inspecao, (
+            "`entrega_apos_s` é só de visualizador: use com `play=True` ou "
+            "`inspecao=True`")
+        assert entrega_para != CMD.ANDAR, \
+            "entregar `ANDAR` não é entregar tarefa nenhuma — o evento seria no-op"
+        assert elo_alvo == CMD.ANDAR, (
+            "`entrega_apos_s` parte do `ANDAR`: use `elo=comando.ANDAR`. Com outro elo "
+            "a tarefa já está entregue e não há transição para olhar.")
+        # ⚠ INTERVALO DE UM PASSO, como o `trava_robo`: o evento tem de rodar a cada
+        # passo para manter o twist em zero e para ler o cronômetro por env.
+        _dt_ev = cfg.sim.mujoco.timestep * cfg.decimation
+        cfg.events["entrega_tarefa"] = EventTermCfg(
+            func=EV.entrega_tarefa_no_viewer, mode="interval",
+            interval_range_s=(_dt_ev, _dt_ev),
+            # ⚠ Os params da cena são REUSADOS do evento de reset, e não redigitados:
+            # duas cópias sairiam de sincronia no dia em que um nível novo entrar, e a
+            # entrega passaria a posicionar a mobília com a tabela velha.
+            params={"elo_novo": int(entrega_para),
+                    "entrega_apos_s": float(entrega_apos_s),
+                    "cena": dict(cfg.events["posiciona_cena"].params)},
+        )
+        # ⚠⚠ A BASE RESETA NA FAIXA DE **MANIPULAÇÃO**, e sem esta linha o modo é
+        # inútil. O `reset_base_por_elo` escolhe a faixa pelo ELO, e aqui o elo de
+        # abertura é o `ANDAR` — portanto o robô caía na faixa de locomoção:
+        #
+        #     loco       x (−0,50, 0,50)  y (−0,50, 0,50)  yaw ±3,14
+        #     manipula   x (−0,10, 0,00)  y (−0,10, 0,10)  yaw ±0,2
+        #
+        # ±0,5 m nos dois eixos e qualquer rumo, contra uma mobília de pose ABSOLUTA:
+        # o robô nascia DENTRO da mesa, longe dela, ou de costas. MEDIDO no viewer.
+        #
+        # `elos_que_andam=()` deixa a máscara `anda` vazia, portanto todo env cai no
+        # `faixa_manipula`. É o mesmo despachante, sem ramo novo.
+        #
+        # ⚠ E É O PEDIDO: o deploy é "chegou andando -> velocidade zero -> pega", e
+        # este modo simula só a segunda metade. O robô PARTE na mesa, de frente para
+        # ela. A primeira metade é outro exercício.
+        cfg.events["reset_base"].params["elos_que_andam"] = ()
 
     if inspecao:
         # ⚠ SÓ PARA INSPEÇÃO. Trava o robô na pose de reset, para a cena ficar

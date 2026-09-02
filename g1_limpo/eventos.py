@@ -397,3 +397,66 @@ def avanca_elo_no_viewer(
     termo = env.command_manager.get_term(nome_do_comando)
     todos = torch.arange(env.num_envs, device=env.device)
     termo.forca_avanco(todos)
+
+
+def entrega_tarefa_no_viewer(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor,
+    *,
+    elo_novo: int,
+    cena: dict,
+    entrega_apos_s: float,
+    nome_do_comando: str = "alvo_caixa",
+    nome_do_twist: str = "twist",
+) -> None:
+    """A cena do `pegar` POSTA, o robô PARADO, e a tarefa chegando aos N segundos.
+
+    ⚠⚠ SÓ PARA O VISUALIZADOR, e ela simula o DEPLOY: a caixa está na laje à vista do
+    robô desde o começo, o robô está de pé com comando de velocidade ZERO, e um
+    operador manda "pega a caixa". No treino isto NÃO existe — o elo é sorteado no
+    reset e nunca troca no meio.
+
+    ⚠ ELA RODA A CADA PASSO (`interval_range_s = (dt, dt)`), que é o idioma do
+    `trava_robo`. O `run_play` do mjlab roda o próprio laço e não expõe gancho por
+    passo; sem o evento de intervalo este caminho seria um no-op, que foi como o
+    `--avanca-elo` nasceu quebrado.
+
+    TRÊS COISAS, e cada uma existe por um motivo:
+
+    1. **A MOBÍLIA VOLTA.** No `ANDAR` o termo de comando manda a laje a +5 m com a
+       caixa em cima, e ele roda DEPOIS dos eventos de reset (`currículo -> eventos ->
+       comando`) — portanto um `posiciona_cena` no reset seria desfeito. O teste é
+       `caixa guardada`, e não um contador: ele é idempotente por construção (uma vez
+       posta, a caixa deixa de estar guardada) e se refaz sozinho depois de um reset.
+
+    2. **O TWIST FICA EM ZERO.** É o "comando de andar como 0" — sem isto o `ANDAR`
+       sorteia velocidade e o robô sai andando para dentro da mesa antes de a tarefa
+       chegar. O `ANDAR` não está em `elos_parados` e não pode estar: isso é treino.
+
+    3. **A ENTREGA**, por `episode_length_buf`, portanto POR ENV. Um cronômetro global
+       entregaria a tarefa no meio do episódio de quem resetou fora de fase.
+    """
+    from g1_limpo.comando import ANDAR
+
+    del env_ids
+    termo = env.command_manager.get_term(nome_do_comando)
+    anda = termo._elo == ANDAR
+    if not bool(anda.any()):
+        return
+
+    # 1. a mobília. `guardada` é o próprio estado, e não um contador de passos.
+    z = (env.scene["box"].data.root_link_pos_w[:, 2]
+         - env.scene.env_origins[:, 2])
+    posta = anda & (z > 4.0)
+    if bool(posta.any()):
+        posiciona_cena(env, posta.nonzero().flatten(), **cena)
+
+    # 2. parado. O twist é escrito no buffer, como o `_zera_twist_nos_parados` faz.
+    tw = env.command_manager.get_term(nome_do_twist)
+    tw.vel_command_b[anda] = 0.0
+
+    # 3. a entrega, por env.
+    t = env.episode_length_buf.float() * env.step_dt
+    entrega = anda & (t >= entrega_apos_s)
+    if bool(entrega.any()):
+        termo.recebe_tarefa(entrega.nonzero().flatten(), int(elo_novo))

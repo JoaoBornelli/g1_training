@@ -114,5 +114,31 @@ for _i in TASK_CADEIA:
         runner_cls=RunnerComEstadoDeCurriculo,
     )
 
-__all__ = ["TASK_ID", "TASK_INSPECAO", "TASK_CADEIA", "AVANCA_APOS_S",
+# --------------------------------------------------- A ENTREGA DA TAREFA (deploy)
+# ⚠ ELA SIMULA O DEPLOY, e é a única task do pacote em que o elo TROCA no meio: a caixa
+# está na laje à vista do robô desde o começo, o comando de velocidade é ZERO, e a
+# tarefa chega aos `ENTREGA_APOS_S` segundos. É o que responde "ele aprende a transição
+# entre parado e manipular?" — olhando, e não pelo painel.
+#
+# ⚠ O ROBÔ FICA LIVRE (`inspecao=False`): com o `trava_robo` ele ficaria pinado na pose
+# de reset e a transição não teria o que mostrar.
+#
+# ⚠ E O `env_cfg` É O SIMPLES, sem a entrega. Não é descuido: `entrega_apos_s` ESTOURA
+# sem `play` nem `inspecao`, de propósito — no treino o evento zeraria o twist e
+# apagaria a locomoção inteira. O `run_play` usa só o `play_env_cfg`, portanto o
+# assimétrico aqui é o correto.
+ENTREGA_APOS_S = 5.0
+TASK_ENTREGA = "Mjlab-G1-Limpo-Entrega"
+
+register_mjlab_task(
+    task_id=TASK_ENTREGA,
+    env_cfg=make_env_cfg(elo=ELOS.index("andar")),
+    play_env_cfg=make_env_cfg(play=True, elo=ELOS.index("andar"),
+                              entrega_apos_s=ENTREGA_APOS_S),
+    rl_cfg=rl_cfg(),
+    runner_cls=RunnerComEstadoDeCurriculo,
+)
+
+__all__ = ["TASK_ID", "TASK_INSPECAO", "TASK_CADEIA", "TASK_ENTREGA",
+           "AVANCA_APOS_S", "ENTREGA_APOS_S",
            "EXPERIMENT", "make_env_cfg", "rl_cfg"]

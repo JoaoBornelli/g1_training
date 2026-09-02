@@ -445,6 +445,62 @@ class AlvoCaixaCmd(CommandTerm):
         """
         self._avanca_elo_force(ids)
 
+    def recebe_tarefa(self, ids: torch.Tensor, elo_novo: int) -> None:
+        """Entrega uma tarefa de manipulação AO VIVO a quem estava no `ANDAR`.
+
+        ⚠⚠ SÓ PARA O VISUALIZADOR. Ela existe para simular o DEPLOY: o robô está de pé
+        com comando de velocidade, um operador manda "pega a caixa", e o robô transita.
+        No TREINO isso não acontece — o elo é sorteado no reset e nunca troca no meio
+        (`resampling_time_range = 1e9`, e o `_avanca_elo` só caminha DENTRO de uma
+        cadeia; nenhuma cadeia vai de `ANDAR` a `PEGAR`).
+
+        ⚠ ELA NÃO POSICIONA A MOBÍLIA, e isso é do chamador. No `ANDAR` a laje foi
+        mandada a +5 m com a caixa em cima (`_aplica_elo`, ramo `ANDAR`), e o ramo
+        `PEGAR` NÃO a traz de volta — ele só ancora o alvo. Quem chama tem de rodar o
+        `posiciona_cena` ANTES, senão a tarefa entregue é "pegue uma caixa a 5 m".
+        O `eventos.troca_elo_no_viewer` faz as duas coisas na ordem certa.
+
+        ⚠ A JANELA DE ESPERA É RE-ARMADA, e é o ponto do exercício: a tarefa chega, e o
+        objetivo só liga 0,3 a 1,0 s depois. É a transição que se quer olhar.
+
+        ⚠ O QUE TEM DE SER ZERADO, e cada um por um motivo medido:
+          · `_pegou`  — a arma do `caixa_largada`. Sem zerar, uma pega anterior deixaria
+            a terminação armada com a caixa longe, e o episódio morreria na entrega.
+          · `_sust`   — o cronômetro do elo. Herdado, o elo novo nasceria quase fechado.
+          · `fechou`  — senão o `_avanca_elo` ignora o env para sempre.
+          · `_pos_no_elo` — a âncora de deslocamento do `CARREGAR`, que tem de ser a
+            pose de AGORA e não a do reset.
+
+        ⚠ A pose está FRESCA aqui (isto roda num evento de intervalo, dentro do passo),
+        portanto o `_aplica_elo` e o `_recalcula_sigmas` podem ser chamados direto —
+        sem a passada do `_pendente`, que existe só para o reset.
+        """
+        if len(ids) == 0:
+            return
+        d = self.device
+        self._elo[ids] = int(elo_novo)
+        # a cadeia compatível com o elo entregue. `cadeia_forcada` vence, como no reset.
+        if self.cfg.cadeia_forcada is not None:
+            self._cadeia[ids] = int(self.cfg.cadeia_forcada)
+        else:
+            compat = (_PRIMEIRO_ELO == int(elo_novo)).nonzero().flatten()
+            self._cadeia[ids] = int(compat[0]) if len(compat) else CADEIA_NENHUMA
+        self._aplica_elo(ids)
+        self._recalcula_sigmas(ids)
+        self._pos_no_elo[ids] = self.robot.data.root_link_pos_w[ids]
+        self._pegou[ids] = False
+        self._sust[ids] = 0.0
+        self.fechou[ids] = False
+        lo, hi = self.cfg.espera_s
+        self._espera[ids] = lo + (hi - lo) * torch.rand(len(ids), device=d)
+        # ⚠ E O BIT CAI NO MESMO INSTANTE. O `_aplica_elo` acima escreveu `VALIDA = 1`
+        # (é o que ele faz em elo de manipulação), e o `_aplica_espera` só corrige isso
+        # no passo SEGUINTE — este método roda num evento de intervalo, fora da passada
+        # do `command_manager`. Sem esta linha o objetivo ficaria ligado por um passo
+        # com a janela já armada, e o instante da entrega seria exatamente o que se
+        # está tentando olhar.
+        self._command[ids, VALIDA] = 0.0
+
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         if len(env_ids) == 0:
             return
