@@ -481,11 +481,17 @@ check("grupo com menos de 2 amostras é PULADO — `std` de uma amostra é NaN",
 # ⚠ A FATIA DO ELO é contada DO FIM, e o `env_cfg` garante a ordem por append: `elo` e
 # depois `caixa`. A aritmética se confere sem env; a comparação contra o
 # `observation_manager` VIVO está na seção do one-hot, mais abaixo.
-check("`fatia_do_elo` devolve o penúltimo bloco, de N_SLOTS canais",
-      _OB.fatia_do_elo(112) == slice(99, 104)
+check("`fatia_do_elo` devolve o penúltimo bloco do ATOR, de N_SLOTS canais",
+      _OB.fatia_do_elo(114) == slice(99, 104)
       and _OB.fatia_do_elo(200) == slice(200 - _OB.N_CAIXA - _OB.N_SLOTS,
                                         200 - _OB.N_CAIXA),
-      f"em 112 devolveu {_OB.fatia_do_elo(112)}")
+      f"em 114 devolveu {_OB.fatia_do_elo(114)}")
+check("`fatia_do_elo_interno` devolve o ÚLTIMO bloco do CRÍTICO",
+      _OB.fatia_do_elo_interno(119) == slice(114, 119))
+check("o `PPOPorElo` agrupa pelo elo INTERNO do crítico, não pelo publicado do ator",
+      'observations["critic"]' in inspect.getsource(ALG.PPOPorElo.compute_returns)
+      and "fatia_do_elo_interno" in inspect.getsource(ALG.PPOPorElo.compute_returns),
+      "spec §6.1: a espera final tem retorno de manipulação com one-hot de ANDAR")
 
 # ------------------------------------------------- 10. contrato de NÃO-IMPORT
 secao("10. contrato de não-import")
@@ -1009,13 +1015,13 @@ check("o one-hot entra nos DOIS grupos",
 # FABRICANTE vem primeiro, na ordem dele, e os NOSSOS depois, na ordem em que as fases
 # os adicionaram. Checar "o one-hot e' o ultimo" quebrou na F3, quando os canais da
 # caixa entraram depois dele -- e quebraria de novo na F4.
-_NOSSA_OBS = ["elo", "caixa"]
 check("os termos do FABRICANTE vêm primeiro, na ordem dele",
       all(nossa_obs[g][:len(fab_obs[g])] == fab_obs[g]
           for g in ("actor", "critic")),
       str({g: nossa_obs[g] for g in nossa_obs}))
-check("os NOSSOS vêm depois, na ordem das fases, e nos dois grupos",
-      all(nossa_obs[g][len(fab_obs[g]):] == _NOSSA_OBS
+_NOSSA_OBS = {"actor": ["elo", "caixa"], "critic": ["elo", "caixa", "elo_interno"]}
+check("os NOSSOS vêm depois, na ordem das fases; o crítico ganha `elo_interno` no fim",
+      all(nossa_obs[g][len(fab_obs[g]):] == _NOSSA_OBS[g]
           for g in ("actor", "critic")),
       "append de colunas; inserir no meio desloca todo peso da 1ª camada em silêncio")
 check("o one-hot não tem ruído nem escala",
@@ -1733,8 +1739,8 @@ check("a tolerância angular do sustain chega em RADIANOS",
 
 # --- a observação cresceu pelo contrato do APPEND ---
 check("os canais da caixa entram DEPOIS do one-hot, nos dois grupos",
-      all(list(cfg.observations[g].terms)[-2:] == ["elo", "caixa"]
-          for g in ("actor", "critic")),
+      list(cfg.observations["actor"].terms)[-2:] == ["elo", "caixa"]
+      and list(cfg.observations["critic"].terms)[-3:] == ["elo", "caixa", "elo_interno"],
       str(list(cfg.observations["actor"].terms)))
 
 # --- O σ. É o item de maior risco da F3, e ele se mede. ---
@@ -3134,6 +3140,139 @@ try:
 except Exception as _e24x:      # noqa: BLE001
     _falhas.append(f"o tamanho por mundo não pôde ser medido: "
                    f"{type(_e24x).__name__}: {_e24x}")
+
+# ======== 25. a OBSERVAÇÃO: gate, giro_b, meia_aresta, VALIDA fora, crítico (spec §4, §6.1)
+secao("25. a observação nova")
+check("3. `N_CAIXA` é 10: caixa_b(3) alvo_b(3) giro_b(3) meia_aresta(1)", OB_.N_CAIXA == 10)
+check("3. o VALIDA NÃO está na observação",
+      "VALIDA" not in inspect.getsource(OB_.caixa_no_frame_da_base))
+check("o canal GIRO é o ÚLTIMO do comando (append), e DIM é 12",
+      CMD.GIRO == slice(9, 12) and CMD.DIM == 12)
+try:
+    import torch as _t25
+    from mjlab.utils.lab_api.math import quat_mul as _qmul
+
+    # --- dimensões ---
+    _c25 = make_env_cfg(k, inspecao=True, elo=CMD.ANDAR)
+    _c25.scene.num_envs = 16
+    _e25 = ManagerBasedRlEnv(cfg=_c25, device="cpu")
+    _o25, _ = _e25.reset()
+    _n25 = _e25.action_manager.total_action_dim
+    check("3. o ator tem 114 canais e o crítico 119",
+          _o25["actor"].shape[-1] == 114 and _o25["critic"].shape[-1] == 119,
+          f"ator {_o25['actor'].shape[-1]}, crítico {_o25['critic'].shape[-1]}")
+    _int = _o25["critic"][:, OB_.fatia_do_elo_interno(119)]
+    check("o `elo_interno` do crítico é um one-hot",
+          bool(_t25.allclose(_int.sum(-1), _t25.ones(16))))
+    # --- 1. o gate: caixa PERTO e publicado ANDAR -> os 10 canais são zero ---
+    _cx25 = _e25.scene["box"]
+    _p25 = _e25.scene["robot"].data.root_link_pos_w.clone()
+    _p25[:, 0] += 0.5
+    for _ in range(3):
+        _cx25.write_root_link_pose_to_sim(_t25.cat([_p25, _cx25.data.root_link_quat_w], -1))
+        _cx25.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
+        _o25 = _e25.step(_t25.zeros(16, _n25))[0]
+    _cx_slice_a = _o25["actor"][:, 114 - OB_.N_CAIXA:114]
+    _cx_slice_c = _o25["critic"][:, 119 - 5 - OB_.N_CAIXA:119 - 5]
+    check("1. com a caixa a 0,5 m e o publicado em ANDAR, os 10 canais são EXATAMENTE zero (ator)",
+          float(_cx_slice_a.abs().max()) == 0.0, f"máximo {float(_cx_slice_a.abs().max())}")
+    check("1. ... e no crítico também",
+          float(_cx_slice_c.abs().max()) == 0.0)
+    del _e25
+
+    # --- 2. a invariante, e 3. meia_aresta, na borda da espera ---
+    _c25b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c25b.scene.num_envs = 16
+    _e25b = ManagerBasedRlEnv(cfg=_c25b, device="cpu")
+    _o25b, _ = _e25b.reset()
+    _n25b = _e25b.action_manager.total_action_dim
+    _fat = OB_.fatia_do_elo(114)
+    _cxs = slice(114 - OB_.N_CAIXA, 114)
+    _viol = False
+    _borda_ok = False
+    _hot_ant = _o25b["actor"][:, _fat].argmax(-1)
+    _cx_ant = _o25b["actor"][:, _cxs]
+    check("4. no reset: publicado ANDAR e canais de caixa zero",
+          bool((_hot_ant == CMD.ANDAR).all()) and float(_cx_ant.abs().max()) == 0.0)
+    for _ in range(int(k.alvo.espera_s[1] / _e25b.step_dt) + 5):
+        _o25b = _e25b.step(_t25.zeros(16, _n25b))[0]
+        _hot = _o25b["actor"][:, _fat].argmax(-1)
+        _cxo = _o25b["actor"][:, _cxs]
+        _norma = _cxo[:, :3].norm(dim=-1)
+        _viol |= bool(((_hot == CMD.ANDAR) & (_norma > 0)).any())
+        _viol |= bool(((_hot != CMD.ANDAR) & (_norma == 0)).any())
+        _borda_ok |= bool(((_hot_ant == CMD.ANDAR) & (_hot == CMD.PEGAR) & (_norma > 0.1)).any())
+        _hot_ant = _hot
+    check("2. NUNCA existe |caixa_b| = 0 com publicado ≠ ANDAR, nem ≠ 0 com ANDAR", not _viol)
+    check("4. na borda os canais ACENDEM no mesmo passo em que o one-hot vira PEGAR", _borda_ok)
+    _meia_obs = _o25b["actor"][:, 113]
+    check("3. o último canal é `meia_aresta` e bate com `limpo_meia_aresta` env a env",
+          float((_meia_obs - _e25b.limpo_meia_aresta[:, 0]).abs().max()) < 1e-6,
+          f"{_meia_obs[:4].tolist()} vs {_e25b.limpo_meia_aresta[:4, 0].tolist()}")
+    # --- 23. giro_b: em PEGAR a face está CONGELADA -> zero na abertura, e cresce ao torcer
+    _t25c = _e25b.command_manager.get_term("alvo_caixa")
+    _giro0 = _o25b["actor"][:, 114 - 4:114 - 1]
+    check("23. em PEGAR, na abertura, giro_b é ~0 (face congelada)",
+          float(_giro0.norm(dim=-1).max()) < 2e-2, f"{float(_giro0.norm(dim=-1).max()):.4f}")
+    _cx25b = _e25b.scene["box"]
+    _ang = math.radians(20.0)
+    # ⚠ a torção é RELATIVA ao quatérnion da abertura (a face está congelada nele): a
+    # caixa nasce com um desalinho de até ±15°, portanto um yaw ABSOLUTO de 20° não daria
+    # |giro| = 20°. Compõe-se `qz(20°) ⊗ q0`.
+    _q0 = _cx25b.data.root_link_quat_w.clone()
+    _qz = _qmul(_t25.tensor([math.cos(_ang / 2), 0.0, 0.0, math.sin(_ang / 2)]).expand(16, 4), _q0)
+    for _ in range(3):
+        _cx25b.write_root_link_pose_to_sim(_t25.cat([_cx25b.data.root_link_pos_w, _qz], -1))
+        _cx25b.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
+        _o25b = _e25b.step(_t25.zeros(16, _n25b))[0]
+    _giro1 = _o25b["actor"][:, 114 - 4:114 - 1]
+    check("23. torcida 20° em Z, |giro_b| ≈ 0,35 e bate com ANG",
+          float((_giro1.norm(dim=-1) - _t25c.command[:, CMD.ANG]).abs().max()) < 1e-4
+          and abs(float(_giro1.norm(dim=-1).mean()) - _ang) < 0.03,
+          f"|giro| {float(_giro1.norm(dim=-1).mean()):.3f}, ANG {float(_t25c.command[:, CMD.ANG].mean()):.3f}")
+    check("23. ... e o eixo é Z", float(_giro1[:, :2].abs().max()) < 0.05)
+    del _e25b
+
+    # --- 23. giro_b no REORIENTAR: direção VIVA; caixa girada 90° em Z pede giro em Z ---
+    # ⚠ SEM jitter em y na caixa: a direção viva é "da caixa para o robô", e com a caixa
+    # deslocada em y ela deixa de ser −X puro — o eixo do giro do tombo ganharia uma
+    # componente em x e o ângulo do giro em Z deixaria de ser 90°. Com dy = 0 os dois
+    # casos são exatos.
+    _kk25 = dataclasses.replace(k, cena=dataclasses.replace(k.cena, caixa_jitter_y=(0.0, 0.0)))
+    _c25c = make_env_cfg(_kk25, inspecao=True, elo=CMD.REORIENTAR)
+    _c25c.scene.num_envs = 8
+    _e25c = ManagerBasedRlEnv(cfg=_c25c, device="cpu")
+    _e25c.reset()
+    _n25c = _e25c.action_manager.total_action_dim
+    _cx25c = _e25c.scene["box"]
+    _t25d = _e25c.command_manager.get_term("alvo_caixa")
+
+    def _giro_com(quat):
+        for _ in range(int(k.alvo.espera_s[1] / _e25c.step_dt) + 5):
+            _cx25c.write_root_link_pose_to_sim(
+                _t25.cat([_cx25c.data.root_link_pos_w, quat.expand(8, 4)], -1))
+            _cx25c.write_root_link_velocity_to_sim(_t25.zeros(8, 6))
+            _o = _e25c.step(_t25.zeros(8, _n25c))[0]
+        return _o["actor"][:, 114 - 4:114 - 1]
+
+    _h = math.pi / 4
+    _g_mais = _giro_com(_t25.tensor([math.cos(_h), 0.0, 0.0, math.sin(_h)]))   # yaw +90°
+    _g_menos = _giro_com(_t25.tensor([math.cos(_h), 0.0, 0.0, -math.sin(_h)]))  # yaw −90°
+    _g_pitch = _giro_com(_t25.tensor([math.cos(_h), 0.0, math.sin(_h), 0.0]))   # pitch +90°
+    check("23. caixa girada 90° em Z: |giro_b| ≈ π/2 e o eixo é Z",
+          abs(float(_g_mais.norm(dim=-1).mean()) - math.pi / 2) < 0.05
+          and float(_g_mais[:, :2].abs().max()) < 0.1,
+          f"{_g_mais[0].tolist()}")
+    check("23. o SINAL troca com o sentido do giro",
+          float((_g_mais[:, 2] * _g_menos[:, 2]).max()) < 0.0)
+    check("23. caixa tombada 90° em Y: o eixo é Y",
+          abs(float(_g_pitch[:, 1].abs().mean()) - math.pi / 2) < 0.05
+          and float(_g_pitch[:, [0, 2]].abs().max()) < 0.1,
+          f"{_g_pitch[0].tolist()}")
+    del _e25c
+except Exception as _e25x:      # noqa: BLE001
+    _falhas.append(f"a observação nova não pôde ser medida: "
+                   f"{type(_e25x).__name__}: {_e25x}")
 
 # =============================================================================
 print()
