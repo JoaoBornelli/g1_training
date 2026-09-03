@@ -3034,6 +3034,21 @@ try:
     check("12. antes do fecho do BOTAR o publicado é BOTAR e `soltou` é falso",
           bool((_t23d.command[:, CMD.ELO] == CMD.BOTAR).all())
           and not bool(_t23d._soltou.any()))
+    # ⚠ A CAIXA VAI PARA LONGE DAS PALMAS **ANTES** DO FECHO, e com um passo para os
+    # buffers de `.data` recomputarem — senão o `escapou` lê pose obsoleta e o teste
+    # abaixo passaria por omissão. Aqui ele TEM de estar armado.
+    _t23d._pegou[:] = True
+    _cx23p = _e23b.scene["box"]
+    _pp23 = _cx23p.data.root_link_pos_w.clone()
+    _pp23[:, 0] += 1.0
+    _cx23p.write_root_link_pose_to_sim(
+        _t23.cat([_pp23, _cx23p.data.root_link_quat_w], -1))
+    _cx23p.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
+    _par23 = dict(cfg.terminations["caixa_largada"].params)
+    check("12. ANTES do fecho, a caixa longe das palmas TERMINA (`escapou` armado)",
+          bool(TE_.caixa_largada(_e23b, **_par23).all()),
+          "sem isto o check seguinte passaria por omissão")
     _t23d.forca_avanco(_ids23)            # fecha o BOTAR -> espera final
     check("12. no MESMO passo do fecho o publicado vira ANDAR, sem atraso",
           bool((_t23d.command[:, CMD.ELO] == CMD.ANDAR).all()))
@@ -3044,6 +3059,17 @@ try:
     check("3. e o VALIDA é UM na espera final — ela NÃO zera os incentivos",
           float(_t23d.command[:, CMD.VALIDA].min()) == 1.0,
           "spec §6.0: o VALIDA deriva do interno; é isso que fecha o buraco da renda")
+    # ⚠⚠ O ATRIBUTO TEM DE ESTAR PUBLICADO NO MESMO INSTANTE, e não na passada seguinte.
+    # A ordem do mjlab é terminação e recompensa ANTES do comando, portanto um atraso de
+    # uma passada deixa o `caixa_largada` ler `soltou = 0` no passo do fecho — o guarda
+    # da espera final desarmado exatamente no passo do sucesso. Achado num code review
+    # de 03/09, com medição.
+    check("12. `limpo_soltou` é publicado NO MESMO passo do fecho, sem esperar a passada",
+          float(_e23b.limpo_soltou.min()) == 1.0,
+          f"medido {[round(float(x), 1) for x in _e23b.limpo_soltou[:4]]}")
+    check("12. e o `escapou` DESARMA no mesmo instante — o passo do sucesso não mata",
+          not bool(TE_.caixa_largada(_e23b, **_par23).any()),
+          "é a regressão do atraso de uma passada: a terminação roda ANTES do comando")
     _o23b = _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))[0]
     _hotf = _o23b["actor"][:, OB_.fatia_do_elo(_o23b["actor"].shape[-1])].argmax(-1)
     check("12. a observação mostra ANDAR na espera final",

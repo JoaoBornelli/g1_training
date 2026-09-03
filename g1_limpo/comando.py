@@ -418,7 +418,10 @@ class AlvoCaixaCmd(CommandTerm):
         self._espera.sub_(self._env.step_dt).clamp_(min=0.0)
         aguardando = self._espera > 0.0
         self._env.limpo_aguardando.copy_(aguardando.float())
-        self._env.limpo_soltou = self._soltou.float()
+        # ⚠ IN-PLACE, como o `limpo_aguardando` acima. Rebindar um tensor novo a cada
+        # passo deixaria qualquer referência guardada lendo dado velho — e o fecho do
+        # `BOTAR` escreve neste mesmo buffer por índice (ver `_avanca_elo_force`).
+        self._env.limpo_soltou.copy_(self._soltou.float())
         self._env.limpo_elo_interno = self._elo
         publica_andar = aguardando | self._soltou
         self._command[:, ELO] = torch.where(
@@ -955,6 +958,19 @@ class AlvoCaixaCmd(CommandTerm):
             if len(solta):
                 self._soltou[solta] = True
                 self._command[solta, ELO] = float(ANDAR)
+                # ⚠⚠ E O ATRIBUTO É PUBLICADO AQUI, no mesmo instante. Sem esta linha o
+                # `env.limpo_soltou` só apareceria na passada SEGUINTE do
+                # `_aplica_espera` — e a ordem do mjlab é
+                # `termination_manager.compute()` (`manager_based_rl_env.py:436`) e
+                # `reward_manager.compute()` (`:440`) ANTES de
+                # `command_manager.compute()` (`:456`). Portanto, por um passo inteiro
+                # depois do fecho, o `caixa_largada` leria `soltou = 0` e o guarda da
+                # espera final estaria DESARMADO no passo do sucesso: o robô que solta a
+                # caixa e recua as palmas morre por `escapou` em vez de colher a espera
+                # final. MEDIDO em 03/09, num code review: `largada = True` no passo do
+                # fecho com `limpo_soltou = 0`. O `largou` também pagava zero por um
+                # passo a mais.
+                self._env.limpo_soltou[solta] = 1.0
 
         self.avancou[ids] = pode
         # ⚠ Só o CONTADOR de avanços mora aqui — ele é por evento. O `passo_final` e o
@@ -1456,6 +1472,15 @@ class TwistComRazaoDeMarcha(UniformVelocityCommand):
         self.is_forward_env[ids] = False
         lo, hi = self.cfg.ranges.ang_vel_z
         teto = max(abs(float(lo)), abs(float(hi)))
+        # ⚠ A FAIXA É MUTADA PELO CURRÍCULO DO FABRICANTE (`command_vel` reescreve
+        # `cfg.ranges.ang_vel_z` no cfg COMPARTILHADO, e o `make_env_cfg` só o remove no
+        # ramo `play`). Hoje o estágio 0 abre em ±0,5 e só alarga, portanto o mínimo de
+        # 0,2 cabe. Se um dia um estágio estreitar abaixo dele, `uniform_(from > to)`
+        # levanta `RuntimeError` no primeiro re-sorteio — crash na iteração 0 de uma run
+        # paga. Melhor falhar na montagem, com o número na mensagem.
+        assert self.cfg.turning_wz_min <= teto, (
+            f"`turning_wz_min` = {self.cfg.turning_wz_min} não cabe na faixa de "
+            f"`ang_vel_z` (teto {teto}); o currículo de comando estreitou a faixa?")
         mag = torch.empty(len(ids), device=self.device).uniform_(
             float(self.cfg.turning_wz_min), teto)
         sinal = torch.where(torch.rand(len(ids), device=self.device) < 0.5, -1.0, 1.0)
