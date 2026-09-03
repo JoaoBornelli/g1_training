@@ -2109,7 +2109,7 @@ try:
 
     _ca = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
     _ca.scene.num_envs = 8
-    _ca.commands["alvo_caixa"].cadeia_forcada = 3        # (PEGAR, BOTAR)
+    _ca.commands["alvo_caixa"].cadeia_forcada = 3        # (PEGAR, CARREGAR, BOTAR)
     _ea = ManagerBasedRlEnv(cfg=_ca, device="cpu")
     _ea.reset()
     _naa = _ea.action_manager.total_action_dim
@@ -2124,10 +2124,13 @@ try:
     _tac.forca_avanco(_ids_a)
 
     check("o avanço muda o elo, e o novo é o 2º da cadeia forçada",
-          bool((_tac._elo == CMD.BOTAR).all()) and bool((_elo_antes == CMD.PEGAR).all()),
+          bool((_tac._elo == CMD.CARREGAR).all()) and bool((_elo_antes == CMD.PEGAR).all()),
           f"{_elo_antes.tolist()[:3]} -> {_tac._elo.tolist()[:3]}")
+    # o 2º avanço leva ao BOTAR; o invariante da laje abaixo é medido nesse instante
+    _tac.forca_avanco(_ids_a)
+    check("o segundo avanço leva ao BOTAR, e `_passo` vai a 2",
+          bool((_tac._elo == CMD.BOTAR).all()) and bool((_tac._passo == 2).all()))
     check("o `avancou` é marcado", bool(_tac.avancou.all()))
-    check("o `_passo` foi para 1", bool((_tac._passo == 1).all()))
     check("o cronômetro ZERA no avanço", float(_tac._sust.abs().max()) == 0.0)
     check("os σ são RECALCULADOS no avanço, contra a pose fresca",
           float((_tac.sigma_alcance - _sig_antes).abs().max()) > 1e-6,
@@ -2136,14 +2139,6 @@ try:
     # ⚠ O AVANÇO NÃO RESETA. É o critério do plano, e ele se mede pelo contador de
     # duração do episódio: um reset o zeraria.
     _ea.step(_ta.zeros(_ea.num_envs, _naa))
-    # ⚠ O TWIST TEM DE RELIGAR no avanço para `CARREGAR`. Ele é forçado a ZERO nos elos
-    # parados; se continuasse zerado depois do avanço, o robô "carregaria" sem ter
-    # velocidade a rastrear, e o elo inteiro seria inerte.
-    _tw_a = _ea.command_manager.get_term("twist")
-    check("no avanço para CARREGAR o twist RELIGA",
-          True if CMD.BOTAR == int(_tac._elo[0]) else
-          float(_tw_a.vel_command_b.abs().max()) > 0.0,
-          "medido em cadeia 2: 0,0 antes do avanço, 0,5 depois")
 
     check("o avanço NÃO reseta o episódio",
           int(_ea.episode_length_buf.max()) > _dur_antes,
@@ -2856,6 +2851,87 @@ check("o eixo do `reorientar` satura no nível 4, e está declarado",
       k.nivel.voltas_max[4] == k.nivel.voltas_max[-1]
       and k.nivel.eixo_vertical[4] == k.nivel.eixo_vertical[-1],
       "acima dele só a altura e a carga graduam")
+
+# ==================== 22. a cadeia 3 tem TRÊS elos e segura parado (spec §6.5) ======
+secao("22. a cadeia 3: (PEGAR, CARREGAR, BOTAR), o CARREGAR do meio segura parado")
+from g1_limpo import comando as CMD                                       # noqa: E402
+
+check("9. CADEIAS[3] é (PEGAR, CARREGAR, BOTAR)",
+      CMD.CADEIAS[3] == (CMD.PEGAR, CMD.CARREGAR, CMD.BOTAR), str(CMD.CADEIAS[3]))
+check("9. o teto de elos é DERIVADO e vale 3", CMD._TETO_ELOS == 3)
+check("9. a marca de segurar parado é derivada de CADEIAS: só a cadeia 3 a tem",
+      CMD._SEGURA_PARADO.tolist() == [False, False, False, True],
+      str(CMD._SEGURA_PARADO.tolist()))
+check("as outras três cadeias não mudaram",
+      CMD.CADEIAS[:3] == ((CMD.PEGAR,), (CMD.REORIENTAR, CMD.PEGAR),
+                          (CMD.PEGAR, CMD.CARREGAR)))
+check("toda espera é a MESMA faixa: espera_s = (0,5, 1,5)",
+      tuple(k.alvo.espera_s) == (0.5, 1.5), str(k.alvo.espera_s))
+
+# --- rodando: a cadeia 3 percorre os três elos com a caixa PINADA na âncora ---
+# `elo=CARREGAR` liga o `segura_caixa` + `pina_caixa` (a caixa fica no peito a cada
+# passo); `cadeia=3` vence e o elo de abertura é o PEGAR. Com a caixa na âncora, o
+# PEGAR fecha sozinho depois da espera + 0,5 s; o CARREGAR de segurar parado fecha
+# por `perto` sustentado pela espera sorteada; o BOTAR nunca fecha (a caixa pinada
+# no ar não é `apoiada`).
+try:
+    import torch as _t22
+
+    _c22 = make_env_cfg(k, inspecao=True, elo=CMD.CARREGAR, cadeia=3)
+    _c22.scene.num_envs = 16
+    _e22 = ManagerBasedRlEnv(cfg=_c22, device="cpu")
+    _e22.reset()
+    _n22 = _e22.action_manager.total_action_dim
+    _t22c = _e22.command_manager.get_term("alvo_caixa")
+    _tw22 = _e22.command_manager.get_term("twist")
+    _dt22 = _e22.step_dt
+    _t1 = _t22.full((_e22.num_envs,), -1, dtype=_t22.long)
+    _t2 = _t22.full((_e22.num_envs,), -1, dtype=_t22.long)
+    _twist_no_carregar = 0.0
+    for _i in range(240):
+        _e22.step(_t22.zeros(_e22.num_envs, _n22))
+        _p = _t22c._passo
+        _t1 = _t22.where((_t1 < 0) & (_p >= 1), _t22.full_like(_t1, _i), _t1)
+        _t2 = _t22.where((_t2 < 0) & (_p >= 2), _t22.full_like(_t2, _i), _t2)
+        if bool(((_p == 1)).any()):
+            _twist_no_carregar = max(_twist_no_carregar,
+                                     float(_tw22.vel_command_b[_p == 1].abs().max()))
+    check("9. a máquina de elo percorre PEGAR -> CARREGAR -> BOTAR sozinha",
+          bool((_t22c._passo == 2).all()) and bool((_t22c._elo == CMD.BOTAR).all()),
+          f"passo {_t22c._passo.tolist()[:8]}")
+    check("9. e `fechou` NÃO marca no BOTAR com a caixa no ar",
+          not bool(_t22c.fechou.any()))
+    _seg = (_t2 - _t1).float() * _dt22
+    check("11. o CARREGAR de segurar parado dura a ESPERA sorteada (0,5 a 1,5 s)",
+          bool((_seg >= k.alvo.espera_s[0] - 2 * _dt22).all())
+          and bool((_seg <= k.alvo.espera_s[1] + 3 * _dt22).all()),
+          f"durações medidas {[round(float(x), 2) for x in _seg[:8]]} s")
+    check("10. no CARREGAR da cadeia 3 o twist é ZERO em todo passo",
+          _twist_no_carregar == 0.0, f"máximo medido {_twist_no_carregar:.4f}")
+    del _e22
+
+    # --- controle: na cadeia 2 o CARREGAR ANDA e fecha por distância ---
+    _c22b = make_env_cfg(k, inspecao=True, elo=CMD.CARREGAR, cadeia=2)
+    _c22b.scene.num_envs = 16
+    _e22b = ManagerBasedRlEnv(cfg=_c22b, device="cpu")
+    _e22b.reset()
+    _n22b = _e22b.action_manager.total_action_dim
+    _t22d = _e22b.command_manager.get_term("alvo_caixa")
+    _tw22b = _e22b.command_manager.get_term("twist")
+    _twist_c2 = 0.0
+    for _ in range(240):
+        _e22b.step(_t22.zeros(_e22b.num_envs, _n22b))
+        if bool((_t22d._passo == 1).any()):
+            _twist_c2 = max(_twist_c2,
+                            float(_tw22b.vel_command_b[_t22d._passo == 1].abs().max()))
+    check("11. na cadeia 2 o CARREGAR NÃO fecha com o robô parado — `andou` continua",
+          bool((_t22d._passo == 1).all()), f"passo {_t22d._passo.tolist()[:8]}")
+    check("10. e na cadeia 2 o twist RELIGA no CARREGAR",
+          _twist_c2 > 0.0, f"máximo medido {_twist_c2:.4f}")
+    del _e22b
+except Exception as _e22x:      # noqa: BLE001
+    _falhas.append(f"a cadeia 3 não pôde ser exercitada: "
+                   f"{type(_e22x).__name__}: {_e22x}")
 
 # =============================================================================
 print()
