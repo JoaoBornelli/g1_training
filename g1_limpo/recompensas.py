@@ -209,7 +209,7 @@ def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
     ⚠ A ESPERA NÃO PRECISA DE LINHA PRÓPRIA (desde a v2, spec §6.3): o comando publica
     `ANDAR` durante as duas esperas, portanto `_anda_neste_elo` já devolve verdadeiro
     ali e o rastreio paga por manter velocidade zero — que é o contrato "fique parado,
-    e ainda não existe tarefa". A versão de 02/09 lia `limpo_aguardando` aqui porque o
+    e ainda não existe tarefa". A versão de 02/09 lia o buffer de espera do env aqui porque o
     publicado ainda era `PEGAR`; ficou redundante e saiu.
     """
     valor = func(env, **kwargs)
