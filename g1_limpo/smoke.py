@@ -305,9 +305,9 @@ check("existe a terminação `caixa_largada`",
       "caixa_largada" in cfg.terminations,
       "ela é a outra metade do porteiro do `unload`: o porteiro tira o pagamento de "
       "derrubar sem pegar, ela tira o de pegar e largar")
-check("o `caixa_z_min` é a MEIA-ARESTA — a caixa apoiada no chão",
-      k.terminacao.caixa_z_min == k.cena.caixa_meia_aresta[2],
-      "é o piso físico, e não uma tolerância escolhida")
+check("o `caiu` lê o TAMANHO da caixa: a folga do chão é menor que a laje mais baixa",
+      0.0 < k.terminacao.caixa_folga_chao < k.cena.prateleira_topo_piso,
+      f"folga {k.terminacao.caixa_folga_chao} vs piso da laje {k.cena.prateleira_topo_piso}")
 check("o `caixa_dist_max` é MAIOR que a distância de nascimento da palma",
       k.terminacao.caixa_dist_max > 0.339,
       "ela não dispara no reset porque é ARMADA pela primeira preensão, e não "
@@ -1841,8 +1841,8 @@ try:
     _cx5 = _e5.scene["box"].data.root_link_pos_w
     check("cada palma tem o SEU alvo, e são dois pontos distintos",
           _alv5.shape[1] == 2 and float(_sep5.min()) > 1e-3)
-    check("os dois alvos ficam nas FACES laterais — separados por 2×meia-aresta",
-          float((_sep5 - 2.0 * k.cena.caixa_meia_aresta[1]).abs().max()) < 1e-5,
+    check("os dois alvos ficam nas FACES laterais — separados por 2×meia-aresta DO ENV",
+          float((_sep5 - 2.0 * _e5.limpo_meia_aresta[:, 1]).abs().max()) < 1e-5,
           f"separação medida {float(_sep5.mean()):.4f} m")
     check("o ponto médio dos dois alvos É o centro da caixa",
           float((_mid5 - _cx5).norm(dim=-1).max()) < 1e-5,
@@ -3056,6 +3056,84 @@ try:
 except Exception as _e23x:      # noqa: BLE001
     _falhas.append(f"as duas esperas não puderam ser medidas: "
                    f"{type(_e23x).__name__}: {_e23x}")
+
+# ==================== 24. o TAMANHO da caixa por mundo, e o `caiu` por tamanho (spec §6.7)
+secao("24. tamanho da caixa por mundo")
+from g1_limpo import eventos as EV_                                       # noqa: E402
+
+check("13. o evento `tamanho_caixa` existe, é de STARTUP e declara os três campos",
+      "tamanho_caixa" in cfg.events and cfg.events["tamanho_caixa"].mode == "startup"
+      and tuple(getattr(EV_.tamanho_caixa, "model_fields", ()))
+      == ("geom_size", "geom_rbound", "geom_aabb"),
+      "sem `requires_model_fields` o mjlab não expande os campos por mundo")
+check("13. a faixa e o K são os da spec",
+      tuple(k.cena.caixa_meia_aresta_faixa) == (0.07, 0.13) and k.cena.caixa_n_variantes == 8)
+try:
+    import torch as _t24
+
+    _c24 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c24.scene.num_envs = 64
+    _e24 = ManagerBasedRlEnv(cfg=_c24, device="cpu")
+    _e24.reset()
+    _n24 = _e24.action_manager.total_action_dim
+    _cx = _e24.scene["box"]
+    _loc, _ = _cx.find_geoms([C.BOX_GEOM])
+    _g = int(_cx.indexing.geom_ids[_loc[0]])
+    _size = _e24.sim.model.geom_size[:, _g]                      # (64, 3)
+    _a = _size[:, 0]
+    _K = _t24.linspace(*k.cena.caixa_meia_aresta_faixa, k.cena.caixa_n_variantes)
+    _no_k = (_a.unsqueeze(-1) - _K.unsqueeze(0)).abs().min(-1).values < 1e-6
+    check("13. `geom_size` difere entre mundos e só toma os K valores",
+          bool(_no_k.all()) and len(_t24.unique(_a)) >= 5,
+          f"{len(_t24.unique(_a))} valores distintos em 64 envs: {sorted(set(round(float(x),4) for x in _a))}")
+    check("13. a caixa é CUBO: os três eixos iguais",
+          float((_size - _a.unsqueeze(-1)).abs().max()) < 1e-7)
+    check("13. `geom_rbound` acompanha: a·√3",
+          float((_e24.sim.model.geom_rbound[:, _g] - _a * math.sqrt(3.0)).abs().max()) < 1e-6)
+    check("13. `geom_aabb` acompanha: meia-caixa (a, a, a)",
+          float((_e24.sim.model.geom_aabb[:, _g, 1] - _size).abs().max()) < 1e-7)
+    _bm = _e24.sim.model.body_mass
+    _bid = int(_cx.indexing.body_ids[0])
+    check("13. `body_mass` da caixa NÃO mudou — independência do peso",
+          float((_bm[..., _bid] - float(k.cena.caixa_massa)).abs().max()) < 1e-6,
+          f"{_bm[..., _bid].flatten()[:4].tolist()}")
+    check("13. `limpo_meia_aresta` bate com `geom_size` env a env",
+          float((_e24.limpo_meia_aresta - _size).abs().max()) < 1e-7)
+    # o colisor LÊ o tamanho: a caixa repousa com o centro a `a` acima do topo
+    _passa_janela(_e24, _n24, _t24)
+    _rep = (_cx.data.root_link_pos_w[:, 2] - _e24.limpo_topo - _a)
+    check("13. a caixa repousa a `a` acima da laje em TODO env — o colisor lê o tamanho novo",
+          float(_rep.abs().max()) < 5e-3,
+          f"desvio máximo {float(_rep.abs().max())*1000:.1f} mm")
+    # 15. todo consumidor lê o tamanho por env
+    _t24c = _e24.command_manager.get_term("alvo_caixa")
+    _alv = _t24c.alvos_das_palmas(_t24.arange(_e24.num_envs))
+    _sep = (_alv[:, 0] - _alv[:, 1]).norm(dim=-1)
+    check("15. `alvos_das_palmas` separa as palmas por 2a DO ENV",
+          float((_sep - 2.0 * _a).abs().max()) < 1e-5)
+    # 19. o `caiu` por tamanho
+    _t24c._pegou[:] = True
+    _e24.step(_t24.zeros(_e24.num_envs, _n24))
+    _par24 = dict(_c24.terminations["caixa_largada"].params)
+    _q = _cx.data.root_link_quat_w
+    _pf = _cx.data.root_link_pos_w.clone()
+    _pf[:, 2] = _e24.scene.env_origins[:, 2] + _a                # deitada no chão
+    _cx.write_root_link_pose_to_sim(_t24.cat([_pf, _q], -1))
+    _cx.write_root_link_velocity_to_sim(_t24.zeros(_e24.num_envs, 6))
+    _e24.step(_t24.zeros(_e24.num_envs, _n24))
+    check("19. deitada no chão, a caixa de QUALQUER tamanho dispara `caiu`",
+          bool(TE_.caixa_largada(_e24, **_par24).all()))
+    _pl = _pf.clone()
+    _pl[:, 2] = _e24.scene.env_origins[:, 2] + k.cena.prateleira_topo_piso + _a
+    _cx.write_root_link_pose_to_sim(_t24.cat([_pl, _q], -1))
+    _cx.write_root_link_velocity_to_sim(_t24.zeros(_e24.num_envs, 6))
+    _e24.step(_t24.zeros(_e24.num_envs, _n24))
+    check("19. apoiada na laje mais baixa, a caixa MENOR não dispara `caiu`",
+          not bool(TE_.caixa_largada(_e24, **_par24).any()))
+    del _e24
+except Exception as _e24x:      # noqa: BLE001
+    _falhas.append(f"o tamanho por mundo não pôde ser medido: "
+                   f"{type(_e24x).__name__}: {_e24x}")
 
 # =============================================================================
 print()
