@@ -254,6 +254,13 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     sustenta_outros_s: float = 0.3
     carregar_s: float = 1.5
     carregar_dist_m: float = 0.50
+    # ⚠ O INTERRUPTOR DO REORIENTAR (spec §8.3, v2): com `True` o fecho do REORIENTAR
+    # ignora `alinhado` e o elo fecha em `sustenta_outros_s` sem trabalho. MEDIDO em
+    # 03/09: `voltas_max = 0` não bastava — a direção pedida é "da caixa para o robô", e
+    # com o jitter lateral da caixa ela sai até ~29° do eixo; ~1 em 6 envs nascia fora
+    # dos 25° e o elo não fechava. Desligar (False) é o primeiro passo quando a
+    # reorientação virar foco.
+    reorientar_inerte: bool = False
 
     def build(self, env: "ManagerBasedRlEnv") -> "AlvoCaixaCmd":
         return AlvoCaixaCmd(self, env)
@@ -792,7 +799,10 @@ class AlvoCaixaCmd(CommandTerm):
                 continue
 
             if elo_tipo == REORIENTAR:
-                fecha[m] = (perto[m] & alinhado[m])
+                # ⚠ `reorientar_inerte` (v2): o REORIENTAR fecha só por `perto`, que é
+                # trivial (o alvo É a caixa) — o elo vira um atraso de 0,3 s antes do
+                # PEGAR. Ver o knob para a medição que exigiu isto.
+                fecha[m] = perto[m] & (alinhado[m] | bool(c.reorientar_inerte))
             elif elo_tipo == PEGAR:
                 fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
             elif elo_tipo == CARREGAR:

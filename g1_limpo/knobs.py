@@ -681,6 +681,11 @@ class Cadeia:
     # sustain MAIOR de propósito: ele é o elo do qual TODAS as cadeias dependem, e um
     # fecho por acidente de um frame propagaria para os outros três.
     sustenta_outros_s: float = 0.3
+    # ⚠ O REORIENTAR ESTÁ INERTE NA v2 (spec §8.3): o fecho dele ignora `alinhado` e o
+    # elo vira um atraso de `sustenta_outros_s` antes do PEGAR. MEDIDO em 03/09 que
+    # `voltas_max = 0` sozinho não bastava (o jitter lateral da caixa tira a direção
+    # pedida da tolerância em ~1 de 6 envs). Quando a reorientação virar foco: False.
+    reorientar_inerte: bool = True
 
     # ⚠⚠ O `CARREGAR` EXIGE DESLOCAMENTO, e não só tempo. Defeito MEDIDO em 2026-08-26
     # (achado por code review): o `pegar` e o `carregar` publicam EXATAMENTE o mesmo

@@ -459,6 +459,7 @@ def make_env_cfg(
         sustenta_pegar_s=k.cadeia.sustenta_pegar_s,
         sustenta_outros_s=k.cadeia.sustenta_outros_s,
         carregar_s=k.cadeia.carregar_s,
+        reorientar_inerte=k.cadeia.reorientar_inerte,
         # as tolerâncias de FECHAMENTO são as mesmas da régua de sustentação da F3:
         # um elo que "fecha" com tolerância diferente da que a recompensa paga
         # ensinaria duas coisas contraditórias.
