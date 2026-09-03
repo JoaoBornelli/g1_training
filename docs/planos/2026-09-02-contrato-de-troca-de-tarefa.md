@@ -1,6 +1,6 @@
 # Contrato de troca de tarefa — g1_limpo
 
-**Estado:** v14 EM REVISÃO pelo dono (2026-09-03). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 propõe o conserto (§13, sétima rodada); a v14 fecha o contrato do `REORIENTAR` (§8.3) sem trazer o treino dele para a v2. Nada implementado. Próximo passo: aprovar e escrever o plano de implementação na branch `exp/g1-limpo-v2`.
+**Estado:** v14 APROVADA, SEM PENDÊNCIAS, em 2026-09-03 (§13, sétima rodada, "aprovado tudo"). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 os consertou; a v14 fechou o contrato do `REORIENTAR` (§8.3) sem trazer o treino dele para a v2. Nada implementado. Próximo passo: o plano de implementação na branch `exp/g1-limpo-v2`.
 **Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v14 — `ANG` vira `giro_b`, 114 canais; o `REORIENTAR` ganha contrato, quatro primitivas e o desenho do treino, e fica inerte na v2. v13 — a renda do `BOTAR` e da espera final vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
 **Módulo:** `g1_limpo/`
 
@@ -1634,7 +1634,7 @@ são os de hoje.
 - **`rel_turning_envs = 0,10`**, com `|wz| ≥ 0,2 rad/s` (§9).
 - **Tamanho: (0,07, 0,13) m, K = 8** (§6.7).
 
-**Proposta da revisão de consistência (03/09, sétima rodada) — EM REVISÃO PELO DONO:**
+**Tomadas (03/09, sétima rodada — a revisão de consistência; APROVADA pelo dono em 03/09, "aprovado tudo"):**
 
 A revisão cruzou a v12 com `comando.py`, `recompensas.py`, `terminacoes.py`, `knobs.py`,
 o `g1_poc` e o fonte do mjlab 1.5.1 e do `mujoco_warp`. Achou três buracos de
@@ -1667,7 +1667,12 @@ aprendizado e propõe:
   nível) e sorteável, para o slot não ficar constante; o checkpoint da v2 serve de
   warm-start quando virar foco, porque nada do que falta muda a observação.
 
-**Pendentes: a aprovação da sétima rodada.** Em particular: os pesos 2,0 e 1,0 e o
-`σ_solta = 0,10` são ponto de partida; e `voltas_max = 0` em todo nível na run da v2 é
-mudança em `knobs.Nivel` que o dono confirma. Depois da aprovação, o próximo passo é o
-plano de implementação.
+**Aprovado em 03/09, com os valores propostos:** `load` 2,0; `largou` 1,0;
+`σ_solta` 0,10 m; `caixa_folga_chao` 0,02 m; `voltas_max = 0` em todo nível na run da v2
+(mudança em `knobs.Nivel`); `rel_turning_envs` 0,10 com `|wz| ≥ 0,2` e a precedência
+`standing > turning > forward > heading`; `dr.geom_size` com wrapper para o cubo; o
+crítico com o elo interno e o `PPOPorElo` agrupando por ele; o fecho da cadeia 3 por
+`perto` sustentado pela espera. Os pesos são ponto de partida: o smoke prova a monotonia
+(§11.1 item 16), e a primeira run mede.
+
+**Pendentes: nenhuma.** O próximo passo é o plano de implementação.
