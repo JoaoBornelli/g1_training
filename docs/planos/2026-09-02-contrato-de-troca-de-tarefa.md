@@ -411,7 +411,7 @@ documento torna explícita. Medido em 02/09, por leitura de fonte:
 | quem | lê | lado |
 |---|---|---|
 | observação `um_de_cinco` (ator e crítico) | `comando[:, ELO]` | **publicado** |
-| observação `elo_interno` (**só o crítico**, §6.1) | `limpo_elo` | interno |
+| observação `elo_interno` (**só o crítico**, §6.1) | `AlvoCaixaCmd._elo` | interno |
 | gate dos canais de caixa (§6.1) | `comando[:, ELO]` | **publicado** |
 | `PosturaPorElo` | `comando[:, ELO]` | **publicado** |
 | `rastreio_por_elo` (`_anda_neste_elo`) | `comando[:, ELO]` | **publicado** |
@@ -456,8 +456,10 @@ Consequências:
 `actor` e `critic`.
 
 ⚠ **O gate vale para o crítico também, mas o crítico ganha o elo INTERNO** (v13). Um
-termo novo `elo_interno`, one-hot de 5 do `limpo_elo`, **só no grupo `critic`**, em
-APPEND depois do `caixa`. Motivo, medido em 03/09 pela aritmética da §6.6.1: na espera
+termo novo `elo_interno`, one-hot de 5 do `AlvoCaixaCmd._elo`, **só no grupo `critic`**,
+em APPEND depois do `caixa`. ⚠ Do `_elo` do comando, e **não** do `limpo_elo` do
+currículo: o `limpo_elo` é escrito no reset e não acompanha o avanço de cadeia, portanto
+ele daria o elo de abertura do episódio e não o elo corrente. Motivo, medido em 03/09 pela aritmética da §6.6.1: na espera
 final o robô rende cerca de 18/s; um env `standing` da locomoção rende 6/s com a
 **mesma** observação do ator (`ANDAR`, twist zero, caixa zero). Um crítico que vê só o
 que o ator vê não separa os dois, e a função de valor erra nos dois lados — o mesmo
@@ -752,13 +754,23 @@ anterior. Cinco peças; quatro têm precedente no `g1_poc`. Todas leem o elo **i
 2. **Máscaras no `BOTAR`:** `squeeze` → 0 e `unload` → 0 quando o interno é `BOTAR`.
    `postura_ereta` é `rampa × unload` e zera junto, sem linha própria. Os três pagam por
    **segurar**; no `BOTAR` eles pagam contra a tarefa. É a máscara do `g1_poc`.
-3. **`alcança ≡ 1` no `BOTAR`**, dentro de `staged` e de `precise_ori`. No `BOTAR` as
-   mãos já estão na caixa: o σ do kernel cai no piso de 0,08 m e ele vale 1 por
-   construção. Ele não carrega informação ali — ele só paga 3/s por **manter** as mãos
-   na caixa, que é o freio contra largar. Com `alcança ≡ 1`, `staged` vira
-   `3 × (1 + trazer)`: paga pela caixa ir ao alvo, indiferente às mãos. Fora do `BOTAR`
-   nada muda. A forma geral da regra é `alcança ≡ 1 se (interno == BOTAR) ou soltou`
-   (§8.3); na v2 as duas condições coincidem, porque só o `BOTAR` tem espera final.
+3. **`alcança ≡ 1` no `BOTAR`**, dentro de `staged` e de `precise_ori`. Ele é o freio
+   contra largar: paga 3/s por **manter** as mãos na caixa. Com `alcança ≡ 1`, `staged`
+   vira `3 × (1 + trazer)`: paga pela caixa ir ao alvo, indiferente às mãos. Fora do
+   `BOTAR` nada muda. A forma geral da regra é `alcança ≡ 1 se (interno == BOTAR) ou
+   soltou` (§8.3); na v2 as duas condições coincidem, porque só o `BOTAR` tem espera
+   final.
+   ⚠⚠ **Duas correções da revisão de 03/09, e elas mudam o que esta peça é.** A
+   justificativa antiga ("o σ cai no piso de 0,08 m e o kernel vale 1 por construção")
+   **é falsa**: `σ_alcance = d_palma × sigma_fator` com piso de 0,08, portanto na
+   abertura do elo o kernel vale `exp(−1) = 0,368`, não 1. O `≡ 1` é uma **mudança de
+   valor de +1,9/s** no `BOTAR`, e não uma tautologia. E ele faz o `staged` degenerar
+   na forma de **SOMA** que o docstring do próprio termo proíbe — "com soma, o robô
+   ganharia por EMPURRAR a caixa até o alvo com o pé, e foi assim que uma run antiga
+   aprendeu a chutar a caixa". No `BOTAR` sobram dois efeitos: um piso incondicional de
+   3,0/s por estar no elo, e a caixa podendo ser levada ao alvo por qualquer parte do
+   corpo, com o único freio geométrico sendo `caixa_dist_max = 0,45 m` do `escapou`.
+   **Vigiar `palmas_em_contato` e `dorso_em_contato` na primeira run** (§12).
 4. **Termo novo `load`** = `clamp(F_apoio/mg) × perto(d ≤ 2·tol_pos)`, só com o interno
    em `BOTAR`, peso **2,0**. O espelho do `unload`, com o mesmo peso e o mesmo gate de
    posição do `g1_poc` (`load_raio_mult = 2`). O gate fecha o hack de largar a caixa em
@@ -783,10 +795,30 @@ Monótona. Cada passo em direção ao que se quer rende mais. E o mesmo `precise
 `staged` e `sustentacao` que pagam por chegar ao alvo continuam pagando por **ficar**
 nele depois de largar.
 
-**Hacks conferidos, nenhum abre:** prensar a caixa contra a laje satura `load` em 1
+**Hacks conferidos que NÃO abrem:** prensar a caixa **para baixo** satura `load` em 1
 (`clamp`); apoiar fora do alvo perde `perto`; largar e depois empurrar a caixa perde
 `precise_pos`, `load` e `largou` juntos; andar durante a espera perde rastreio; escorar
 na mesa paga `contato_*`; derrubar termina (`caiu`, §6.6.3).
+
+⚠⚠ **Dois hacks que a revisão de 03/09 achou ABERTOS. Não são bloqueios; são risco a
+vigiar, e a decisão de fechá-los é do dono.**
+
+1. **`load` e `apoiada` leem a NORMA da força caixa↔laje, que não tem direção.** Prensar
+   a caixa **de lado** contra a aresta do tampo, a ≤ 0,20 m do alvo, satisfaz `apoiada`
+   e satura `load` — o elo fecha em 0,3 s sem a laje carregar o peso. A metade `apoiada`
+   deste defeito é **herdada** da `exp/g1-limpo` (o fecho do `BOTAR` sempre leu a norma);
+   o `load` a herdou junto. Conserto, se o dono quiser: projetar a força no eixo
+   vertical (`f[..., 2].abs()`), como o `g1_poc` faz no `load`
+   (`g1_poc/recompensas.py::load` usa `f[..., 2]`). É uma linha em cada um dos dois
+   sítios, e muda o fecho do `BOTAR` — portanto é decisão, não conserto silencioso.
+2. **Soltar a caixa de 5 cm de altura fecha o `BOTAR`.** Na abertura do elo a caixa está
+   na âncora do peito e o topo novo nasce em `fundo − 0,05`, com o alvo a ~0,11 m — 1 cm
+   fora do `tol_pos` de fecho e dentro dos 0,20 m do `load`. O robô translada 2 cm, abre
+   as mãos, a caixa cai 5 cm, `apoiada` liga e o elo fecha. Com `squeeze` e `unload`
+   mascarados e `alcança ≡ 1`, **nenhum termo cobra pela queda** — é o "jogar a caixa"
+   que o dono proibiu, e o `caiu` não o pega (a caixa fica na laje). Conserto possível:
+   uma penalidade de impacto no `BOTAR` (já registrada como diferida, §8) ou exigir
+   `alcança` vivo até o fecho e `≡ 1` só depois de `soltou`.
 
 **Pesos e σ são ponto de partida**, não medição: 2,0 e 1,0 copiam a escala dos termos
 vizinhos (`unload` = 2,0; `precise_ori` = 1,0). O smoke prova a **monotonia** da tabela
@@ -1578,7 +1610,16 @@ nada redigitado, mas só o smoke prova). A escrita em `geom_size` deixou de ser 
 módulo: é a função de DR do próprio mjlab (§6.7). **Sentinelas na primeira run:**
 `descarga` e `rampa` para a pega; `seg_proj/seg_pedido` para o andar; e, novos,
 `Episode_Reward/load` e `Metrics/alvo_caixa/passo_final` para ver se o `BOTAR` fecha —
-`sucesso` da cadeia 3 saindo de zero é o veredito da §6.6.2. A pega **não** mudou de
+`sucesso` da cadeia 3 saindo de zero é o veredito da §6.6.2. Mais duas, contra os hacks
+que a §6.6.2 declara abertos: `palmas_em_contato` e `dorso_em_contato` — se o `dorso`
+sair de zero ou as `palmas` caírem enquanto o `load` sobe, é a caixa sendo levada ao alvo
+por outra parte do corpo.
+
+⚠ **A cadeia 3 é ~0,14% dos envs no nível 0** (`0,05` de sorteio × `0,5` de `PEGAR` entre
+os sorteáveis × `0,056` da cadeia entre as compatíveis): **6 envs de 4096**, e cada um
+precisa fechar três elos. No nível 6 sobe para ~1% (41 envs). Portanto o veredito da
+§6.6.2 quase não tem sinal no começo da run, e ler "`sucesso` da cadeia 3 é zero" nas
+primeiras centenas de iterações **não** refuta o conserto. Medido em 03/09, na revisão. A pega **não** mudou de
 física — se ela cair, o suspeito é a distribuição de tamanhos, não o colisor.
 
 O custo real é o treino, não o código.
@@ -1587,9 +1628,9 @@ O custo real é o treino, não o código.
 fica **intocada como referência** — é o código que treinou a `bloco7` e funcionou. A
 trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` vazio em
 `curriculo.py`, e nos pesos de `knobs.py` **existentes** (os novos, `load`, `largou`,
-`sigma_solta`, `caixa_folga_chao`, são adições). Em `recompensas.py` o diff toca só
-`_alcancar`, `squeeze`, `unload` e os dois termos novos; em `terminacoes.py` só
-`caixa_largada`. O smoke da §11.1 (itens 17 e 18) afirma que fora do `BOTAR` os valores
+`sigma_solta`, `caixa_folga_chao`, são adições). Em `recompensas.py` o diff toca `_alcancar`, `squeeze`,
+`unload`, os dois termos novos e o `rastreio_por_elo` (a limpeza da §6.4); em
+`terminacoes.py` só `caixa_largada`. O smoke da §11.1 (itens 17 e 18) afirma que fora do `BOTAR` os valores
 são os de hoje.
 
 ---
