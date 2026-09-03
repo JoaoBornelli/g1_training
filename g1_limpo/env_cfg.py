@@ -290,7 +290,7 @@ def make_env_cfg(
     # `Metrics/air_time_mean` dele NÃO EXISTE. Ver `metricas.py`.
     #
     # O `mean_action_acc` do molde FICA: ele já é `MetricsTermCfg` e não depende de peso.
-    cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO))
+    cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO, C.SENSOR_APOIO))
 
     # ------------------------------------------ 2d. a régua: `razao_marcha`
     # ⚠ O twist é RECONSTRUÍDO como subclasse, campo a campo por `dataclasses.fields`,

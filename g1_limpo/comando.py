@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES",
+__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
@@ -122,6 +122,39 @@ for _i, _c in enumerate(CADEIAS):
 _SEGURA_PARADO = torch.tensor(
     [any(c[i] == CARREGAR and c[i + 1] == BOTAR for i in range(len(c) - 1))
      for c in CADEIAS], dtype=torch.bool)
+
+
+def forca_de_apoio(env, nome_sensor: str) -> torch.Tensor:
+    """[n] — quanto a LAJE carrega da caixa, em newtons. Só a componente VERTICAL.
+
+    ⚠⚠ PROJEÇÃO NO EIXO VERTICAL, e não a norma. Decisão do dono em 2026-09-03, depois
+    de um code review: a norma não tem direção, portanto prensar a caixa **de lado**
+    contra o tampo satisfazia `apoiada` e saturava o `load` — o `BOTAR` fechava sem a
+    laje carregar peso nenhum. A norma era herdada da `exp/g1-limpo`, onde só o fecho a
+    lia; o `load` da v2 a herdou junto. O `g1_poc` já projetava (`recompensas.py::load`).
+
+    ⚠ `abs` na componente z, e é escolha medida. MEDIDO em 03/09, caixa apoiada na laje:
+    `f = (0,00; 0,00; −9,57)` com `m·g = 9,81`, isto é a força sai com o SINAL INVERTIDO
+    do que a caixa sente, e ela é puramente vertical. Um `clamp(min=0)` sobre `−f_z`
+    seria mais estrito (rejeitaria também prensar a caixa contra a face de BAIXO da
+    laje), mas se um upgrade do `mjlab` inverter a ordem do par de geoms o sinal vira e o
+    termo lê ZERO PARA SEMPRE em silêncio — o `BOTAR` deixaria de fechar e nada acusaria.
+    Com `abs` o pior caso é o buraco pequeno de prensar por baixo; sem ele o pior caso é
+    a tarefa morrer calada. O `smoke` fixa a convenção medida, para uma inversão futura
+    aparecer como falha e não como treino errado.
+
+    ⚠ O RESÍDUO, declarado: uma caixa prensada contra a ARESTA do tampo ainda gera reação
+    vertical grande e ainda passa por aqui. MEDIDO: até 7×`m·g` de componente z. O que
+    limita esse caso é o `perto` do fecho (`tol_pos = 0,10 m`, e a aresta fica ~0,10 a
+    0,15 m abaixo do alvo) e o `precise_pos` pagando ~zero ali. A projeção mata o caso
+    puramente horizontal, que era o que não tinha freio nenhum.
+
+    ⚠ `sum` sobre os slots: com `reduce="netforce"` e `num_slots=1` é um número só, e a
+    soma continua certa se alguém subir os slots.
+    """
+    f = env.scene[nome_sensor].data.force
+    assert f is not None, f"sensor '{nome_sensor}' precisa do field 'force'."
+    return f[..., 2].abs().sum(dim=-1)
 
 
 def elo_por_nome(nome: str) -> int:
@@ -787,8 +820,7 @@ class AlvoCaixaCmd(CommandTerm):
         # `except` deixava `apoiada = True`. Resultado: o `BOTAR` fechava com
         # `perto & alinhado` apenas, sem nunca conferir se a caixa estava apoiada, e
         # sem uma linha de erro. Se o sensor não existir, ISTO TEM DE EXPLODIR.
-        forca = torch.norm(
-            self._env.scene[c.nome_sensor_apoio].data.force, dim=-1).squeeze(-1)[ids]
+        forca = forca_de_apoio(self._env, c.nome_sensor_apoio)[ids]
         peso = self._env.limpo_massa[ids] * 9.81
         apoiada = forca >= c.fracao_do_peso_apoiada * peso
 

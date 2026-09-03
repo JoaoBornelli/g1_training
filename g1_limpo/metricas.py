@@ -47,6 +47,7 @@ __all__ = [
     "forca_de_pouso",
     "pads_em_contato",
     "fracao_esperando",
+    "impacto_da_caixa",
     "PES_NO_CHAO",
     "ALTURA_DO_PE",
     "MOMENTO_ANGULAR",
@@ -64,6 +65,7 @@ SITIOS_DOS_PES = ("left_foot", "right_foot")
 
 def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
            sensores_dorso: tuple[str, ...] = ("dorso_E", "dorso_D"),
+           sensor_apoio: str = "apoio_caixa",
            ) -> dict[str, MetricsTermCfg]:
     """Os cinco termos, montados aqui e em nenhum outro lugar.
 
@@ -109,6 +111,10 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         # confusão custou uma conversa inteira. O `MetricsManager` divide por
         # `step_count`, portanto isto sai direto como fração.
         "fracao_esperando": MetricsTermCfg(func=fracao_esperando),
+        # ⚠ O PICO DE IMPACTO DA CAIXA NA LAJE (03/09). Decisão do dono: soltar de 5 cm
+        # é permitido, jogar de mais alto não — e sem esta métrica os dois leem igual.
+        "impacto_da_caixa": MetricsTermCfg(
+            func=impacto_da_caixa, params={"sensor_apoio": sensor_apoio}),
     }
 
 
@@ -143,6 +149,40 @@ def fracao_esperando(env) -> torch.Tensor:
     if s is None:
         return v
     return torch.clamp(v + s, max=1.0)
+
+
+class impacto_da_caixa:
+    """PICO de `|F_apoio_z| / m·g` no episódio, por env. Sem peso: é só medição.
+
+    ⚠ ELA EXISTE POR UMA DECISÃO DO DONO (03/09). No `BOTAR`, soltar a caixa de ~5 cm
+    fecha o elo e nenhum termo cobra a queda — e isso está **permitido**: "5 cm é
+    permitido, se começar a jogar de mais alto vira problema". Sem esta métrica, "apoiou
+    com cuidado" e "jogou de 30 cm" leem IGUAL no painel, e o dia em que a política
+    escolher jogar passaria sem sinal.
+    A leitura: caixa apoiada em repouso dá ~1,0. Uma queda de 5 cm dá um pico de poucas
+    unidades. Um valor que sobe ao longo da run é a política aprendendo a jogar.
+
+    ⚠ PICO, e não média. O `MetricsManager` divide por `step_count`, portanto uma média
+    diluiria o impacto num episódio de ~800 passos até a irrelevância — que é o mesmo
+    defeito de diluição que o `pico_de_altura` deste arquivo existe para evitar.
+
+    ⚠ E ela TEM `reset`: sem ele o pico de um episódio entra no seguinte
+    (`metrics_manager.py:132` só chama `reset` em termo de classe que o tenha).
+    """
+
+    def __init__(self, cfg, env):
+        self.pico = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env, sensor_apoio: str) -> torch.Tensor:
+        from g1_limpo.comando import forca_de_apoio
+        razao = forca_de_apoio(env, sensor_apoio) / (env.limpo_massa * 9.81).clamp(min=1e-6)
+        self.pico = torch.maximum(self.pico, razao)
+        return self.pico
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.pico[env_ids] = 0.0
 
 
 def pads_em_contato(env, sensores: tuple[str, ...]) -> torch.Tensor:

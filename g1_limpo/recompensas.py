@@ -444,6 +444,13 @@ def unload(env, nome_do_comando: str, sensor_apoio: str,
     O porteiro é `tanh(F_palmas/F_ref)`, o MESMO fator do `squeeze`. Ele é contínuo
     desde o primeiro newton, portanto ele fecha o atalho sem virar um degrau.
     """
+    # ⚠ AQUI A NORMA FICA, e é decisão declarada (03/09). O `load` e o fecho do `BOTAR`
+    # passaram a projetar no eixo vertical porque a norma os fazia ACEITAR um estado
+    # errado (prensar de lado contava como apoiar). Neste termo o erro da norma aponta
+    # para o outro lado: uma força lateral INFLA `f` e portanto REDUZ a descarga — ela
+    # subpaga o erguer, nunca superpaga. E este termo é metade da cadeia da pega, que
+    # está medida funcionando (`descarga = 0,965` na `bloco7`); trocar a leitura dele
+    # mexeria no que a §2 declara intocável, para consertar um erro conservador.
     f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
     peso = env.limpo_massa * 9.81
     descarga = (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0)
@@ -542,9 +549,13 @@ def load(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float) -> torc
     ⚠ SEM gate de preensão: soltar É o objetivo. ⚠ Continua pagando na espera final,
     porque o interno segue BOTAR — é isso que torna fechar melhor do que pairar.
     """
-    from g1_limpo.comando import BOTAR
+    from g1_limpo.comando import BOTAR, forca_de_apoio
     t = _t(env, nome_do_comando)
-    f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
+    # ⚠ SÓ A COMPONENTE VERTICAL, e é a MESMA função que o fecho do `BOTAR` usa
+    # (`comando.forca_de_apoio`). Uma segunda leitura aqui poderia divergir do fecho, e
+    # aí o termo pagaria por um estado que o elo não aceita — ou o contrário. Ver o
+    # docstring de lá para a medição do sinal e para o resíduo declarado.
+    f = forca_de_apoio(env, sensor_apoio)
     peso = (env.limpo_massa * 9.81).clamp(min=1e-6)
     fracao = (f / peso).clamp(0.0, 1.0)
     perto = (_dist_caixa_alvo(env, nome_do_comando) <= raio_mult * t.cfg.tol_pos).float()

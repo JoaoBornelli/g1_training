@@ -3469,6 +3469,39 @@ try:
           _F > 2.0 * _mg3 and abs(_dE["load"] - 2.0) < 1e-6,
           f"F/mg {_F/_mg3:.2f}, load {_dE['load']:.4f}")
     _e26.limpo_massa[:] = _m0
+    # ⚠⚠ A FORÇA DE APOIO É PROJETADA NO EIXO VERTICAL (decisão do dono, 03/09). A norma
+    # não tem direção: prensar a caixa de lado contra o tampo satisfazia `apoiada` e
+    # saturava o `load`, e o `BOTAR` fechava sem a laje carregar peso. `load` e o fecho
+    # leem a MESMA função, senão o termo pagaria por um estado que o elo não aceita.
+    check("18. `load` e o fecho do BOTAR leem a MESMA `forca_de_apoio`, que projeta em z",
+          "forca_de_apoio" in inspect.getsource(RC_.load)
+          and "forca_de_apoio" in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
+          and "[..., 2].abs()" in inspect.getsource(CMD.forca_de_apoio))
+    _t26c._sust[:] = 0.0
+    _renda(passos=6, alvo_dz=_DZ_APOIA)
+    _f26 = _e26.scene[C.SENSOR_APOIO].data.force.squeeze(1)
+    _mg26 = float((_e26.limpo_massa * 9.81).mean())
+    _fz26 = float(_f26[:, 2].abs().mean())
+    _fxy26 = float(_f26[:, :2].abs().max())
+    # ⚠ A CONVENÇÃO MEDIDA em 03/09: apoio dá `f = (0, 0, −9,57)` com `m·g = 9,81` — a
+    # força é puramente VERTICAL e sai com o sinal invertido. Se um upgrade do `mjlab`
+    # inverter a ordem do par de geoms, o `abs` do termo continua certo; esta trava
+    # existe para a inversão aparecer, e não para o treino ficar errado em silêncio.
+    check("18. com a caixa apoiada a força é VERTICAL, e vale ~m·g",
+          abs(_fz26 / _mg26 - 1.0) < 0.10 and _fxy26 < 0.05 * _mg26,
+          f"|f_z|/mg {_fz26/_mg26:.2f}, |f_xy| máx {_fxy26:.3f} N")
+    check("18. e a projeção lê a força INTEIRA no repouso — nada horizontal é contado",
+          abs(float(CMD.forca_de_apoio(_e26, C.SENSOR_APOIO).mean())
+              - float(_f26.norm(dim=-1).mean())) < 0.05,
+          "se divergirem, existe componente horizontal entrando na conta")
+    # ⚠ A MÉTRICA DE IMPACTO (03/09): soltar de 5 cm é PERMITIDO, jogar de mais alto não.
+    # Sem ela os dois leem igual no painel. Peso nenhum — é só medição.
+    check("18. a métrica `impacto_da_caixa` existe, tem `reset` e lê ~1 no repouso",
+          "impacto_da_caixa" in cfg.metrics
+          and callable(getattr(MT_.impacto_da_caixa, "reset", None))
+          and abs(float(MT_.impacto_da_caixa(
+              None, _e26)(_e26, sensor_apoio=C.SENSOR_APOIO).mean()) - 1.0) < 0.10,
+          "é o que separa `apoiou com cuidado` de `jogou de 30 cm`")
     # volta a apoiar no alvo e deixa o BOTAR FECHAR sozinho -> espera final
     _t26c._sust[:] = 0.0
     _rC2, _dC2 = _renda(passos=6, alvo_dz=_DZ_APOIA)
