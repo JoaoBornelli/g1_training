@@ -124,7 +124,7 @@ def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
 
 
 def fracao_esperando(env) -> torch.Tensor:
-    """1 enquanto a janela de espera corre, 0 depois dela. Por env.
+    """1 enquanto o env publica ANDAR dentro de um episódio de manipulação: a espera inicial ou a final. Por env.
 
     ⚠ Ela lê `env.limpo_aguardando`, publicado pelo termo de comando a cada passo. Não
     é import de módulo do projeto — é o mesmo contrato por atributo de env que o
@@ -137,7 +137,12 @@ def fracao_esperando(env) -> torch.Tensor:
     v = getattr(env, "limpo_aguardando", None)
     if v is None:
         return torch.zeros(env.num_envs, device=env.device)
-    return v
+    # ⚠ AS DUAS ESPERAS (spec §6.4): a inicial (`aguardando`) e a final (`soltou`), que
+    # são os passos em que um episódio de manipulação publica ANDAR.
+    s = getattr(env, "limpo_soltou", None)
+    if s is None:
+        return v
+    return torch.clamp(v + s, max=1.0)
 
 
 def pads_em_contato(env, sensores: tuple[str, ...]) -> torch.Tensor:

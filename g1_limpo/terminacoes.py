@@ -66,4 +66,10 @@ def caixa_largada(env: "ManagerBasedRlEnv", z_min: float,
     # z = 0, e um limiar absoluto acusaria queda no env errado.
     caiu = (caixa[:, 2] - env.scene.env_origins[:, 2]) < z_min
     escapou = (dist > dist_max).all(dim=-1)
+    # ⚠ O GUARDA DA ESPERA FINAL (spec §6.6.3): depois do fecho do BOTAR as mãos TÊM de
+    # sair da caixa — `escapou` dispararia por fazer a coisa certa. `caiu` continua
+    # armado: largar é permitido, derrubar não.
+    soltou = getattr(env, "limpo_soltou", None)
+    if soltou is not None:
+        escapou = escapou & (soltou < 0.5)
     return (caiu | escapou) & (pegou > 0.5)

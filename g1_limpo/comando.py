@@ -367,6 +367,15 @@ class AlvoCaixaCmd(CommandTerm):
         # `knobs.Alvo.espera_s` para o porquê e para a origem no `g1_poc`.
         self._espera = torch.zeros(n, device=d)
         env.limpo_aguardando = torch.zeros(n, device=d)
+        # ⚠ A ESPERA FINAL (spec §6.6): depois do fecho do BOTAR, o publicado é ANDAR
+        # até o fim do episódio; o interno segue BOTAR. `soltou` desarma o `escapou` da
+        # terminação e liga o `largou` da recompensa.
+        self._soltou = torch.zeros(n, dtype=torch.bool, device=d)
+        env.limpo_soltou = self._soltou.float()
+        # ⚠ O ELO INTERNO, publicado para o crítico e para as recompensas de caixa. É
+        # uma REFERÊNCIA a `_elo`, que só é escrito in-place (`self._elo[ids] = ...`),
+        # portanto ela nunca fica obsoleta; `_update_command` a republica por segurança.
+        env.limpo_elo_interno = self._elo
 
         self._pegou = torch.zeros(n, dtype=torch.bool, device=d)
         env.limpo_ids_palma = self._ids_palma
@@ -376,25 +385,32 @@ class AlvoCaixaCmd(CommandTerm):
         env.limpo_pegou = self._pegou.float()
 
     def _aplica_espera(self) -> None:
-        """Decrementa a janela e zera o `VALIDA` de quem ainda aguarda.
+        """Decrementa a espera e escreve o PUBLICADO e o `VALIDA` (spec §6.0).
 
-        ⚠⚠ A BASE É RECALCULADA DO ELO, e não lida do próprio `VALIDA`. Uma versão
-        anterior fazia `where(aguardando, 0, self._command[:, VALIDA])` — e isso é
-        DESTRUTIVO: no passo seguinte ele lia o zero que ele mesmo tinha escrito, e o
-        bit nunca voltava a 1. Medido no smoke: `VALIDA` ficava 0 para sempre, o `staged`
-        pagava zero, e o `piso PEGAR` caía para 2,000/s exatos (só `pose` + `upright`).
+        ⚠⚠ TUDO É RECALCULADO DO INTERNO, e não lido do próprio canal. Uma versão
+        anterior fazia `where(aguardando, 0, self._command[:, VALIDA])` — DESTRUTIVO: no
+        passo seguinte lia o zero que ela mesma tinha escrito, e o bit nunca voltava a 1.
+        Medido no smoke em 02/09.
 
-        A base é `elo != ANDAR`, que é o MESMO critério que o `_aplica_elo` usa quando
-        escreve o bit por elo. O `smoke` afirma que os dois concordam, para um elo novo
-        com `VALIDA = 0` não passar a divergir em silêncio.
+            publicado = ANDAR   se aguardando ∨ soltou, senão o interno
+            VALIDA    = (interno ≠ ANDAR) ∧ ¬aguardando
 
-        ⚠ Publica `env.limpo_aguardando` para a métrica de peso zero. Sem ela, "o robô
-        não espera" e "a janela não existe" leem igual no painel — que é exatamente a
-        confusão que a falta desta peça já causou.
+        ⚠ A espera FINAL (`soltou`) publica ANDAR mas NÃO zera o VALIDA: os incentivos
+        do estado "caixa apoiada no alvo" continuam pagando depois do fecho do BOTAR. É
+        o que fecha o buraco da renda (spec §6.6.1). A v12 dizia o contrário e estava
+        errada.
+
+        ⚠ Publica `env.limpo_aguardando` e `env.limpo_soltou` para as métricas e para a
+        terminação. Sem elas, "o robô não espera" e "a janela não existe" leem igual.
         """
         self._espera.sub_(self._env.step_dt).clamp_(min=0.0)
         aguardando = self._espera > 0.0
         self._env.limpo_aguardando.copy_(aguardando.float())
+        self._env.limpo_soltou = self._soltou.float()
+        self._env.limpo_elo_interno = self._elo
+        publica_andar = aguardando | self._soltou
+        self._command[:, ELO] = torch.where(
+            publica_andar, torch.full_like(self._elo, ANDAR), self._elo).float()
         base = (self._elo != ANDAR).float()
         self._command[:, VALIDA] = base * (~aguardando).float()
 
@@ -416,7 +432,12 @@ class AlvoCaixaCmd(CommandTerm):
             aqui = (achou > 0).any(dim=-1)
             tocou = aqui if tocou is None else (tocou & aqui)
         if tocou is not None:
-            self._pegou |= tocou
+            # ⚠ SÓ ARMA COM O OBJETIVO ATIVO (spec §6.3). Na espera inicial um toque
+            # por exploração armaria `escapou` com as palmas longe, e o episódio
+            # morreria por ter esperado. Lê `_espera` direto, e não o `VALIDA`, porque
+            # este método roda ANTES de `_aplica_espera` na passada.
+            ativo = (self._elo != ANDAR) & (self._espera <= 0.0)
+            self._pegou |= tocou & ativo
         self._env.limpo_pegou = self._pegou.float()
 
     # -------------------------------------------------------------- o contrato
@@ -517,6 +538,10 @@ class AlvoCaixaCmd(CommandTerm):
         # com a janela já armada, e o instante da entrega seria exatamente o que se
         # está tentando olhar.
         self._command[ids, VALIDA] = 0.0
+        # ⚠ E O PUBLICADO JÁ NASCE ANDAR (spec §6.4): a espera acabou de ser armada, e o
+        # `_aplica_espera` só a veria no passo seguinte.
+        self._soltou[ids] = False
+        self._command[ids, ELO] = float(ANDAR)
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         if len(env_ids) == 0:
@@ -529,6 +554,7 @@ class AlvoCaixaCmd(CommandTerm):
         # armaria todos os seguintes daquele env, e o reset — em que a caixa está na
         # laje e as palmas estão longe — dispararia `escapou` na hora.
         self._pegou[env_ids] = False
+        self._soltou[env_ids] = False
 
         # O ELO. Desde a F2 ele é SORTEADO POR ENV, e o sorteio mora no currículo
         # (`curriculo.sorteia_elo`) porque a ordem de reset é currículo -> eventos ->
@@ -907,6 +933,13 @@ class AlvoCaixaCmd(CommandTerm):
         if len(f):
             self.fechou[f] = True
             self.metrics["sucesso"][f] = 1.0
+            # ⚠ A ESPERA FINAL (spec §6.6): quem fecha no BOTAR publica ANDAR daqui até
+            # o fim do episódio, NO MESMO PASSO do fecho — sem esperar o `_aplica_espera`
+            # do passo seguinte. O interno segue BOTAR.
+            solta = f[self._elo[f] == BOTAR]
+            if len(solta):
+                self._soltou[solta] = True
+                self._command[solta, ELO] = float(ANDAR)
 
         self.avancou[ids] = pode
         # ⚠ Só o CONTADOR de avanços mora aqui — ele é por evento. O `passo_final` e o
