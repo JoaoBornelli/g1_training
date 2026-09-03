@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
-**Estado:** v13 EM REVISÃO pelo dono (2026-09-03). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 propõe o conserto (§13, sétima rodada). Nada implementado. Próximo passo: aprovar a v13 e escrever o plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v13 — a renda do `BOTAR` e da espera final vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
+**Estado:** v14 EM REVISÃO pelo dono (2026-09-03). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 propõe o conserto (§13, sétima rodada); a v14 fecha o contrato do `REORIENTAR` (§8.3) sem trazer o treino dele para a v2. Nada implementado. Próximo passo: aprovar e escrever o plano de implementação na branch `exp/g1-limpo-v2`.
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v14 — `ANG` vira `giro_b`, 114 canais; o `REORIENTAR` ganha contrato, quatro primitivas e o desenho do treino, e fica inerte na v2. v13 — a renda do `BOTAR` e da espera final vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -145,7 +145,7 @@ outra abordagem, se vier a ser. A razão técnica está na §7.3.
 Esta seção é a que importa em campo. Ela lista **tudo** que a rede recebe, e de onde
 cada coisa vem no mundo real.
 
-A observação do `actor` tem **112 canais**, nesta ordem:
+A observação do `actor` tem **114 canais**, nesta ordem:
 
 | # | canal | dim | de onde vem em campo |
 |---|---|---|---|
@@ -157,27 +157,27 @@ A observação do `actor` tem **112 canais**, nesta ordem:
 | 5 | `actions` | 29 | última ação, a bordo |
 | 6 | `command` (twist) | 3 | **EXTERNO** — o piloto: `vx, vy, wz` |
 | 7 | `elo` (one-hot) | 5 | **EXTERNO** — o botão de tarefa |
-| 8 | `caixa` | 8 | ver §4.1 |
+| 8 | `caixa` | 10 | ver §4.1 |
 
-Total: `3+3+3+29+29+29+3+5+8 = 112`. (O **crítico** tem 117: os mesmos 112 mais o
+Total: `3+3+3+29+29+29+3+5+10 = 114`. (O **crítico** tem 119: os mesmos 114 mais o
 `elo_interno` da §6.1. Ele não vai para o robô.)
 
-⚠ **112 antes e 112 depois — mas não os mesmos 112.** O canal `VALIDA` **sai** da
-observação (§6.2); ele continua dentro do sim como porta de recompensa e de fecho de elo.
-O canal `meia_aresta` — o tamanho da caixa — **entra**, no fim do termo `caixa` (§6.7). A
-contagem coincide por acaso; o significado da primeira camada muda, e o checkpoint antigo
-não serve (§12).
+⚠ **112 antes, 114 depois.** O canal `VALIDA` **sai** da observação (§6.2); ele continua
+dentro do sim como porta de recompensa e de fecho de elo. O canal `meia_aresta` — o
+tamanho da caixa — **entra**, no fim do termo `caixa` (§6.7). E o escalar `ANG` vira o
+vetor `giro_b` (§8.3): um canal vira três. O significado da primeira camada muda, e o
+checkpoint antigo não serve (§12).
 
-### 4.1 Os 8 canais de caixa, em detalhe
+### 4.1 Os 10 canais de caixa, em detalhe
 
 | canal | dim | o que é | de onde vem em campo |
 |---|---|---|---|
 | `caixa_b` | 3 | **posição** da caixa, no frame da base | **PERCEPÇÃO** |
 | `alvo_b` | 3 | **posição** do alvo, no frame da base | calculado A BORDO (exceto `BOTAR`) |
-| `ANG` | 1 | **escalar**, em radianos: erro angular entre a normal da face marcada e a face pedida | calculado A BORDO, de percepção + tarefa |
+| `giro_b` | 3 | **vetor de giro** (eixo × ângulo, rad): a rotação que leva a normal atual da face pedida à direção pedida, no frame da base. `|giro_b|` é o erro angular | calculado A BORDO, de percepção + tarefa (§8.3) |
 | `meia_aresta` | 1 | **escalar**, em metros: meio-lado da caixa (§6.7) | **PERCEPÇÃO** — o bounding box |
 
-⚠⚠ **Os 8 canais são ZERO quando o one-hot publicado é `ANDAR`**, e vivos em todo outro
+⚠⚠ **Os 10 canais são ZERO quando o one-hot publicado é `ANDAR`**, e vivos em todo outro
 caso. Não existe terceiro estado. Esta é a **invariante que substitui o bit**, e é o que
 a rede lê como "existe tarefa de caixa": canais preenchidos, ou canais em zero.
 
@@ -208,18 +208,22 @@ odometria de altura do robô — nada externo.
 
 ⚠ **Correções ao modelo mental, e elas mudam o que se manda em campo:**
 
-- **Não existe quatérnion na entrada.** A orientação da caixa entra como **um escalar**
-  (`ANG`). O quatérnion é insumo do cálculo a bordo, não entrada da rede.
+- **Não existe quatérnion na entrada.** A orientação da caixa entra como **um vetor de
+  giro** (`giro_b`, 3): o que falta girar, e em torno de que eixo. O quatérnion é insumo
+  do cálculo a bordo, não entrada da rede. ⚠ Até a v13 havia aqui um escalar (`ANG`); a
+  v14 o trocou porque um escalar diz quanto falta e não diz para que lado (§8.3).
 - **O alvo não é enviado**, em quase todos os casos. No `PEGAR` e no `CARREGAR` ele é
   **ancorado na base do robô** — um offset fixo no frame dele, calculado a cada passo.
   Só o `BOTAR` precisa de alvo externo.
 - **Tudo em frame da base**, e não em mundo. Isso dispensa origem global; em troca, a
   percepção tem de ser egocêntrica ou transformada.
-- **`ANG` precisa saber QUAL face.** A caixa tem uma face marcada (`face_alvo_b`). Em
-  campo, a percepção tem de identificar essa face — fiducial, ou geometria conhecida.
-  Sem isso o `ANG` não é computável.
+- **`giro_b` precisa saber QUAL face.** Em sim a face é a marcada (`face_alvo_b`),
+  constante. Em campo é o controlador quem escolhe a face (a próxima a explorar), e a
+  percepção tem de identificar as faces da caixa — fiducial, ou geometria conhecida. Sem
+  isso o `giro_b` não é computável. A face escolhida **não** entra na rede: para um cubo
+  o movimento não depende dela (§8.3).
 - **Não existe bit "a caixa existe".** Ele era redundante com o one-hot (§6.2). Em campo,
-  "a caixa existe" é a camada de tarefa **preencher** os 8 canais ou **zerá-los** — a
+  "a caixa existe" é a camada de tarefa **preencher** os 10 canais ou **zerá-los** — a
   mesma regra que o sim aplica.
 
 ### 4.2 O que o operador manda, no total
@@ -233,7 +237,7 @@ alvo BOTAR   3 números    só no BOTAR
 ```
 
 Mais, da percepção: **posição da caixa (3)**, **orientação da caixa (4)** e **tamanho da
-caixa (1)** — os dois primeiros para o cálculo a bordo de `caixa_b` e `ANG`, o terceiro
+caixa (1)** — os dois primeiros para o cálculo a bordo de `caixa_b` e `giro_b`, o terceiro
 entra direto como `meia_aresta`.
 
 #### As regras da camada de tarefa — do lado do robô real
@@ -241,7 +245,7 @@ entra direto como `meia_aresta`.
 Quatro regras, e todas espelham algo que o **sim** faz por conta própria. Em campo,
 **nada as faz sozinho** — a camada de tarefa tem de implementá-las.
 
-1. **`elo = ANDAR` ⟹ os 8 canais de caixa em zero.** Sempre, mesmo com a caixa à vista da
+1. **`elo = ANDAR` ⟹ os 10 canais de caixa em zero.** Sempre, mesmo com a caixa à vista da
    percepção. É a regra que substitui o bit. (Sim: o gate da §6.1.)
 2. ⚠ **`elo ∈ {PEGAR, REORIENTAR, BOTAR}` ⟹ twist forçado a zero**, seja o que for que o
    piloto mande. (Sim: `_zera_twist_nos_parados`.) Sem isso, um joystick encostado
@@ -250,8 +254,10 @@ Quatro regras, e todas espelham algo que o **sim** faz por conta própria. Em ca
 3. **`alvo_b` é calculado a bordo** em `PEGAR` e `CARREGAR`:
    `(peito_b.x, peito_b.y, altura_carregar − z_base)` = `(0,25, 0,00, 0,95 − z_base)`.
    É **enviado** só no `BOTAR`. (Sim: `_alvo_ancorado_na_base`.)
-4. **`ANG` é calculado a bordo** do quatérnion da caixa (percepção) e da face pedida. A
-   percepção tem de identificar a face marcada (`face_alvo_b`).
+4. **`giro_b` é calculado a bordo** do quatérnion da caixa (percepção), da face escolhida
+   pelo controlador e da direção pedida (horizontal, da caixa para o robô, §8.3).
+   Recalculado a cada quadro, em malha fechada: ele encolhe conforme o robô gira. (Sim:
+   `_atualiza_face`.)
 
 Sem o bit, não há segundo canal que possa contradizer a regra 1.
 
@@ -276,13 +282,14 @@ item separado, e ela mexe na locomoção, que hoje funciona.
 
 ### 4.4 Uma movimentação completa, canal a canal
 
-Dos 112 canais, **85 são proprioceptivos e automáticos** (IMU, encoders, última ação).
-Os **16 que carregam tarefa** são montados pela camada de tarefa a cada passo, a 50 Hz:
+Dos 114 canais, **96 são proprioceptivos e automáticos** (IMU, encoders, última ação; a
+v13 dizia 85, conta errada). Os **18 que carregam tarefa** são montados pela camada de
+tarefa a cada passo, a 50 Hz:
 
 ```
 command   3   vx  vy  wz
 elo       5   [ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR]
-caixa     8   caixa_b(3)  alvo_b(3)  ANG(1)  meia_aresta(1)
+caixa    10   caixa_b(3)  alvo_b(3)  giro_b(3)  meia_aresta(1)
 ```
 
 Valores de exemplo com os constantes reais: `peito_b = (0,25, 0, 0,15)`,
@@ -294,7 +301,7 @@ FASE 1 — ANDAR até a mesa (piloto)
   elo      [ 1  0  0  0  0 ]            OPERADOR
   caixa_b  ( 0,00   0,00   0,00 )      camada ZERA  <- a percepção pode já ver a caixa; não passa
   alvo_b   ( 0,00   0,00   0,00 )      zera
-  ANG        0,00                       zera
+  giro_b   ( 0,00   0,00   0,00 )      zera
   meia       0,00                       zera
 
 FASE 2 — parado na mesa (v = 0)
@@ -308,7 +315,7 @@ FASE 3 — PEGAR                          <- o botão
   elo      [ 0  0  1  0  0 ]            OPERADOR
   caixa_b  ( 0,55   0,00  -0,15 )      PERCEPÇÃO: 55 cm à frente, 15 cm abaixo da pelve
   alvo_b   ( 0,25   0,00  +0,15 )      A BORDO: (0,25, 0, 0,95 − 0,80)
-  ANG        0,12 rad                   A BORDO
+  giro_b   ( 0,00   0,00   0,12 )      A BORDO: torção da caixa desde a abertura do elo, aqui em Z
   meia       0,10 m                     PERCEPÇÃO: meio-lado da caixa — esta é de 20 cm
   fim: caixa erguida e segura — no sim, condição sustentada 0,5 s; em campo, o operador vê
 
@@ -317,7 +324,7 @@ FASE 4 — CARREGAR (andar com a caixa)
   elo      [ 0  0  0  1  0 ]            OPERADOR
   caixa_b  ( 0,24   0,01  +0,12 )      PERCEPÇÃO: agora perto do peito
   alvo_b   ( 0,25   0,00  +0,15 )      A BORDO: mesma âncora — a caixa deve ficar nela
-  ANG        0,05 rad                   A BORDO
+  giro_b   ( 0,00   0,02   0,05 )      A BORDO
   meia       0,10 m                     PERCEPÇÃO
 
 FASE 5 — parado no destino, caixa na mão (v = 0)
@@ -330,7 +337,7 @@ FASE 6 — BOTAR                          <- o botão
   elo      [ 0  0  0  0  1 ]            OPERADOR
   caixa_b  ( 0,24   0,01  +0,12 )      PERCEPÇÃO
   alvo_b   ( 0,35   0,00  -0,20 )      EXTERNO — o único alvo enviado: onde botar, no frame da base
-  ANG        0,05 rad                   A BORDO: face pedida para o botar
+  giro_b   ( 0,00   0,02   0,05 )      A BORDO: torção desde a abertura do BOTAR
   meia       0,10 m                     PERCEPÇÃO
   fim: caixa apoiada — no sim, força de apoio ≥ fração do peso; em campo, o operador vê
 
@@ -426,7 +433,7 @@ canais de caixa gateados.
 
 ### 6.1 Gate dos canais de caixa
 
-`caixa_b`, `alvo_b`, `ANG` e `meia_aresta` vão a **zero** quando o **elo publicado** é
+`caixa_b`, `alvo_b`, `giro_b` e `meia_aresta` vão a **zero** quando o **elo publicado** é
 `ANDAR`. Vivos em todo outro caso. Não existe terceiro estado.
 
 Consequências:
@@ -451,7 +458,7 @@ final o robô rende cerca de 18/s; um env `standing` da locomoção rende 6/s co
 que o ator vê não separa os dois, e a função de valor erra nos dois lados — o mesmo
 estado, dois retornos. Com o interno ele separa espera inicial, `standing` e espera
 final. É ator-crítico assimétrico, padrão, e **não toca o deploy**: o crítico não vai
-para o robô. A observação do ator segue com 112 canais; a do crítico fica com 117.
+para o robô. A observação do ator fica com 114 canais; a do crítico, com 119.
 
 ⚠ **E o `PPOPorElo` passa a agrupar pelo `elo_interno` do crítico**, não pelo one-hot do
 ator. Senão a espera final — que carrega retorno de manipulação — entra no grupo da
@@ -488,7 +495,7 @@ locomoção paga por ficar parado). E a separação de magnitude entre `|caixa_b
 0,5–1,0 m` normalizado e a constante do zero é grande. O `g1_poc` mantém o bit — tirar é
 divergir do precedente que funcionou. Aceito, com a trava da §11.1 item 2.
 
-**Tirar um canal é de graça agora:** o gate já força reinício (§12). E o `meia_aresta` da §6.7 entra no lugar — 112 antes e depois, com significado diferente.
+**Tirar um canal é de graça agora:** o gate já força reinício (§12). O `meia_aresta` da §6.7 entra no lugar, e o `giro_b` da §8.3 acrescenta dois: 114 canais.
 
 ### 6.3 A espera publica `ANDAR` — a transição TREINADA
 
@@ -976,14 +983,14 @@ envs — e a recompensa sabe o tamanho certo de cada env, mas a política não.
 | o que a política aprende | uma abertura de mãos **média**, e corrige por contato | a abertura **certa** para cada caixa |
 | contato como sinal | só via `joint_pos`/`joint_vel` — não há força de palma na observação | idem, mas não precisa |
 | em campo | a percepção **tem** o tamanho (é um bounding box) e ele seria jogado fora | o que o campo tem, a rede recebe — é o princípio da §4 |
-| custo | zero | +1 canal, gateado como os outros 7; 111 → 112 |
+| custo | zero | +1 canal, gateado como os outros 9 |
 | risco | pega pior em todos os tamanhos, pela média | nenhum específico |
 
 **Decisão do dono (02/09): observar.** Um canal `meia_aresta` (o meio-lado, em metros)
 no fim do termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros sete. Em
 campo ele vem da percepção, como `caixa_b`. A política é sem memória (§7.2): ela não tem
 como "descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta. O termo
-`caixa` volta a ter 8 canais e a observação volta a 112 (§4).
+`caixa` fica com 10 canais e a observação com 114 (§4).
 
 #### O que NÃO muda
 
@@ -1065,14 +1072,27 @@ a lacuna existiu e de onde foi fechada.
 Era aposta até a v6. A espera final publica `ANDAR` depois do fecho do `BOTAR`, com o
 guarda em `caixa_largada`. Registro de onde a lacuna foi fechada.
 
-### 8.3 O `REORIENTAR` avança de graça — habilidade FUTURA, defeito registrado
+### 8.3 O `REORIENTAR` — habilidade FUTURA: a REDE fica pronta, o TREINO não entra
 
-**Decisão do dono (02/09): o `REORIENTAR` é habilidade futura.** Não é foco agora, mas
-o código fica pronto para treiná-la eventualmente. Portanto:
+**Decisão do dono (02/09, refinada em 03/09): o `REORIENTAR` é habilidade futura.** É
+tarefa difícil e pode custar o resto do treino; a run da v2 existe para provar que uma
+política por one-hot funciona, e não para aprender a girar caixa. Portanto:
 
-- **o elo, o slot do one-hot, a cadeia 1 e o fechamento FICAM** no código
-- **ele CONTINUA sorteável** — ver o porquê abaixo, que é contra-intuitivo
-- o defeito abaixo fica registrado e **não é consertado agora**
+- **o CONTRATO entra agora**: o canal `giro_b` (§4.1) e o slot do one-hot. É o que faz
+  a rede ficar pronta — o que falta depois é recompensa, fecho e knob, e nada disso muda
+  a observação; a run da v2 pode ser retomada por warm-start no dia em que a
+  reorientação virar foco;
+- **o elo, a cadeia 1 e o fechamento FICAM** no código, como estão;
+- **ele CONTINUA sorteável** — ver o porquê abaixo, que é contra-intuitivo;
+- ⚠ **ele fica INERTE na run da v2**: `voltas_max = 0` em todo nível (e `eixo_vertical`
+  falso), para a caixa nascer sempre dentro da tolerância e o elo fechar em 0,3 s sem
+  trabalho, em todo nível — como já acontece hoje nos níveis 0 e 1. É o defeito abaixo
+  usado de propósito como interruptor. Para o cubo isso não muda nada em `PEGAR`,
+  `CARREGAR` ou `BOTAR`: um quarto de volta é simetria do cubo, e o `precise_ori` desses
+  elos mede a torção desde a abertura, não a orientação de nascimento. O custo é 0,3 s de
+  `REORIENTAR` antes do `PEGAR` em metade dos episódios de manipulação, como hoje. **A
+  confirmar pelo dono (§13).**
+- o defeito abaixo fica registrado e **não é consertado agora**.
 
 ⚠⚠ **NÃO tirar o `REORIENTAR` de `ELOS_SORTEAVEIS`**, embora fosse a saída óbvia para
 "guardar para depois". Motivo medido, em `rsl_rl/modules/normalization.py:48`:
@@ -1112,12 +1132,86 @@ engana o passeio de nível. O dano real: a cadeia 1 degenera em "só pegar" (a
 reorientação nunca é exercitada de verdade) e há ~1,0/s de `precise_ori` pago por 0,3 s
 sem trabalho. É desperdício de sorteio, não corrupção de métrica.
 
-**Quando a reorientação virar foco**, o conserto registrado, em ordem de custo:
+#### O contrato — o que a rede já recebe (ENTRA na v2)
+
+**Visão do dono (03/09): o robô precisa saber quatro coisas, e só quatro** — girar a
+caixa 90° para a esquerda ou para a direita (em torno de Z, pivotando na laje), e 90°
+para cima ou para baixo (tombar, em torno de Y). Qualquer outra reorientação é repetição
+dessas: a face de trás são duas à esquerda; o fundo é um tombo. Quem compõe é o
+controlador externo, que lê a câmera, sabe a orientação da caixa e as faces já vistas,
+escolhe a próxima face, e manda **um** giro por vez. A memória de "quais faces já vi"
+mora nele, não na rede (que é sem memória, §7.2).
+
+**O comando É o giro.** `giro_b` (§4.1): eixo × ângulo, em radianos, da rotação que leva a
+normal atual da face pedida à direção pedida, no frame da base. As quatro primitivas são
+os quatro vetores `(0, 0, ±π/2)` e `(0, ±π/2, 0)`, e o comprimento **encolhe** conforme o
+robô gira. ⚠ Por isso não é um one-hot de quatro: a política precisa do resíduo para
+saber quando parar e para desacelerar perto do fim — no tombo, para saber que a caixa
+passou do ponto de equilíbrio. Com um one-hot o controlador teria de desligar o comando
+e a política passaria do ponto. `|giro_b|` é o `ANG` de hoje, portanto `precise_ori` e
+`alinhado` não mudam de fórmula. Até a v13 a observação tinha só o escalar: dizia quanto
+faltava e não dizia para que lado — um MLP sem memória não tinha como aprender a girar.
+
+**A direção pedida é HORIZONTAL, da caixa para o robô** — a `viva` de hoje. ⚠ Isto é
+física, não preferência: uma caixa apoiada só tem normais horizontais (laterais) ou
+verticais (topo, fundo). "Normal à câmera" exigiria a caixa inclinada na mão, que é outra
+habilidade. A câmera do G1 vê a face da frente de cima, em ângulo, e vê o topo direto;
+quem conhece a geometria da câmera é o controlador, e ele pede um passo atrás ao piloto
+se o ângulo estiver ruim. Consequência boa: com a direção sempre "para a frente", os
+giros são só em **Y e Z**; giro em X nunca aparece, e as seis faces são alcançáveis.
+
+**A face pedida não entra na observação.** Um cubo é simétrico: girar 90° em Z é o
+mesmo movimento seja qual for a face marcada. Em sim a face marcada segue constante
+(`face_alvo_b = −X`) e a variedade vem da orientação de nascimento; em campo o
+controlador escolhe a face e calcula o giro. A rotação em torno da própria normal é
+livre — um QR code lê em qualquer rotação no plano — e o vetor de giro a ignora, que é
+o certo.
+
+**Nos outros elos os mesmos três canais servem.** Em `PEGAR`, `CARREGAR` e `BOTAR` a
+face é congelada na abertura do elo e `giro_b` diz "quanto e em torno de que eixo a
+caixa torceu desde então" — o `precise_ori` já paga por erguer sem torcer, e agora a
+política vê a direção da torção.
+
+#### O desenho do treino — PRONTO, mas NÃO entra na v2
+
+**Decisão do dono (03/09): o `REORIENTAR` termina como o `BOTAR`** — o robô executa,
+larga a caixa na mesa e tira as mãos. "Bota as mãos e tira as mãos." Portanto o desenho
+é o espelho da §6.6.2, peça a peça:
+
+1. **Fecho:** `alinhado & apoiada`, sustentado `sustenta_outros_s`. O `apoiada` entra
+   porque, depois de tombar, a caixa tem de estar de novo na laje, e não no ar.
+2. **Espera final** depois do fecho, igual à do `BOTAR`: publicado `ANDAR`, interno
+   `REORIENTAR`, `soltou`, `escapou` desarmado, `caiu` armado, `largou` pagando por tirar
+   as mãos. A cadeia 1 vira `(REORIENTAR,)` — o `PEGAR` depois dela é composição do
+   controlador (`ANDAR(v=0) → PEGAR` já é treinado, §6.3), e não um segundo elo.
+3. **Máscaras:** `squeeze` e `unload` zero no `REORIENTAR` (pagam por erguer; girar não
+   é erguer). `load` ligado no `REORIENTAR` também (a caixa tem de voltar à laje).
+4. **`alcança`:** vivo durante o elo (as mãos têm de chegar à caixa — é o gradiente de
+   aproximação, e é a porta que o `precise_ori` já usa), e `≡ 1` na espera final
+   (`soltou`), para não pagar por manter as mãos na caixa depois de pronto. A regra da
+   §6.6.2 item 3 generaliza para `alcança ≡ 1 se (interno == BOTAR) ou soltou`.
+5. **`precise_pos` no `REORIENTAR` é constante** (o alvo é a própria caixa): 2,0/s de
+   renda fixa. Inofensivo, e declarado.
+6. **A conta de monotonia** (girar sem apoiar < apoiada alinhada < espera final <
+   largar) tem de ser refeita e afirmada pelo smoke como o item 16 da §11.1, antes de
+   ligar.
+
+**O currículo da reorientação se separa do de altura e carga.** Hoje o tombo
+(`eixo_vertical`) só nasce no nível 4, junto com a laje a 0,04 m e a carga a 5 kg. Tombar
+uma caixa de 5 kg no chão não é a mesma tarefa que tombar uma de 1 kg na mesa. Quando
+virar foco: `voltas` e eixo sorteados por episódio, **independentes do nível**; as quatro
+primitivas com probabilidade igual; a face de trás (180°) fora do sorteio, porque o
+controlador a decompõe em duas.
+
+**E o defeito de hoje se conserta**, em ordem de custo:
 
 1. **`desalinho_max_deg > tol_ang_deg`** em todo nível, para a caixa nunca nascer
    dentro da tolerância de fechamento. Custo: uma tabela de números.
 2. **Exigir erro inicial mínimo** no fechamento (o elo só fecha se houve trabalho).
    Custo: lógica nova no `_fecha_elo_corrente`.
+
+**Por que a rede fica pronta com o que entra na v2:** tudo acima é recompensa, fecho,
+cadeia e knob. Nada muda a observação. O checkpoint da v2 serve de warm-start.
 
 ---
 
@@ -1281,13 +1375,13 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 
 ### 11.1 Travas de smoke
 
-1. **O gate.** Com o elo publicado em `ANDAR`, os 8 canais de caixa são **exatamente
+1. **O gate.** Com o elo publicado em `ANDAR`, os 10 canais de caixa são **exatamente
    zero** — e o teste teleporta a caixa para perto antes de medir, para provar que o
    zero vem do gate e não da distância. Nos dois grupos, `actor` e `critic`.
 2. **A invariante que substitui o bit.** Em nenhum passo do treino existe
    `|caixa_b| = 0` com publicado ≠ `ANDAR`, nem `|caixa_b| ≠ 0` com publicado = `ANDAR`.
    Não há terceiro estado.
-3. **A dimensão.** 112 canais no `actor` e 117 no `critic`: o `VALIDA` **não** está em
+3. **A dimensão.** 114 canais no `actor` e 119 no `critic`: o `VALIDA` **não** está em
    nenhuma observação; o `meia_aresta` **está**, como último canal do termo `caixa`; e o
    `elo_interno` está **só** no `critic`, depois do `caixa`. O `VALIDA` continua existindo
    no comando (é a porta dos incentivos), e o smoke afirma que ele vale exatamente
@@ -1358,6 +1452,13 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     **todo** passo, e que nenhum env `turning` está em `heading`.
 22. **O `PPOPorElo` agrupa pelo interno.** Num lote com um env em espera final, ele cai
     no grupo `manip`, e não no `loco`.
+23. **`giro_b` é o giro, e não só o ângulo.** Com a caixa girada +90° em Z no nascimento,
+    `giro_b ≈ (0, 0, ∓π/2)` e `|giro_b|` bate com o `ANG` do comando em 1e-4; girada 90°
+    em Y, o eixo é Y; e o sinal troca com o sentido do giro. Em `PEGAR`, no passo em que
+    o elo abre, `giro_b = 0`; depois de torcer a caixa à mão em 20°, `|giro_b| ≈ 0,35`.
+24. **O `REORIENTAR` está inerte na v2** (§8.3): com o cfg de treino, `voltas_max` é zero
+    em todo nível, e um env de cadeia 1 avança para o `PEGAR` em `sustenta_outros_s` sem
+    a caixa se mover.
 
 ### 11.2 Simulação do caminho de campo
 
@@ -1381,11 +1482,10 @@ as duas apostas da §7.2 é a afirmação que o teste faz.
 
 ## 12. CUSTO
 
-⚠ **O checkpoint atual é invalidado, por duas razões independentes.** Sete canais que
-valiam ~4,3 no `ANDAR` passam a valer 0 (distribuição de observação), e um canal troca de
-significado (sai `VALIDA`, entra `meia_aresta` — 112 antes e depois, mas a primeira
-camada lê outra coisa naquela coluna). Resume não resolve nenhuma das duas. **Treino do
-zero.**
+⚠ **O checkpoint atual é invalidado, por três razões independentes.** Sete canais que
+valiam ~4,3 no `ANDAR` passam a valer 0 (distribuição de observação); um canal troca de
+significado (sai `VALIDA`, entra `meia_aresta`); e o `ANG` vira `giro_b`, 112 → 114
+(§8.3). Resume não resolve nenhuma das três. **Treino do zero.**
 
 A run `bloco7` (it ~2514, `precise_pos` subindo, `descarga = 0,965`) fica inconsistente
 com o código novo. Ela pode seguir até onde valer, mas não recebe estas mudanças. O que
@@ -1438,7 +1538,8 @@ são os de hoje.
   deixa de ser "PEGAR com objetivo desligado" e vira "ANDAR parado, e então PEGAR". Sem
   cadeia nova, sem tocar currículo.
 - **O `VALIDA` sai da observação** (§6.2). Fica no sim como porta de recompensa e de
-  fecho de elo. (Com o `meia_aresta` da sexta rodada, a observação fica em 112.)
+  fecho de elo. (Com o `meia_aresta` da sexta rodada e o `giro_b` da sétima, a
+  observação fica em 114.)
 - **`REORIENTAR` é habilidade futura:** fica no código E no sorteio (§8.3); o defeito
   do avanço grátis fica registrado, não consertado.
 - **Primeiro funcionar no sim, depois complicar.** DR é a FASE 2 e LIDAR em todas as
@@ -1484,8 +1585,8 @@ são os de hoje.
 
 **Tomadas (02/09, sexta rodada — fecha a spec):**
 
-- **A rede vê o tamanho.** Canal `meia_aresta` no fim do termo `caixa`, gateado. 112
-  canais (§4, §6.7).
+- **A rede vê o tamanho.** Canal `meia_aresta` no fim do termo `caixa`, gateado. (Com o
+  `giro_b` da sétima rodada, 114 canais — §4, §6.7.)
 - **`rel_turning_envs = 0,10`**, com `|wz| ≥ 0,2 rad/s` (§9).
 - **Tamanho: (0,07, 0,13) m, K = 8** (§6.7).
 
@@ -1509,7 +1610,17 @@ aprendizado e propõe:
   (§6.6); `fracao_esperando` lê as duas esperas; `recebe_tarefa` escreve `ELO` (§6.4).
 - **Giro com precedência explícita** e frações medidas (§9).
 - **`dr.geom_size` do mjlab** com um wrapper para o cubo (§6.7). O plano B fica.
+- **O `REORIENTAR` ganha o contrato, e não o treino** (§8.3, refinado com o dono em
+  03/09, v14): `ANG` vira `giro_b` — 3 canais, o giro pedido no frame da base; 114
+  canais no ator, 119 no crítico. Quatro primitivas de 90° (esquerda, direita, cima,
+  baixo), compostas pelo controlador externo, que também guarda "quais faces já vi".
+  Direção pedida horizontal, para o robô (física da caixa apoiada). Termina como o
+  `BOTAR`: larga a caixa e tira as mãos — o desenho do treino é o espelho da §6.6.2 e
+  está escrito, pronto. Na run da v2 ele fica **inerte** (`voltas_max = 0` em todo nível)
+  e sorteável, para o slot não ficar constante; o checkpoint da v2 serve de warm-start
+  quando virar foco, porque nada do que falta muda a observação.
 
-**Pendentes: a aprovação da sétima rodada.** Em particular os pesos 2,0 e 1,0 e o
-`σ_solta = 0,10` são ponto de partida; o dono pode mudar antes do plano. Depois da
-aprovação, o próximo passo é o plano de implementação.
+**Pendentes: a aprovação da sétima rodada.** Em particular: os pesos 2,0 e 1,0 e o
+`σ_solta = 0,10` são ponto de partida; e `voltas_max = 0` em todo nível na run da v2 é
+mudança em `knobs.Nivel` que o dono confirma. Depois da aprovação, o próximo passo é o
+plano de implementação.
