@@ -302,7 +302,9 @@ def make_env_cfg(
               for f in dataclasses.fields(antigo)}
     cfg.commands["twist"] = CMD.TwistComRazaoDeMarchaCfg(
         **campos, limiar_comando=k.marcha.limiar_comando,
-        pedido_min_segmento=k.marcha.pedido_min_segmento)
+        pedido_min_segmento=k.marcha.pedido_min_segmento,
+        rel_turning_envs=k.marcha.rel_turning_envs,
+        turning_wz_min=k.marcha.turning_wz_min)
 
     # -------------------------------------------------------- 3. os eventos
     # ⚠ `base_com` (`dr.body_com_offset`) SAI, e não é preferência: ele corrompe a
