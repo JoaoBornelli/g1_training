@@ -33,6 +33,7 @@ from mjlab.tasks.velocity.config.g1.env_cfgs import (
 from g1_limpo import cena as C
 from g1_limpo.env_cfg import colhe_sigmas_de_postura, make_env_cfg
 from g1_limpo.knobs import Knobs
+from g1_limpo import metricas as MT_
 
 _ok = 0
 _falhas: list[str] = []
@@ -2932,6 +2933,129 @@ try:
 except Exception as _e22x:      # noqa: BLE001
     _falhas.append(f"a cadeia 3 não pôde ser exercitada: "
                    f"{type(_e22x).__name__}: {_e22x}")
+
+# ============ 23. as DUAS esperas publicam ANDAR, o VALIDA lê o interno (spec §6.3, §6.6)
+secao("23. as duas esperas publicam ANDAR")
+from g1_limpo import comando as CMD                                       # noqa: E402
+from g1_limpo import observacoes as OB_                                   # noqa: E402
+from g1_limpo import terminacoes as TE_                                   # noqa: E402
+from g1_limpo import recompensas as RC_                                   # noqa: E402
+
+check("7. o publicado é recalculado do INTERNO e das duas esperas",
+      "aguardando | self._soltou" in inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
+      and "self._elo" in inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera),
+      "ler o que se escreveu no passo anterior deixa o canal preso (02/09)")
+check("20. o `_pegou` só arma com o objetivo ATIVO",
+      "self._espera <= 0.0" in inspect.getsource(CMD.AlvoCaixaCmd._publica_pegou),
+      "um toque por exploração na espera inicial armaria `escapou` e mataria o episódio")
+check("o `rastreio_por_elo` não lê mais `limpo_aguardando` — o publicado já é ANDAR",
+      "limpo_aguardando" not in inspect.getsource(RC_.rastreio_por_elo))
+
+try:
+    import torch as _t23
+
+    # --- a espera INICIAL, vista pela observação ---
+    _c23 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c23.scene.num_envs = 32
+    _e23 = ManagerBasedRlEnv(cfg=_c23, device="cpu")
+    _o23, _ = _e23.reset()
+    _n23 = _e23.action_manager.total_action_dim
+    _t23c = _e23.command_manager.get_term("alvo_caixa")
+    _fat23 = OB_.fatia_do_elo(_o23["actor"].shape[-1])
+    _hot0 = _o23["actor"][:, _fat23].argmax(-1)
+    check("4. na observação do RESET o one-hot publicado é ANDAR",
+          bool((_hot0 == CMD.ANDAR).all()), str(_hot0.tolist()[:8]))
+    check("4. e o elo INTERNO é PEGAR no reset",
+          bool((_t23c._elo == CMD.PEGAR).all())
+          and bool((_e23.limpo_elo_interno == CMD.PEGAR).all()))
+    check("3. o VALIDA é ZERO na espera inicial",
+          float(_t23c.command[:, CMD.VALIDA].max()) == 0.0)
+    _borda = _t23.full((_e23.num_envs,), -1, dtype=_t23.long)
+    for _i in range(int(k.alvo.espera_s[1] / _e23.step_dt) + 5):
+        _o23 = _e23.step(_t23.zeros(_e23.num_envs, _n23))[0]
+        _hot = _o23["actor"][:, _fat23].argmax(-1)
+        _borda = _t23.where((_borda < 0) & (_hot == CMD.PEGAR),
+                            _t23.full_like(_borda, _i), _borda)
+    check("4. na borda o one-hot publicado vira PEGAR em todos os envs",
+          bool((_borda >= 0).all()), str(_borda.tolist()[:8]))
+    _bs = _borda.float() * _e23.step_dt
+    check("4. e a borda cai dentro da faixa de espera_s",
+          float(_bs.min()) >= k.alvo.espera_s[0] - 2 * _e23.step_dt
+          and float(_bs.max()) <= k.alvo.espera_s[1] + 2 * _e23.step_dt,
+          f"{float(_bs.min()):.2f} .. {float(_bs.max()):.2f} s")
+    check("3. depois da borda o VALIDA é UM",
+          float(_t23c.command[:, CMD.VALIDA].min()) == 1.0)
+    check("6. o piso de locomoção não conta a espera: `limpo_elo` segue PEGAR",
+          bool((_e23.limpo_elo == CMD.PEGAR).all()),
+          "a fatia lê o interno do currículo, não o publicado")
+    del _e23
+
+    # --- a espera FINAL, forçada à mão na cadeia 3 ---
+    _c23b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=3)
+    _c23b.scene.num_envs = 8
+    _e23b = ManagerBasedRlEnv(cfg=_c23b, device="cpu")
+    _e23b.reset()
+    _n23b = _e23b.action_manager.total_action_dim
+    _passa_janela(_e23b, _n23b, _t23)
+    _t23d = _e23b.command_manager.get_term("alvo_caixa")
+    _ids23 = _t23.arange(_e23b.num_envs)
+    _t23d.forca_avanco(_ids23)            # -> CARREGAR
+    _t23d.forca_avanco(_ids23)            # -> BOTAR
+    check("12. antes do fecho do BOTAR o publicado é BOTAR e `soltou` é falso",
+          bool((_t23d.command[:, CMD.ELO] == CMD.BOTAR).all())
+          and not bool(_t23d._soltou.any()))
+    _t23d.forca_avanco(_ids23)            # fecha o BOTAR -> espera final
+    check("12. no MESMO passo do fecho o publicado vira ANDAR, sem atraso",
+          bool((_t23d.command[:, CMD.ELO] == CMD.ANDAR).all()))
+    check("12. o interno fica BOTAR, `fechou` e `soltou` marcam, sucesso = 1",
+          bool((_t23d._elo == CMD.BOTAR).all()) and bool(_t23d.fechou.all())
+          and bool(_t23d._soltou.all())
+          and float(_t23d.metrics["sucesso"].min()) == 1.0)
+    check("3. e o VALIDA é UM na espera final — ela NÃO zera os incentivos",
+          float(_t23d.command[:, CMD.VALIDA].min()) == 1.0,
+          "spec §6.0: o VALIDA deriva do interno; é isso que fecha o buraco da renda")
+    _o23b = _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))[0]
+    _hotf = _o23b["actor"][:, OB_.fatia_do_elo(_o23b["actor"].shape[-1])].argmax(-1)
+    check("12. a observação mostra ANDAR na espera final",
+          bool((_hotf == CMD.ANDAR).all()))
+    check("12. `limpo_soltou` é publicado como 1,0",
+          float(_e23b.limpo_soltou.min()) == 1.0)
+    check("a métrica `fracao_esperando` conta a espera final",
+          float(_e23b.limpo_aguardando.max()) == 0.0
+          and float(MT_.fracao_esperando(_e23b).min()) == 1.0,
+          "sem isto a espera final não aparece no painel")
+
+    # --- a terminação: `escapou` DESARMADO na espera final, `caiu` ARMADO ---
+    _t23d._pegou[:] = True
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))          # publica limpo_pegou = 1
+    _cx23 = _e23b.scene["box"]
+    _pt = _cx23.data.root_link_pos_w.clone()
+    _pt[:, 0] += 1.0                                           # 1 m à frente, mesma altura
+    _cx23.write_root_link_pose_to_sim(_t23.cat([_pt, _cx23.data.root_link_quat_w], -1))
+    _cx23.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
+    _par = dict(_c23b.terminations["caixa_largada"].params)
+    _longe = TE_.caixa_largada(_e23b, **_par)
+    check("12. afastar a caixa das palmas na espera final NÃO termina (escapou desarmado)",
+          not bool(_longe.any()), str(_longe.tolist()))
+    _pt2 = _cx23.data.root_link_pos_w.clone()
+    _pt2[:, 2] = _e23b.scene.env_origins[:, 2] + 0.02            # no chão
+    _cx23.write_root_link_pose_to_sim(_t23.cat([_pt2, _cx23.data.root_link_quat_w], -1))
+    _cx23.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
+    _caiu = TE_.caixa_largada(_e23b, **_par)
+    check("12. derrubar a caixa na espera final TERMINA (caiu armado)",
+          bool(_caiu.all()), str(_caiu.tolist()))
+    _t23d._soltou[:] = False                                    # antes do fecho...
+    _cx23.write_root_link_pose_to_sim(_t23.cat([_pt, _cx23.data.root_link_quat_w], -1))
+    _cx23.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
+    check("12. ... e ANTES do fecho afastar as palmas continua terminando (escapou armado)",
+          bool(TE_.caixa_largada(_e23b, **_par).all()))
+    del _e23b
+except Exception as _e23x:      # noqa: BLE001
+    _falhas.append(f"as duas esperas não puderam ser medidas: "
+                   f"{type(_e23x).__name__}: {_e23x}")
 
 # =============================================================================
 print()
