@@ -1,10 +1,14 @@
 """g1_limpo — loco-manipulação de caixa do G1, reescrita sem import de projeto.
 
-Desenho em uma frase: **um objetivo, alcançado por cadeias de no máximo dois elos,
+Desenho em uma frase: **um objetivo, alcançado por cadeias de até três elos,
 e os elos trocam DENTRO do episódio.**
 
     ANDAR  REORIENTAR  PEGAR  CARREGAR  BOTAR      <- os 5 estados do one-hot
-    (PEGAR)  (REORIENTAR->PEGAR)  (PEGAR->CARREGAR)  (PEGAR->BOTAR)   <- as cadeias
+    (PEGAR)  (REORIENTAR->PEGAR)  (PEGAR->CARREGAR)  (PEGAR->CARREGAR->BOTAR)   <- as cadeias
+
+Desde a v2 (spec `docs/planos/2026-09-02-contrato-de-troca-de-tarefa.md`) o elo que a
+rede vê é o PUBLICADO: `ANDAR` nas duas esperas, o interno fora delas. Os canais de
+caixa são zero no `ANDAR` publicado.
 
 O que este pacote NÃO tem, e por quê: orçamento equalizado por tarefa, grafo de
 pais entre tarefas, eixos de currículo congelados, distribuição inversa à

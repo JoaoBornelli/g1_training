@@ -304,8 +304,10 @@ A variante `flat` já remove de graça o `terrain_scan`, o `height_scan`, o
 | 3b | `cfg.curriculum["forma"] / ["nivel"] / ["elo"]` | **a ordem é contrato** |
 | 3c | `cfg.commands["alvo_caixa"] = CMD.AlvoCaixaCmdCfg(...)` | a única fonte de verdade do alvo |
 | 3e | obs `["elo"]` nos **dois** grupos | one-hot de 5 |
-| 3f | obs `["caixa"]` nos **dois** grupos | 8 canais |
+| 3f | obs `["caixa"]` nos **dois** grupos | 10 canais, gateados pelo elo **publicado** (spec §6.1) |
 | 3g | 7 termos de recompensa de tarefa | todos gateados por `VALIDA` |
+| 3h | obs `["elo_interno"]` **só no `critic`** | one-hot do elo interno; ator 114, crítico 119 (spec §6.1) |
+| 3i | `load`, `largou` | só no `BOTAR` e na espera final; leem o elo interno (spec §6.6.2) |
 | 3d | ramo inspeção | `trava_robo`, `terminations = {}` |
 | 4 | ramo play | remove `randomize_terrain` e `commands_vel` |
 
@@ -874,7 +876,8 @@ Três decisões:
 p, q = robo.data.root_link_pos_w, robo.data.root_link_quat_w
 caixa_b = quat_apply_inverse(q, caixa_pos_w − p)
 alvo_b  = quat_apply_inverse(q, cmd[:, ALVO] − p)
-return cat([caixa_b, alvo_b, cmd[:, ANG], cmd[:, VALIDA]])
+giro_b  = quat_apply_inverse(q, cmd[:, GIRO])          # eixo × ângulo do giro pedido
+return cat([caixa_b, alvo_b, giro_b, limpo_meia_aresta[:, :1]]) * (cmd[:, ELO] != ANDAR)
 ```
 
 | fatia | conteúdo |
@@ -896,8 +899,10 @@ Três decisões:
 - **O erro angular entra em radianos e sem normalizar.** Ele já vive em [0, π].
 
 > ⚠ O `smoke.py` **não** afirma o total de canais do ator. Ele afirma a **ordem** e os
-> **nomes** dos termos, e as constantes `N_SLOTS = 5` / `N_CAIXA = 8`. O fatiamento nos
-> testes é **calculado** (`slice(-13, -8)`), não digitado.
+> **nomes** dos termos, e as constantes `N_SLOTS = 5` / `N_CAIXA = 10`. O fatiamento nos
+> testes é **calculado** (`fatia_do_elo(114) == slice(99, 104)`), não digitado. O `VALIDA`
+> **não** está na observação desde a v2 (spec §6.2); o `ANG` virou o vetor `giro_b`
+> (spec §8.3); o `meia_aresta` é o último canal (spec §6.7).
 
 ---
 
@@ -913,11 +918,18 @@ sorteio seria uma segunda fonte, e mentiria no dia em que as duas divergissem.
 ```python
 ALVO   = slice(0, 3)    # posição alvo da caixa, em MUNDO
 FACE   = slice(3, 6)    # normal DESEJADA da face marcada, em MUNDO (unitária)
-ANG    = 6              # erro angular ATUAL, em radianos
-VALIDA = 7              # 1,0 se o objetivo de caixa está ativo; 0,0 no ANDAR
-ELO    = 8              # o elo corrente, como float
-DIM    = 9
+ANG    = 6              # erro angular ATUAL, em radianos (= |GIRO|)
+VALIDA = 7              # 1,0 se o objetivo de caixa está ativo; 0,0 no ANDAR e na espera inicial
+ELO    = 8              # o elo PUBLICADO, como float (ANDAR nas duas esperas; spec §6.0)
+GIRO   = slice(9, 12)   # eixo × ângulo do giro pedido, em MUNDO (spec §8.3) — append da v2
+DIM    = 12
 ```
+
+> ⚠ **Dois elos desde a v2 (spec §6.0).** `_command[:, ELO]` é o **publicado**: o que a rede
+> vê. `AlvoCaixaCmd._elo` (publicado em `env.limpo_elo_interno`) é o **interno**: a mecânica
+> do episódio e o que paga. Eles diferem nas duas esperas: a inicial (`aguardando`, publicado
+> `ANDAR`, `VALIDA = 0`) e a final depois do fecho do `BOTAR` (`soltou`, publicado `ANDAR`,
+> `VALIDA = 1` — os incentivos do estado apoiado continuam pagando).
 
 ### 8.2 Os 5 elos, e o alvo de cada um é uma coisa diferente
 
@@ -1118,8 +1130,10 @@ E **não subtrai mais a meia-aresta**: o alvo já está na superfície.
 CADEIAS = ((PEGAR,),
            (REORIENTAR, PEGAR),
            (PEGAR, CARREGAR),
-           (PEGAR, BOTAR))
+           (PEGAR, CARREGAR, BOTAR))   # v2: pegar, SEGURAR PARADO, botar (spec §6.5)
 CADEIA_NENHUMA = −1        # o ANDAR
+# `_SEGURA_PARADO`, derivado de CADEIAS: a cadeia em que CARREGAR é seguido de BOTAR.
+# Nela o CARREGAR tem twist zero e fecha por `perto` sustentado pela espera sorteada.
 ```
 
 **Teto de 2 elos.** Uma cadeia de 3 exigiria navegação. **O `PEGAR` aparece em todas** — é
