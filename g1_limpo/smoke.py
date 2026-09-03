@@ -1719,6 +1719,9 @@ check("TODOS os pesos são POSITIVOS — nenhuma penalidade na tarefa (R3)",
       str({n: cfg.rewards[n].weight for n in SETE}))
 check("a soma dos pesos é 11,5/s",
       abs(sum(cfg.rewards[n].weight for n in SETE) - 11.5) < 1e-9)
+check("os dois termos do BOTAR existem: `load` = 2,0 e `largou` = 1,0 (spec §6.6.2)",
+      cfg.rewards["load"].weight == 2.0 and cfg.rewards["largou"].weight == 1.0,
+      str({n: cfg.rewards[n].weight for n in ("load", "largou") if n in cfg.rewards}))
 check("o `staged` é o maior — é o único com gradiente na pose de repouso",
       cfg.rewards["staged"].weight == max(cfg.rewards[n].weight for n in SETE))
 check("o `precise_pos` é o ÚNICO com σ fixo, e ele é a tolerância de ACEITE",
@@ -3273,6 +3276,130 @@ try:
 except Exception as _e25x:      # noqa: BLE001
     _falhas.append(f"a observação nova não pôde ser medida: "
                    f"{type(_e25x).__name__}: {_e25x}")
+
+# ============ 26. a RENDA DO BOTAR é MONÓTONA: pairar < apoiar < fechar < largar (spec §6.6)
+secao("26. a renda do BOTAR")
+check("16. o `load` é o espelho do `unload`: só no BOTAR, gateado por `perto`",
+      "== BOTAR" in inspect.getsource(RC_.load) and "raio_mult" in inspect.getsource(RC_.load))
+check("17. `squeeze` e `unload` são MASCARADOS no BOTAR (o precedente do g1_poc)",
+      "!= BOTAR" in inspect.getsource(RC_.squeeze)
+      and "!= BOTAR" in inspect.getsource(RC_.unload))
+check("17. `alcança ≡ 1` no BOTAR ou em `soltou`",
+      "== BOTAR" in inspect.getsource(RC_._alcancar)
+      and "limpo_soltou" in inspect.getsource(RC_._alcancar))
+try:
+    import torch as _t26
+
+    _c26 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=3)
+    _c26.scene.num_envs = 8
+    _e26 = ManagerBasedRlEnv(cfg=_c26, device="cpu")
+    _e26.reset()
+    _n26 = _e26.action_manager.total_action_dim
+    _passa_janela(_e26, _n26, _t26)
+    _t26c = _e26.command_manager.get_term("alvo_caixa")
+    _ids26 = _t26.arange(8)
+    _nm26 = list(_c26.rewards)
+    _cx26 = _e26.scene["box"]
+    _q26 = _cx26.data.root_link_quat_w.clone()
+
+    def _renda(passos=4, alvo_dz=None):
+        """Soma dos termos por segundo, com a caixa mantida em alvo + dz (ou livre)."""
+        for _ in range(passos):
+            if alvo_dz is not None:
+                _p = _t26c.command[:, CMD.ALVO].clone()
+                _p[:, 2] += alvo_dz
+                _cx26.write_root_link_pose_to_sim(_t26.cat([_p, _q26], -1))
+                _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+            _e26.step(_t26.zeros(8, _n26))
+        _sr = _e26.reward_manager._step_reward
+        return (float(_sr.mean(0).sum()),
+                {n: float(_sr[:, _nm26.index(n)].mean())
+                 for n in ("staged", "precise_pos", "load", "largou", "unload", "squeeze",
+                           "postura_ereta", "track_linear_velocity", "pose")})
+
+    # 17. alcança no PEGAR com a caixa longe é ~0; no BOTAR é 1
+    _pl = _cx26.data.root_link_pos_w.clone()
+    _pl[:, 0] += 1.0
+    for _ in range(3):
+        _cx26.write_root_link_pose_to_sim(_t26.cat([_pl, _q26], -1))
+        _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+        _e26.step(_t26.zeros(8, _n26))
+    _alc_pegar = float(RC_._alcancar(_e26, "alvo_caixa").max())
+    _t26c.forca_avanco(_ids26)            # -> CARREGAR
+    _t26c.forca_avanco(_ids26)            # -> BOTAR (laje nova sob a caixa; alvo lateral)
+    _e26.step(_t26.zeros(8, _n26))
+    _alc_botar = float(RC_._alcancar(_e26, "alvo_caixa").min())
+    check("17. `alcança` < 0,1 no PEGAR com a caixa a 1 m, e == 1 no BOTAR na mesma pose",
+          _alc_pegar < 0.1 and _alc_botar == 1.0, f"pegar {_alc_pegar:.3f}, botar {_alc_botar:.3f}")
+    # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
+    _orig = RC_._forca_das_palmas
+    RC_._forca_das_palmas = lambda env, sensores, asset_cfg: _t26.full((env.num_envs,), 20.0)
+    try:
+        _sq_botar = float(RC_.squeeze(_e26, "alvo_caixa", C.SENSOR_PALMA, k.tarefa.squeeze_mu,
+                                      cfg.rewards["squeeze"].params["asset_cfg"]).max())
+        _t26c._elo[:] = CMD.PEGAR
+        _sq_pegar = float(RC_.squeeze(_e26, "alvo_caixa", C.SENSOR_PALMA, k.tarefa.squeeze_mu,
+                                      cfg.rewards["squeeze"].params["asset_cfg"]).min())
+        _t26c._elo[:] = CMD.BOTAR
+    finally:
+        RC_._forca_das_palmas = _orig
+    check("17. com a mesma força de palma, `squeeze` é 0 no BOTAR e > 0 no PEGAR",
+          _sq_botar == 0.0 and _sq_pegar > 0.5, f"botar {_sq_botar:.3f}, pegar {_sq_pegar:.3f}")
+
+    # A: pairar 2 cm acima do alvo, sem apoio
+    _rA, _dA = _renda(passos=6, alvo_dz=0.02)
+    check("18. pairando, `load` é 0", abs(_dA["load"]) < 1e-6, f"{_dA['load']:.4f}")
+    check("17. pairando no BOTAR, `unload` e `postura_ereta` são 0 (mascarados)",
+          abs(_dA["unload"]) < 1e-9 and abs(_dA["postura_ereta"]) < 1e-9)
+    # C: apoiada no alvo (solta a caixa sobre a laje e deixa assentar 5 passos)
+    _pC = _t26c.command[:, CMD.ALVO].clone()
+    _cx26.write_root_link_pose_to_sim(_t26.cat([_pC, _q26], -1))
+    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _rC, _dC = _renda(passos=5)
+    check("18. apoiada no alvo, `load` é ~1 × 2,0", _dC["load"] > 1.6, f"{_dC['load']:.3f}")
+    check("12. e ainda NÃO fechou (0,3 s de sustain)", not bool(_t26c.fechou.any()))
+    # apoiada a 25 cm do alvo -> load 0
+    _pD = _pC.clone()
+    _pD[:, 1] += 0.25
+    _cx26.write_root_link_pose_to_sim(_t26.cat([_pD, _q26], -1))
+    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _rD, _dD = _renda(passos=4)
+    check("18. apoiada a 25 cm do alvo, `load` é 0 — o gate de posição", abs(_dD["load"]) < 1e-6)
+    # prensada com o dobro do peso -> load segue 1 (clamp)
+    _pE = _pC.clone()
+    _pE[:, 2] -= 0.004
+    _cx26.write_root_link_pose_to_sim(_t26.cat([_pE, _q26], -1))
+    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _t26c._sust[:] = 0.0
+    _rE, _dE = _renda(passos=3, alvo_dz=-0.004)
+    _F = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
+    _mg = float((_e26.limpo_massa * 9.81).mean())
+    check("18. prensada (F > m·g), `load` continua 1 — o `clamp`",
+          _F > 1.2 * _mg and _dE["load"] > 1.8, f"F/mg {_F/_mg:.2f}, load {_dE['load']:.3f}")
+    # ⚠ se `F/mg` sair abaixo de 1,2, a penetração de 4 mm não bastou para este `solref`:
+    # aumente o `−0.004` dos dois lugares acima para `−0.008`. O que o check afirma é o
+    # `clamp`, e não o valor da força.
+    # volta a apoiar no alvo e deixa o BOTAR FECHAR sozinho -> espera final
+    _cx26.write_root_link_pose_to_sim(_t26.cat([_pC, _q26], -1))
+    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _rC2, _dC2 = _renda(passos=5)
+    for _ in range(int(k.cadeia.sustenta_outros_s / _e26.step_dt) + 3):
+        _e26.step(_t26.zeros(8, _n26))
+    check("12. apoiada no alvo o BOTAR FECHA sozinho e `soltou` marca",
+          bool(_t26c.fechou.all()) and bool(_t26c._soltou.all()))
+    _rF, _dF = _renda(passos=4)
+    check("18. na espera final, com as palmas longe, `largou` ≥ 0,95 × 1,0",
+          _dF["largou"] >= 0.95, f"{_dF['largou']:.3f}")
+    check("16. a RENDA É MONÓTONA: pairar < apoiada < espera final (palmas longe)",
+          _rA < _rC2 < _rF,
+          f"pairar {_rA:.2f}  apoiada {_rC2:.2f}  espera final {_rF:.2f}  (/s)")
+    check("16. o rastreio entra na espera final e não antes",
+          _dC2["track_linear_velocity"] == 0.0 and _dF["track_linear_velocity"] > 1.0)
+    print(f"  renda do BOTAR: pairar {_rA:.2f}  apoiada {_rC2:.2f}  espera final {_rF:.2f} /s")
+    del _e26
+except Exception as _e26x:      # noqa: BLE001
+    _falhas.append(f"a renda do BOTAR não pôde ser medida: "
+                   f"{type(_e26x).__name__}: {_e26x}")
 
 # =============================================================================
 print()
