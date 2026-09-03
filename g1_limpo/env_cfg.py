@@ -236,8 +236,9 @@ def make_env_cfg(
     # caixa está na laje e as palmas estão longe.
     cfg.terminations["caixa_largada"] = TerminationTermCfg(
         func=TE.caixa_largada,
-        params={"z_min": k.terminacao.caixa_z_min,
-                "dist_max": k.terminacao.caixa_dist_max})
+        params={"folga_chao": k.terminacao.caixa_folga_chao,
+                "dist_max": k.terminacao.caixa_dist_max,
+                "meia_aresta_ref": c.caixa_meia_aresta[2]})
 
     # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
     # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele
@@ -317,6 +318,16 @@ def make_env_cfg(
     # Portanto `posiciona_cena` faz a prateleira E a caixa, e não existe um segundo
     # evento tocando nenhuma das duas.
     n = k.nivel
+    # ⚠ DR DE TAMANHO (spec §6.7): startup, por mundo, K meio-lados, cubo. É o caminho
+    # de DR do próprio mjlab (`requires_model_fields` expande os campos antes do primeiro
+    # forward). Vem ANTES do `posiciona_cena` só por leitura; startup e reset são modos
+    # separados.
+    cfg.events["tamanho_caixa"] = EventTermCfg(
+        func=EV.tamanho_caixa, mode="startup",
+        params={"faixa": c.caixa_meia_aresta_faixa,
+                "n_variantes": c.caixa_n_variantes,
+                "asset_cfg": SceneEntityCfg("box", geom_names=(C.BOX_GEOM,))},
+    )
     cfg.events["posiciona_cena"] = EventTermCfg(
         func=EV.posiciona_cena, mode="reset",
         params={"topo_min": n.topo_min, "jitter_x_max": n.jitter_x_max,

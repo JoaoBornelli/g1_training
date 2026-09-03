@@ -17,6 +17,8 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.envs.mdp.events import reset_root_state_uniform
+from mjlab.managers.event_manager import requires_model_fields
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
 from g1_limpo.curriculo import garante_elo, garante_nivel
@@ -24,9 +26,9 @@ from g1_limpo.curriculo import garante_elo, garante_nivel
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-__all__ = ["posiciona_cena", "afasta_cena", "carga_caixa", "trava_robo",
-           "segura_caixa", "orientacao_de_nascimento", "POSE_TRAVADA",
-           "reset_base_por_elo", "avanca_elo_no_viewer"]
+__all__ = ["posiciona_cena", "afasta_cena", "tamanho_caixa", "carga_caixa",
+           "trava_robo", "segura_caixa", "orientacao_de_nascimento",
+           "POSE_TRAVADA", "reset_base_por_elo", "avanca_elo_no_viewer"]
 
 
 def reset_base_por_elo(
@@ -193,7 +195,11 @@ def posiciona_cena(
     pose_caixa = torch.zeros(n, 7, device=dev)
     pose_caixa[:, 0] = origem[:, 0] + caixa_xy[0] + dx
     pose_caixa[:, 1] = origem[:, 1] + caixa_xy[1] + dy
-    pose_caixa[:, 2] = topo + caixa_meia_z
+    # ⚠ o tamanho é POR ENV (spec §6.7); o knob é só o fallback de um env montado sem o
+    # evento `tamanho_caixa` (não existe no pacote, mas o fallback é explícito)
+    meia = getattr(env, "limpo_meia_aresta", None)
+    meia_z = meia[env_ids, 2] if meia is not None else torch.full((n,), caixa_meia_z, device=dev)
+    pose_caixa[:, 2] = topo + meia_z
     # ⚠ A ORIENTAÇÃO não é mais um jitter de yaw: ela é o eixo do `reorientar`,
     # sorteada em QUARTOS DE VOLTA pela célula do nível.
     pose_caixa[:, 3:7] = orientacao_de_nascimento(
@@ -235,13 +241,63 @@ def afasta_cena(
     mesa.write_mocap_pose_to_sim(pose, env_ids=env_ids)
 
     pose_c = pose.clone()
-    pose_c[:, 2] = afasta_z + caixa_meia_z    # apoiada na laje erguida
+    meia = getattr(env, "limpo_meia_aresta", None)
+    meia_z = meia[env_ids, 2] if meia is not None else torch.full((n,), caixa_meia_z, device=dev)
+    pose_c[:, 2] = afasta_z + meia_z          # apoiada na laje erguida
     caixa.write_root_link_pose_to_sim(pose_c, env_ids=env_ids)
     caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev),
                                           env_ids=env_ids)
 
     if hasattr(env, "limpo_topo"):
         env.limpo_topo[env_ids] = afasta_z
+
+
+@requires_model_fields("geom_size", "geom_rbound", "geom_aabb")
+def tamanho_caixa(
+    env: "ManagerBasedRlEnv",
+    env_ids: torch.Tensor | None,
+    *,
+    faixa: tuple[float, float],
+    n_variantes: int,
+    asset_cfg: SceneEntityCfg,
+) -> None:
+    """DR de TAMANHO da caixa: K meio-lados discretos, por mundo, UMA vez no startup.
+
+    Spec §6.7. É o caminho de DR do próprio mjlab: `requires_model_fields` faz o
+    `load_managers` expandir os três campos para `(nworld, ngeom)` ANTES dos eventos de
+    startup e do primeiro `forward`, e o kernel de broadphase do `mujoco_warp` nasce já
+    indexando por mundo. O `mjlab.envs.mdp.dr.geom_size` faz isto para um box, mas
+    sorteia cada eixo de forma independente; aqui a caixa é CUBO, portanto a escrita é
+    própria e as duas fórmulas do box são repetidas (`rbound = a·√3`, `aabb_half = a`).
+
+    ⚠ `body_mass` e `body_inertia` NÃO são tocados: a independência do peso vem daí, e a
+    inércia fica a da caixa de 0,10 m — inconsistência declarada, do mesmo tipo da que
+    `carga_caixa` já aceita.
+
+    Publica `env.limpo_meia_aresta` (n, 3). Todo consumidor do tamanho lê dali:
+    `comando._meia`, `posiciona_cena`, `afasta_cena`, `terminacoes.caixa_largada`,
+    `observacoes.caixa_no_frame_da_base`.
+    """
+    dev = env.device
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=dev, dtype=torch.int)
+    else:
+        env_ids = env_ids.to(dev, dtype=torch.int)
+    n = len(env_ids)
+    valores = torch.linspace(float(faixa[0]), float(faixa[1]), int(n_variantes), device=dev)
+    a = valores[torch.randint(int(n_variantes), (n,), device=dev)]           # (n,)
+
+    caixa: Entity = env.scene[asset_cfg.name]
+    gid = caixa.indexing.geom_ids[asset_cfg.geom_ids]                        # (1,)
+    env_grid, geom_grid = torch.meshgrid(env_ids, gid, indexing="ij")
+    tam = a.unsqueeze(-1).unsqueeze(-1).expand(n, len(gid), 3)
+    env.sim.model.geom_size[env_grid, geom_grid] = tam
+    env.sim.model.geom_rbound[env_grid, geom_grid] = (a * math.sqrt(3.0)).unsqueeze(-1)
+    env.sim.model.geom_aabb[env_grid, geom_grid, 1] = tam
+
+    if not hasattr(env, "limpo_meia_aresta"):
+        env.limpo_meia_aresta = torch.full((env.num_envs, 3), float(faixa[0]), device=dev)
+    env.limpo_meia_aresta[env_ids.long()] = a.unsqueeze(-1).expand(n, 3)
 
 
 def carga_caixa(
