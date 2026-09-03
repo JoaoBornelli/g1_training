@@ -1037,7 +1037,7 @@ class AlvoCaixaCmd(CommandTerm):
                 #
                 # Agora o PISO CEDE: ele é o valor desejado, mas nunca passa do teto
                 # físico. O último recurso é a laje no chão (`prateleira_topo_piso`).
-                fundo = self.caixa.data.root_link_pos_w[m, 2] - c.caixa_meia_z
+                fundo = self.caixa.data.root_link_pos_w[m, 2] - self._meia(m)[:, 2]
                 teto = torch.clamp(fundo - c.botar_folga_laje, max=c.botar_topo_teto)
                 piso = torch.clamp(
                     torch.full_like(teto, c.botar_topo_piso), max=teto)
@@ -1057,7 +1057,7 @@ class AlvoCaixaCmd(CommandTerm):
                 a = torch.zeros(k, 3, device=d)
                 a[:, 0] = org[:, 0] + bx[0] + (bx[1] - bx[0]) * torch.rand(k, device=d)
                 a[:, 1] = org[:, 1] + by[0] + (by[1] - by[0]) * torch.rand(k, device=d)
-                a[:, 2] = topo + c.caixa_meia_z
+                a[:, 2] = topo + self._meia(m)[:, 2]
                 self._command[m, ALVO] = a
 
         self._atualiza_face(ids)
@@ -1082,7 +1082,7 @@ class AlvoCaixaCmd(CommandTerm):
         self.prateleira.write_mocap_pose_to_sim(pose, env_ids=ids)
         if sobe_caixa:
             pc = pose.clone()
-            pc[:, 2] = topo_t + c.caixa_meia_z
+            pc[:, 2] = topo_t + self._meia(ids)[:, 2]
             self.caixa.write_root_link_pose_to_sim(pc, env_ids=ids)
             self.caixa.write_root_link_velocity_to_sim(
                 torch.zeros(k, 6, device=d), env_ids=ids)
@@ -1111,6 +1111,17 @@ class AlvoCaixaCmd(CommandTerm):
         a[:, 2] = self.cfg.altura_carregar
         self._command[ids, ALVO] = a
 
+    def _meia(self, ids: torch.Tensor) -> torch.Tensor:
+        """[k, 3] — a meia-aresta da caixa DE CADA ENV (spec §6.7).
+
+        Lê `env.limpo_meia_aresta`, publicado pelo evento de startup `tamanho_caixa`. O
+        knob `caixa_meia_aresta` é só o fallback de um env montado sem o evento.
+        """
+        meia = getattr(self._env, "limpo_meia_aresta", None)
+        if meia is not None:
+            return meia[ids]
+        return torch.full((len(ids), 3), float(self.cfg.caixa_meia_aresta), device=self.device)
+
     def alvos_das_palmas(self, ids: torch.Tensor) -> torch.Tensor:
         """[k,2,3] — o ponto que CADA palma deve alcançar, em MUNDO.
 
@@ -1125,7 +1136,7 @@ class AlvoCaixaCmd(CommandTerm):
         """
         caixa = self.caixa.data.root_link_pos_w[ids]
         off = torch.zeros_like(caixa)
-        off[:, 1] = self.cfg.caixa_meia_aresta
+        off[:, 1] = self._meia(ids)[:, 1]
         off = quat_apply(self.caixa.data.root_link_quat_w[ids], off)
         return torch.stack((caixa + off, caixa - off), dim=1)
 

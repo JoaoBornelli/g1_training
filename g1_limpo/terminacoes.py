@@ -38,8 +38,8 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 
-def caixa_largada(env: "ManagerBasedRlEnv", z_min: float,
-                  dist_max: float) -> torch.Tensor:
+def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
+                  dist_max: float, meia_aresta_ref: float) -> torch.Tensor:
     """A caixa caiu no chão, ou ela escapou das DUAS palmas.
 
     ⚠ ELA É ARMADA PELA PRIMEIRA PREENSÃO, e nunca antes. Sem a arma, todo episódio
@@ -54,6 +54,9 @@ def caixa_largada(env: "ManagerBasedRlEnv", z_min: float,
 
     ⚠ `escapou` exige as DUAS palmas longe (`all`), e não uma. Uma mão que solta para
     reposicionar é parte de uma pega, não o fim dela.
+
+    ⚠ Limitação declarada: uma caixa que cai TOMBADA sobre uma aresta tem o centro em
+    a·√2 e escapa ao caiu; fora da espera final o escapou a pega.
     """
     caixa = env.scene["box"].data.root_link_pos_w
     pegou = getattr(env, "limpo_pegou", None)
@@ -64,7 +67,11 @@ def caixa_largada(env: "ManagerBasedRlEnv", z_min: float,
     dist = torch.norm(palmas - caixa.unsqueeze(1), dim=-1)          # [B,2]
     # ⚠ o z é RELATIVO à origem do env: com `env_spacing` os envs não estão todos em
     # z = 0, e um limiar absoluto acusaria queda no env errado.
-    caiu = (caixa[:, 2] - env.scene.env_origins[:, 2]) < z_min
+    # ⚠ POR TAMANHO (spec §6.7): "o fundo da caixa está a menos de `folga_chao` do chão".
+    # Com o limiar fixo de 0,10 a caixa de 0,13 m deitada no chão nunca acusava queda.
+    meia = getattr(env, "limpo_meia_aresta", None)
+    meia_z = meia[:, 2] if meia is not None else torch.full_like(caixa[:, 2], meia_aresta_ref)
+    caiu = (caixa[:, 2] - env.scene.env_origins[:, 2] - meia_z) < folga_chao
     escapou = (dist > dist_max).all(dim=-1)
     # ⚠ O GUARDA DA ESPERA FINAL (spec §6.6.3): depois do fecho do BOTAR as mãos TÊM de
     # sair da caixa — `escapou` dispararia por fazer a coisa certa. `caiu` continua

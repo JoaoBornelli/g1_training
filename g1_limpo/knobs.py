@@ -21,6 +21,13 @@ class Cena:
 
     # --- caixa (corpo LIVRE, erguível) ---
     caixa_meia_aresta: tuple[float, float, float] = (0.10, 0.10, 0.10)
+    # ⚠ DR DE TAMANHO desde a FASE 1 (spec §6.7, decisão do dono 02/09). K meio-lados
+    # discretos, cubo, sorteados por env UMA vez no startup e escritos por mundo em
+    # `geom_size` + `geom_rbound` + `geom_aabb` pelo caminho de DR do mjlab. O
+    # `caixa_meia_aresta` acima segue sendo o spec de REFERÊNCIA (paridade, inspetor) e
+    # a variante do meio da faixa.
+    caixa_meia_aresta_faixa: tuple[float, float] = (0.07, 0.13)
+    caixa_n_variantes: int = 8
     caixa_massa: float = 1.0
     caixa_atrito: tuple[float, float, float] = (1.0, 0.02, 0.001)
     caixa_rgba: tuple[float, float, float, float] = (0.8, 0.5, 0.2, 1.0)
@@ -722,11 +729,13 @@ class Terminacao:
     perdido a caixa: com ela no chão, a tarefa acabou.
     """
 
-    caixa_z_min: float = 0.10
-    """Altura da caixa, relativa à origem do env, abaixo da qual ela CAIU.
-
-    ⚠ 0,10 m é a meia-aresta: com o centro nessa altura a caixa está apoiada no CHÃO.
-    Ela é o piso físico, e não uma tolerância escolhida."""
+    caixa_folga_chao: float = 0.02
+    """Folga, em metros, do FUNDO da caixa ao chão abaixo da qual ela CAIU.
+    ⚠ Substitui `caixa_z_min = 0,10`, que era a meia-aresta de UMA caixa. Com o tamanho
+    variando (spec §6.7), o limiar fixo não acusava a queda da caixa de 0,13 m (centro
+    em 0,13) e ficava a 1 cm de acusar a de 0,07 m na laje a 0,04 m. Agora
+    `caiu = z_centro − meia_aresta_env < folga`: "o fundo está a menos de 2 cm do chão".
+    Menor que `prateleira_topo_piso` (0,04), senão a laje mais baixa dispararia."""
 
     caixa_dist_max: float = 0.45
     """Distância, em metros, de AMBAS as palmas ao centro da caixa para ela ter escapado.
