@@ -212,7 +212,10 @@ class Alvo:
     # ⚠ SÓ NA MANIPULAÇÃO. No `ANDAR` ela é ZERO. O `g1_poc` a tirou da locomoção em
     # 24/08 porque atrasava o aprendizado da marcha; na manipulação, com episódio de
     # 800+ passos, ela custa ~4%.
-    espera_s: tuple[float, float] = (0.3, 1.0)
+    # ⚠ TODA espera é a MESMA faixa (spec §6.3, §6.5): a espera inicial em ANDAR
+    # publicado antes do PEGAR, e o "segurar parado" do CARREGAR da cadeia 3. Sorteada
+    # para a política não contar passos. Decisão do dono, 02/09 (quarta rodada).
+    espera_s: tuple[float, float] = (0.5, 1.5)
 
 
 @dataclass
@@ -603,11 +606,11 @@ class Tarefa:
 class Cadeia:
     """A tabela de cadeias de elo, fase F4.
 
-    ⚠ TETO DE 2 ELOS. As cadeias são:
+    ⚠ O TETO É DERIVADO de `CADEIAS` (hoje 3). As cadeias são:
       índice 0: (PEGAR,)                 -> 1 elo (cadeia curta da F3)
       índice 1: (REORIENTAR, PEGAR)
-      índice 2: (PEGAR, CARREGAR)
-      índice 3: (PEGAR, BOTAR)
+      índice 2: (PEGAR, CARREGAR)        -> andar com a caixa
+      índice 3: (PEGAR, CARREGAR, BOTAR) -> pegar, SEGURAR PARADO, botar (spec §6.5)
 
     O `pegar` aparece em TODAS: ele é o eixo de que não se esquece.
     """

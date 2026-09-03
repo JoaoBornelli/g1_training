@@ -81,14 +81,17 @@ DIM = 9
 ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
 ELOS = ("andar", "reorientar", "pegar", "carregar", "botar")
 
-# --- as cadeias de elo (F4). Teto de 2 elos. ---
+# --- as cadeias de elo (F4). O teto é DERIVADO (`_TETO_ELOS`), nunca redigitado. ---
 # índice 0: cadeia de 1 elo (PEGAR, já treina desde F3)
-# índice 1, 2, 3: cadeias de 2 elos (transições, F4)
+# índice 1, 2: cadeias de 2 elos
+# índice 3: (PEGAR, CARREGAR, BOTAR) — pegar, SEGURAR PARADO, botar (spec §6.5). O
+#           controlador de campo nunca manda BOTAR a partir de PEGAR; ele passa por
+#           CARREGAR com v = 0. A cadeia treina exatamente isso.
 CADEIAS = (
     (PEGAR,),
     (REORIENTAR, PEGAR),
     (PEGAR, CARREGAR),
-    (PEGAR, BOTAR),
+    (PEGAR, CARREGAR, BOTAR),
 )
 
 # ⚠ `ANDAR` NÃO É CADEIA. Um env de locomoção recebe isto, e `n_elos_da_cadeia`
@@ -106,6 +109,14 @@ _ELO_EM = torch.full((len(CADEIAS), _TETO_ELOS), -1, dtype=torch.long)
 for _i, _c in enumerate(CADEIAS):
     for _j, _e in enumerate(_c):
         _ELO_EM[_i, _j] = _e
+
+# ⚠ A CADEIA DE SEGURAR PARADO (spec §6.5): aquela em que o CARREGAR é seguido do BOTAR.
+# Nela o CARREGAR tem twist ZERO e fecha por `perto` sustentado pela espera sorteada, em
+# vez de `andou`. DERIVADA de `CADEIAS`, e o índice 3 não aparece no corpo do termo — uma
+# tabela paralela escrita à mão sai de sincronia no dia em que uma cadeia mudar.
+_SEGURA_PARADO = torch.tensor(
+    [any(c[i] == CARREGAR and c[i + 1] == BOTAR for i in range(len(c) - 1))
+     for c in CADEIAS], dtype=torch.bool)
 
 
 def elo_por_nome(nome: str) -> int:
@@ -295,10 +306,15 @@ class AlvoCaixaCmd(CommandTerm):
         # robô andar um centímetro. Ver `knobs.Cadeia.carregar_dist_m`.
         self._pos_no_elo = torch.zeros(n, 3, device=d)
 
+        # ⚠ O SUSTAIN do CARREGAR de segurar parado (spec §6.5 item 3): a espera
+        # sorteada do MESMO knob `espera_s`, por env. Só a cadeia marcada em
+        # `_SEGURA_PARADO` o lê; as outras usam `carregar_s`.
+        self._segurar = torch.zeros(n, device=d)
+
         # ---------------------------------------------------------- F4: máquina de elo
         # Os buffers que controlam o avanço entre elos.
         self._cadeia = torch.zeros(n, dtype=torch.long, device=d)
-        self._passo = torch.zeros(n, dtype=torch.long, device=d)  # 0 ou 1
+        self._passo = torch.zeros(n, dtype=torch.long, device=d)  # 0 .. _TETO_ELOS-1
         self._sust = torch.zeros(n, dtype=torch.float, device=d)  # cronômetro em s
         self.avancou = torch.zeros(n, dtype=torch.bool, device=d)
         self.fechou = torch.zeros(n, dtype=torch.bool, device=d)
@@ -493,6 +509,7 @@ class AlvoCaixaCmd(CommandTerm):
         self.fechou[ids] = False
         lo, hi = self.cfg.espera_s
         self._espera[ids] = lo + (hi - lo) * torch.rand(len(ids), device=d)
+        self._segurar[ids] = lo + (hi - lo) * torch.rand(len(ids), device=d)
         # ⚠ E O BIT CAI NO MESMO INSTANTE. O `_aplica_elo` acima escreveu `VALIDA = 1`
         # (é o que ele faz em elo de manipulação), e o `_aplica_espera` só corrige isso
         # no passo SEGUINTE — este método roda num evento de intervalo, fora da passada
@@ -539,6 +556,8 @@ class AlvoCaixaCmd(CommandTerm):
         _anda = self._elo[env_ids] == ANDAR
         self._espera[env_ids] = torch.where(
             _anda, torch.zeros_like(_sorteio_espera), _sorteio_espera)
+        # o "segurar parado" da cadeia 3 usa a MESMA faixa; sorteio próprio, por env
+        self._segurar[env_ids] = lo + (hi - lo) * torch.rand(n, device=d)
 
         # --- F4: A CADEIA, CONDICIONADA NO ELO QUE O CURRÍCULO JÁ SORTEOU ---
         #
@@ -644,6 +663,20 @@ class AlvoCaixaCmd(CommandTerm):
     def _update_metrics(self) -> None:
         pass
 
+    def _segura_parado(self, ids: torch.Tensor) -> torch.Tensor:
+        """Máscara: o env está no CARREGAR da cadeia de SEGURAR PARADO (spec §6.5).
+
+        ⚠ `_cadeia == −1` no `ANDAR`: o `tem` impede indexar a tabela com −1, que em
+        Python devolveria a ÚLTIMA cadeia — o mesmo defeito que `n_elos_da_cadeia`
+        já guarda.
+        """
+        cad = self._cadeia[ids]
+        tem = cad >= 0
+        seg = torch.zeros(len(ids), dtype=torch.bool, device=self.device)
+        if bool(tem.any()):
+            seg[tem] = _SEGURA_PARADO.to(self.device)[cad[tem]]
+        return seg & (self._elo[ids] == CARREGAR)
+
     def _zera_twist_nos_parados(self) -> None:
         """Força o comando de velocidade a ZERO nos elos que exigem o robô parado.
 
@@ -663,6 +696,10 @@ class AlvoCaixaCmd(CommandTerm):
         """
         parados = torch.isin(self._elo, torch.tensor(self.cfg.elos_parados,
                                                      device=self.device))
+        # ⚠ REGRA POR CADEIA (spec §6.5 item 2): o CARREGAR de segurar parado também
+        # tem twist zero. Na cadeia 2 o CARREGAR continua andando.
+        parados = parados | self._segura_parado(
+            torch.arange(self.num_envs, device=self.device))
         if not bool(parados.any()):
             return
         tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
@@ -734,7 +771,12 @@ class AlvoCaixaCmd(CommandTerm):
                 andou = torch.norm(
                     self.robot.data.root_link_pos_w[ids][m, :2]
                     - self._pos_no_elo[ids][m, :2], dim=-1) >= c.carregar_dist_m
-                fecha[m] = perto[m] & andou
+                # ⚠ REGRA POR CADEIA (spec §6.5 item 3): em SEGURAR PARADO não há
+                # `andou` — o twist é zero e a condição é `perto`, sustentado pela espera
+                # sorteada (ver `_avanca_elo`). Sem `perto`, o BOTAR começaria com a
+                # caixa em qualquer lugar.
+                segura = self._segura_parado(ids)[m]
+                fecha[m] = torch.where(segura, perto[m], perto[m] & andou)
             elif elo_tipo == BOTAR:
                 fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 
@@ -782,7 +824,11 @@ class AlvoCaixaCmd(CommandTerm):
                 if elo_tipo == PEGAR:
                     sustain_alvo[m] = self.cfg.sustenta_pegar_s
                 elif elo_tipo == CARREGAR:
-                    sustain_alvo[m] = self.cfg.carregar_s
+                    # ⚠ em SEGURAR PARADO o sustain É a espera sorteada (spec §6.5)
+                    segura = self._segura_parado(nao_fechou)[m]
+                    seg_s = self._segurar[nao_fechou][m]
+                    sustain_alvo[m] = torch.where(
+                        segura, seg_s, torch.full_like(seg_s, self.cfg.carregar_s))
                 else:  # REORIENTAR, BOTAR
                     sustain_alvo[m] = self.cfg.sustenta_outros_s
 
