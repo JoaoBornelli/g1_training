@@ -1201,31 +1201,31 @@ larga a caixa na mesa e tira as mãos. "Bota as mãos e tira as mãos." Portanto
 a larga numa mesa (`BOTAR`), gira, e a pega de novo (`PEGAR`). A sequência de campo é
 `BOTAR → ANDAR(v=0) → REORIENTAR → ANDAR(v=0) → PEGAR`, e cada seta já é uma transição
 treinada (§7.1): o `REORIENTAR` sempre começa da espera inicial, com a caixa apoiada e as
-mãos fora. Portanto a cena dele é a de **uma mesa**, com variação de **alguns cm** só
-para o robô não decorar — e não a escada de 0,55 a 0,04 m do `PEGAR`, nem a carga até
-5 kg. Hoje o tombo (`eixo_vertical`) só nasce no nível 4, junto com a laje a 0,04 m e a
-carga a 5 kg; tombar uma caixa de 5 kg no chão não é a mesma tarefa que tombar uma de
-1 kg na mesa. Quando virar foco, um bloco `knobs.Reorientar` próprio, lido por
-`posiciona_cena` e `carga_caixa` quando o elo do env é `REORIENTAR`:
+mãos fora. Portanto a cena dele é a de **uma mesa**, com a altura variando **de 0,45 a 0,55 m**
+(decisão do dono, 03/09) só para o robô não decorar — e não a escada de 0,55 a 0,04 m
+do `PEGAR`. Hoje o tombo (`eixo_vertical`) só nasce no nível 4, junto com a laje a
+0,04 m; tombar uma caixa no chão não é a mesma tarefa que tombar uma na mesa. **A
+variação de carga fica** (decisão do dono, 03/09): ela pesa na capacidade de girar e de
+tombar, e é dificuldade legítima do `REORIENTAR`. Quando virar foco, um bloco
+`knobs.Reorientar` próprio, lido por `posiciona_cena` quando o elo do env é
+`REORIENTAR`:
 
 ```
-topo          (0,45, 0,55) m       PROPOSTA — dentro do envelope treinado do PEGAR e do BOTAR;
-                                   o dono fixa o número
-carga         massa_base           1 kg; sem escada de carga
-jitter_x      o do nível 0
+topo          (0,45, 0,55) m       uniforme, independente do nível — dentro do envelope do PEGAR e do BOTAR
+carga         a de hoje            `carga_caixa` pelo nível, 1 kg até `carga_max[nível]`
+jitter_x      o de hoje            pelo nível
 voltas        SEMPRE um quarto de volta: eixo ∈ {Y, Z}, sinal ±, probabilidade igual
 desalinho     ±20°
 ```
 
-⚠ A faixa acima **não copia a do `BOTAR`**, porque o `BOTAR` de hoje varia o topo de
-0,30 a 0,80 m (`botar_topo_piso`, `botar_topo_teto`), e não alguns cm; ele é o único elo
-que já tem a laje separada do nível.
+⚠ A faixa de altura **não copia a do `BOTAR`**, porque o `BOTAR` de hoje varia o topo de
+0,30 a 0,80 m (`botar_topo_piso`, `botar_topo_teto`), e não 10 cm; ele é o único elo que
+já tem a laje separada do nível.
 
 Duas consequências: com um quarto de volta em **todo** episódio o erro de nascimento é
 90° ± 20°, nunca dentro dos 25° de tolerância — o avanço grátis morre por construção; e
-o sucesso da cadeia 1 **não** move o `nível`, porque o nível é a dificuldade do `PEGAR` e
-o `REORIENTAR` não a usa (hoje `curriculo.nivel` move com qualquer cadeia; a cadeia 1 sai
-da conta).
+o `nível` **continua** a mover com o sucesso da cadeia 1, porque a carga do `REORIENTAR`
+segue o nível — só a altura saiu dele.
 
 ⚠ **Registrado, fora deste documento:** a laje do sim nunca passa de 0,55 m
 (`prateleira_topo_teto`), e uma mesa real tem 0,70 a 0,80 m. A história de campo "larga
@@ -1646,9 +1646,10 @@ aprendizado e propõe:
   baixo), compostas pelo controlador externo, que também guarda "quais faces já vi".
   Direção pedida horizontal, para o robô (física da caixa apoiada). Termina como o
   `BOTAR`: larga a caixa e tira as mãos — o desenho do treino é o espelho da §6.6.2 e
-  está escrito, pronto. Ele **não herda o eixo de altura e carga do `PEGAR`**: cena de
-  mesa própria, com alguns cm de variação (`knobs.Reorientar`, quando virar foco); no
-  real o robô bota na mesa, gira, e pega de novo. Na run da v2 ele fica **inerte**
+  está escrito, pronto. Ele **não herda o eixo de altura do `PEGAR`**: mesa entre 0,45
+  e 0,55 m, independente do nível; a variação de carga **fica**, porque pesa na
+  capacidade de girar (`knobs.Reorientar`, quando virar foco). No real o robô bota na
+  mesa, gira, e pega de novo. Na run da v2 ele fica **inerte**
   (`voltas_max = 0` em todo nível)
   e sorteável, para o slot não ficar constante; o checkpoint da v2 serve de warm-start
   quando virar foco, porque nada do que falta muda a observação.
