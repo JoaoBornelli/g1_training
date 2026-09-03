@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
-**Estado:** APROVADA, SEM PENDÊNCIAS, em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v12 — medido em CPU: o one-hot publicado troca no meio do episódio e a política vê; só o VALIDA precisa mudar de fonte)
+**Estado:** v13 EM REVISÃO pelo dono (2026-09-03). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 propõe o conserto (§13, sétima rodada). Nada implementado. Próximo passo: aprovar a v13 e escrever o plano de implementação na branch `exp/g1-limpo-v2`.
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v13 — a renda do `BOTAR` e da espera final vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -54,22 +54,31 @@ Medido, não suposto. Números de `bloco7`, iteração ~2514, salvo indicado.
 piso de 30% de locomoção, o currículo de forma e de nível, as terminações, o rastreio
 por elo e a multa de mesa ficam como estão. **Decisão do dono (02/09), explícita.**
 
-⚠ **Duas exceções, pedidas pelo dono (02/09, terceira rodada):**
+⚠ **As exceções, e cada uma tem dono e data:**
 
 - **a cadeia 3 muda** de `(PEGAR, BOTAR)` para `(PEGAR, CARREGAR, BOTAR)` — o `botar`
   passa a vir de "segurar parado", e não direto da pega (§3.0, §6.5). As outras três
-  cadeias não mudam;
-- **a terminação `caixa_largada` ganha um guarda**: na espera final, depois do botar,
-  as mãos saem da caixa e `escapou` não pode disparar; `caiu` continua armado (§6.6).
-  Fora da espera final ela não muda;
+  cadeias não mudam (dono, 02/09);
+- **a terminação `caixa_largada` muda em dois pontos**: na espera final, depois do
+  botar, as mãos saem da caixa e `escapou` não pode disparar (dono, 02/09); e `caiu`
+  passa a ler o tamanho da caixa do env, porque com a caixa variando de tamanho o
+  limiar fixo de 0,10 m não acusa a queda da caixa grande (revisão de 03/09, §6.7).
+  Fora disso ela não muda;
 - **o tamanho da caixa varia por env** (§6.7). A pega foi aprendida com uma caixa de
   20 cm; passa a ser aprendida com 14 a 26 cm. É DR pedida pelo dono **desde o começo**,
   e é a mudança desta spec com mais efeito sobre a manipulação. A caixa **continua `box`
-  primitivo**; o colisor não muda.
+  primitivo**; o colisor não muda (dono, 02/09);
+- ⚠⚠ **a tabela de recompensa do `BOTAR` muda, e só a dele** (§6.6.1, §6.6.2). A regra
+  "recompensas não se toca" vale para o que foi **medido**: a pega e a locomoção. O
+  `BOTAR` nunca fechou em run nenhuma, e a revisão de 03/09 mostrou por quê: com a tabela
+  de hoje, **pairar a caixa a 1 cm da laje rende mais do que apoiá-la**, e a espera final
+  da v12 alargava essa diferença de 4/s para 11,5/s. O `g1_poc` tinha caído no mesmo
+  buraco e o consertou com `load` e duas máscaras; a reescrita perdeu as três. `PEGAR`,
+  `CARREGAR`, `REORIENTAR` e a locomoção ficam **bit a bit iguais** (v13, em revisão).
 
 O que este documento muda está **inteiro** na §6: observação, um canal de comando, a
-cadeia 3, um guarda de terminação e a geometria da caixa. Nenhuma recompensa, nenhum
-currículo.
+cadeia 3, a terminação `caixa_largada`, a geometria da caixa, e a renda do `BOTAR` e
+da espera final. Nenhum currículo.
 
 ---
 
@@ -150,7 +159,8 @@ A observação do `actor` tem **112 canais**, nesta ordem:
 | 7 | `elo` (one-hot) | 5 | **EXTERNO** — o botão de tarefa |
 | 8 | `caixa` | 8 | ver §4.1 |
 
-Total: `3+3+3+29+29+29+3+5+8 = 112`.
+Total: `3+3+3+29+29+29+3+5+8 = 112`. (O **crítico** tem 117: os mesmos 112 mais o
+`elo_interno` da §6.1. Ele não vai para o robô.)
 
 ⚠ **112 antes e 112 depois — mas não os mesmos 112.** O canal `VALIDA` **sai** da
 observação (§6.2); ele continua dentro do sim como porta de recompensa e de fecho de elo.
@@ -376,35 +386,43 @@ ao vivo com a caixa perto.
 
 ## 6. O QUE MUDA
 
-Seis mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, um
-**guarda de terminação**, e a **geometria da caixa** (DR de tamanho). Nenhuma em
-recompensa ou currículo.
+Sete mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, a
+**terminação `caixa_largada`** (guarda e `caiu` por tamanho), a **geometria da caixa**
+(DR de tamanho), e a **renda do `BOTAR` e da espera final** (§6.6.1, §6.6.2). Nenhuma
+em currículo.
 
 ### 6.0 Os dois `elo` — o PUBLICADO e o INTERNO
 
 A mudança da §6.3 depende de uma separação que **já existe** no código e que este
 documento torna explícita. Medido em 02/09, por leitura de fonte:
 
-| quem | lê | hoje |
+| quem | lê | lado |
 |---|---|---|
-| observação `um_de_cinco` | `comando[:, ELO]` | **publicado** |
+| observação `um_de_cinco` (ator e crítico) | `comando[:, ELO]` | **publicado** |
+| observação `elo_interno` (**só o crítico**, §6.1) | `limpo_elo` | interno |
+| gate dos canais de caixa (§6.1) | `comando[:, ELO]` | **publicado** |
 | `PosturaPorElo` | `comando[:, ELO]` | **publicado** |
 | `rastreio_por_elo` (`_anda_neste_elo`) | `comando[:, ELO]` | **publicado** |
-| os sete incentivos | `VALIDA` → passa a ser `publicado ≠ ANDAR` | **publicado** |
-| `PPOPorElo` (normalização de vantagem por grupo) | o one-hot da observação | **publicado** |
+| os sete incentivos, `load`, `largou` | `VALIDA` = `interno ≠ ANDAR ∧ ¬aguardando` | interno |
+| máscaras do `BOTAR` (§6.6.2) | `self._elo` | interno |
+| `PPOPorElo` (normalização de vantagem por grupo) | o `elo_interno` do crítico | interno |
 | `_zera_twist_nos_parados` | `self._elo` | interno |
 | `_aplica_elo` (laje, alvo, face) | `self._elo` | interno |
 | `_fecha_elo_corrente`, `_avanca_elo` | `self._elo` | interno |
 | `reset_base_por_elo`, fatia (`Curriculum/elo`) | `limpo_elo` do currículo | interno |
 
-**Tudo o que a política e a recompensa veem lê o publicado. Tudo o que é mecânica do
-episódio lê o interno.** Hoje os dois são sempre iguais (`_aplica_elo` copia um no
-outro). A §6.3 os faz **diferir durante a espera** — e a tabela acima é o que garante
-que cada consumidor lê o lado certo.
+**O que a política vê lê o publicado. O que paga e o que é mecânica do episódio lê o
+interno.** Hoje os dois são sempre iguais (`_aplica_elo` copia um no outro). A §6.3 e a
+§6.6 os fazem **diferir durante as duas esperas** — e a tabela acima é o que garante que
+cada consumidor lê o lado certo.
 
-⚠ Isto **não é padrão novo**. É exatamente a separação que o `VALIDA` já faz hoje: ele é
-um bit **publicado** que difere do estado interno durante a janela. A mudança estende
-isso do bit ao one-hot, e então o bit fica redundante (§6.2).
+⚠ **O `VALIDA` NÃO muda de fonte** (a v12 dizia o contrário, e a revisão de 03/09
+desfez). Ele continua `interno ≠ ANDAR ∧ ¬aguardando`, que é o que `_aplica_espera` já
+calcula hoje. Consequência que importa: na espera **inicial** ele é 0 (aguardando), e na
+espera **final** ele é **1** — os incentivos do estado "caixa apoiada no alvo" continuam
+pagando depois do fecho do `BOTAR`. É isso que fecha o buraco da renda (§6.6.1). A
+observação continua sem o bit (§6.2); o que a rede vê é só o one-hot publicado e os
+canais de caixa gateados.
 
 ### 6.1 Gate dos canais de caixa
 
@@ -425,20 +443,32 @@ Consequências:
 **Onde:** `g1_limpo/observacoes.py`, função `caixa_no_frame_da_base`. Nos dois grupos,
 `actor` e `critic`.
 
-⚠ **Gatear o crítico também.** Não gatear daria informação privilegiada ao crítico
-(assimetria legítima em ator-crítico), mas em `ANDAR` a caixa é irrelevante para o
-retorno — não há ganho, e há risco de o crítico condicionar num canal que o ator não vê.
+⚠ **O gate vale para o crítico também, mas o crítico ganha o elo INTERNO** (v13). Um
+termo novo `elo_interno`, one-hot de 5 do `limpo_elo`, **só no grupo `critic`**, em
+APPEND depois do `caixa`. Motivo, medido em 03/09 pela aritmética da §6.6.1: na espera
+final o robô rende cerca de 18/s; um env `standing` da locomoção rende 6/s com a
+**mesma** observação do ator (`ANDAR`, twist zero, caixa zero). Um crítico que vê só o
+que o ator vê não separa os dois, e a função de valor erra nos dois lados — o mesmo
+estado, dois retornos. Com o interno ele separa espera inicial, `standing` e espera
+final. É ator-crítico assimétrico, padrão, e **não toca o deploy**: o crítico não vai
+para o robô. A observação do ator segue com 112 canais; a do crítico fica com 117.
+
+⚠ **E o `PPOPorElo` passa a agrupar pelo `elo_interno` do crítico**, não pelo one-hot do
+ator. Senão a espera final — que carrega retorno de manipulação — entra no grupo da
+locomoção e infla o desvio dele, que é exatamente o defeito que o `PPOPorElo` existe para
+evitar. `fatia_do_elo` ganha o par para o grupo do crítico.
 
 ### 6.2 O `VALIDA` sai da OBSERVAÇÃO
 
-O `VALIDA` é um bit **derivado**. Com a §6.3, ele vale **exatamente `elo publicado ≠
-ANDAR`** — função pura do one-hot. E com o gate, os canais de caixa preenchidos-ou-zero
-dizem a mesma coisa de novo. Ele não carrega **nada** que as outras entradas não
-carreguem.
+O `VALIDA` é um bit **derivado**: `interno ≠ ANDAR ∧ ¬aguardando`. Para o que a rede
+precisa saber, ele não acrescenta nada: durante a espera inicial o one-hot publicado já
+diz `ANDAR` e os canais de caixa já estão em zero (§6.1); fora dela o one-hot já diz o
+elo. Na espera final ele vale 1 com o publicado em `ANDAR` (§6.0) — e é justamente aí
+que ele **não pode** estar na observação, porque em campo ninguém o mandaria.
 
-**Sai da observação. Fica dentro do sim**, como a porta que multiplica os sete incentivos
-e que impede o fecho de elo com o objetivo desligado. Um nome mais honesto para o que ele
-é: `objetivo_ativo`.
+**Sai da observação. Fica dentro do sim**, como a porta que multiplica os incentivos de
+caixa e que impede o fecho de elo com o objetivo desligado. Um nome mais honesto para o
+que ele é: `objetivo_ativo`.
 
 **A favor de tirar:**
 
@@ -488,8 +518,8 @@ precisa **já está certa pelo elo interno**:
 | contar como manipulação na fatia | `Curriculum/elo` lê `limpo_elo = PEGAR` | interno |
 | rastreio pagar por ficar parado | `rastreio_por_elo` lê publicado = `ANDAR` ∈ `ELOS_QUE_ANDAM` | publicado |
 | postura do fabricante, não neutra | `PosturaPorElo` lê publicado = `ANDAR` | publicado |
-| incentivos de caixa em zero | `objetivo_ativo` = publicado ≠ `ANDAR` = falso | publicado |
-| o elo não fechar durante a espera | `_fecha_elo_corrente & objetivo_ativo` | publicado |
+| incentivos de caixa em zero | `objetivo_ativo` = interno ≠ `ANDAR` ∧ ¬aguardando = falso (aguardando) | interno |
+| o elo não fechar durante a espera | `_fecha_elo_corrente & objetivo_ativo` | interno |
 
 **MEDIDO em 03/09, em CPU, sem implementar nada** — robô travado, `elo = PEGAR`, 8 envs.
 Uma linha, `_command[:, ELO] = ANDAR`, com o interno em `PEGAR`:
@@ -506,10 +536,12 @@ passo — `_aplica_elo` só escreve no reset e no avanço). O twist fica zero (i
 `PEGAR`). O rastreio passa a pagar 1,83/s por velocidade zero (lê o publicado). O interno
 não se move. **É a §6.0 funcionando sem nenhum código novo.**
 
-E a linha que falta está nos dois últimos campos: `VALIDA` segue 1 e `staged` segue
-pagando, porque hoje `_aplica_espera` deriva o bit do **interno** (`_elo != ANDAR`). A
-§6.2 muda isso para o publicado. É a **única** mudança de código que a §6.3 exige além da
-escrita do canal.
+Os dois últimos campos da tabela (`VALIDA = 1`, `staged` pagando) são **artefato da
+sonda**, não defeito: a sonda escreveu o canal à mão, sem armar a espera. No treino a
+espera inicial arma `_espera > 0`, e o `_aplica_espera` de hoje já zera o `VALIDA` por
+`aguardando`. ⚠ A v12 concluía daqui que o `VALIDA` tinha de mudar de fonte para o
+publicado; a revisão de 03/09 desfez isso (§6.0): a fonte fica no interno, porque na
+espera **final** o bit precisa valer 1 (§6.6.1).
 
 E o avanço de cadeia de hoje é a prova de que a política já vive com o one-hot mudando no
 meio do episódio: `forca_avanco` em `(PEGAR, CARREGAR)` → a observação vai de
@@ -541,7 +573,12 @@ trocar.
 
 ⚠ **O `_aplica_espera` recalcula o publicado a partir do interno, e não do próprio
 publicado.** É a lição do bit destrutivo de 02/09: ler o que se escreveu no passo
-anterior deixa o canal preso. `publicado = ANDAR se aguardando, senão interno`.
+anterior deixa o canal preso. `publicado = ANDAR se (aguardando ∨ soltou), senão interno`.
+
+⚠ **A arma do `caixa_largada` só arma com o objetivo ativo** (v13). Hoje `_publica_pegou`
+acumula o toque das duas palmas em qualquer passo. Na espera inicial, um toque na caixa
+por exploração armaria `escapou` com as palmas longe, e o episódio morreria por ter
+esperado. `_pegou |= tocou & objetivo_ativo`.
 
 ⚠ **O vazamento físico não morde aqui.** O robô não anda durante a espera (twist zero
 pelo interno). Se a política ignorar o comando zero e derivar para a mesa, o rastreio
@@ -552,8 +589,11 @@ estado de campo.
 
 - **O `VALIDA` da observação** (§6.2). Só isso sai. A janela **fica** — ela é o mecanismo
   da §6.3, com o one-hot publicado trocado.
-- A métrica `fracao_esperando` **fica** — ela passa a medir "fração de passos em `ANDAR`
-  publicado dentro de um episódio de manipulação", que é exatamente o que se quer ver.
+- A métrica `fracao_esperando` **fica**, e passa a ler `aguardando ∨ soltou` — "fração de
+  passos em `ANDAR` publicado dentro de um episódio de manipulação", as duas esperas.
+- O `recebe_tarefa` (caminho do visualizador) passa a escrever `ELO = ANDAR` além de
+  rearmar a espera; a linha `VALIDA = 0` dele continua certa. Uma linha em `comando.py`;
+  `eventos.py` fica intocado.
 - O `rastreio_por_elo` ler `limpo_aguardando` (mudança de 02/09) **fica redundante**:
   com o publicado em `ANDAR`, `_anda_neste_elo` já devolve verdadeiro. Sai por limpeza,
   com a trava de que o rastreio paga na espera (§11.1 item 5).
@@ -597,12 +637,17 @@ E a transição `CARREGAR(v=0) → BOTAR` sai da aposta e vira **treinada**.
    com a caixa" antes do botar). Regra **por cadeia** no `_zera_twist_nos_parados`:
    `elo ∈ parados **ou** (elo == CARREGAR e cadeia == 3)`. Na cadeia 2 o `CARREGAR`
    continua andando.
-3. ⚠ **O fecho do `CARREGAR` da cadeia 3 é por TEMPO, não por distância.** Hoje o
-   `CARREGAR` fecha quando o robô **andou** `carregar_dist_m` — com twist zero ele nunca
-   fecharia e o `BOTAR` nunca chegaria. Na cadeia 3 o fecho é `t_no_elo ≥ espera`, com a
-   espera sorteada do **mesmo knob `espera_s = (0,5, 1,5)` da espera inicial** (decisão do
-   dono, 02/09: toda espera é a mesma faixa). Regra **por cadeia** no
-   `_fecha_elo_corrente`. Não existe `segurar_s` separado.
+3. ⚠ **O fecho do `CARREGAR` da cadeia 3 é `perto` SUSTENTADO pela espera, não por
+   distância.** Hoje o `CARREGAR` fecha quando o robô **andou** `carregar_dist_m` — com
+   twist zero ele nunca fecharia e o `BOTAR` nunca chegaria. Na cadeia 3 a condição é
+   `perto` (a caixa na âncora do peito, sem o `andou`), e o **sustain** desse elo é a
+   espera sorteada do **mesmo knob `espera_s = (0,5, 1,5)`** da espera inicial, em vez de
+   `carregar_s` (decisão do dono, 02/09: toda espera é a mesma faixa). Assim o elo só
+   fecha se a caixa ficou na âncora, com o robô parado, por toda a espera — que é
+   "segurar parado" medido, e não só tempo passado. ⚠ A v12 dizia "fecho por tempo" sem
+   `perto`; a revisão de 03/09 apontou que aí o `BOTAR` podia começar com a caixa em
+   qualquer lugar. Regra **por cadeia** no `_fecha_elo_corrente` e no `_avanca_elo`. Não
+   existe `segurar_s` separado.
 4. **`prob_por_nivel` não muda de forma** — continuam 4 cadeias.
 
 **O que NÃO muda:** recompensa nenhuma. Durante o "segurar parado", o rastreio paga por
@@ -634,7 +679,7 @@ BOTAR            publicado BOTAR    twist 0   caixa viva, alvo = topo
 espera final     publicado ANDAR    twist 0   caixa 0      interno BOTAR
 ```
 
-Por que o interno ficar `BOTAR` dá quase tudo de graça:
+O que o interno ficar `BOTAR` garante, e o que NÃO garante:
 
 | a espera final precisa de | quem garante | lê |
 |---|---|---|
@@ -642,13 +687,101 @@ Por que o interno ficar `BOTAR` dá quase tudo de graça:
 | mobília no lugar, caixa na laje | o ramo `BOTAR` do `_aplica_elo` não guarda a laje | interno |
 | canais de caixa zero | o gate, sobre o publicado = `ANDAR` | publicado |
 | rastreio pagar por ficar parado | `rastreio_por_elo`, publicado = `ANDAR` | publicado |
-| os braços voltarem à postura de pé — **o largar** | `PosturaPorElo`, publicado = `ANDAR` → postura do fabricante | publicado |
-| incentivos de caixa em zero | `objetivo_ativo` = publicado ≠ `ANDAR` = falso | publicado |
+| o estado "caixa apoiada no alvo" continuar pagando | `objetivo_ativo` = interno ≠ `ANDAR` ∧ ¬aguardando = **1** | interno |
+| **o largar** — as palmas saírem da caixa | ⚠ **NADA, hoje.** Ver §6.6.1; o termo `largou` da §6.6.2 | interno |
 
-⚠ **A única coisa que NÃO vem de graça: a terminação `caixa_largada`.** Ela é
-`(caiu | escapou) & pegou`, e `escapou` é "as duas palmas longe da caixa". Na espera final
-as mãos **têm** de sair da caixa — `escapou` dispararia no primeiro passo e mataria o
-episódio por fazer a coisa certa. Portanto:
+⚠ A v12 atribuía o largar ao `PosturaPorElo` com o publicado em `ANDAR`. **Está errado,
+e é medido no cfg do fabricante:** com twist zero o regime é `standing`, σ = 0,05 em
+todas as 29 juntas. Com oito juntas de braço a 0,5 rad da default o termo vale
+`exp(−27) ≈ 0`, com derivada zero. Ele não puxa nada. E `action_rate_l2` e `joint_acc`
+pagam por **não** mover. Sem um incentivo próprio, o ótimo da espera final é congelar com
+as mãos na caixa.
+
+#### 6.6.1 O buraco da renda — por que o `BOTAR` de hoje não fecha
+
+Revisão de 03/09, por leitura de `recompensas.py` e dos pesos de `knobs.py`. A condição de
+fecho do `BOTAR` exige `apoiada` (a laje carrega ≥ 50% do peso). **Nenhuma recompensa paga
+por `apoiada`.** Duas pagam pelo contrário: `unload = 1 − F_apoio/mg` e
+`postura_ereta = rampa × unload`. Pousar a caixa zera as duas. A conta, por segundo, com
+a caixa no alvo e as duas mãos nela:
+
+| estado | HEAD (`exp/g1-limpo`) | spec v12 |
+|---|---|---|
+| pairar 1 cm acima do topo | 16,5 | 16,5 |
+| apoio parcial, `F = 0,49·mg` (não fecha) | 16,5 | 16,5 |
+| apoiada, mãos na caixa (fecha em 0,3 s) | 12,5 | 12,5 |
+| depois do fecho | 12,5 | **5,0** |
+
+Hoje o buraco custa 4/s: a política ótima paira. A espera final da v12, ao zerar os
+incentivos depois do fecho, alargava a queda para 11,5/s pelo resto do episódio — e
+tornava **não fechar** a melhor jogada por uma margem enorme. Como o `nível` só sobe com
+sucesso de cadeia, a cadeia 3 ficaria presa em 5% do sorteio para sempre.
+
+⚠ **O `g1_poc` caiu neste buraco e o consertou** (`g1_poc/recompensas.py:13,232,288,304`;
+pesos em `g1_poc/knobs.py:249-252`): `load = clamp(F_apoio/mg) × perto`, só no `botar`,
+peso 2,0; `squeeze` zero no `botar` ("apertar durante o botar paga contra soltar, −1,0/s
+medido"); `unload` só no `pegar` ("ligado no botar, pagaria 2,0/s para NÃO botar"). E
+mediu: "satisfazer a 3ª condição custava −3,0/s antes das máscaras". A reescrita do
+`g1_limpo` perdeu as três peças. O `g1_poc` não tinha espera final, portanto não tinha o
+problema do "depois"; a v13 tem de resolver os dois.
+
+#### 6.6.2 O conserto — a renda sobe a cada passo até o fim
+
+Princípio: **pairar < apoiar < fechar < largar**, cada estado rendendo mais que o
+anterior. Cinco peças; quatro têm precedente no `g1_poc`. Todas leem o elo **interno**.
+
+1. **`objetivo_ativo` fica como hoje** (§6.0): `interno ≠ ANDAR ∧ ¬aguardando`. A espera
+   final **não** o zera. Os incentivos do estado "caixa apoiada no alvo" continuam
+   pagando depois do fecho, e o rastreio entra por cima (publicado `ANDAR`, twist zero).
+2. **Máscaras no `BOTAR`:** `squeeze` → 0 e `unload` → 0 quando o interno é `BOTAR`.
+   `postura_ereta` é `rampa × unload` e zera junto, sem linha própria. Os três pagam por
+   **segurar**; no `BOTAR` eles pagam contra a tarefa. É a máscara do `g1_poc`.
+3. **`alcança ≡ 1` no `BOTAR`**, dentro de `staged` e de `precise_ori`. No `BOTAR` as
+   mãos já estão na caixa: o σ do kernel cai no piso de 0,08 m e ele vale 1 por
+   construção. Ele não carrega informação ali — ele só paga 3/s por **manter** as mãos
+   na caixa, que é o freio contra largar. Com `alcança ≡ 1`, `staged` vira
+   `3 × (1 + trazer)`: paga pela caixa ir ao alvo, indiferente às mãos. Fora do `BOTAR`
+   nada muda.
+4. **Termo novo `load`** = `clamp(F_apoio/mg) × perto(d ≤ 2·tol_pos)`, só com o interno
+   em `BOTAR`, peso **2,0**. O espelho do `unload`, com o mesmo peso e o mesmo gate de
+   posição do `g1_poc` (`load_raio_mult = 2`). O gate fecha o hack de largar a caixa em
+   qualquer lugar do tampo. Sem gate de preensão: soltar **é** o objetivo. Como o interno
+   segue `BOTAR` na espera final, ele continua pagando depois do fecho.
+5. **Termo novo `largou`** = `soltou × load × (1 − exp(−(d_palma/σ_solta)²))`, com
+   `σ_solta = 0,10 m` (knob novo), peso **1,0**. Paga por afastar as palmas com a caixa
+   apoiada no alvo: 10 cm rende 0,63, 20 cm rende 0,98. Só existe na espera final. Como a
+   peça 3 tirou o freio, um peso pequeno basta.
+
+A conta depois do conserto, com os mesmos estados da §6.6.1 e mais dois:
+
+| estado | renda /s | quem paga |
+|---|---|---|
+| `BOTAR`, pairar 1 cm acima, mãos na caixa | 11,5 | staged 6 · precise_pos 2 · precise_ori 1 · sustentacao 0,5 · pose 1 · upright 1 |
+| `BOTAR`, apoio parcial `F = 0,49·mg` | 12,5 | + load 0,98 |
+| `BOTAR`, apoiada, mãos na caixa → **fecha em 0,3 s** | 13,5 | + load 2 |
+| espera final, mãos na caixa | 16,5 | + track 4 − pose 1 (σ 0,05, braços fora) |
+| espera final, palmas longe, braços na default | **18,5** | + largou 1 + pose 1 |
+
+Monótona. Cada passo em direção ao que se quer rende mais. E o mesmo `precise_pos`,
+`staged` e `sustentacao` que pagam por chegar ao alvo continuam pagando por **ficar**
+nele depois de largar.
+
+**Hacks conferidos, nenhum abre:** prensar a caixa contra a laje satura `load` em 1
+(`clamp`); apoiar fora do alvo perde `perto`; largar e depois empurrar a caixa perde
+`precise_pos`, `load` e `largou` juntos; andar durante a espera perde rastreio; escorar
+na mesa paga `contato_*`; derrubar termina (`caiu`, §6.6.3).
+
+**Pesos e σ são ponto de partida**, não medição: 2,0 e 1,0 copiam a escala dos termos
+vizinhos (`unload` = 2,0; `precise_ori` = 1,0). O smoke prova a **monotonia** da tabela
+com o robô travado em cada um dos cinco estados (§11.1, item 16); a GPU prova se a política
+a segue.
+
+#### 6.6.3 O que continua igual, e a terminação
+
+**A terminação `caixa_largada` muda em duas linhas.** Ela é `(caiu | escapou) & pegou`, e
+`escapou` é "as duas palmas longe da caixa". Na espera final as mãos **têm** de sair da
+caixa — `escapou` dispararia no primeiro passo e mataria o episódio por fazer a coisa
+certa. Portanto:
 
 ```
 caixa_largada = (caiu | (escapou & ~soltou)) & pegou
@@ -656,7 +789,8 @@ caixa_largada = (caiu | (escapou & ~soltou)) & pegou
 
 onde `soltou` é publicado pelo comando (`env.limpo_soltou`) quando a espera final começa.
 **`caiu` continua armado:** largar é permitido, **derrubar não** — é o "não jogar" do
-dono, estendido ao depois. É uma linha na terminação, e é a segunda exceção da §2.
+dono, estendido ao depois. É a primeira das duas linhas; a segunda é o `caiu` ler o
+tamanho da caixa (§6.7).
 
 **Sem cronômetro.** A espera final dura até o fim do episódio. Não há o que sortear: o
 robô larga e fica de pé, e o tempo restante é prática de "parado, sem tarefa, com uma
@@ -746,10 +880,24 @@ escreve por mundo `geom_size`, `geom_rbound` e `geom_aabb` a partir do meio-lado
 3. **Massa não muda, por construção:** `body_mass` não é escrito. A independência do peso
    vem de graça — o wrench do `carga_caixa` segue por cima.
 
-⚠ **A única incerteza real, e onde ela se resolve:** a escrita de startup em `geom_size`
-nunca foi feita neste módulo — só em `geom_friction`. O smoke prova em CPU que ela roda e
-que o colisor lê o tamanho novo (§11.1 item 13). **Só a GPU prova que a heap não reclama**
-— nos primeiros passos da primeira run da v2. Se reclamar, o plano B está pronto:
+⚠ **A incerteza da v11 caiu, verificada em 03/09 no fonte do mjlab 1.5.1:** a escrita
+existe no próprio framework. `mjlab.envs.mdp.dr.geom_size` (`envs/mdp/dr/geom.py`)
+escreve `geom_size` por mundo e **recalcula `geom_rbound` e `geom_aabb`** para os
+primitivos, box incluído. Os três campos são declarados por `@requires_model_fields`, e
+`load_managers` os expande para `(nworld, ngeom)` **antes** dos eventos de startup e do
+primeiro `forward`; o kernel de broadphase do `mujoco_warp` é cacheado pela forma por
+mundo (`cache_kernel`), portanto nasce já indexando por mundo. É o mesmo caminho de DR do
+`foot_friction`, e não uma escrita inédita deste módulo.
+
+O que a função do mjlab **não** dá: cubo. Ela sorteia cada eixo de forma independente, e
+`shared_random` é entre geoms, não entre eixos. Portanto o evento `tamanho_caixa` é um
+**wrapper fino** (~15 linhas): sorteia um dos K valores por env, escreve `(a, a, a)` em
+`geom_size` do geom da caixa, chama o `_recompute_geom_bounds` do próprio mjlab (ou repete
+as duas fórmulas do box: `rbound = a·√3`, `aabb_half = (a, a, a)`), e publica
+`env.limpo_meia_aresta`. Decorado com `requires_model_fields("geom_size", "geom_rbound",
+"geom_aabb")`. ⚠ Confirmar que o 1.5.3 do Kaggle tem a mesma função (é mais novo; deve
+ter). O smoke prova em CPU que o colisor lê o tamanho novo (§11.1 item 13). Se a GPU
+reclamar — o que agora seria defeito do mjlab, não deste módulo —, o plano B está pronto:
 
 #### Plano B: `VariantEntityCfg` com mesh
 
@@ -779,16 +927,40 @@ tamanhos discretos o smoke afirma "estes 8 e só estes" e a leitura do painel po
 fica possível. Contínuo é uma linha a mais, se um dia valer.
 
 **Fonte de verdade por env: o modelo.** O evento de startup publica `env.limpo_meia_aresta`
-(n, 3) a partir do que escreveu em `geom_size`. Todo consumidor lê dali. Hoje **oito sítios** leem um escalar de `knobs`, e cada um passa a ler
+(n, 3) a partir do que escreveu em `geom_size`. Todo consumidor lê dali. Hoje **os sítios abaixo** leem um escalar de `knobs`, e cada um passa a ler
 o tensor por env:
 
 | onde | o que lê hoje | passa a ler |
 |---|---|---|
 | `comando.alvos_das_palmas` | `cfg.caixa_meia_aresta` — o offset lateral das palmas | `limpo_meia_aresta[ids, 1]` |
-| `comando` ramo `BOTAR` (3 sítios) | `cfg.caixa_meia_z` — fundo da caixa e z do alvo | `limpo_meia_aresta[ids, 2]` |
+| `comando` ramo `BOTAR` (2 sítios: `fundo`, `a[:, 2]`) | `cfg.caixa_meia_z` — fundo da caixa e z do alvo | `limpo_meia_aresta[ids, 2]` |
+| `comando._laje_para` com `sobe_caixa` (ramo `ANDAR`) | `cfg.caixa_meia_z` — a caixa em cima da laje a +5 m | `limpo_meia_aresta[ids, 2]` |
 | `eventos.posiciona_cena` | `caixa_meia_z` — z de repouso na laje | `limpo_meia_aresta[ids, 2]` |
 | `eventos.afasta_cena` | `caixa_meia_z` | idem |
+| `terminacoes.caixa_largada` (`caiu`) | `caixa_z_min = 0,10` fixo | `limpo_meia_aresta[:, 2] + folga` — ver abaixo |
+| `smoke.py` (4 linhas: 106, 308, 1844, 2156) | `k.cena.caixa_meia_aresta` | a variante de referência, ou por env onde afirma o modelo |
 | `inspeciona`, `paridade` | `k.cena.caixa_meia_aresta` | a variante de referência (0,10) |
+
+⚠ **A lista acima é inventário por `grep`, não por memória** — a v12 dizia "oito sítios"
+e eram mais. O plano roda `grep -n 'caixa_meia\|meia_aresta\|meia_z'` e fecha cada linha.
+
+#### `caiu` passa a ler o tamanho (revisão de 03/09)
+
+`caixa_z_min = 0,10` é a meia-aresta de hoje, e o smoke afirma essa igualdade: "com o
+centro nessa altura a caixa está apoiada no chão". Com o tamanho variando, o limiar fixo
+quebra dos dois lados: uma caixa de 0,13 m deitada no chão tem o centro em 0,13 e
+**`caiu` nunca dispara** — e na espera final `escapou` está desarmado, portanto derrubar a
+caixa grande não termina nada; uma caixa de 0,07 m na laje mais baixa (0,04 m) tem o
+centro em 0,11, a 1 cm da terminação.
+
+Conserto: `caiu = (z_centro − origem_z) − meia_aresta_env < caixa_folga_chao`, com
+`caixa_folga_chao = 0,02 m` (knob novo; substitui `caixa_z_min`). Lê-se "o fundo da
+caixa está a menos de 2 cm do chão". Caixa de 0,13 m no chão: fundo em 0, dispara. Caixa
+de 0,07 m na laje a 0,04 m: fundo em 0,04, não dispara. O smoke troca a igualdade por
+`caixa_folga_chao < prateleira_topo_piso`. ⚠ Limitação declarada, igual à de hoje: uma
+caixa que cai e fica **tombada** sobre uma aresta tem o centro em `a·√2` e escapa ao
+`caiu`; fora da espera final o `escapou` a pega, dentro dela não. Caixas param deitadas;
+fica registrado.
 
 **`paridade.py` não muda:** a caixa segue `box` primitivo, e o spec de referência (0,10 m)
 é o mesmo de antes. O tamanho por env é do modelo batched, não do spec.
@@ -815,10 +987,10 @@ como "descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta.
 
 #### O que NÃO muda
 
-Recompensa nenhuma. `unload` e `squeeze` derivam de `limpo_massa`, que segue igual.
-`staged` usa `dist_palma_caixa`, que já lê `alvos_das_palmas` — e este passa a ler o
-tamanho por env. As terminações não mudam (`caixa_dist_max = 0,45` é absoluto e cobre
-todos os tamanhos). O currículo não muda.
+Recompensa nenhuma **por causa do tamanho**. `unload` e `squeeze` derivam de
+`limpo_massa`, que segue igual. `staged` usa `dist_palma_caixa`, que já lê
+`alvos_das_palmas` — e este passa a ler o tamanho por env. `caixa_dist_max = 0,45` é
+absoluto e cobre todos os tamanhos; só o `caiu` muda, acima. O currículo não muda.
 
 ⚠ **O que muda de fato é a dificuldade da pega**, e é pedido: a política deixa de poder
 memorizar "20 cm". É a mudança desta spec com mais efeito sobre a manipulação, e é a
@@ -836,7 +1008,7 @@ razão de o `descarga` ser sentinela na primeira run da v2 (§12).
 | `PEGAR → CARREGAR (v>0)` | cadeia 2 | one-hot vira; twist acende; caixa segue viva |
 | `PEGAR → CARREGAR (v=0)` | cadeia 3 (§6.5) | one-hot vira; twist segue zero; caixa segue viva — "segurar parado" |
 | `CARREGAR (v=0) → BOTAR` | cadeia 3 (§6.5) | one-hot vira; `alvo_b` muda para o topo novo |
-| `BOTAR → ANDAR (v=0)` | espera final, cadeia 3 (§6.6) | one-hot vira; canais de caixa apagam; as mãos saem da caixa sem terminar o episódio |
+| `BOTAR → ANDAR (v=0)` | espera final, cadeia 3 (§6.6) | one-hot vira; canais de caixa apagam; `largou` paga por as mãos saírem da caixa, e sair não termina o episódio |
 
 ⚠ A primeira era a **aposta** da v1 deste documento. Deixa de ser: a espera a treina a
 partir da postura real de parado, e o resíduo "configuração de juntas no instante da
@@ -985,6 +1157,24 @@ rastreá-lo. O termo `TwistComRazaoDeMarcha` já é subclasse do fabricante; o r
 ⚠ **Com `|ang_z|` mínimo**, como o ramo `forward` faz com `vx ≥ 0,3`: um giro sorteado
 perto de zero seria um `standing` disfarçado. Ponto de partida: `|wz| ≥ 0,2 rad/s`.
 
+⚠ **As flags do fabricante NÃO são uma partição, e isso muda a implementação** (lido em
+`velocity_command.py`, 03/09). `is_standing_env`, `is_heading_env` e `is_forward_env` são
+sorteios de Bernoulli **independentes**, e o que decide é a precedência no código:
+`standing` zera o comando **todo passo**; `heading` reescreve `wz` **todo passo**;
+`forward` escreve `vx ≥ 0,3, vy = wz = 0` só no resample (e um env `forward ∧ heading`
+tem o `wz` reescrito pelo heading no passo seguinte). O "restante 0,40 uniforme" da
+tabela acima é aproximação; as frações realizadas são outras. Portanto o `is_turning_env`
+entra com precedência **explícita**: `standing > turning > forward > heading`. O
+`turning` escreve `lin = 0` **todo passo** (como o `standing`), sorteia `wz` na faixa com
+`|wz| ≥ 0,2`, e **sai** do `heading` (`is_heading_env[turning] = False`), senão o heading
+reescreve o `wz` dele. O smoke **mede** as frações realizadas dos quatro ramos, e não as
+lê do cfg.
+
+**Confirmado no fonte, e é bom:** todas as penalidades de marcha (`foot_clearance`,
+`foot_swing_height`, `foot_slip`, `soft_landing`) e o regime do `pose` gateiam por
+`‖lin‖ + |wz|`, não só pela parte linear. Um env girando com `|wz| ≥ 0,2` paga
+`foot_slip` e cai no regime `walking`. Não existe o hack de "girar arrastando o pé".
+
 ⚠ **Duas coisas a saber antes de ligar:**
 
 - **O estimador de locomoção é cego a girar.** `seg_pedido` acumula `‖cmd[:, :2]‖` —
@@ -1031,7 +1221,7 @@ reset      carga_caixa       MASSA da caixa, 1 a 5 kg por nível (próprio do m�
 ```
 
 ⚠ **Tamanho da caixa saiu desta lista:** decisão do dono (02/09), ele entra **desde a
-FASE 1** (§6.7), por variantes de entidade.
+FASE 1** (§6.7), por `geom_size` por mundo no startup.
 
 O que **não** randomiza, e que a FASE 2 tem de avaliar — em ordem de risco para a pega:
 
@@ -1097,11 +1287,12 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 2. **A invariante que substitui o bit.** Em nenhum passo do treino existe
    `|caixa_b| = 0` com publicado ≠ `ANDAR`, nem `|caixa_b| ≠ 0` com publicado = `ANDAR`.
    Não há terceiro estado.
-3. **A dimensão.** 112 canais no `actor`: o `VALIDA` **não** está na observação e o
-   `meia_aresta` **está**, como último canal do termo `caixa`. O `VALIDA` continua
-   existindo no comando (é a porta dos sete incentivos), e o smoke afirma que ele vale
-   exatamente `publicado ≠ ANDAR`. E `meia_aresta` na observação bate com
-   `limpo_meia_aresta` env a env quando o publicado ≠ `ANDAR`.
+3. **A dimensão.** 112 canais no `actor` e 117 no `critic`: o `VALIDA` **não** está em
+   nenhuma observação; o `meia_aresta` **está**, como último canal do termo `caixa`; e o
+   `elo_interno` está **só** no `critic`, depois do `caixa`. O `VALIDA` continua existindo
+   no comando (é a porta dos incentivos), e o smoke afirma que ele vale exatamente
+   `interno ≠ ANDAR ∧ ¬aguardando` — em particular **1 na espera final**. E `meia_aresta`
+   na observação bate com `limpo_meia_aresta` env a env quando o publicado ≠ `ANDAR`.
 4. **A espera publica `ANDAR`.** Num episódio de manipulação, na observação do **reset**
    (antes de qualquer passo): one-hot `ANDAR`, twist zero, canais de caixa zero. Na
    borda: one-hot `PEGAR`, canais vivos, **no mesmo passo**. E o elo **interno** é `PEGAR`
@@ -1123,13 +1314,15 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
    BOTAR`, e `fechou` só marca no `BOTAR`.
 10. **No `CARREGAR` da cadeia 3 o twist é zero** — já na observação do reset do elo, e em
     todo passo. No `CARREGAR` da cadeia 2 o twist segue sorteado.
-11. **O `CARREGAR` da cadeia 3 fecha por tempo**, dentro da faixa de `segurar_s`, com o
-    robô parado — e o da cadeia 2 continua fechando por distância andada.
-12. **A espera final.** Depois do fecho do `BOTAR`: publicado `ANDAR`, interno `BOTAR`,
-    twist zero, canais de caixa zero, `limpo_soltou = 1`. Afastar as palmas da caixa
-    **não** termina o episódio; derrubar a caixa (`caiu`) **termina**. Antes do fecho do
-    `BOTAR`, afastar as palmas continua terminando (`escapou` armado). E `sucesso` marca
-    no fecho do `BOTAR`, não depois.
+11. **O `CARREGAR` da cadeia 3 fecha por `perto` sustentado pela espera sorteada** (0,5 a
+    1,5 s), com o robô parado — e **não** fecha se a caixa sai da âncora antes do fim da
+    espera. O da cadeia 2 continua fechando por distância andada com sustain `carregar_s`.
+12. **A espera final.** Depois do fecho do `BOTAR`: publicado `ANDAR` **no mesmo passo
+    do fecho** (escrito em `_avanca_elo_force`, sem passo de atraso), interno `BOTAR`,
+    twist zero, canais de caixa zero, `limpo_soltou = 1`, e **`VALIDA = 1`**. Afastar as
+    palmas da caixa **não** termina o episódio; derrubar a caixa (`caiu`) **termina**.
+    Antes do fecho do `BOTAR`, afastar as palmas continua terminando (`escapou` armado). E
+    `sucesso` marca no fecho do `BOTAR`, não depois.
 13. **O tamanho por mundo está no modelo e o colisor o lê.** `geom_size`, `geom_rbound` e
     `geom_aabb` da caixa diferem entre mundos e são exatamente os K valores; `body_mass`
     **não** mudou (independência do peso); `limpo_meia_aresta` bate com `geom_size` env
@@ -1141,6 +1334,30 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 15. **Todo consumidor lê o tamanho por env.** Com duas variantes de tamanhos bem
     diferentes, `alvos_das_palmas` e o z de repouso da caixa na laje diferem entre os
     envs das duas — nenhum sítio ficou lendo o escalar de `knobs`.
+16. ⚠⚠ **A renda do `BOTAR` é MONÓTONA** (§6.6.2). Com o robô travado e a caixa posta à
+    mão em cada um dos cinco estados da tabela — pairar, apoio parcial, apoiada com as
+    mãos, espera final com as mãos, espera final com as palmas longe —, a soma dos termos
+    por segundo **cresce** de um estado para o seguinte. É a trava que fecha o buraco da
+    §6.6.1, e ela roda a cada mudança de peso.
+17. **As máscaras do `BOTAR`.** Com o interno em `BOTAR`, `squeeze`, `unload` e
+    `postura_ereta` valem exatamente zero com a caixa nas mãos e fora da laje; com o
+    interno em `PEGAR` ou `CARREGAR`, no mesmo estado, valem o de hoje. E `alcança` vale
+    1 no `BOTAR` com as palmas a 20 cm da caixa, e vale `< 0,1` no `PEGAR` na mesma pose.
+18. **`load` e `largou`.** `load` vale 0 fora do `BOTAR` e com a caixa no ar; vale 1 com a
+    caixa apoiada no alvo, e **continua 1** com a mesma caixa prensada com o dobro do peso
+    (o `clamp`); vale 0 com a caixa apoiada a 25 cm do alvo. `largou` vale 0 antes de
+    `soltou`; com `soltou`, caixa apoiada e palmas a 20 cm, vale ≥ 0,95.
+19. **`caiu` por tamanho.** Com duas variantes de tamanho bem diferentes, a caixa maior
+    deitada no chão dispara `caiu`, e a caixa menor apoiada na laje a `prateleira_topo_piso`
+    **não** dispara. `caixa_folga_chao < prateleira_topo_piso`.
+20. **O `_pegou` só arma com o objetivo ativo.** Encostar as duas palmas na caixa durante a
+    espera inicial não arma `caixa_largada`; encostar depois da borda arma.
+21. **As frações do giro são medidas.** Sobre 4096 re-sorteios do twist, o smoke conta os
+    envs em cada ramo realizado (`standing`, `turning`, `forward`, `heading`, uniforme) e
+    afirma `turning ≈ 0,10 ± 0,02`, `|wz| ≥ 0,2` em todo env `turning`, `lin = 0` neles em
+    **todo** passo, e que nenhum env `turning` está em `heading`.
+22. **O `PPOPorElo` agrupa pelo interno.** Num lote com um env em espera final, ele cai
+    no grupo `manip`, e não no `loco`.
 
 ### 11.2 Simulação do caminho de campo
 
@@ -1176,25 +1393,35 @@ ela **provou** — que a cadeia de recompensa da pega funciona — está no cód
 checkpoint, e o reinício reaprende com as mesmas recompensas.
 
 **Tamanho da mudança de código:** o gate (duas linhas em `observacoes.py`), o `VALIDA`
-fora da observação (uma linha), o publicado em `ANDAR` na espera (uma condição em
-`_aplica_espera`), o ramo de giro (§9), a cadeia 3 com duas regras por cadeia (§6.5), a espera final com
-um guarda em `caixa_largada` (§6.6), a caixa como entidade com variantes e oito sítios
-lendo tamanho por env (§6.7), e as travas da §11. **Nenhuma mudança em recompensa,
-currículo ou reset.**
+fora da observação e o `elo_interno` no crítico (§6.1, §6.2), o publicado em `ANDAR` nas
+duas esperas (uma condição em `_aplica_espera`, uma linha em `_avanca_elo_force`), o
+`_pegou` gateado, o ramo de giro com precedência (§9), a cadeia 3 com duas regras por
+cadeia (§6.5), a espera final com o guarda e o `caiu` por tamanho em `caixa_largada`
+(§6.6, §6.7), o wrapper `tamanho_caixa` sobre `dr.geom_size` e os sítios lendo tamanho por
+env (§6.7), o `PPOPorElo` agrupando pelo interno, **as máscaras do `BOTAR` e os termos
+`load` e `largou`** (§6.6.2), e as travas da §11. **Nenhuma mudança em currículo ou
+reset.** Em recompensa, **só** o que a §6.6.2 lista, e só com o interno em `BOTAR` ou em
+`soltou`.
 
-⚠ **Dois itens com risco, e os dois estão nomeados:** a cadeia 3 toca a máquina de elo
-(`_TETO_ELOS = 3` nunca foi exercitado), e a escrita de startup em `geom_size` nunca foi
-feita neste módulo — só a GPU prova que a heap não reclama, nos primeiros passos da run
-(§6.7; plano B pronto). **Sentinelas na primeira run:** `descarga` e `rampa` para a pega;
-`seg_proj/seg_pedido` para o andar. A pega **não** mudou de física — se ela cair, o
-suspeito é a distribuição de tamanhos, não o colisor.
+⚠ **Um item com risco, nomeado:** a cadeia 3 toca a máquina de elo (`_TETO_ELOS = 3`
+nunca foi exercitado; o código é derivado de `CADEIAS`, e a leitura de 03/09 não achou
+nada redigitado, mas só o smoke prova). A escrita em `geom_size` deixou de ser risco deste
+módulo: é a função de DR do próprio mjlab (§6.7). **Sentinelas na primeira run:**
+`descarga` e `rampa` para a pega; `seg_proj/seg_pedido` para o andar; e, novos,
+`Episode_Reward/load` e `Metrics/alvo_caixa/passo_final` para ver se o `BOTAR` fecha —
+`sucesso` da cadeia 3 saindo de zero é o veredito da §6.6.2. A pega **não** mudou de
+física — se ela cair, o suspeito é a distribuição de tamanhos, não o colisor.
 
 O custo real é o treino, não o código.
 
 **Onde:** na branch `exp/g1-limpo-v2`, criada de `exp/g1-limpo` HEAD. A `exp/g1-limpo`
 fica **intocada como referência** — é o código que treinou a `bloco7` e funcionou. A
 trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` vazio em
-`recompensas.py`, `terminacoes.py`, `curriculo.py` e nos pesos de `knobs.py`.
+`curriculo.py`, e nos pesos de `knobs.py` **existentes** (os novos, `load`, `largou`,
+`sigma_solta`, `caixa_folga_chao`, são adições). Em `recompensas.py` o diff toca só
+`_alcancar`, `squeeze`, `unload` e os dois termos novos; em `terminacoes.py` só
+`caixa_largada`. O smoke da §11.1 (itens 17 e 18) afirma que fora do `BOTAR` os valores
+são os de hoje.
 
 ---
 
@@ -1219,8 +1446,8 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
 
 **Tomadas (02/09, segunda rodada):**
 
-- **`espera_s` = tempo em `ANDAR` com twist zero antes do `PEGAR`.** Faixa (0,3, 1,0) na
-  primeira run da v2 (§6.3).
+- **`espera_s` = tempo em `ANDAR` com twist zero antes do `PEGAR`.** (A faixa foi para
+  (0,5, 1,5) na quarta rodada, §6.3.)
 - **Girar no lugar ENTRA**, na mesma run: `rel_turning_envs = 0,10` (§9).
 - **Próxima run já no modelo novo.** Não se espera o veredito da `bloco7`.
 - **O visualizador fica como está** (§6.4).
@@ -1262,4 +1489,27 @@ trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` 
 - **`rel_turning_envs = 0,10`**, com `|wz| ≥ 0,2 rad/s` (§9).
 - **Tamanho: (0,07, 0,13) m, K = 8** (§6.7).
 
-**Pendentes: nenhuma.** O próximo passo é o plano de implementação.
+**Proposta da revisão de consistência (03/09, sétima rodada) — EM REVISÃO PELO DONO:**
+
+A revisão cruzou a v12 com `comando.py`, `recompensas.py`, `terminacoes.py`, `knobs.py`,
+o `g1_poc` e o fonte do mjlab 1.5.1 e do `mujoco_warp`. Achou três buracos de
+aprendizado e propõe:
+
+- **O `BOTAR` ganha a tabela do `g1_poc` e o "depois" fica pago** (§6.6.1, §6.6.2): o
+  `VALIDA` continua derivado do interno (a espera final **não** o zera); `squeeze` e
+  `unload` zeram no `BOTAR`; `alcança ≡ 1` no `BOTAR`; termos novos `load` (2,0) e
+  `largou` (1,0). A renda vira monótona: pairar 11,5 < apoiar 13,5 < espera final 16,5 <
+  largar 18,5. É a única exceção à regra "recompensas não se toca", e vale só para o
+  `BOTAR`, que nunca fechou.
+- **O crítico vê o elo interno** (§6.1) e o `PPOPorElo` agrupa por ele. Ator-crítico
+  assimétrico; não toca o deploy.
+- **`caiu` por tamanho** (§6.7): `caixa_folga_chao = 0,02` substitui `caixa_z_min`.
+- **Fecho da cadeia 3** = `perto` sustentado pela espera sorteada (§6.5), sem `andou`.
+- **`_pegou` só arma com o objetivo ativo** (§6.3); publicado escrito no fecho do `BOTAR`
+  (§6.6); `fracao_esperando` lê as duas esperas; `recebe_tarefa` escreve `ELO` (§6.4).
+- **Giro com precedência explícita** e frações medidas (§9).
+- **`dr.geom_size` do mjlab** com um wrapper para o cubo (§6.7). O plano B fica.
+
+**Pendentes: a aprovação da sétima rodada.** Em particular os pesos 2,0 e 1,0 e o
+`σ_solta = 0,10` são ponto de partida; o dono pode mudar antes do plano. Depois da
+aprovação, o próximo passo é o plano de implementação.
