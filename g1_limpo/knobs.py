@@ -424,6 +424,14 @@ class Marcha:
     # `comando.TwistComRazaoDeMarchaCfg` para a derivação.
     pedido_min_segmento: float = 0.5
 
+    # ⚠ GIRAR NO LUGAR (spec §9, decisão do dono 02/09). O sorteador do fabricante quase
+    # nunca produz `lin ≈ 0 ∧ wz ≠ 0`: standing não gira, forward não pode, heading gira
+    # ANDANDO. Um ramo `turning`: lin = 0 todo passo, |wz| ≥ turning_wz_min. A precedência
+    # é `standing > turning > forward > heading`, portanto a fração REALIZADA é
+    # rel_turning_envs × (1 − rel_standing_envs) ≈ 0,09.
+    rel_turning_envs: float = 0.10
+    turning_wz_min: float = 0.2
+
 
 @dataclass
 class Forma:

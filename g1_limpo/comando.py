@@ -1424,6 +1424,43 @@ class TwistComRazaoDeMarcha(UniformVelocityCommand):
         self.metrics["eficiencia_min"] = z.clone()
         self.metrics["eficiencia_media"] = z.clone()
 
+        # ⚠ O RAMO DE GIRO (spec §9). Flag por env, re-sorteada com as do fabricante.
+        self.is_turning_env = torch.zeros_like(self.is_standing_env)
+
+    def _resample_command(self, env_ids: torch.Tensor) -> None:
+        super()._resample_command(env_ids)
+        # ⚠ AS FLAGS DO FABRICANTE SÃO SORTEIOS INDEPENDENTES, não uma partição (spec §9):
+        # `standing` zera tudo todo passo; `heading` reescreve `wz` todo passo; `forward`
+        # escreve só no resample. O `turning` entra com precedência EXPLÍCITA:
+        # standing > turning > forward > heading. Ele cede ao standing (que zeraria o
+        # wz todo passo), vence o forward (roda depois do super) e SAI do heading (senão
+        # o heading reescreve o wz dele no passo seguinte).
+        r = torch.empty(len(env_ids), device=self.device)
+        turning = r.uniform_(0.0, 1.0) <= self.cfg.rel_turning_envs
+        turning &= ~self.is_standing_env[env_ids]
+        self.is_turning_env[env_ids] = turning
+        ids = env_ids[turning]
+        if len(ids) == 0:
+            return
+        self.is_heading_env[ids] = False
+        self.is_forward_env[ids] = False
+        lo, hi = self.cfg.ranges.ang_vel_z
+        teto = max(abs(float(lo)), abs(float(hi)))
+        mag = torch.empty(len(ids), device=self.device).uniform_(
+            float(self.cfg.turning_wz_min), teto)
+        sinal = torch.where(torch.rand(len(ids), device=self.device) < 0.5, -1.0, 1.0)
+        self.vel_command_b[ids, 0] = 0.0
+        self.vel_command_b[ids, 1] = 0.0
+        self.vel_command_b[ids, 2] = sinal * mag
+        self.vel_command_w[ids] = self.vel_command_b[ids]
+
+    def _update_command(self) -> None:
+        super()._update_command()
+        # ⚠ `lin = 0` TODO PASSO nos envs turning, como o fabricante faz com o standing.
+        ids = self.is_turning_env.nonzero(as_tuple=False).flatten()
+        if len(ids):
+            self.vel_command_b[ids, :2] = 0.0
+
     def _fecha_segmento(self, mudou: torch.Tensor) -> None:
         """Pontua o segmento que acabou, SÓ nos envs de `mudou`, e reinicia os deles.
 
@@ -1550,6 +1587,12 @@ class TwistComRazaoDeMarchaCfg(UniformVelocityCommandCfg):
     **Derivado:** o comando médio vale ~0,765 m/s, e o re-sorteio do fabricante é de 3 a
     8 s. Um segmento inteiro rende então ~2,3 no mínimo. 0,5 aceita segmentos a partir
     de ~0,7 s de comando cheio e descarta os 10% de `is_standing_env` (que somam 0)."""
+
+    rel_turning_envs: float = 0.0
+    """Fração dos envs que só GIRAM: `lin = 0` todo passo, `|wz| ≥ turning_wz_min`
+    (spec §9). Sorteada a cada re-sorteio de comando, como as flags do fabricante.
+    Precedência: `standing > turning > forward > heading`."""
+    turning_wz_min: float = 0.2
 
     def build(self, env: ManagerBasedRlEnv) -> TwistComRazaoDeMarcha:
         return TwistComRazaoDeMarcha(self, env)
