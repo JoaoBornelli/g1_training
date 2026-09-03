@@ -18,7 +18,7 @@ from mjlab.utils.lab_api.math import quat_apply
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "sustentacao"]
+           "postura_ereta", "sustentacao", "load", "largou"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -246,6 +246,17 @@ def _valida(env, nome: str) -> torch.Tensor:
     return env.command_manager.get_command(nome)[:, VALIDA]
 
 
+def _elo_interno(env, nome: str) -> torch.Tensor:
+    """O elo INTERNO do termo de comando (spec §6.0): o que paga lê o interno."""
+    return env.command_manager.get_term(nome)._elo
+
+
+def _fora_do_botar(env, nome: str) -> torch.Tensor:
+    """1 fora do BOTAR, 0 nele. A máscara do g1_poc para `squeeze` e `unload`."""
+    from g1_limpo.comando import BOTAR
+    return (_elo_interno(env, nome) != BOTAR).float()
+
+
 def _alvo(env, nome: str) -> torch.Tensor:
     from g1_limpo.comando import ALVO
     return env.command_manager.get_command(nome)[:, ALVO]
@@ -261,11 +272,23 @@ def _alcancar(env, nome: str) -> torch.Tensor:
 
     No passo em que o elo abre ele vale `exp(−1) = 0,368` por construção, porque
     `σ = d₀`. MEDIDO: 0,3679 a 0,3708 em 32 envs.
+
+    ⚠ `alcança ≡ 1` no BOTAR e na espera final (`soltou`) — spec §6.6.2 item 3, §8.3.
+    No BOTAR as mãos já estão na caixa: σ cai no piso de 0,08 m e o kernel vale 1 por
+    construção; ele não carrega informação ali, só paga 3/s por MANTER as mãos na caixa,
+    que é o freio contra largar. Com `≡ 1`, `staged` vira `3 × (1 + trazer)` e
+    `precise_ori` vira `alinha`: pagam pela caixa, indiferentes às mãos.
     """
+    from g1_limpo.comando import BOTAR
     t = _t(env, nome)
     ids = torch.arange(env.num_envs, device=t.sigma_alcance.device)
     d = t.dist_palma_caixa(ids)
-    return torch.exp(-(d / t.sigma_alcance.clamp(min=1e-6)) ** 2)
+    kernel = torch.exp(-(d / t.sigma_alcance.clamp(min=1e-6)) ** 2)
+    um = t._elo == BOTAR
+    soltou = getattr(env, "limpo_soltou", None)
+    if soltou is not None:
+        um = um | (soltou > 0.5)
+    return torch.where(um, torch.ones_like(kernel), kernel)
 
 
 def _forca_das_palmas(env, sensores: tuple[str, ...],
@@ -378,7 +401,10 @@ def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],
     termo ficava em zero exato porque ele é `min` das duas forças.
     """
     f = _forca_das_palmas(env, sensores, asset_cfg)
-    return torch.tanh(f / _forca_ref(env, mu)) * _valida(env, nome_do_comando)
+    # ⚠ ZERO NO BOTAR (spec §6.6.2 item 2; g1_poc: "apertar durante o botar paga contra
+    # soltar, −1,0/s medido"). Pagar por segurar é pagar contra a tarefa de largar.
+    return (torch.tanh(f / _forca_ref(env, mu)) * _valida(env, nome_do_comando)
+            * _fora_do_botar(env, nome_do_comando))
 
 
 def unload(env, nome_do_comando: str, sensor_apoio: str,
@@ -423,7 +449,10 @@ def unload(env, nome_do_comando: str, sensor_apoio: str,
     descarga = (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0)
     preensao = torch.tanh(
         _forca_das_palmas(env, sensores_palma, asset_cfg) / _forca_ref(env, mu))
-    return descarga * preensao * _valida(env, nome_do_comando)
+    # ⚠ ZERO NO BOTAR (spec §6.6.2 item 2; g1_poc: "ligado no botar, pagaria 2,0/s para
+    # NÃO botar"). `postura_ereta` é `rampa × unload` e zera junto, sem linha própria.
+    return (descarga * preensao * _valida(env, nome_do_comando)
+            * _fora_do_botar(env, nome_do_comando))
 
 
 def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
@@ -498,3 +527,45 @@ class sustentacao:
         if env_ids is None:
             env_ids = slice(None)
         self.t[env_ids] = 0.0
+
+
+def load(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float) -> torch.Tensor:
+    """`clamp(F_apoio/m·g) × perto` — o espelho do `unload`, SÓ no `BOTAR` (spec §6.6.2).
+
+    Paga quando a laje carrega o peso da caixa perto do alvo. Sem ele o BOTAR não tinha
+    quem pagasse por apoiar: a condição de fecho exige `apoiada` e nenhuma recompensa a
+    pagava — pairar rendia mais (spec §6.6.1). É a peça do `g1_poc`
+    (`g1_poc/recompensas.py::load`), com o mesmo peso e o mesmo gate de posição.
+
+    ⚠ `clamp` em 1: prensar a caixa contra a laje não rende mais. ⚠ Gate de posição
+    `d ≤ raio_mult × tol_pos`: fecha o hack de largar a caixa em qualquer lugar do tampo.
+    ⚠ SEM gate de preensão: soltar É o objetivo. ⚠ Continua pagando na espera final,
+    porque o interno segue BOTAR — é isso que torna fechar melhor do que pairar.
+    """
+    from g1_limpo.comando import BOTAR
+    t = _t(env, nome_do_comando)
+    f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
+    peso = (env.limpo_massa * 9.81).clamp(min=1e-6)
+    fracao = (f / peso).clamp(0.0, 1.0)
+    perto = (_dist_caixa_alvo(env, nome_do_comando) <= raio_mult * t.cfg.tol_pos).float()
+    no_botar = (t._elo == BOTAR).float()
+    return fracao * perto * no_botar * _valida(env, nome_do_comando)
+
+
+def largou(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float,
+           sigma_solta: float) -> torch.Tensor:
+    """`soltou × load × (1 − exp(−(d_palma/σ_solta)²))` — tirar as mãos (spec §6.6.2).
+
+    Paga por afastar as palmas da caixa APOIADA no alvo, só na espera final. Sem ele a
+    espera final não ensinava a largar: `pose` em `standing` (σ 0,05) vale zero com os
+    braços fora e `action_rate` paga por não mover — o ótimo era congelar com as mãos na
+    caixa. Como `_alcancar ≡ 1` tirou o freio, um peso pequeno basta.
+    """
+    soltou = getattr(env, "limpo_soltou", None)
+    if soltou is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    t = _t(env, nome_do_comando)
+    d = t.dist_palma_caixa(torch.arange(env.num_envs, device=env.device))
+    longe = 1.0 - torch.exp(-(d / max(sigma_solta, 1e-6)) ** 2)
+    return ((soltou > 0.5).float() * longe
+            * load(env, nome_do_comando, sensor_apoio, raio_mult))

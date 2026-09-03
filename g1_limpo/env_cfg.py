@@ -549,6 +549,19 @@ def make_env_cfg(
                 "tol_ang": math.radians(tr.tol_ang_deg),
                 "sustenta_s": tr.sustenta_s})
 
+    # ------------------------------------------- 3i. a renda do BOTAR (v2, spec §6.6.2)
+    # ⚠ Os DOIS termos que faltavam para o BOTAR fechar. `load` é o espelho do `unload`,
+    # só no BOTAR; `largou` paga por tirar as mãos na espera final. Ambos leem o elo
+    # INTERNO e o VALIDA. O smoke prova a monotonia da renda (§11.1 item 16).
+    cfg.rewards["load"] = RewardTermCfg(
+        func=RC.load, weight=tr.load,
+        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO,
+                "raio_mult": tr.load_raio_mult})
+    cfg.rewards["largou"] = RewardTermCfg(
+        func=RC.largou, weight=tr.largou,
+        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO,
+                "raio_mult": tr.load_raio_mult, "sigma_solta": tr.sigma_solta})
+
     # ---------------------------------------------------- 3d. modo INSPEÇÃO
     if inspecao or play:
         # ⚠ O CONTROLADOR DE FATIA FICA DESLIGADO na inspeção e no play. Ele é um laço
