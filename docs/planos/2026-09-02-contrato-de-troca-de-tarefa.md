@@ -800,25 +800,42 @@ nele depois de largar.
 `precise_pos`, `load` e `largou` juntos; andar durante a espera perde rastreio; escorar
 na mesa paga `contato_*`; derrubar termina (`caiu`, §6.6.3).
 
-⚠⚠ **Dois hacks que a revisão de 03/09 achou ABERTOS. Não são bloqueios; são risco a
-vigiar, e a decisão de fechá-los é do dono.**
+⚠⚠ **Dois hacks que a revisão de 03/09 achou. O dono decidiu os dois em 03/09.**
 
-1. **`load` e `apoiada` leem a NORMA da força caixa↔laje, que não tem direção.** Prensar
-   a caixa **de lado** contra a aresta do tampo, a ≤ 0,20 m do alvo, satisfaz `apoiada`
-   e satura `load` — o elo fecha em 0,3 s sem a laje carregar o peso. A metade `apoiada`
-   deste defeito é **herdada** da `exp/g1-limpo` (o fecho do `BOTAR` sempre leu a norma);
-   o `load` a herdou junto. Conserto, se o dono quiser: projetar a força no eixo
-   vertical (`f[..., 2].abs()`), como o `g1_poc` faz no `load`
-   (`g1_poc/recompensas.py::load` usa `f[..., 2]`). É uma linha em cada um dos dois
-   sítios, e muda o fecho do `BOTAR` — portanto é decisão, não conserto silencioso.
-2. **Soltar a caixa de 5 cm de altura fecha o `BOTAR`.** Na abertura do elo a caixa está
-   na âncora do peito e o topo novo nasce em `fundo − 0,05`, com o alvo a ~0,11 m — 1 cm
-   fora do `tol_pos` de fecho e dentro dos 0,20 m do `load`. O robô translada 2 cm, abre
-   as mãos, a caixa cai 5 cm, `apoiada` liga e o elo fecha. Com `squeeze` e `unload`
-   mascarados e `alcança ≡ 1`, **nenhum termo cobra pela queda** — é o "jogar a caixa"
-   que o dono proibiu, e o `caiu` não o pega (a caixa fica na laje). Conserto possível:
-   uma penalidade de impacto no `BOTAR` (já registrada como diferida, §8) ou exigir
-   `alcança` vivo até o fecho e `≡ 1` só depois de `soltou`.
+1. **`load` e `apoiada` liam a NORMA da força caixa↔laje, que não tem direção** —
+   prensar a caixa **de lado** contra o tampo satisfazia `apoiada` e saturava `load`, e o
+   elo fechava sem a laje carregar peso. A metade `apoiada` era **herdada** da
+   `exp/g1-limpo`. **DECISÃO DO DONO: projetar no eixo vertical, "para garantir".**
+   Implementado: `comando.forca_de_apoio` devolve `|f_z|`, e o `load` e o fecho leem a
+   **mesma** função — uma segunda leitura poderia divergir do fecho.
+   ⚠ MEDIDO em 03/09, caixa apoiada: `f = (0,00; 0,00; −9,57)` com `m·g = 9,81`. A força
+   é puramente vertical e sai com o sinal invertido. Usa-se `abs` e não
+   `clamp(−f_z, min=0)`: o `clamp` seria mais estrito, mas se um upgrade do `mjlab`
+   inverter a ordem do par de geoms o termo passa a ler ZERO para sempre em silêncio e o
+   `BOTAR` deixa de fechar. Com `abs`, o pior caso é o buraco pequeno de prensar contra a
+   face de baixo da laje; sem ele, o pior caso é a tarefa morrer calada. O smoke fixa a
+   convenção medida.
+   ⚠ RESÍDUO DECLARADO: uma caixa prensada contra a **aresta** do tampo ainda gera reação
+   vertical grande (medido: até 7·`m·g`) e ainda passa. O que a limita é o `perto` do
+   fecho (`tol_pos = 0,10`, e a aresta fica 0,10 a 0,15 m abaixo do alvo) e o
+   `precise_pos` pagando ~zero ali. A projeção mata o caso puramente horizontal, que era
+   o que não tinha freio nenhum.
+   ⚠ **O `unload` MANTÉM a norma**, e é decisão declarada: ali o erro da norma aponta
+   para o outro lado — uma força lateral infla `f` e **reduz** a descarga, portanto ela
+   subpaga o erguer e nunca superpaga. E o `unload` é metade da cadeia da pega, que está
+   medida funcionando (`descarga = 0,965`); trocar a leitura dele mexeria no que a §2
+   declara intocável, para consertar um erro conservador.
+2. **Soltar a caixa de 5 cm de altura fecha o `BOTAR`, e nenhum termo cobra a queda.**
+   Na abertura do elo a caixa está na âncora do peito e o topo novo nasce em
+   `fundo − 0,05`, com o alvo a ~0,11 m. O robô translada 2 cm, abre as mãos, a caixa cai
+   5 cm, `apoiada` liga e o elo fecha. **DECISÃO DO DONO (03/09): 5 cm é PERMITIDO. "Se
+   começar a jogar de mais alto vira problema."** Portanto não entra penalidade; entra
+   **medição**, e é a métrica `impacto_da_caixa` (peso nenhum): o PICO de
+   `|F_apoio_z| / m·g` no episódio, por env. Caixa apoiada em repouso lê ~1,0; uma queda
+   de 5 cm dá um pico de poucas unidades. **Um valor que sobe ao longo da run é a
+   política aprendendo a jogar** — e é a sentinela que autoriza abrir a penalidade de
+   impacto (§8), que segue diferida. Sem a métrica, "apoiou com cuidado" e "jogou de
+   30 cm" leem igual no painel.
 
 **Pesos e σ são ponto de partida**, não medição: 2,0 e 1,0 copiam a escala dos termos
 vizinhos (`unload` = 2,0; `precise_ori` = 1,0). O smoke prova a **monotonia** da tabela
@@ -1610,10 +1627,12 @@ nada redigitado, mas só o smoke prova). A escrita em `geom_size` deixou de ser 
 módulo: é a função de DR do próprio mjlab (§6.7). **Sentinelas na primeira run:**
 `descarga` e `rampa` para a pega; `seg_proj/seg_pedido` para o andar; e, novos,
 `Episode_Reward/load` e `Metrics/alvo_caixa/passo_final` para ver se o `BOTAR` fecha —
-`sucesso` da cadeia 3 saindo de zero é o veredito da §6.6.2. Mais duas, contra os hacks
-que a §6.6.2 declara abertos: `palmas_em_contato` e `dorso_em_contato` — se o `dorso`
+`sucesso` da cadeia 3 saindo de zero é o veredito da §6.6.2. Mais três, contra os
+resíduos que a §6.6.2 declara: `palmas_em_contato` e `dorso_em_contato` — se o `dorso`
 sair de zero ou as `palmas` caírem enquanto o `load` sobe, é a caixa sendo levada ao alvo
-por outra parte do corpo.
+por outra parte do corpo; e **`impacto_da_caixa`**, o pico de `|F_apoio_z| / m·g` — se
+ele subir ao longo da run, a política está aprendendo a JOGAR a caixa, e é aí que a
+penalidade de impacto da §8 deixa de ser diferida.
 
 ⚠ **A cadeia 3 é ~0,14% dos envs no nível 0** (`0,05` de sorteio × `0,5` de `PEGAR` entre
 os sorteáveis × `0,056` da cadeia entre as compatíveis): **6 envs de 4096**, e cada um
@@ -1629,8 +1648,11 @@ fica **intocada como referência** — é o código que treinou a `bloco7` e fun
 trava da §2 ("nada acima é tocado") vira `git diff exp/g1-limpo -- g1_limpo/` vazio em
 `curriculo.py`, e nos pesos de `knobs.py` **existentes** (os novos, `load`, `largou`,
 `sigma_solta`, `caixa_folga_chao`, são adições). Em `recompensas.py` o diff toca `_alcancar`, `squeeze`,
-`unload`, os dois termos novos e o `rastreio_por_elo` (a limpeza da §6.4); em
-`terminacoes.py` só `caixa_largada`. O smoke da §11.1 (itens 17 e 18) afirma que fora do `BOTAR` os valores
+`unload` (só um comentário, ver §6.6.2), os dois termos novos e o `rastreio_por_elo` (a
+limpeza da §6.4); em `terminacoes.py` só `caixa_largada`. A projeção vertical da força de
+apoio (§6.6.2) muda o **fecho** do `BOTAR` em `comando.py`, e é a única mudança desta v2
+numa condição de fecho herdada — decidida pelo dono em 03/09, e ela conserta um defeito
+que a `exp/g1-limpo` já tinha. Entra também a métrica `impacto_da_caixa`, sem peso. O smoke da §11.1 (itens 17 e 18) afirma que fora do `BOTAR` os valores
 são os de hoje.
 
 ---
