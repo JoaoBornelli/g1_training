@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
 **Estado:** APROVADA, SEM PENDÊNCIAS, em 2026-09-02 (§13). Nada implementado. Próximo passo: plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v11 — tamanho por env SEM mesh: `geom_size` por mundo no startup, como o `foot_friction`; mesh vira plano B)
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-02 (v12 — medido em CPU: o one-hot publicado troca no meio do episódio e a política vê; só o VALIDA precisa mudar de fonte)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -490,6 +490,30 @@ precisa **já está certa pelo elo interno**:
 | postura do fabricante, não neutra | `PosturaPorElo` lê publicado = `ANDAR` | publicado |
 | incentivos de caixa em zero | `objetivo_ativo` = publicado ≠ `ANDAR` = falso | publicado |
 | o elo não fechar durante a espera | `_fecha_elo_corrente & objetivo_ativo` | publicado |
+
+**MEDIDO em 03/09, em CPU, sem implementar nada** — robô travado, `elo = PEGAR`, 8 envs.
+Uma linha, `_command[:, ELO] = ANDAR`, com o interno em `PEGAR`:
+
+```
+                          obs one-hot   interno   VALIDA   twist   track_lin   staged
+PEGAR normal              pegar         pegar     1        0,000   +0,0000     +2,055
+passo 1, publicado=ANDAR  andar         pegar     1        0,000   +1,8326     +2,055
+passo 3, publicado=ANDAR  andar         pegar     1        0,000   +1,8326     +2,055
+```
+
+A política vê `ANDAR` no passo seguinte e continua vendo (nada reescreve o canal a cada
+passo — `_aplica_elo` só escreve no reset e no avanço). O twist fica zero (interno
+`PEGAR`). O rastreio passa a pagar 1,83/s por velocidade zero (lê o publicado). O interno
+não se move. **É a §6.0 funcionando sem nenhum código novo.**
+
+E a linha que falta está nos dois últimos campos: `VALIDA` segue 1 e `staged` segue
+pagando, porque hoje `_aplica_espera` deriva o bit do **interno** (`_elo != ANDAR`). A
+§6.2 muda isso para o publicado. É a **única** mudança de código que a §6.3 exige além da
+escrita do canal.
+
+E o avanço de cadeia de hoje é a prova de que a política já vive com o one-hot mudando no
+meio do episódio: `forca_avanco` em `(PEGAR, CARREGAR)` → a observação vai de
+`[0,0,1,0,0]` para `[0,0,0,1,0]` no passo seguinte, e o `track_lin` de 0 para 1,83.
 
 ⚠ **A v2 deste documento propunha uma cadeia nova `(ANDAR, PEGAR)`, com o sorteio da
 cadeia migrando para o currículo e a fatia excluindo-a.** Estava superconstruído: tudo
