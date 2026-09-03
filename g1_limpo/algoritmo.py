@@ -48,7 +48,7 @@ import torch
 from rsl_rl.algorithms import PPO
 
 from g1_limpo.comando import ANDAR
-from g1_limpo.observacoes import fatia_do_elo
+from g1_limpo.observacoes import fatia_do_elo_interno
 
 __all__ = ["PPOPorElo", "CAMINHO"]
 
@@ -77,8 +77,12 @@ class PPOPorElo(PPO):
         super().compute_returns(obs)
         st = self.storage
 
-        atores = st.observations["actor"]
-        bloco = atores[..., fatia_do_elo(atores.shape[-1])]
+        # ⚠ O ELO INTERNO DO CRÍTICO, e não o publicado do ator (spec §6.1): nas duas
+        # esperas o ator vê ANDAR, mas a espera final carrega retorno de MANIPULAÇÃO —
+        # agrupá-la com a locomoção inflaria o desvio da locomoção, que é exatamente o
+        # defeito que esta classe existe para evitar.
+        criticos = st.observations["critic"]
+        bloco = criticos[..., fatia_do_elo_interno(criticos.shape[-1])]
 
         # ⚠ INVARIANTE, e ele é a trava de runtime. Se a fatia deixar de apontar para o
         # one-hot — alguém acrescentou um termo depois do `caixa`, ou o molde mudou —
@@ -87,7 +91,7 @@ class PPOPorElo(PPO):
         soma = bloco.sum(-1)
         assert torch.allclose(soma, torch.ones_like(soma), atol=1e-3), (
             f"a fatia do elo não é um one-hot (soma média {float(soma.mean()):.4f}); "
-            f"alguém acrescentou observação DEPOIS do canal `caixa`?")
+            f"alguém acrescentou observação ao crítico DEPOIS do elo_interno?")
 
         # ⚠ Sobre a vantagem CRUA, e não sobre a que o `super()` já normalizou:
         # renormalizar o que já foi normalizado misturaria as duas escalas.

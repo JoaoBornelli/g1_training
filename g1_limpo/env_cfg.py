@@ -492,6 +492,14 @@ def make_env_cfg(
             params={"command_name": "alvo_caixa"},
         )
 
+    # ------------------------------------------- 3h. o elo INTERNO, só no crítico (v2)
+    # ⚠ SÓ NO `critic`, e POR ÚLTIMO. Spec §6.1: a espera final rende ~18/s e um env
+    # `standing` rende 6/s com a mesma observação de ator; o crítico precisa separá-los.
+    # Não vai para o robô. O `PPOPorElo` agrupa por esta fatia (`fatia_do_elo_interno`).
+    cfg.observations["critic"].terms["elo_interno"] = ObservationTermCfg(
+        func=OB.um_de_cinco_interno, params={"command_name": "alvo_caixa"},
+    )
+
     # ------------------------------------------- 3g. os sete incentivos (F3)
     # ⚠ TODOS positivos e contínuos (R3), e todos gateados por `VALIDA` — sem o gate
     # um env de `ANDAR` pagaria o MÁXIMO, porque com os canais de caixa zerados
