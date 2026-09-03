@@ -3453,6 +3453,34 @@ try:
 except Exception as _e27x:      # noqa: BLE001
     _falhas.append(f"o ramo de giro não pôde ser medido: {type(_e27x).__name__}: {_e27x}")
 
+# ==================== 28. o REORIENTAR está INERTE na v2 (spec §8.3)
+secao("28. o REORIENTAR inerte")
+check("24. `voltas_max` é zero e `eixo_vertical` é falso em TODO nível",
+      all(v == 0 for v in k.nivel.voltas_max) and not any(k.nivel.eixo_vertical),
+      f"{k.nivel.voltas_max} / {k.nivel.eixo_vertical}")
+check("o REORIENTAR CONTINUA sorteável — o slot não pode ficar constante",
+      CMD.REORIENTAR in ELOS_SORTEAVEIS)
+try:
+    import torch as _t28
+
+    _c28 = make_env_cfg(k, inspecao=True, elo=CMD.REORIENTAR)
+    _c28.scene.num_envs = 16
+    _e28 = ManagerBasedRlEnv(cfg=_c28, device="cpu")
+    _e28.reset()
+    _n28 = _e28.action_manager.total_action_dim
+    _t28c = _e28.command_manager.get_term("alvo_caixa")
+    _p0 = _e28.scene["box"].data.root_link_pos_w.clone()
+    _passa_janela(_e28, _n28, _t28)
+    for _ in range(int(k.cadeia.sustenta_outros_s / _e28.step_dt) + 3):
+        _e28.step(_t28.zeros(16, _n28))
+    _dp = (_e28.scene["box"].data.root_link_pos_w - _p0).norm(dim=-1)
+    check("24. um env de cadeia 1 avança para o PEGAR em `sustenta_outros_s` sem a caixa se mover",
+          bool((_t28c._elo == CMD.PEGAR).all()) and float(_dp.max()) < 0.01,
+          f"elo {_t28c._elo.tolist()[:6]}, deslocamento máx {float(_dp.max())*1000:.1f} mm")
+    del _e28
+except Exception as _e28x:      # noqa: BLE001
+    _falhas.append(f"o REORIENTAR inerte não pôde ser medido: {type(_e28x).__name__}: {_e28x}")
+
 # =============================================================================
 print()
 print("=" * 62)
