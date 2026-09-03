@@ -3401,6 +3401,58 @@ except Exception as _e26x:      # noqa: BLE001
     _falhas.append(f"a renda do BOTAR não pôde ser medida: "
                    f"{type(_e26x).__name__}: {_e26x}")
 
+# ==================== 27. o RAMO DE GIRO no sorteador do twist (spec §9)
+secao("27. girar no lugar")
+check("21. os knobs do giro são os da spec",
+      k.marcha.rel_turning_envs == 0.10 and k.marcha.turning_wz_min == 0.2)
+check("21. o cfg do twist recebe os dois",
+      cfg.commands["twist"].rel_turning_envs == 0.10
+      and cfg.commands["twist"].turning_wz_min == 0.2)
+try:
+    import torch as _t27
+
+    _c27 = make_env_cfg(k, elo=CMD.ANDAR)          # cfg de TREINO, elo forçado
+    _c27.scene.num_envs = 512
+    _e27 = ManagerBasedRlEnv(cfg=_c27, device="cpu")
+    _e27.reset()
+    _n27 = _e27.action_manager.total_action_dim
+    _tw27 = _e27.command_manager.get_term("twist")
+    _todos = _t27.arange(512)
+    _cont = {"turning": 0, "standing": 0, "forward": 0, "heading": 0, "n": 0}
+    _ok_wz = _ok_lin = _ok_heading = True
+    for _ in range(8):
+        _tw27._resample_command(_todos)
+        _tu = _tw27.is_turning_env
+        _cont["turning"] += int(_tu.sum()); _cont["n"] += 512
+        _cont["standing"] += int(_tw27.is_standing_env.sum())
+        _cont["forward"] += int(_tw27.is_forward_env.sum())
+        _cont["heading"] += int(_tw27.is_heading_env.sum())
+        if bool(_tu.any()):
+            _ok_wz &= bool((_tw27.vel_command_b[_tu, 2].abs() >= k.marcha.turning_wz_min - 1e-6).all())
+            _ok_lin &= float(_tw27.vel_command_b[_tu, :2].abs().max()) == 0.0
+            _ok_heading &= not bool(_tw27.is_heading_env[_tu].any())
+    _frac = _cont["turning"] / _cont["n"]
+    check("21. a fração REALIZADA de turning é 0,09 ± 0,02 (0,10 × 0,90, fora do standing)",
+          abs(_frac - 0.09) < 0.02, f"{_frac:.3f} em {_cont['n']} sorteios")
+    check("21. |wz| ≥ 0,2 em todo env turning", _ok_wz)
+    check("21. lin = 0 em todo env turning, no resample", _ok_lin)
+    check("21. nenhum env turning está em heading", _ok_heading)
+    check("21. o standing continua ~0,10 — o turning não o comeu",
+          abs(_cont["standing"] / _cont["n"] - 0.10) < 0.02,
+          f"{_cont['standing']/_cont['n']:.3f}")
+    # lin continua ZERO passo a passo, e wz NÃO é reescrito pelo heading
+    _tu = _tw27.is_turning_env.clone()
+    _wz0 = _tw27.vel_command_b[:, 2].clone()
+    for _ in range(3):
+        _e27.step(_t27.zeros(512, _n27))
+    check("21. lin = 0 nos envs turning em TODO passo",
+          float(_tw27.vel_command_b[_tu, :2].abs().max()) == 0.0)
+    check("21. e wz dos envs turning não muda entre passos (fora do heading)",
+          float((_tw27.vel_command_b[_tu, 2] - _wz0[_tu]).abs().max()) < 1e-6)
+    del _e27
+except Exception as _e27x:      # noqa: BLE001
+    _falhas.append(f"o ramo de giro não pôde ser medido: {type(_e27x).__name__}: {_e27x}")
+
 # =============================================================================
 print()
 print("=" * 62)
