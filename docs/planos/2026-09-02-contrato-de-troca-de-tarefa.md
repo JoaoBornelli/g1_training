@@ -266,7 +266,7 @@ Sem o bit, não há segundo canal que possa contradizer a regra 1.
 | slot | elo | twist | canais de caixa | alvo | no cenário de campo |
 |---|---|---|---|---|---|
 | 0 | `ANDAR` | **ativo** — ou zero, na espera de um episódio de manipulação (§6.3) | **zero** | — | pilotar sem caixa; e o "parado antes de pegar" |
-| 1 | `REORIENTAR` | zero | vivos | a própria caixa | ⚠ não aparece no cenário — ver §8.3 |
+| 1 | `REORIENTAR` | zero | vivos | a própria caixa | habilidade futura (§8.3): bota na mesa, gira, pega de novo |
 | 2 | `PEGAR` | zero | vivos | ancorado na base | pegar a caixa |
 | 3 | `CARREGAR` | **ativo** — ou zero, na cadeia 3 (§6.5) | vivos | ancorado na base, altura do peito | andar com a caixa; e o "segurar parado" antes de botar |
 | 4 | `BOTAR` | zero | vivos | topo novo, **externo** | botar a caixa |
@@ -393,10 +393,12 @@ ao vivo com a caixa perto.
 
 ## 6. O QUE MUDA
 
-Sete mudanças: três em **observação e canal de comando**, uma na **cadeia 3**, a
-**terminação `caixa_largada`** (guarda e `caiu` por tamanho), a **geometria da caixa**
-(DR de tamanho), e a **renda do `BOTAR` e da espera final** (§6.6.1, §6.6.2). Nenhuma
-em currículo.
+Sete grupos de mudança: **observação e canal de comando** (gate, `VALIDA` fora,
+`meia_aresta` e `giro_b` dentro, `elo_interno` no crítico, publicado `ANDAR` nas duas
+esperas), a **cadeia 3**, a **terminação `caixa_largada`** (guarda e `caiu` por tamanho),
+a **geometria da caixa** (DR de tamanho), a **renda do `BOTAR` e da espera final**
+(§6.6.1, §6.6.2), o **ramo de giro** da locomoção (§9) e o **contrato do `REORIENTAR`**
+(§8.3). Nenhuma em currículo.
 
 ### 6.0 Os dois `elo` — o PUBLICADO e o INTERNO
 
@@ -458,7 +460,9 @@ final o robô rende cerca de 18/s; um env `standing` da locomoção rende 6/s co
 que o ator vê não separa os dois, e a função de valor erra nos dois lados — o mesmo
 estado, dois retornos. Com o interno ele separa espera inicial, `standing` e espera
 final. É ator-crítico assimétrico, padrão, e **não toca o deploy**: o crítico não vai
-para o robô. A observação do ator fica com 114 canais; a do crítico, com 119.
+para o robô. A observação do ator fica com 114 canais; a do crítico, com 119. E
+`aguardando` e `soltou` **não** precisam de canal próprio no crítico: os dois são
+`interno ≠ publicado`, e o crítico vê os dois one-hots.
 
 ⚠ **E o `PPOPorElo` passa a agrupar pelo `elo_interno` do crítico**, não pelo one-hot do
 ator. Senão a espera final — que carrega retorno de manipulação — entra no grupo da
@@ -594,13 +598,13 @@ estado de campo.
 
 ### 6.4 O que SAI
 
-- **O `VALIDA` da observação** (§6.2). Só isso sai. A janela **fica** — ela é o mecanismo
-  da §6.3, com o one-hot publicado trocado.
+- **O `VALIDA` da observação** (§6.2), e o escalar `ANG`, que vira o vetor `giro_b`
+  (§8.3). A janela **fica** — ela é o mecanismo da §6.3, com o one-hot publicado trocado.
 - A métrica `fracao_esperando` **fica**, e passa a ler `aguardando ∨ soltou` — "fração de
   passos em `ANDAR` publicado dentro de um episódio de manipulação", as duas esperas.
 - O `recebe_tarefa` (caminho do visualizador) passa a escrever `ELO = ANDAR` além de
   rearmar a espera; a linha `VALIDA = 0` dele continua certa. Uma linha em `comando.py`;
-  `eventos.py` fica intocado.
+  o evento `entrega_tarefa_no_viewer` fica intocado.
 - O `rastreio_por_elo` ler `limpo_aguardando` (mudança de 02/09) **fica redundante**:
   com o publicado em `ANDAR`, `_anda_neste_elo` já devolve verdadeiro. Sai por limpeza,
   com a trava de que o rastreio paga na espera (§11.1 item 5).
@@ -642,8 +646,10 @@ E a transição `CARREGAR(v=0) → BOTAR` sai da aposta e vira **treinada**.
 2. **Twist zero no `CARREGAR` da cadeia 3.** `CARREGAR ∈ ELOS_QUE_ANDAM`, portanto o
    twist é sorteado. Na cadeia 3 ele tem de ser **zero** ("robô não deve andar de verdade
    com a caixa" antes do botar). Regra **por cadeia** no `_zera_twist_nos_parados`:
-   `elo ∈ parados **ou** (elo == CARREGAR e cadeia == 3)`. Na cadeia 2 o `CARREGAR`
-   continua andando.
+   `elo ∈ parados **ou** (elo == CARREGAR e a cadeia é a de segurar parado)`. Na cadeia 2
+   o `CARREGAR` continua andando. ⚠ Sem redigitar o índice `3` no comando: a marca "esta
+   cadeia segura parado" é uma tabela derivada ao lado de `CADEIAS`, pela mesma regra que
+   proíbe tabela paralela escrita à mão.
 3. ⚠ **O fecho do `CARREGAR` da cadeia 3 é `perto` SUSTENTADO pela espera, não por
    distância.** Hoje o `CARREGAR` fecha quando o robô **andou** `carregar_dist_m` — com
    twist zero ele nunca fecharia e o `BOTAR` nunca chegaria. Na cadeia 3 a condição é
@@ -748,7 +754,8 @@ anterior. Cinco peças; quatro têm precedente no `g1_poc`. Todas leem o elo **i
    construção. Ele não carrega informação ali — ele só paga 3/s por **manter** as mãos
    na caixa, que é o freio contra largar. Com `alcança ≡ 1`, `staged` vira
    `3 × (1 + trazer)`: paga pela caixa ir ao alvo, indiferente às mãos. Fora do `BOTAR`
-   nada muda.
+   nada muda. A forma geral da regra é `alcança ≡ 1 se (interno == BOTAR) ou soltou`
+   (§8.3); na v2 as duas condições coincidem, porque só o `BOTAR` tem espera final.
 4. **Termo novo `load`** = `clamp(F_apoio/mg) × perto(d ≤ 2·tol_pos)`, só com o interno
    em `BOTAR`, peso **2,0**. O espelho do `unload`, com o mesmo peso e o mesmo gate de
    posição do `g1_poc` (`load_raio_mult = 2`). O gate fecha o hack de largar a caixa em
@@ -878,8 +885,9 @@ escreve por mundo `geom_size`, `geom_rbound` e `geom_aabb` a partir do meio-lado
 
 1. **Fixo na run, como o `foot_friction`.** Startup, não reset. "Aleatória para todos os
    envs" vale **entre envs**: cada env vê sempre a mesma caixa durante a run. Com
-   4096–8192 envs a frota cobre a distribuição. Re-sortear no reset seria mutação em
-   runtime — a classe que corrompeu a heap. Não se faz.
+   4096–8192 envs a frota cobre a distribuição. A função do mjlab aceitaria `mode="reset"`
+   (é DR de primeira classe, não a classe do `body_mass`), mas o startup é o caminho já
+   provado pelo `foot_friction` e basta; re-sortear no reset fica como extensão.
 2. **`body_inertia` fica na de 0,10 m.** Escrever inércia é a classe de `body_mass`, e
    não se toca. Uma caixa de 0,13 m com a inércia da de 0,10 m é inconsistência **do
    mesmo tipo e do mesmo tamanho** da que o módulo já aceita: "a caixa de 5 kg fica com a
@@ -987,7 +995,7 @@ envs — e a recompensa sabe o tamanho certo de cada env, mas a política não.
 | risco | pega pior em todos os tamanhos, pela média | nenhum específico |
 
 **Decisão do dono (02/09): observar.** Um canal `meia_aresta` (o meio-lado, em metros)
-no fim do termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros sete. Em
+no fim do termo `caixa`, gateado a zero com o publicado em `ANDAR` como os outros nove. Em
 campo ele vem da percepção, como `caixa_b`. A política é sem memória (§7.2): ela não tem
 como "descobrir" o tamanho ao longo do episódio — ou ela o vê, ou ela chuta. O termo
 `caixa` fica com 10 canais e a observação com 114 (§4).
@@ -1196,8 +1204,8 @@ larga a caixa na mesa e tira as mãos. "Bota as mãos e tira as mãos." Portanto
    largar) tem de ser refeita e afirmada pelo smoke como o item 16 da §11.1, antes de
    ligar.
 
-**O `REORIENTAR` NÃO herda o eixo de altura e carga do `PEGAR`** (decisão do dono,
-03/09). Ele não é tarefa de alcance. No real, se a caixa precisa ser reorientada, o robô
+**O `REORIENTAR` NÃO herda o eixo de altura do `PEGAR`** (decisão do dono, 03/09). Ele
+não é tarefa de alcance. No real, se a caixa precisa ser reorientada, o robô
 a larga numa mesa (`BOTAR`), gira, e a pega de novo (`PEGAR`). A sequência de campo é
 `BOTAR → ANDAR(v=0) → REORIENTAR → ANDAR(v=0) → PEGAR`, e cada seta já é uma transição
 treinada (§7.1): o `REORIENTAR` sempre começa da espera inicial, com a caixa apoiada e as
@@ -1313,8 +1321,9 @@ lê do cfg.
   `seg_proj/seg_pedido` junto — se o andar cair, é o custo aparecendo.
 
 **Decisão do dono (02/09): ENTRA, na mesma run da v2.** Uma fração dos envs de locomoção
-só gira, com `lin = 0`. Fração de partida: 0,10, tirada do ramo uniforme (que vai de 0,40
-a 0,30). Sentinelas: `error_vel_yaw` (ou um `razao_guinada`) subindo, e
+só gira, com `lin = 0`. Fração de partida: `rel_turning_envs = 0,10`, que pela
+precedência acima realiza ~0,09 dos envs (`0,10 × 0,90`, os que não são `standing`) e
+encolhe o ramo uniforme na mesma medida. Sentinelas: `error_vel_yaw` (ou um `razao_guinada`) subindo, e
 `seg_proj/seg_pedido` estável — se o andar cair, é o custo aparecendo.
 
 ---
@@ -1432,7 +1441,9 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 7. **O publicado é recalculado do interno**, não do próprio publicado — o smoke lê o
    fonte de `_aplica_espera` e afirma isso (lição do bit destrutivo de 02/09).
 8. **O visualizador não mudou.** O diff da v2 contra `exp/g1-limpo` não toca em
-   `eventos.py` (modo de entrega), nem na task `Mjlab-G1-Limpo-Entrega`.
+   `entrega_tarefa_no_viewer`, `avanca_elo_no_viewer` nem na task `Mjlab-G1-Limpo-Entrega`.
+   (Em `eventos.py` mudam só `posiciona_cena` e `afasta_cena`, que passam a ler o tamanho
+   por env, e entra o `tamanho_caixa` — §6.7.)
 9. **A cadeia 3 tem 3 elos** e `_TETO_ELOS = 3` — e a máquina de elo os percorre: com
    `cadeia_forcada = 3` e `forca_avanco` duas vezes, o elo vai `PEGAR → CARREGAR →
    BOTAR`, e `fechou` só marca no `BOTAR`.
@@ -1478,8 +1489,9 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     espera inicial não arma `caixa_largada`; encostar depois da borda arma.
 21. **As frações do giro são medidas.** Sobre 4096 re-sorteios do twist, o smoke conta os
     envs em cada ramo realizado (`standing`, `turning`, `forward`, `heading`, uniforme) e
-    afirma `turning ≈ 0,10 ± 0,02`, `|wz| ≥ 0,2` em todo env `turning`, `lin = 0` neles em
-    **todo** passo, e que nenhum env `turning` está em `heading`.
+    afirma `turning` realizado em `0,09 ± 0,02` (`0,10 × 0,90`, §9), `|wz| ≥ 0,2` em todo
+    env `turning`, `lin = 0` neles em **todo** passo, e que nenhum env `turning` está em
+    `heading`.
 22. **O `PPOPorElo` agrupa pelo interno.** Num lote com um env em espera final, ele cai
     no grupo `manip`, e não no `loco`.
 23. **`giro_b` é o giro, e não só o ângulo.** Com a caixa girada +90° em Z no nascimento,
@@ -1495,7 +1507,7 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 Um teste que monta a sequência da §3 e afirma, para cada passo, que a entrada construída
 é indistinguível de uma entrada que o treino produz nos canais de tarefa (`command`,
 `elo`, `caixa`). Para `ANDAR(v=0) → PEGAR` isso é verdade **por construção** (§6.3); para
-as duas apostas da §7.2 é a afirmação que o teste faz.
+as outras quatro transições da §7.1 é a afirmação que o teste faz.
 
 ### 11.3 O que só o treino responde
 
@@ -1512,8 +1524,8 @@ as duas apostas da §7.2 é a afirmação que o teste faz.
 
 ## 12. CUSTO
 
-⚠ **O checkpoint atual é invalidado, por três razões independentes.** Sete canais que
-valiam ~4,3 no `ANDAR` passam a valer 0 (distribuição de observação); um canal troca de
+⚠ **O checkpoint atual é invalidado, por três razões independentes.** Os canais de caixa,
+que valiam ~4,3 no `ANDAR`, passam a valer 0 (distribuição de observação); um canal troca de
 significado (sai `VALIDA`, entra `meia_aresta`); e o `ANG` vira `giro_b`, 112 → 114
 (§8.3). Resume não resolve nenhuma das três. **Treino do zero.**
 
@@ -1529,9 +1541,10 @@ duas esperas (uma condição em `_aplica_espera`, uma linha em `_avanca_elo_forc
 cadeia (§6.5), a espera final com o guarda e o `caiu` por tamanho em `caixa_largada`
 (§6.6, §6.7), o wrapper `tamanho_caixa` sobre `dr.geom_size` e os sítios lendo tamanho por
 env (§6.7), o `PPOPorElo` agrupando pelo interno, **as máscaras do `BOTAR` e os termos
-`load` e `largou`** (§6.6.2), e as travas da §11. **Nenhuma mudança em currículo ou
-reset.** Em recompensa, **só** o que a §6.6.2 lista, e só com o interno em `BOTAR` ou em
-`soltou`.
+`load` e `largou`** (§6.6.2), e as travas da §11. **Nenhuma mudança em currículo.** Nos
+eventos de reset, só a leitura do tamanho por env (§6.7) e, pendente, `voltas_max = 0` em
+`knobs.Nivel` (§8.3). Em recompensa, **só** o que a §6.6.2 lista, e só com o interno em
+`BOTAR` ou em `soltou`.
 
 ⚠ **Um item com risco, nomeado:** a cadeia 3 toca a máquina de elo (`_TETO_ELOS = 3`
 nunca foi exercitado; o código é derivado de `CADEIAS`, e a leitura de 03/09 não achou
@@ -1564,9 +1577,9 @@ são os de hoje.
   locomoção pura: NÃO SE TOCA.** Funcionam, e ficam.
 - **Protocolo de um estágio:** `elo` e canais de caixa chegam juntos; o operador garante
   o robô parado. Em `v = 0` a pose é praticamente a default.
-- **A espera publica `ANDAR`** (§6.3). É a única mudança na manipulação: `espera_s`
-  deixa de ser "PEGAR com objetivo desligado" e vira "ANDAR parado, e então PEGAR". Sem
-  cadeia nova, sem tocar currículo.
+- **A espera publica `ANDAR`** (§6.3). Era a única mudança na manipulação nesta rodada:
+  `espera_s` deixa de ser "PEGAR com objetivo desligado" e vira "ANDAR parado, e então
+  PEGAR". Sem cadeia nova, sem tocar currículo.
 - **O `VALIDA` sai da observação** (§6.2). Fica no sim como porta de recompensa e de
   fecho de elo. (Com o `meia_aresta` da sexta rodada e o `giro_b` da sétima, a
   observação fica em 114.)
@@ -1592,7 +1605,8 @@ são os de hoje.
   derivado, composto pelo controlador via one-hot.
 - **`PEGAR → BOTAR` direto não é treinado.** O controlador nunca manda isso.
 - **A cadeia 3 vira `(PEGAR, CARREGAR, BOTAR)`**, com o `CARREGAR` do meio em `v = 0` e
-  fecho por tempo (§6.5). `CARREGAR(v=0) → BOTAR` sai da aposta.
+  fecho pela espera (na sétima rodada: `perto` sustentado pela espera, §6.5).
+  `CARREGAR(v=0) → BOTAR` sai da aposta.
 - **A espera FINAL** (§6.6): depois do `BOTAR`, publicado `ANDAR` com `v = 0` até o fim
   do episódio — o robô larga e fica parado. `escapou` desarmado, `caiu` armado. Sem
   cronômetro. `BOTAR → ANDAR(v=0)` sai da aposta. **Nenhuma aposta sobra.**
@@ -1613,7 +1627,7 @@ são os de hoje.
   muda; `paridade` não diverge. Mesh (`VariantEntityCfg`) é o plano B, só se a GPU
   reclamar.
 
-**Tomadas (02/09, sexta rodada — fecha a spec):**
+**Tomadas (02/09, sexta rodada — fechava a v10):**
 
 - **A rede vê o tamanho.** Canal `meia_aresta` no fim do termo `caixa`, gateado. (Com o
   `giro_b` da sétima rodada, 114 canais — §4, §6.7.)
@@ -1649,10 +1663,9 @@ aprendizado e propõe:
   está escrito, pronto. Ele **não herda o eixo de altura do `PEGAR`**: mesa entre 0,45
   e 0,55 m, independente do nível; a variação de carga **fica**, porque pesa na
   capacidade de girar (`knobs.Reorientar`, quando virar foco). No real o robô bota na
-  mesa, gira, e pega de novo. Na run da v2 ele fica **inerte**
-  (`voltas_max = 0` em todo nível)
-  e sorteável, para o slot não ficar constante; o checkpoint da v2 serve de warm-start
-  quando virar foco, porque nada do que falta muda a observação.
+  mesa, gira, e pega de novo. Na run da v2 ele fica **inerte** (`voltas_max = 0` em todo
+  nível) e sorteável, para o slot não ficar constante; o checkpoint da v2 serve de
+  warm-start quando virar foco, porque nada do que falta muda a observação.
 
 **Pendentes: a aprovação da sétima rodada.** Em particular: os pesos 2,0 e 1,0 e o
 `σ_solta = 0,10` são ponto de partida; e `voltas_max = 0` em todo nível na run da v2 é
