@@ -274,8 +274,15 @@ class Nivel:
     # ⚠ O eixo VERTICAL (Y) entra depois do horizontal (Z), e a razão é física:
     # girar em Z é PIVOTAR sobre a laje, e dá para empurrar com uma mão; girar em Y é
     # TOMBAR, e exige erguer uma aresta de um cubo de 20 cm.
-    voltas_max: tuple[int, ...] = (0, 0, 1, 1, 1, 1, 1)
-    eixo_vertical: tuple[bool, ...] = (False, False, False, False, True, True, True)
+    # ⚠ O REORIENTAR ESTÁ INERTE NA RUN DA v2 (spec §8.3, decisão do dono 03/09): a
+    # caixa nasce sempre dentro da tolerância de fechamento e o elo fecha em 0,3 s sem
+    # trabalho. O slot continua sorteado (senão o normalizador o vê constante). Para o
+    # cubo isto não muda nada em PEGAR, CARREGAR ou BOTAR. Quando a reorientação virar
+    # foco, a tabela sai do nível e vai para um bloco `Reorientar` próprio (spec §8.3):
+    #     voltas_max     = (0, 0, 1, 1, 1, 1, 1)       <- a de antes, por nível
+    #     eixo_vertical  = (False, False, False, False, True, True, True)
+    voltas_max: tuple[int, ...] = (0, 0, 0, 0, 0, 0, 0)
+    eixo_vertical: tuple[bool, ...] = (False,) * 7
 
     # ⚠ O eixo do `reorientar` SATURA no nível 4, e está declarado: acima dele o que
     # gradua é a altura da laje e a carga, não a orientação.
