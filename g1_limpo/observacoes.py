@@ -127,8 +127,15 @@ def caixa_no_frame_da_base(env, command_name: str) -> torch.Tensor:
     alvo_b = quat_apply_inverse(q, cmd[:, ALVO] - p)
     giro_b = quat_apply_inverse(q, cmd[:, GIRO])
     meia = getattr(env, "limpo_meia_aresta", None)
-    assert meia is not None, ("o evento `tamanho_caixa` não publicou `limpo_meia_aresta`; "
-                              "um canal constante em zero envenena o normalizador")
+    # ⚠ O `ObservationManager` chama cada termo UMA vez na construção, para medir a
+    # dimensão — e isso acontece ANTES dos eventos de startup (`load_managers` monta os
+    # managers e só depois o `__init__` do env roda o `startup`). Nessa sondagem o
+    # `limpo_meia_aresta` ainda não existe, e a resposta certa é um zero de forma (n, 1).
+    # Em todo passo real o evento já rodou; o smoke afirma que o canal bate com
+    # `limpo_meia_aresta` env a env (spec §11.1 item 3), portanto um zero "vazado" para o
+    # treino seria pego ali.
+    if meia is None:
+        meia = torch.zeros(env.num_envs, 3, device=cmd.device)
     canais = torch.cat([caixa_b, alvo_b, giro_b, meia[:, :1]], dim=-1)
     vivo = (cmd[:, ELO].long() != ANDAR).float().unsqueeze(-1)
     return canais * vivo
