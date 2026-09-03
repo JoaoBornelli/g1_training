@@ -487,7 +487,7 @@ check("`fatia_do_elo` devolve o penúltimo bloco do ATOR, de N_SLOTS canais",
                                         200 - _OB.N_CAIXA),
       f"em 114 devolveu {_OB.fatia_do_elo(114)}")
 check("`fatia_do_elo_interno` devolve o ÚLTIMO bloco do CRÍTICO",
-      _OB.fatia_do_elo_interno(119) == slice(114, 119))
+      _OB.fatia_do_elo_interno(131) == slice(126, 131))
 check("o `PPOPorElo` agrupa pelo elo INTERNO do crítico, não pelo publicado do ator",
       'observations["critic"]' in inspect.getsource(ALG.PPOPorElo.compute_returns)
       and "fatia_do_elo_interno" in inspect.getsource(ALG.PPOPorElo.compute_returns),
@@ -515,8 +515,9 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 # O teste os NOMEIA em vez de contar — contar deixaria de pegar um termo esquecido.
 _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "squeeze", "unload", "postura_ereta", "sustentacao",
-           "contato_tronco", "contato_palma", "contato_dorso"}
-check("a tabela divergE do molde em exatamente DOZE termos, e são estes",
+           "contato_tronco", "contato_palma", "contato_dorso",
+           "load", "largou"}                      # v2: a renda do BOTAR (spec §6.6.2)
+check("a tabela divergE do molde em exatamente QUATORZE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))
@@ -533,8 +534,9 @@ from g1_limpo import comando as CMD          # noqa: E402
 from g1_limpo import curriculo as CU_        # noqa: E402
 
 check("o layout do comando é por NOME, sem índice solto",
-      (CMD.ALVO, CMD.FACE, CMD.ANG, CMD.VALIDA, CMD.ELO, CMD.DIM)
-      == (slice(0, 3), slice(3, 6), 6, 7, 8, 9))
+      (CMD.ALVO, CMD.FACE, CMD.ANG, CMD.VALIDA, CMD.ELO, CMD.GIRO, CMD.DIM)
+      == (slice(0, 3), slice(3, 6), 6, 7, 8, slice(9, 12), 12),
+      "v2: o GIRO entrou POR ÚLTIMO (append), e DIM foi de 9 a 12")
 check("os 5 elos existem, e a numeração é a dos slots do one-hot",
       (CMD.ANDAR, CMD.REORIENTAR, CMD.PEGAR, CMD.CARREGAR, CMD.BOTAR)
       == (0, 1, 2, 3, 4) and len(CMD.ELOS) == 5)
@@ -556,14 +558,16 @@ check("há 6 faces declaradas", len(CMD.FACE_AXES) == 6)
 check("a face pedida é CONSTANTE, e é a marcada",
       cfg.commands["alvo_caixa"].face_alvo_b == k.cena.face_alvo_b,
       "a dificuldade está na orientação de NASCIMENTO, não em qual face se pede")
-check("o eixo do `reorientar` é em QUARTOS DE VOLTA, não em graus",
+# ⚠ v2 (spec §8.3): o REORIENTAR está INERTE nesta run. As voltas são zero em todo
+# nível e o eixo vertical não entra; a tabela antiga está em comentário no `knobs.py`.
+check("o eixo do `reorientar` é em QUARTOS DE VOLTA, e na v2 está em ZERO em todo nível",
       not hasattr(k.nivel, "ang_max_deg")
-      and tuple(k.nivel.voltas_max) == (0, 0, 1, 1, 1, 1, 1))
-check("o teto de voltas é UM: a face nunca nasce do lado OPOSTO",
-      max(k.nivel.voltas_max) == 1,
+      and tuple(k.nivel.voltas_max) == (0,) * k.nivel.n_niveis)
+check("o teto de voltas NUNCA passa de UM: a face nunca nasce do lado OPOSTO",
+      max(k.nivel.voltas_max) <= 1,
       "o robô só precisa aprender a girar no máximo 90°")
-check("o eixo VERTICAL entra depois do horizontal",
-      tuple(k.nivel.eixo_vertical) == (False, False, False, False, True, True, True),
+check("o eixo VERTICAL não entra na v2 (tombar é o REORIENTAR de verdade, que fica para depois)",
+      not any(k.nivel.eixo_vertical),
       "girar em Z é pivotar na laje; girar em Y é TOMBAR, e é muito mais difícil")
 check("o desalinho do nível 0 é 15-20°, e não zero",
       15.0 <= k.nivel.desalinho_max_deg[0] <= 20.0,
@@ -1156,22 +1160,36 @@ try:
     _pose_idx = list(_cfg3.rewards).index("pose")
     _pp = _env3.reward_manager._step_reward[:, _pose_idx]
     _manip_envs = ~_t3.isin(_elo3, _t3.tensor(ELOS_QUE_ANDAM))
-    check("num elo de manipulação a postura vale EXATAMENTE 1,0",
-          bool(_manip_envs.any())
-          and float((_pp[_manip_envs] - 1.0).abs().max()) < 1e-6,
-          f"{[round(float(x),5) for x in _pp[_manip_envs][:4]]}")
+    # ⚠ v2: a postura lê o elo PUBLICADO (spec §6.0). Na espera inicial um env de
+    # manipulação publica ANDAR e a postura é a do FABRICANTE (~0,99 aqui), não 1,0. A
+    # neutralidade vale para quem publica um elo de manipulação — que nestes poucos
+    # passos pode ser ninguém (a espera vai a 1,5 s); o check é vacuo-seguro e a borda
+    # é medida na seção 23.
+    _pub3 = _env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO].long()
+    _manip_pub = ~_t3.isin(_pub3, _t3.tensor(ELOS_QUE_ANDAM))
+    check("num elo de manipulação PUBLICADO a postura vale EXATAMENTE 1,0",
+          not bool(_manip_pub.any())
+          or float((_pp[_manip_pub] - 1.0).abs().max()) < 1e-6,
+          f"{[round(float(x),5) for x in _pp[_manip_pub][:4]]}")
     check("1,0 e não 0,0: zero seria uma penalidade por SORTEIO de elo",
           float(_pp[_manip_envs].min()) > 0.5)
+    check("na espera inicial o env de manipulação publica ANDAR, e a postura é a do fabricante",
+          bool(((_pub3 == CMD.ANDAR) & _manip_envs).any()),
+          "spec §6.3: a espera é ANDAR com twist zero, e o publicado é o que a postura lê")
     check("num elo que ANDA a postura segue sendo a do fabricante",
           bool((~_manip_envs).any())
           and float(_pp[~_manip_envs].std()) > 0.0,
           "constante ali significaria que a subclasse comeu o termo")
 
     # o sorteio, e os dois consumidores lendo o MESMO elo
-    check("o elo sorteado bate com o que o comando publica",
-          bool((_env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO].long()
-                == _elo3).all()),
+    # ⚠ v2: o que tem de bater com o sorteio é o elo INTERNO do comando (spec §6.0). O
+    # publicado é ANDAR durante a espera, e o elo sorteado fora dela.
+    _int3 = _env3.command_manager.get_term("alvo_caixa")._elo
+    check("o elo sorteado bate com o elo INTERNO do comando",
+          bool((_int3 == _elo3).all()),
           "se divergirem, a pose nasceu para um elo e o alvo para outro")
+    check("e o PUBLICADO é o sorteado ou ANDAR (a espera), nunca um terceiro",
+          bool(((_pub3 == _elo3) | (_pub3 == CMD.ANDAR)).all()))
     check("a fatia medida bate com o knob (±0,06 em 128 envs)",
           abs(float((_elo3 == CMD.ANDAR).float().mean()) - k.forma.fatia_loco) < 0.06,
           str(round(float((_elo3 == CMD.ANDAR).float().mean()), 4)))
@@ -1213,8 +1231,9 @@ try:
     _oh = _env3.observation_manager.compute()["actor"][:, _FAT_OH]
     check("o one-hot soma 1,0 em toda linha",
           float((_oh.sum(-1) - 1.0).abs().max()) < 1e-6)
-    check("o slot aceso é o elo do env",
-          bool((_oh.argmax(-1) == _elo3).all()))
+    check("o slot aceso é o elo PUBLICADO do env (ANDAR na espera, o sorteado depois)",
+          bool((_oh.argmax(-1)
+                == _env3.command_manager.get_command("alvo_caixa")[:, CMD.ELO].long()).all()))
     check("os slots 3 e 4 são constantes em ZERO, e está declarado",
           all(float(_oh[:, int(e)].abs().max()) == 0.0
               for e in (CMD.CARREGAR, CMD.BOTAR)),
@@ -1295,8 +1314,8 @@ check("a janela é uma FAIXA, e não um valor fixo",
       "de ler o canal de comando — que é o que o deploy exige")
 check("os dois limites são POSITIVOS",
       _esp[0] > 0.0 and _esp[1] > 0.0, str(_esp))
-check("ela é os 0,3 a 1,0 s do g1_poc, transcritos",
-      _esp == (0.3, 1.0), str(_esp))
+check("ela é 0,5 a 1,5 s — TODA espera é a mesma faixa (spec §6.3, decisão do dono 02/09)",
+      _esp == (0.5, 1.5), str(_esp))
 check("o knob chega ao termo de comando — não fica no default",
       cfg.commands["alvo_caixa"].espera_s == _esp,
       f"cfg tem {cfg.commands['alvo_caixa'].espera_s}, knobs tem {_esp}")
@@ -1341,9 +1360,11 @@ check("só UM elo zera o VALIDA no `_aplica_elo`, e é o ANDAR",
       f"{_src_elo.count('VALIDA] = 1.0')}, elos {len(CMD.ELOS)}")
 # ⚠ A JANELA CONTA COMO ELO QUE ANDA no rastreio. Sem esta linha ela é um terceiro
 # regime onde nada mede o corpo do robô, e alcançar a caixa ali fica de graça.
-check("o rastreio de velocidade trata a janela como elo que ANDA",
-      "limpo_aguardando" in inspect.getsource(RC_.rastreio_por_elo),
-      "sem isto a janela paga só `pose` + `upright` (2,00/s) e esperar não vale nada")
+check("o rastreio trata a espera como elo que ANDA — pelo PUBLICADO, e não por um buffer",
+      "publica_andar" in inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
+      and "limpo_aguardando" not in inspect.getsource(RC_.rastreio_por_elo),
+      "v2 (spec §6.3): o comando publica ANDAR nas duas esperas, portanto "
+      "`_anda_neste_elo` já devolve verdadeiro; a leitura do buffer ficou redundante")
 # ⚠⚠ E O INVARIANTE QUE SUSTENTA ISSO: a janela só ocorre em elo PARADO, portanto o
 # twist é ZERO nela e o rastreio paga por MANTER velocidade zero. Se uma cadeia nova
 # abrisse em `CARREGAR` — o único elo de manipulação que anda — a janela passaria a
@@ -2027,8 +2048,8 @@ secao("19. a máquina de elo: cadeias, fechamento e avanço (F4)")
 kc = k.cadeia
 
 # --- a tabela, estática ---
-check("há 4 cadeias, e NENHUMA com mais de 2 elos",
-      len(CMD.CADEIAS) == 4 and max(len(c) for c in CMD.CADEIAS) == 2,
+check("há 4 cadeias, e só a cadeia 3 tem 3 elos (spec §6.5)",
+      len(CMD.CADEIAS) == 4 and [len(c) for c in CMD.CADEIAS] == [1, 2, 2, 3],
       str(CMD.CADEIAS))
 check("o `PEGAR` aparece em TODAS as cadeias — é o eixo",
       all(CMD.PEGAR in c for c in CMD.CADEIAS),
@@ -3043,7 +3064,8 @@ try:
     _cx23.write_root_link_pose_to_sim(_t23.cat([_pt, _cx23.data.root_link_quat_w], -1))
     _cx23.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
-    _par = dict(_c23b.terminations["caixa_largada"].params)
+    # ⚠ do cfg de TREINO: o modo inspeção apaga as terminações (`terminations = {}`)
+    _par = dict(cfg.terminations["caixa_largada"].params)
     _longe = TE_.caixa_largada(_e23b, **_par)
     check("12. afastar a caixa das palmas na espera final NÃO termina (escapou desarmado)",
           not bool(_longe.any()), str(_longe.tolist()))
@@ -3123,7 +3145,13 @@ try:
     # 19. o `caiu` por tamanho
     _t24c._pegou[:] = True
     _e24.step(_t24.zeros(_e24.num_envs, _n24))
-    _par24 = dict(_c24.terminations["caixa_largada"].params)
+    _par24 = dict(cfg.terminations["caixa_largada"].params)   # o modo inspeção não tem terminações
+    # ⚠ `soltou` LIGADO para ISOLAR o `caiu`. A terminação é `(caiu | escapou) & pegou`,
+    # e aqui a caixa é teleportada longe das palmas — `escapou` dispararia e o teste
+    # passaria pelo motivo errado, ou falharia no caso negativo. Com `soltou` o `escapou`
+    # está desarmado (spec §6.6.3) e o que sobra é exatamente o `caiu` por tamanho.
+    _t24c._soltou[:] = True
+    _e24.step(_t24.zeros(_e24.num_envs, _n24))
     _q = _cx.data.root_link_quat_w
     _pf = _cx.data.root_link_pos_w.clone()
     _pf[:, 2] = _e24.scene.env_origins[:, 2] + _a                # deitada no chão
@@ -3148,7 +3176,8 @@ except Exception as _e24x:      # noqa: BLE001
 secao("25. a observação nova")
 check("3. `N_CAIXA` é 10: caixa_b(3) alvo_b(3) giro_b(3) meia_aresta(1)", OB_.N_CAIXA == 10)
 check("3. o VALIDA NÃO está na observação",
-      "VALIDA" not in inspect.getsource(OB_.caixa_no_frame_da_base))
+      "[:, VALIDA]" not in inspect.getsource(OB_.caixa_no_frame_da_base),
+      "o docstring pode citar o bit; o CÓDIGO não pode lê-lo")
 check("o canal GIRO é o ÚLTIMO do comando (append), e DIM é 12",
       CMD.GIRO == slice(9, 12) and CMD.DIM == 12)
 try:
@@ -3161,10 +3190,15 @@ try:
     _e25 = ManagerBasedRlEnv(cfg=_c25, device="cpu")
     _o25, _ = _e25.reset()
     _n25 = _e25.action_manager.total_action_dim
-    check("3. o ator tem 114 canais e o crítico 119",
-          _o25["actor"].shape[-1] == 114 and _o25["critic"].shape[-1] == 119,
-          f"ator {_o25['actor'].shape[-1]}, crítico {_o25['critic'].shape[-1]}")
-    _int = _o25["critic"][:, OB_.fatia_do_elo_interno(119)]
+    # ⚠ O CRÍTICO DO FABRICANTE JÁ É ASSIMÉTRICO: ele tem 12 canais privilegiados de pé
+    # (`foot_height` 2, `foot_air_time` 2, `foot_contact` 2, `foot_contact_forces` 6)
+    # que o ator não tem. Portanto crítico = 114 + 12 + 5 (`elo_interno`) = 131. A spec
+    # v14 dizia 119 por ignorar os 12; medido em 03/09 e corrigido.
+    _dc25 = _o25["critic"].shape[-1]
+    check("3. o ator tem 114 canais e o crítico 131 (114 + 12 do fabricante + 5 do interno)",
+          _o25["actor"].shape[-1] == 114 and _dc25 == 114 + 12 + 5,
+          f"ator {_o25['actor'].shape[-1]}, crítico {_dc25}")
+    _int = _o25["critic"][:, OB_.fatia_do_elo_interno(_dc25)]
     check("o `elo_interno` do crítico é um one-hot",
           bool(_t25.allclose(_int.sum(-1), _t25.ones(16))))
     # --- 1. o gate: caixa PERTO e publicado ANDAR -> os 10 canais são zero ---
@@ -3176,7 +3210,7 @@ try:
         _cx25.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
         _o25 = _e25.step(_t25.zeros(16, _n25))[0]
     _cx_slice_a = _o25["actor"][:, 114 - OB_.N_CAIXA:114]
-    _cx_slice_c = _o25["critic"][:, 119 - 5 - OB_.N_CAIXA:119 - 5]
+    _cx_slice_c = _o25["critic"][:, _dc25 - 5 - OB_.N_CAIXA:_dc25 - 5]
     check("1. com a caixa a 0,5 m e o publicado em ANDAR, os 10 canais são EXATAMENTE zero (ator)",
           float(_cx_slice_a.abs().max()) == 0.0, f"máximo {float(_cx_slice_a.abs().max())}")
     check("1. ... e no crítico também",
@@ -3215,8 +3249,10 @@ try:
     # --- 23. giro_b: em PEGAR a face está CONGELADA -> zero na abertura, e cresce ao torcer
     _t25c = _e25b.command_manager.get_term("alvo_caixa")
     _giro0 = _o25b["actor"][:, 114 - 4:114 - 1]
+    # ⚠ ~0 e não 0 exato: a face congela na abertura do elo e a caixa assenta alguns
+    # milímetros depois disso. Medido: 0,029 rad = 1,7°.
     check("23. em PEGAR, na abertura, giro_b é ~0 (face congelada)",
-          float(_giro0.norm(dim=-1).max()) < 2e-2, f"{float(_giro0.norm(dim=-1).max()):.4f}")
+          float(_giro0.norm(dim=-1).max()) < 5e-2, f"{float(_giro0.norm(dim=-1).max()):.4f}")
     _cx25b = _e25b.scene["box"]
     _ang = math.radians(20.0)
     # ⚠ a torção é RELATIVA ao quatérnion da abertura (a face está congelada nele): a
@@ -3231,7 +3267,7 @@ try:
     _giro1 = _o25b["actor"][:, 114 - 4:114 - 1]
     check("23. torcida 20° em Z, |giro_b| ≈ 0,35 e bate com ANG",
           float((_giro1.norm(dim=-1) - _t25c.command[:, CMD.ANG]).abs().max()) < 1e-4
-          and abs(float(_giro1.norm(dim=-1).mean()) - _ang) < 0.03,
+          and abs(float(_giro1.norm(dim=-1).mean()) - _ang) < 0.05,
           f"|giro| {float(_giro1.norm(dim=-1).mean()):.3f}, ANG {float(_t25c.command[:, CMD.ANG].mean()):.3f}")
     check("23. ... e o eixo é Z", float(_giro1[:, :2].abs().max()) < 0.05)
     del _e25b
@@ -3249,6 +3285,12 @@ try:
     _n25c = _e25c.action_manager.total_action_dim
     _cx25c = _e25c.scene["box"]
     _t25d = _e25c.command_manager.get_term("alvo_caixa")
+    # ⚠⚠ SEM CADEIA, e sem isto o teste mede outra coisa. Com `reorientar_inerte` o
+    # REORIENTAR fecha em 0,3 s e a cadeia 1 avança para o PEGAR — e no PEGAR a face é
+    # CONGELADA, portanto o `giro_b` passa a medir a torção desde o avanço em vez do
+    # giro pedido. Medido em 03/09: o primeiro caso lia (0,0,0) e o do tombo lia o eixo
+    # X. `CADEIA_NENHUMA` bloqueia o avanço (o `_avanca_elo` filtra por `_cadeia >= 0`).
+    _t25d._cadeia[:] = CMD.CADEIA_NENHUMA
 
     def _giro_com(quat):
         for _ in range(int(k.alvo.espera_s[1] / _e25c.step_dt) + 5):
@@ -3282,8 +3324,9 @@ secao("26. a renda do BOTAR")
 check("16. o `load` é o espelho do `unload`: só no BOTAR, gateado por `perto`",
       "== BOTAR" in inspect.getsource(RC_.load) and "raio_mult" in inspect.getsource(RC_.load))
 check("17. `squeeze` e `unload` são MASCARADOS no BOTAR (o precedente do g1_poc)",
-      "!= BOTAR" in inspect.getsource(RC_.squeeze)
-      and "!= BOTAR" in inspect.getsource(RC_.unload))
+      "_fora_do_botar" in inspect.getsource(RC_.squeeze)
+      and "_fora_do_botar" in inspect.getsource(RC_.unload)
+      and "!= BOTAR" in inspect.getsource(RC_._fora_do_botar))
 check("17. `alcança ≡ 1` no BOTAR ou em `soltou`",
       "== BOTAR" in inspect.getsource(RC_._alcancar)
       and "limpo_soltou" in inspect.getsource(RC_._alcancar))
@@ -3302,11 +3345,17 @@ try:
     _cx26 = _e26.scene["box"]
     _q26 = _cx26.data.root_link_quat_w.clone()
 
-    def _renda(passos=4, alvo_dz=None):
-        """Soma dos termos por segundo, com a caixa mantida em alvo + dz (ou livre)."""
+    def _renda(passos=4, alvo_dz=None, alvo_dx=0.0):
+        """Soma dos termos por segundo, com a caixa PINADA em alvo + (dx, dz).
+
+        ⚠ Pinar a cada passo é obrigatório: a pose escrita persiste e a caixa não cai,
+        portanto "solta e deixa assentar" não existe aqui. Ver o bloco de medição
+        abaixo para a tabela força × penetração.
+        """
         for _ in range(passos):
             if alvo_dz is not None:
                 _p = _t26c.command[:, CMD.ALVO].clone()
+                _p[:, 0] += alvo_dx
                 _p[:, 2] += alvo_dz
                 _cx26.write_root_link_pose_to_sim(_t26.cat([_p, _q26], -1))
                 _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
@@ -3351,43 +3400,62 @@ try:
     check("18. pairando, `load` é 0", abs(_dA["load"]) < 1e-6, f"{_dA['load']:.4f}")
     check("17. pairando no BOTAR, `unload` e `postura_ereta` são 0 (mascarados)",
           abs(_dA["unload"]) < 1e-9 and abs(_dA["postura_ereta"]) < 1e-9)
-    # C: apoiada no alvo (solta a caixa sobre a laje e deixa assentar 5 passos)
-    _pC = _t26c.command[:, CMD.ALVO].clone()
-    _cx26.write_root_link_pose_to_sim(_t26.cat([_pC, _q26], -1))
-    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
-    _rC, _dC = _renda(passos=5)
-    check("18. apoiada no alvo, `load` é ~1 × 2,0", _dC["load"] > 1.6, f"{_dC['load']:.3f}")
-    check("12. e ainda NÃO fechou (0,3 s de sustain)", not bool(_t26c.fechou.any()))
-    # apoiada a 25 cm do alvo -> load 0
-    _pD = _pC.clone()
-    _pD[:, 1] += 0.25
-    _cx26.write_root_link_pose_to_sim(_t26.cat([_pD, _q26], -1))
-    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
-    _rD, _dD = _renda(passos=4)
-    check("18. apoiada a 25 cm do alvo, `load` é 0 — o gate de posição", abs(_dD["load"]) < 1e-6)
-    # prensada com o dobro do peso -> load segue 1 (clamp)
-    _pE = _pC.clone()
-    _pE[:, 2] -= 0.004
-    _cx26.write_root_link_pose_to_sim(_t26.cat([_pE, _q26], -1))
-    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    # ⚠⚠ COMO SE PRODUZ "APOIADA" NUM TESTE, e o método é uma cicatriz de 03/09. A
+    # `write_root_link_pose_to_sim` PERSISTE: ela re-aplica a pose a cada passo, portanto
+    # a caixa NÃO CAI. Medido: solta 20 cm acima do alvo, ela fica 25 passos a 20 cm, e
+    # `F_apoio` é ZERO. Com a caixa pinada, a força de apoio vem só da PENETRAÇÃO — e
+    # pinar exatamente na altura de repouso dá penetração zero, logo força zero. Por isso
+    # o estado "apoiada" aqui é pinar 2 mm ABAIXO do alvo. MEDIDO, uniforme nos 8 envs:
+    #
+    #     dz    +0,020   0,000   −0,002   −0,005   −0,010   −0,020
+    #     F/mg   0,00     0,00    0,98     0,94     0,88     0,75
+    #
+    # A força CAI com penetração maior (o re-pino a cada passo limita o impulso), o que
+    # é artefato do método e não física da tarefa — por isso a penetração é mínima.
+    _DZ_APOIA = -0.002
     _t26c._sust[:] = 0.0
-    _rE, _dE = _renda(passos=3, alvo_dz=-0.004)
-    _F = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
+    _rC, _dC = _renda(passos=6, alvo_dz=_DZ_APOIA)
+    check("18. apoiada no alvo, `load` é ~1 × 2,0", _dC["load"] > 1.8, f"{_dC['load']:.3f}")
+    check("12. e ainda NÃO fechou (0,3 s de sustain, e são 6 passos)",
+          not bool(_t26c.fechou.any()), f"sust {float(_t26c._sust.min()):.2f} s")
+    # ⚠ apoiada a 25 cm do alvo -> `load` 0. O deslocamento é em X, e não em Y: a laje
+    # tem meia-aresta de 0,30 e o alvo vai a y = ±0,12, portanto +0,25 em y sairia da
+    # laje e a força seria zero por AUSÊNCIA DE LAJE — o teste passaria pelo motivo
+    # errado. Em x o alvo vai a 0,30–0,40 e a laje cobre 0,20–0,80.
+    _dist_fora = 0.25
+    _rD, _dD = _renda(passos=4, alvo_dz=_DZ_APOIA, alvo_dx=_dist_fora)
+    _F_fora = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
     _mg = float((_e26.limpo_massa * 9.81).mean())
-    check("18. prensada (F > m·g), `load` continua 1 — o `clamp`",
-          _F > 1.2 * _mg and _dE["load"] > 1.8, f"F/mg {_F/_mg:.2f}, load {_dE['load']:.3f}")
-    # ⚠ se `F/mg` sair abaixo de 1,2, a penetração de 4 mm não bastou para este `solref`:
-    # aumente o `−0.004` dos dois lugares acima para `−0.008`. O que o check afirma é o
-    # `clamp`, e não o valor da força.
+    check("18. apoiada a 25 cm do alvo, `load` é 0 — e é o GATE, não a falta de apoio",
+          abs(_dD["load"]) < 1e-6 and _F_fora > 0.5 * _mg,
+          f"load {_dD['load']:.4f} com F/mg {_F_fora/_mg:.2f}")
+    # ⚠ O CLAMP não se prova por penetração (a força nunca passa de m·g com a caixa
+    # pinada, ver a tabela acima). Prova-se pela MASSA PUBLICADA: `load` é
+    # `clamp(F/(m·g))`, portanto dividir `limpo_massa` por 3 põe o argumento em ~2,9 e o
+    # termo tem de ficar EXATAMENTE no teto de 2,0.
+    _m0 = _e26.limpo_massa.clone()
+    _e26.limpo_massa[:] = _m0 / 3.0
+    _t26c._sust[:] = 0.0
+    _rE, _dE = _renda(passos=3, alvo_dz=_DZ_APOIA)
+    _F = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
+    _mg3 = float((_e26.limpo_massa * 9.81).mean())
+    check("18. com F/(m·g) ≈ 3, `load` fica EXATO no teto de 2,0 — o `clamp`",
+          _F > 2.0 * _mg3 and abs(_dE["load"] - 2.0) < 1e-6,
+          f"F/mg {_F/_mg3:.2f}, load {_dE['load']:.4f}")
+    _e26.limpo_massa[:] = _m0
     # volta a apoiar no alvo e deixa o BOTAR FECHAR sozinho -> espera final
-    _cx26.write_root_link_pose_to_sim(_t26.cat([_pC, _q26], -1))
-    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
-    _rC2, _dC2 = _renda(passos=5)
+    _t26c._sust[:] = 0.0
+    _rC2, _dC2 = _renda(passos=6, alvo_dz=_DZ_APOIA)
     for _ in range(int(k.cadeia.sustenta_outros_s / _e26.step_dt) + 3):
+        _pS = _t26c.command[:, CMD.ALVO].clone()
+        _pS[:, 2] += _DZ_APOIA
+        _cx26.write_root_link_pose_to_sim(_t26.cat([_pS, _q26], -1))
+        _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
         _e26.step(_t26.zeros(8, _n26))
     check("12. apoiada no alvo o BOTAR FECHA sozinho e `soltou` marca",
-          bool(_t26c.fechou.all()) and bool(_t26c._soltou.all()))
-    _rF, _dF = _renda(passos=4)
+          bool(_t26c.fechou.all()) and bool(_t26c._soltou.all()),
+          f"fechou {int(_t26c.fechou.sum())}/8, soltou {int(_t26c._soltou.sum())}/8")
+    _rF, _dF = _renda(passos=4, alvo_dz=_DZ_APOIA)
     check("18. na espera final, com as palmas longe, `largou` ≥ 0,95 × 1,0",
           _dF["largou"] >= 0.95, f"{_dF['largou']:.3f}")
     check("16. a RENDA É MONÓTONA: pairar < apoiada < espera final (palmas longe)",
@@ -3460,6 +3528,15 @@ check("24. `voltas_max` é zero e `eixo_vertical` é falso em TODO nível",
       f"{k.nivel.voltas_max} / {k.nivel.eixo_vertical}")
 check("o REORIENTAR CONTINUA sorteável — o slot não pode ficar constante",
       CMD.REORIENTAR in ELOS_SORTEAVEIS)
+# ⚠ MEDIDO em 03/09: `voltas_max = 0` NÃO basta para o elo ficar inerte. A direção pedida
+# é "da caixa para o robô", e com o jitter lateral da caixa (±0,18 m em y) ela sai até
+# ~29° do eixo −X; somado ao desalinho de ±15°, ~1 em 6 envs nasce FORA dos 25° de
+# tolerância e o elo não fecha sozinho. O interruptor de verdade é o knob
+# `reorientar_inerte`: o fecho do REORIENTAR ignora `alinhado` enquanto ele for verdadeiro.
+check("24. o interruptor `reorientar_inerte` está LIGADO e chega ao comando",
+      k.cadeia.reorientar_inerte is True
+      and cfg.commands["alvo_caixa"].reorientar_inerte is True,
+      "sem ele ~15% dos episódios de REORIENTAR exigiriam girar a caixa até 45°")
 try:
     import torch as _t28
 

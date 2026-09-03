@@ -108,6 +108,11 @@ def _medidas(env) -> dict:
         "nivel": env.limpo_nivel.clone(),
         "topo_laje": (pr[:, 2] + 0.0).clone(),
         "massa": env.limpo_massa.clone(),
+        # ⚠ v2: a meia-aresta é POR ENV (spec §6.7). Toda conta de geometria da caixa lê
+        # daqui, e não do knob, senão o inspetor acusa 3 cm de erro onde há só uma
+        # caixa maior.
+        "meia": (env.limpo_meia_aresta[:, 2].clone() if hasattr(env, "limpo_meia_aresta")
+                 else torch.full_like(cx[:, 2], 0.10)),
         "caixa": (cx - rel).clone(),
         "alvo": (cmd[:, CMD.ALVO] - rel).clone(),
         "valida": cmd[:, CMD.VALIDA].clone(),
@@ -135,7 +140,8 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
     c, n, a = k.cena, k.nivel, k.alvo
     f: list[str] = []
     niv = int(m["nivel"][0])
-    meia_z, meia_cx = c.prateleira_meia_z, c.caixa_meia_aresta[2]
+    meia_z = c.prateleira_meia_z
+    meia_cx = m["meia"]                     # a meia-aresta DE CADA ENV (v2, spec §6.7)
     topo = m["topo_laje"] + meia_z          # o topo real da laje
 
     # --- comuns a todos os elos ---
@@ -533,7 +539,10 @@ def tabela(args) -> int:
         # `--nivel N` restringe a esse nível, para depuração.
         _niveis = ([args.nivel] if args.nivel is not None
                    else list(range(Knobs().nivel.n_niveis)))
-        for cadeia_id, niv in ((c, v) for c in cadeias_ids[1:] for v in _niveis):
+        # ⚠ v2: a cadeia 3 tem TRÊS elos. `salto` diz quantos avanços dar antes de ler:
+        # 1 lê o 2º elo, 2 lê o 3º. Cada (cadeia, nível, salto) é um env novo.
+        for cadeia_id, niv, salto in ((c, v, s) for c in cadeias_ids[1:] for v in _niveis
+                                      for s in range(1, len(CMD.CADEIAS[c]))):
 
             try:
                 # A cadeia foi forçada em _ambiente, acima
@@ -545,7 +554,16 @@ def tabela(args) -> int:
                 cmd_term = env.command_manager.get_term("alvo_caixa")
                 ids = torch.arange(env.num_envs, device=env.device)
                 if hasattr(cmd_term, "forca_avanco"):
+                  # ⚠ v2: `salto` avanços, um passo pinado depois de cada um. E o
+                  # SUSTAIN do CARREGAR de segurar parado é TRAVADO: o inspetor zera a
+                  # espera, portanto o `_segurar` sorteado é zero e o CARREGAR fecharia
+                  # sozinho no passo da leitura — a laje seria lida com o buffer de +5 m
+                  # e o BOTAR acusaria "laje dentro da caixa". Era leitura obsoleta, não
+                  # defeito (medido em 03/09).
+                  for _salto_i in range(salto):
                     cmd_term.forca_avanco(ids)
+                    if hasattr(cmd_term, "_segurar"):
+                        cmd_term._segurar[:] = 1.0e9
                     # ⚠⚠ UM PASSO, E COM A CAIXA PINADA. Sem isto a leitura é do
                     # buffer VELHO: o `_laje_para` chama `write_mocap_pose_to_sim`, e
                     # os buffers de `.data` só são recomputados no forward seguinte.
@@ -583,7 +601,8 @@ def tabela(args) -> int:
                 elo_depois_nome = CMD.ELOS[elo_depois_i]
                 cadeia_nomes = _nomes_de_cadeia()
                 cadeia_nome = cadeia_nomes[cadeia_id] if cadeia_id < len(cadeia_nomes) else f"cadeia {cadeia_id}"
-                print(f"\ncadeia {cadeia_id:>1} {cadeia_nome:>25} no nível {niv}:")
+                print(f"\ncadeia {cadeia_id:>1} {cadeia_nome:>25} no nível {niv}, "
+                      f"elo {salto + 1} ({elo_depois_nome}):")
 
                 # Checagem crítica: no CARREGAR a laje tem de estar em afasta_z
                 # ⚠ TOLERÂNCIA DERIVADA: A laje é uma mocap, e é escrita de forma
@@ -607,9 +626,7 @@ def tabela(args) -> int:
                 if elo_depois_i == CMD.BOTAR:
                     topo = float(m["topo_laje"][0] + k.cena.prateleira_meia_z)
                     caixa_z = float(m["caixa"][0, 2])
-                    meia_z = (k.cena.caixa_meia_aresta[2]
-                              if isinstance(k.cena.caixa_meia_aresta, (tuple, list))
-                              else k.cena.caixa_meia_aresta)
+                    meia_z = float(m["meia"][0])          # a meia-aresta DESTE env (v2)
                     # ⚠ O FUNDO QUE O COMANDO USOU é o de ANTES do passo, e a
                     # tolerância é a QUEDA MEDIDA da caixa nesse passo — não um número.
                     # Com 5 mm chutados a checagem acusava uma violação de 6 mm que era
