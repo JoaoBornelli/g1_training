@@ -540,6 +540,8 @@ class Tarefa:
     Soma dos pesos = 11,5/s. É o teto da tarefa, e ele se compara com o PISO DA ESTÁTUA
     de **5,81/s** (medido 2026-08-26, robô travado num elo parado). Razão ~2:1 no
     fecho completo, e é a resposta à pergunta "ficar parado paga mais que agir?".
+
+    Mais `load` (2,0) e `largou` (1,0), só no BOTAR e na espera final — spec §6.6.2.
     """
 
     # --- os sete pesos ---
@@ -550,6 +552,14 @@ class Tarefa:
     unload: float = 2.0            # a caixa deixou de pesar na laje
     postura_ereta: float = 2.0     # ergueu SEM agachar
     sustentacao: float = 0.5       # ficou lá
+
+    # ⚠ A RENDA DO BOTAR (spec §6.6.2, decisão do dono 03/09). Sem estes dois, pairar a
+    # caixa a 1 cm da laje rendia 16,5/s e apoiá-la 12,5/s: o BOTAR não fechava. O
+    # `g1_poc` tinha `load` + as máscaras de `squeeze`/`unload` e a reescrita as perdeu.
+    load: float = 2.0              # clamp(F_apoio/m·g) × perto — o espelho do `unload`, só no BOTAR
+    largou: float = 1.0            # soltou × load × (1 − exp(−(d_palma/σ_solta)²)) — tirar as mãos
+    load_raio_mult: float = 2.0    # `perto` do load = d ≤ raio_mult × tol_pos (g1_poc: 2)
+    sigma_solta: float = 0.10      # m; palmas a 10 cm rendem 63%, a 20 cm 98%
 
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
