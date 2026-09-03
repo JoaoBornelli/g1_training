@@ -22,7 +22,7 @@ Copiadas da spec. Valem para toda task.
 - `git diff exp/g1-limpo -- g1_limpo/curriculo.py` fica **vazio** ao fim.
 - Em `g1_limpo/recompensas.py` só mudam `_alcancar`, `squeeze`, `unload`, `rastreio_por_elo` (limpeza) e entram `load` e `largou`. Em `g1_limpo/terminacoes.py` só muda `caixa_largada`. Em `g1_limpo/eventos.py` **não** mudam `entrega_tarefa_no_viewer` nem `avanca_elo_no_viewer`.
 - Pesos existentes em `knobs.py` não mudam. Knobs novos e seus valores (spec §13): `Tarefa.load = 2.0`, `Tarefa.largou = 1.0`, `Tarefa.load_raio_mult = 2.0`, `Tarefa.sigma_solta = 0.10`, `Terminacao.caixa_folga_chao = 0.02` (substitui `caixa_z_min`), `Alvo.espera_s = (0.5, 1.5)`, `Cena.caixa_meia_aresta_faixa = (0.07, 0.13)`, `Cena.caixa_n_variantes = 8`, `Marcha.rel_turning_envs = 0.10`, `Marcha.turning_wz_min = 0.2`, `Nivel.voltas_max = (0,)*7`, `Nivel.eixo_vertical = (False,)*7`.
-- Observação: ator **114** canais, crítico **119**. Layout do comando: canal novo entra **por último** (`GIRO = slice(9, 12)`, `DIM = 12`).
+- Observação: ator **114** canais, crítico **131** (o crítico do fabricante já traz 12 canais privilegiados de pé — `foot_height` 2, `foot_air_time` 2, `foot_contact` 2, `foot_contact_forces` 6 — mais os 5 do `elo_interno`; medido na integração de 03/09). Layout do comando: canal novo entra **por último** (`GIRO = slice(9, 12)`, `DIM = 12`).
 - O layout da observação é **append**: ator termina em `[..., elo(5), caixa(10)]`; crítico em `[..., elo(5), caixa(10), elo_interno(5)]`.
 - Comando para rodar o smoke, sempre da raiz do repo (ele lê caminhos relativos):
 
@@ -1079,7 +1079,7 @@ check("`fatia_do_elo` devolve o penúltimo bloco do ATOR, de N_SLOTS canais",
                                         200 - _OB.N_CAIXA),
       f"em 114 devolveu {_OB.fatia_do_elo(114)}")
 check("`fatia_do_elo_interno` devolve o ÚLTIMO bloco do CRÍTICO",
-      _OB.fatia_do_elo_interno(119) == slice(114, 119))
+      _OB.fatia_do_elo_interno(131) == slice(126, 131))
 check("o `PPOPorElo` agrupa pelo elo INTERNO do crítico, não pelo publicado do ator",
       'observations["critic"]' in inspect.getsource(ALG.PPOPorElo.compute_returns)
       and "fatia_do_elo_interno" in inspect.getsource(ALG.PPOPorElo.compute_returns),
@@ -1125,10 +1125,10 @@ try:
     _e25 = ManagerBasedRlEnv(cfg=_c25, device="cpu")
     _o25, _ = _e25.reset()
     _n25 = _e25.action_manager.total_action_dim
-    check("3. o ator tem 114 canais e o crítico 119",
-          _o25["actor"].shape[-1] == 114 and _o25["critic"].shape[-1] == 119,
+    check("3. o ator tem 114 canais e o crítico 131",
+          _o25["actor"].shape[-1] == 114 and _o25["critic"].shape[-1] == 131,
           f"ator {_o25['actor'].shape[-1]}, crítico {_o25['critic'].shape[-1]}")
-    _int = _o25["critic"][:, OB_.fatia_do_elo_interno(119)]
+    _int = _o25["critic"][:, OB_.fatia_do_elo_interno(131)]
     check("o `elo_interno` do crítico é um one-hot",
           bool(_t25.allclose(_int.sum(-1), _t25.ones(16))))
     # --- 1. o gate: caixa PERTO e publicado ANDAR -> os 10 canais são zero ---
@@ -1140,7 +1140,7 @@ try:
         _cx25.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
         _o25 = _e25.step(_t25.zeros(16, _n25))[0]
     _cx_slice_a = _o25["actor"][:, 114 - OB_.N_CAIXA:114]
-    _cx_slice_c = _o25["critic"][:, 119 - 5 - OB_.N_CAIXA:119 - 5]
+    _cx_slice_c = _o25["critic"][:, _dc25 - 5 - OB_.N_CAIXA:_dc25 - 5]
     check("1. com a caixa a 0,5 m e o publicado em ANDAR, os 10 canais são EXATAMENTE zero (ator)",
           float(_cx_slice_a.abs().max()) == 0.0, f"máximo {float(_cx_slice_a.abs().max())}")
     check("1. ... e no crítico também",
@@ -1419,7 +1419,7 @@ cd /home/joaobornelli/Documents/g1_training && git -c core.hooksPath=/dev/null a
 Spec §4, §6.1, §6.2, §8.3. Os 10 canais de caixa sao zero quando o
 publicado e ANDAR, mesmo com a caixa a 0,5 m. ANG (1) vira giro_b (3):
 eixo x angulo do giro pedido, no frame da base — diz para que lado
-girar. meia_aresta entra no fim do termo caixa. Ator 114, critico 119: o
+girar. meia_aresta entra no fim do termo caixa. Ator 114, critico 131: o
 critico ganha o one-hot do elo interno e o PPOPorElo agrupa por ele.
 Smoke: secao 25 (gate com a caixa perto, invariante, borda, giro_b em Z e
 em Y, sinal)."

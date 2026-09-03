@@ -1,7 +1,7 @@
 # Contrato de troca de tarefa — g1_limpo
 
-**Estado:** v14 APROVADA, SEM PENDÊNCIAS, em 2026-09-03 (§13, sétima rodada, "aprovado tudo"). A v12 estava aprovada; a revisão de consistência de 03/09 (§6.6.1) achou três buracos de aprendizado e a v13 os consertou; a v14 fechou o contrato do `REORIENTAR` (§8.3) sem trazer o treino dele para a v2. Nada implementado. Próximo passo: o plano de implementação na branch `exp/g1-limpo-v2`.
-**Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v14 — `ANG` vira `giro_b`, 114 canais; o `REORIENTAR` ganha contrato, quatro primitivas e o desenho do treino, e fica inerte na v2. v13 — a renda do `BOTAR` e da espera final vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
+**Estado:** v15 — **IMPLEMENTADA** na branch `exp/g1-limpo-v2` em 2026-09-03, com o plano `docs/planos/2026-09-03-plano-contrato-de-troca-v2.md`. Portões: `smoke` **517 ok / 0 falhas** (base 425), `paridade` 86 campos idênticos, `inspeciona` 0 falhas de sanidade nos 5 elos e nas 3 cadeias × 7 níveis. Próximo passo: o dono dá o push, o Kaggle faz o pull, e o treino começa **do zero** (§12).
+**Escrito:** 2026-09-02 · **Revisado:** 2026-09-03 (v15 — o que a implementação mediu e corrigiu na spec: crítico com **131** canais e não 119; a renda do `BOTAR` medida em 10,7 → 13,0 → 17,9; o `REORIENTAR` exige um knob próprio para ficar inerte. v14 — `ANG` vira `giro_b`, 114 canais; o `REORIENTAR` ganha contrato e fica inerte. v13 — a renda do `BOTAR` vira monótona; `caiu` por tamanho; crítico com o elo interno; `dr.geom_size` é do próprio mjlab)
 **Módulo:** `g1_limpo/`
 
 Este documento existe para que a implementação — e o agente — saibam a todo momento
@@ -159,8 +159,11 @@ A observação do `actor` tem **114 canais**, nesta ordem:
 | 7 | `elo` (one-hot) | 5 | **EXTERNO** — o botão de tarefa |
 | 8 | `caixa` | 10 | ver §4.1 |
 
-Total: `3+3+3+29+29+29+3+5+10 = 114`. (O **crítico** tem 119: os mesmos 114 mais o
-`elo_interno` da §6.1. Ele não vai para o robô.)
+Total: `3+3+3+29+29+29+3+5+10 = 114`. (O **crítico** tem **131**: os mesmos 114, mais
+os 12 canais privilegiados de pé que o crítico do fabricante já tem — `foot_height` 2,
+`foot_air_time` 2, `foot_contact` 2, `foot_contact_forces` 6 —, mais o `elo_interno` da
+§6.1. Medido em 03/09 na integração; a v14 dizia 119 por ignorar os 12 do fabricante. O
+ator-crítico já era assimétrico no molde. O crítico não vai para o robô.)
 
 ⚠ **112 antes, 114 depois.** O canal `VALIDA` **sai** da observação (§6.2); ele continua
 dentro do sim como porta de recompensa e de fecho de elo. O canal `meia_aresta` — o
@@ -460,7 +463,7 @@ final o robô rende cerca de 18/s; um env `standing` da locomoção rende 6/s co
 que o ator vê não separa os dois, e a função de valor erra nos dois lados — o mesmo
 estado, dois retornos. Com o interno ele separa espera inicial, `standing` e espera
 final. É ator-crítico assimétrico, padrão, e **não toca o deploy**: o crítico não vai
-para o robô. A observação do ator fica com 114 canais; a do crítico, com 119. E
+para o robô. A observação do ator fica com 114 canais; a do crítico, com 131 (§4). E
 `aguardando` e `soltou` **não** precisam de canal próprio no crítico: os dois são
 `interno ≠ publicado`, e o crítico vê os dois one-hots.
 
@@ -787,8 +790,22 @@ na mesa paga `contato_*`; derrubar termina (`caiu`, §6.6.3).
 
 **Pesos e σ são ponto de partida**, não medição: 2,0 e 1,0 copiam a escala dos termos
 vizinhos (`unload` = 2,0; `precise_ori` = 1,0). O smoke prova a **monotonia** da tabela
-com o robô travado em cada um dos cinco estados (§11.1, item 16); a GPU prova se a política
-a segue.
+com o robô travado (§11.1, item 16); a GPU prova se a política a segue.
+
+⚠ **MEDIDO em 03/09, na implementação, e a monotonia se confirmou:**
+
+```
+pairar 2 cm acima do alvo   10,70/s
+apoiada no alvo             13,00/s      <- fecha o BOTAR em 0,3 s
+espera final, palmas longe  17,87/s
+```
+
+Três estados, e não os cinco da tabela acima: o "apoio parcial" (`F = 0,49·mg`) **não é
+produzível** num teste com a caixa pinada. A pose escrita persiste (a caixa não cai), e a
+força de apoio vem só da penetração — 2 mm dão 0,98·mg em todo env, e penetração maior dá
+MENOS força, porque o re-pino limita o impulso do solver. O estado do meio existe na
+física real, mas não no banco de testes; o que importa é que a renda **cresce** em cada
+passo em direção ao fim, e isso está medido.
 
 #### 6.6.3 O que continua igual, e a terminação
 
@@ -1093,8 +1110,15 @@ política por one-hot funciona, e não para aprender a girar caixa. Portanto:
 - **o elo, a cadeia 1 e o fechamento FICAM** no código, como estão;
 - **ele CONTINUA sorteável** — ver o porquê abaixo, que é contra-intuitivo;
 - ⚠ **ele fica INERTE na run da v2**: `voltas_max = 0` em todo nível (e `eixo_vertical`
-  falso), para a caixa nascer sempre dentro da tolerância e o elo fechar em 0,3 s sem
-  trabalho, em todo nível — como já acontece hoje nos níveis 0 e 1. É o defeito abaixo
+  falso), **mais o knob `Cadeia.reorientar_inerte = True`**, que faz o fecho do
+  `REORIENTAR` ignorar `alinhado` — o elo fecha em 0,3 s sem trabalho, em todo env.
+  ⚠ **Medido em 03/09 na implementação:** `voltas_max = 0` sozinho **não** bastava. A
+  direção pedida é "da caixa para o robô", e com o jitter lateral da caixa (±0,18 m em
+  y) ela sai até ~29° do eixo −X; somado ao desalinho de ±15°, ~1 em 6 envs nascia
+  **fora** dos 25° de tolerância e ficava preso no `REORIENTAR`. Portanto a afirmação
+  antiga desta seção ("nos níveis 0 e 1 a caixa nasce dentro da tolerância") valia para
+  ~85% dos envs, não para todos. O knob é o interruptor; desligá-lo é o primeiro passo
+  quando a reorientação virar foco. É o defeito abaixo
   usado de propósito como interruptor. Para o cubo isso não muda nada em `PEGAR`,
   `CARREGAR` ou `BOTAR`: um quarto de volta é simetria do cubo, e o `precise_ori` desses
   elos mede a torção desde a abertura, não a orientação de nascimento. O custo é 0,3 s de
@@ -1420,7 +1444,7 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
 2. **A invariante que substitui o bit.** Em nenhum passo do treino existe
    `|caixa_b| = 0` com publicado ≠ `ANDAR`, nem `|caixa_b| ≠ 0` com publicado = `ANDAR`.
    Não há terceiro estado.
-3. **A dimensão.** 114 canais no `actor` e 119 no `critic`: o `VALIDA` **não** está em
+3. **A dimensão.** 114 canais no `actor` e 131 no `critic`: o `VALIDA` **não** está em
    nenhuma observação; o `meia_aresta` **está**, como último canal do termo `caixa`; e o
    `elo_interno` está **só** no `critic`, depois do `caixa`. O `VALIDA` continua existindo
    no comando (é a porta dos incentivos), e o smoke afirma que ele vale exatamente
@@ -1498,9 +1522,9 @@ O que prova que o contrato funciona. Tudo mecânico, sem GPU.
     `giro_b ≈ (0, 0, ∓π/2)` e `|giro_b|` bate com o `ANG` do comando em 1e-4; girada 90°
     em Y, o eixo é Y; e o sinal troca com o sentido do giro. Em `PEGAR`, no passo em que
     o elo abre, `giro_b = 0`; depois de torcer a caixa à mão em 20°, `|giro_b| ≈ 0,35`.
-24. **O `REORIENTAR` está inerte na v2** (§8.3): com o cfg de treino, `voltas_max` é zero
-    em todo nível, e um env de cadeia 1 avança para o `PEGAR` em `sustenta_outros_s` sem
-    a caixa se mover.
+24. **O `REORIENTAR` está inerte na v2** (§8.3): `voltas_max` é zero em todo nível **e** o
+    knob `Cadeia.reorientar_inerte` está ligado e chega ao termo de comando. Um env de
+    cadeia 1 avança para o `PEGAR` em `sustenta_outros_s` sem a caixa se mover.
 
 ### 11.2 Simulação do caminho de campo
 
@@ -1542,9 +1566,11 @@ cadeia (§6.5), a espera final com o guarda e o `caiu` por tamanho em `caixa_lar
 (§6.6, §6.7), o wrapper `tamanho_caixa` sobre `dr.geom_size` e os sítios lendo tamanho por
 env (§6.7), o `PPOPorElo` agrupando pelo interno, **as máscaras do `BOTAR` e os termos
 `load` e `largou`** (§6.6.2), e as travas da §11. **Nenhuma mudança em currículo.** Nos
-eventos de reset, só a leitura do tamanho por env (§6.7) e, pendente, `voltas_max = 0` em
+eventos de reset, só a leitura do tamanho por env (§6.7) e `voltas_max = 0` em
 `knobs.Nivel` (§8.3). Em recompensa, **só** o que a §6.6.2 lista, e só com o interno em
-`BOTAR` ou em `soltou`.
+`BOTAR` ou em `soltou`. A implementação de 03/09 acrescentou dois itens que esta lista não
+previa: o knob `Cadeia.reorientar_inerte` (§8.3) e o `inspeciona.py`, que passa a ler a
+meia-aresta por env e a percorrer os três elos da cadeia 3.
 
 ⚠ **Um item com risco, nomeado:** a cadeia 3 toca a máquina de elo (`_TETO_ELOS = 3`
 nunca foi exercitado; o código é derivado de `CADEIAS`, e a leitura de 03/09 não achou
@@ -1656,7 +1682,7 @@ aprendizado e propõe:
 - **`dr.geom_size` do mjlab** com um wrapper para o cubo (§6.7). O plano B fica.
 - **O `REORIENTAR` ganha o contrato, e não o treino** (§8.3, refinado com o dono em
   03/09, v14): `ANG` vira `giro_b` — 3 canais, o giro pedido no frame da base; 114
-  canais no ator, 119 no crítico. Quatro primitivas de 90° (esquerda, direita, cima,
+  canais no ator, 131 no crítico. Quatro primitivas de 90° (esquerda, direita, cima,
   baixo), compostas pelo controlador externo, que também guarda "quais faces já vi".
   Direção pedida horizontal, para o robô (física da caixa apoiada). Termina como o
   `BOTAR`: larga a caixa e tira as mãos — o desenho do treino é o espelho da §6.6.2 e

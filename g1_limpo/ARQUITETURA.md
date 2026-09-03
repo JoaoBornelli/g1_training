@@ -306,7 +306,7 @@ A variante `flat` já remove de graça o `terrain_scan`, o `height_scan`, o
 | 3e | obs `["elo"]` nos **dois** grupos | one-hot de 5 |
 | 3f | obs `["caixa"]` nos **dois** grupos | 10 canais, gateados pelo elo **publicado** (spec §6.1) |
 | 3g | 7 termos de recompensa de tarefa | todos gateados por `VALIDA` |
-| 3h | obs `["elo_interno"]` **só no `critic`** | one-hot do elo interno; ator 114, crítico 119 (spec §6.1) |
+| 3h | obs `["elo_interno"]` **só no `critic`** | one-hot do elo interno; ator 114, crítico 131 — o crítico do fabricante já tem 12 canais privilegiados de pé (spec §6.1) |
 | 3i | `load`, `largou` | só no `BOTAR` e na espera final; leem o elo interno (spec §6.6.2) |
 | 3d | ramo inspeção | `trava_robo`, `terminations = {}` |
 | 4 | ramo play | remove `randomize_terrain` e `commands_vel` |
