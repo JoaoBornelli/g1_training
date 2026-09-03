@@ -23,6 +23,7 @@ checkpoint seja um APPEND de colunas e nunca uma inserção no meio:
     [6]    ANG     ângulo pedido, em radianos
     [7]    VALIDA  1,0 se o objetivo da caixa está ativo; 0,0 no `ANDAR`
     [8]    ELO     o elo corrente, como float
+    [9:12] GIRO    eixo × ângulo do giro pedido, em MUNDO (spec §8.3)
 
 ⚠ O `PEGAR` e o `CARREGAR` pedem O MESMO PONTO — a âncora do peito. A diferença é o
 REFERENCIAL, e ela é o desenho:
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES",
-           "ALVO", "FACE", "ANG", "VALIDA", "ELO", "DIM",
+           "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
            "TwistComRazaoDeMarcha", "TwistComRazaoDeMarchaCfg"]
@@ -75,7 +76,11 @@ FACE = slice(3, 6)
 ANG = 6
 VALIDA = 7
 ELO = 8
-DIM = 9
+# ⚠ O VETOR DE GIRO (spec §8.3), em MUNDO: eixo × ângulo da rotação que leva a normal
+# ATUAL da face pedida à direção pedida. `|GIRO| == ANG`. A observação o leva ao frame
+# da base (`giro_b`). Entrou POR ÚLTIMO, como manda o contrato de append.
+GIRO = slice(9, 12)
+DIM = 12
 
 # --- os elos. Mesma numeração dos slots do one-hot. ---
 ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
@@ -1243,7 +1248,18 @@ class AlvoCaixaCmd(CommandTerm):
 
         self._command[ids, FACE] = desejada
         cos = (normal_w * desejada).sum(-1).clamp(-1.0, 1.0)
-        self._command[ids, ANG] = torch.acos(cos)
+        ang = torch.acos(cos)
+        self._command[ids, ANG] = ang
+        # ⚠ O VETOR DE GIRO (spec §8.3): eixo `normal × desejada` normalizado, vezes o
+        # ângulo. Diz para que LADO girar, o que o escalar `ANG` não diz — sem ele um MLP
+        # sem memória não aprende a reorientar. Antiparalelo (ang ≈ π) não tem eixo
+        # definido: usa-se Z, que é "meia volta pivotando na laje". Em ang ≈ 0 o
+        # produto vetorial some e `where` põe Z também — vezes zero, dá zero.
+        eixo = torch.cross(normal_w, desejada, dim=-1)
+        norma = eixo.norm(dim=-1, keepdim=True)
+        ez = torch.tensor([0.0, 0.0, 1.0], device=self.device).expand_as(eixo)
+        eixo = torch.where(norma > 1e-6, eixo / norma.clamp(min=1e-6), ez)
+        self._command[ids, GIRO] = eixo * ang.unsqueeze(-1)
 
     # --------------------------------------------------------------- o desenho
     def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
