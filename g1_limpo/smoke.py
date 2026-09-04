@@ -516,7 +516,9 @@ secao("11. recompensa (a tabela do molde, mais DOIS termos)")
 _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "squeeze", "unload", "postura_ereta", "sustentacao",
            "contato_tronco", "contato_palma", "contato_dorso",
-           "load", "largou"}                      # v2: a renda do BOTAR (spec §6.6.2)
+           # v2: a renda do BOTAR (spec §6.6.2); v2.1: `load` SAIU, `renda_congelada`
+           # entrou (spec P3) — o total continua QUATORZE.
+           "largou", "renda_congelada"}
 check("a tabela divergE do molde em exatamente QUATORZE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
@@ -1008,7 +1010,7 @@ secao("16. one-hot, sorteio de elo e postura por elo (F2)")
 from g1_limpo import eventos as EV_         # noqa: E402
 from g1_limpo import observacoes as OB_      # noqa: E402
 from g1_limpo.env_cfg import (               # noqa: E402
-    ELOS_QUE_ANDAM, ELOS_SORTEAVEIS,
+    ELOS_QUE_ANDAM, ELOS_SORTEAVEIS, pesos_dos_sorteaveis,
 )
 
 fab_obs = {g: list(fab.observations[g].terms) for g in ("actor", "critic")}
@@ -1048,9 +1050,15 @@ check("o `curriculo.py` NÃO importa o `comando.py` (seria ciclo)",
       not any(ln.strip().startswith(("import ", "from "))
               and "comando" in ln for ln in _cur_src.splitlines()),
       "comando.py importa `garante_nivel` daqui; o import de volta fecharia o ciclo")
-check("os elos sorteáveis são só os que nascem SEM caixa nas mãos",
-      tuple(ELOS_SORTEAVEIS) == (CMD.REORIENTAR, CMD.PEGAR),
-      "CARREGAR e BOTAR só existem como 2º elo de cadeia -> F4")
+_k_reo_off = dataclasses.replace(
+    k, cadeia=dataclasses.replace(k.cadeia, reorientar_inerte=False))
+check("os elos sorteáveis são REORIENTAR e PEGAR — o REORIENTAR inerte FICA, a 5% (P8-b)",
+      ELOS_SORTEAVEIS == (CMD.REORIENTAR, CMD.PEGAR)
+      and pesos_dos_sorteaveis(k) == (k.cadeia.prob_reorientar_inerte,
+                                       1.0 - k.cadeia.prob_reorientar_inerte)
+      and pesos_dos_sorteaveis(_k_reo_off) == (0.5, 0.5),
+      f"{pesos_dos_sorteaveis(k)} / {pesos_dos_sorteaveis(_k_reo_off)}"
+      " — CARREGAR e BOTAR só existem como 2º elo de cadeia -> F4")
 check("a fatia de locomoção NÃO é 1,00",
       k.forma.fatia_loco < 1.0 and k.forma.fatia_loco >= 0.9,
       "com 1,00 os slots ficam constantes e o normalizador os faz entrar como 100,0")
@@ -1096,11 +1104,13 @@ check("os params do fabricante seguem intactos sob o embrulho",
       all(all(cfg.rewards[n].params[x] == fab.rewards[n].params[x]
               for x in fab.rewards[n].params) for n in (_TL, _TA)),
       "gatear não pode ter mexido no σ nem no nome do comando")
-check("os dois recebem o MESMO canal e a MESMA lista que a postura",
-      all(cfg.rewards[n].params["canal_do_elo"] == CMD.ELO
-          and tuple(cfg.rewards[n].params["elos_que_andam"]) == tuple(ELOS_QUE_ANDAM)
+check("v2.1: os dois NÃO têm mais `elos_que_andam` nem `canal_do_elo` — o gate é "
+      "`env.limpo_twist_zerado`, publicado pelo comando (spec P4)",
+      all("elos_que_andam" not in cfg.rewards[n].params
+          and "canal_do_elo" not in cfg.rewards[n].params
+          and "nome_do_comando" not in cfg.rewards[n].params
           for n in (_TL, _TA)),
-      "duas listas de elo seriam duas definições de `anda`")
+      str({n: set(cfg.rewards[n].params) for n in (_TL, _TA)}))
 check("o PESO dos dois segue o do fabricante — o gate não é um corte de peso",
       all(cfg.rewards[n].weight == fab.rewards[n].weight == 2.0 for n in (_TL, _TA)),
       "o que muda é ONDE o termo paga, e não QUANTO")
@@ -1198,7 +1208,8 @@ try:
     # e falharia acusando o sorteio quando o sorteio está certo. O invariante é a
     # DISTRIBUIÇÃO, e ela é testada sem simulador logo abaixo.
     check("todo elo sorteado está no conjunto permitido",
-          bool(_t3.isin(_elo3, _t3.tensor((CMD.ANDAR,) + tuple(ELOS_SORTEAVEIS))
+          bool(_t3.isin(_elo3, _t3.tensor(
+              (CMD.ANDAR,) + tuple(ELOS_SORTEAVEIS))
                         ).all()),
           str({e: int((_elo3 == e).sum()) for e in range(5)}))
     check("CARREGAR e BOTAR NÃO são sorteados (declarado, F4 os abre)",
@@ -1292,6 +1303,14 @@ check("nenhum elo fora do conjunto permitido é sorteado",
       all(_cont[e] == 0 for e in range(5)
           if e != CMD.ANDAR and e not in ELOS_SORTEAVEIS),
       str(_cont))
+_fatia_w = CU2.sorteia_elo(_falso, _ids, elo_loco=CMD.ANDAR, elos_manip=ELOS_SORTEAVEIS,
+                           fatia_loco=0.5, forcado=None,
+                           pesos_manip=pesos_dos_sorteaveis(k))
+_buf_w = _falso.limpo_elo
+_manip_w = int((_buf_w != CMD.ANDAR).sum())
+_frac_reo_w = int((_buf_w == CMD.REORIENTAR).sum()) / max(_manip_w, 1)
+check("v2.1 P8-b: com `pesos_manip` o REORIENTAR inerte sai em [3%; 7%] da manipulação",
+      0.03 <= _frac_reo_w <= 0.07, f"{_frac_reo_w:.4f} sobre {_manip_w} de manipulação")
 check("`forcado` vence o sorteio, e é o que o inspetor usa",
       CU2.sorteia_elo(_falso, _ids, elo_loco=CMD.ANDAR,
                       elos_manip=ELOS_SORTEAVEIS, fatia_loco=0.5,
@@ -1358,13 +1377,22 @@ check("só UM elo zera o VALIDA no `_aplica_elo`, e é o ANDAR",
       and _src_elo.count("VALIDA] = 1.0") == len(CMD.ELOS) - 1,
       f"zeram {_src_elo.count('VALIDA] = 0.0')}, ligam "
       f"{_src_elo.count('VALIDA] = 1.0')}, elos {len(CMD.ELOS)}")
-# ⚠ A JANELA CONTA COMO ELO QUE ANDA no rastreio. Sem esta linha ela é um terceiro
-# regime onde nada mede o corpo do robô, e alcançar a caixa ali fica de graça.
-check("o rastreio trata a espera como elo que ANDA — pelo PUBLICADO, e não por um buffer",
+# ⚠ v2.1 (spec P4): A JANELA DEIXOU DE CONTAR COMO "ELO QUE ANDA" no rastreio. O
+# publicado ainda vira ANDAR (a OBSERVAÇÃO o lê), mas o gate do rastreio agora é
+# `env.limpo_twist_zerado`, publicado do elo INTERNO — e o interno NÃO muda durante a
+# janela. Como toda cadeia abre num elo PARADO (check abaixo), a espera passa a pagar
+# ZERO no rastreio, e não mais o cheio que "elo que anda" pagava. Ver o item 11 da
+# seção "v2.1: gradientes" para a prova numérica.
+# ⚠ POR ASSINATURA, e não por substring do fonte: o PRÓPRIO docstring de
+# `rastreio_por_elo` cita `elos_que_andam` para explicar o que saiu — uma busca de
+# substring no fonte acharia essa citação e falharia com o código certo.
+_sig_rast = inspect.signature(RC_.rastreio_por_elo).parameters
+check("o publicado vira ANDAR na janela, mas o rastreio lê o elo INTERNO — gate novo",
       "publica_andar" in inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
-      and "limpo_aguardando" not in inspect.getsource(RC_.rastreio_por_elo),
-      "v2 (spec §6.3): o comando publica ANDAR nas duas esperas, portanto "
-      "`_anda_neste_elo` já devolve verdadeiro; a leitura do buffer ficou redundante")
+      and "limpo_twist_zerado" in inspect.getsource(RC_.rastreio_por_elo)
+      and "elos_que_andam" not in _sig_rast and "canal_do_elo" not in _sig_rast,
+      "a espera de um elo PARADO agora paga zero no rastreio (era o cheio, pelo "
+      "publicado)")
 # ⚠⚠ E O INVARIANTE QUE SUSTENTA ISSO: a janela só ocorre em elo PARADO, portanto o
 # twist é ZERO nela e o rastreio paga por MANTER velocidade zero. Se uma cadeia nova
 # abrisse em `CARREGAR` — o único elo de manipulação que anda — a janela passaria a
@@ -1414,17 +1442,23 @@ try:
     check("e o `staged` volta a pagar — a descontinuidade É o sinal",
           _staged1 > 0.0,
           f"antes {_staged0:.4f} depois {_staged1:.4f}")
-    # ⚠⚠ A JANELA É `ANDAR` COM COMANDO ZERO (02/09). Sem isto ela era um TERCEIRO
-    # regime, mais pobre que os dois: 2,00/s de `pose` + `upright` contra 4,08/s do
-    # `ANDAR` e 4,49/s do `PEGAR` ativo. Nada media o corpo do robô, portanto alcançar a
-    # caixa na janela era GRÁTIS e a política ótima ignorava a janela inteira.
-    check("os dois `track_*` PAGAM durante a janela — ela é `andar` com comando zero",
-          _trk0 > 0.5,
-          f"{_trk0:.4f}/s — em zero, alcançar durante a janela volta a ser grátis")
-    # ⚠ E O GATE POR ELO NÃO PODE TER SIDO AFROUXADO JUNTO. Passada a borda, a estátua
-    # num elo parado tem de voltar a colher ZERO — é o conserto de 31/08, e a janela não
-    # pode ser a porta por onde ele sai.
-    check("e voltam a ZERO passada a borda — o gate por elo continua de pé",
+    # ⚠⚠ A JANELA ERA `ANDAR` COM COMANDO ZERO (02/09), e por isso o `track_*` pagava
+    # durante ela — sem isto ela era um TERCEIRO regime mais pobre que os dois, e
+    # alcançar a caixa na janela era GRÁTIS. v2.1 (spec P4) TROCOU o gate do rastreio:
+    # ele deixou de ler o PUBLICADO (que ainda vira ANDAR na janela) e passou a ler o
+    # elo INTERNO via `env.limpo_twist_zerado` — e o interno NÃO muda na janela. Como
+    # toda cadeia abre num elo PARADO, a janela volta a pagar ZERO no rastreio. É o
+    # risco DECLARADO da proposta P4: nada paga por ficar parado durante a espera;
+    # `action_rate` e o alvo ancorado na base seguram. Ver a seção "v2.1: gradientes",
+    # item 11, para a prova direta do gate.
+    check("v2.1: os dois `track_*` NÃO pagam mais durante a janela — o gate agora é "
+          "o elo INTERNO, que fica parado nela",
+          _trk0 == 0.0,
+          f"{_trk0:.4f}/s — antes (spec §6.3) pagava >0,5 pelo PUBLICADO ANDAR")
+    # ⚠ E O GATE POR ELO NÃO PODE TER SIDO AFROUXADO. Passada a borda, a estátua num
+    # elo parado tem de continuar colhendo ZERO — é o conserto de 31/08, e nem a janela
+    # nem o gate novo podem ser a porta por onde ele sai.
+    check("e continuam em ZERO passada a borda — o gate por elo continua de pé",
           abs(_trk1) < 1e-6,
           f"{_trk1:.6f}/s — o piso da estátua de 8,265/s voltaria por aqui")
     print(f"  VALIDA: {float(_val0.max()):.0f} na abertura -> "
@@ -1738,28 +1772,35 @@ check("os sete termos existem, e são os do plano",
 check("TODOS os pesos são POSITIVOS — nenhuma penalidade na tarefa (R3)",
       all(cfg.rewards[n].weight > 0.0 for n in SETE),
       str({n: cfg.rewards[n].weight for n in SETE}))
-check("a soma dos pesos é 11,5/s",
-      abs(sum(cfg.rewards[n].weight for n in SETE) - 11.5) < 1e-9)
-check("os dois termos do BOTAR existem: `load` = 2,0 e `largou` = 1,0 (spec §6.6.2)",
-      cfg.rewards["load"].weight == 2.0 and cfg.rewards["largou"].weight == 1.0,
-      str({n: cfg.rewards[n].weight for n in ("load", "largou") if n in cfg.rewards}))
+check("a soma dos pesos é 12,5/s (v2.1: `precise_pos` 2,0 -> 3,0)",
+      abs(sum(cfg.rewards[n].weight for n in SETE) - 12.5) < 1e-9)
+check("v2.1: `load` SAIU — `largou` = 1,0 e `renda_congelada` = 1,0 fecham o BOTAR "
+      "(spec §6.6.2, P3)",
+      "load" not in cfg.rewards
+      and cfg.rewards["largou"].weight == 1.0
+      and cfg.rewards["renda_congelada"].weight == 1.0,
+      str({n: cfg.rewards[n].weight for n in ("largou", "renda_congelada")
+           if n in cfg.rewards}))
 check("o `staged` é o maior — é o único com gradiente na pose de repouso",
       cfg.rewards["staged"].weight == max(cfg.rewards[n].weight for n in SETE))
 check("o `precise_pos` é o ÚNICO com σ fixo, e ele é a tolerância de ACEITE",
       cfg.rewards["precise_pos"].params["sigma"] == tr.precise_pos_sigma
       and "sigma" not in cfg.rewards["staged"].params,
       "quem faz a rampa de aproximação é o `staged`, com σ por env")
-check("o `sustentacao` tem `reset` — senão o tempo vaza de episódio",
-      callable(getattr(RC_.sustentacao, "reset", None)))
+# ⚠ v2.1: `sustentacao` virou FUNÇÃO — o cronômetro é o `_sust` do comando (que já
+# reseta no `_resample_command`), e não há mais estado próprio para resetar.
+check("o `sustentacao` NÃO tem estado — não é mais classe, e não tem `reset`",
+      not inspect.isclass(RC_.sustentacao)
+      and getattr(RC_.sustentacao, "reset", None) is None)
 check("o `squeeze` usa os sensores de PALMA, que têm o campo `force`",
       tuple(cfg.rewards["squeeze"].params["sensores"]) == tuple(C.SENSOR_PALMA)
       and all("force" in por_nome[n].fields for n in C.SENSOR_PALMA))
 check("o `unload` usa o sensor de APOIO, que tem `force`",
       cfg.rewards["unload"].params["sensor_apoio"] == C.SENSOR_APOIO
       and "force" in por_nome[C.SENSOR_APOIO].fields)
-check("a tolerância angular do sustain chega em RADIANOS",
-      abs(cfg.rewards["sustentacao"].params["tol_ang"]
-          - math.radians(tr.tol_ang_deg)) < 1e-12)
+check("os params do `sustentacao` são só o nome do comando — o resto vem do comando",
+      set(cfg.rewards["sustentacao"].params) == {"nome_do_comando"},
+      str(cfg.rewards["sustentacao"].params))
 
 # --- a observação cresceu pelo contrato do APPEND ---
 check("os canais da caixa entram DEPOIS do one-hot, nos dois grupos",
@@ -1946,7 +1987,7 @@ try:
     print(f"  piso ANDAR = {_vals['andar']['TOTAL']:.3f}/s   "
           f"piso PEGAR = {_vals['pegar']['TOTAL']:.3f}/s")
     check("o piso do elo de manipulação segue ABAIXO do teto da tarefa",
-          _vals["pegar"]["TOTAL"] < 5.815 + 11.5,
+          _vals["pegar"]["TOTAL"] < 5.815 + 12.5,
           f"{_vals['pegar']['TOTAL']:.3f}/s")
 except Exception as _e6x:      # noqa: BLE001
     _falhas.append(f"o gate dos sete não pôde ser medido: "
@@ -2018,12 +2059,9 @@ try:
                          _e8.num_envs, 4)], dim=-1))
         _caixa8.write_root_link_velocity_to_sim(_t8.zeros(_e8.num_envs, 6))
         _e8.step(_t8.zeros(_e8.num_envs, _na8))
-    # ⚠ O termo de CLASSE é instanciado pelo manager (`manager_base.py:146`), e o
-    # `RewardManager` faz DEEPCOPY do cfg. Portanto a instância vive no manager, e
-    # `_c8.rewards[...].func` continua sendo a CLASSE. Ler do cfg dá AttributeError.
-    _idx8 = _e8.reward_manager.active_terms.index("sustentacao")
-    _termo8 = _e8.reward_manager._term_cfgs[_idx8].func
-    _antes8 = float(_termo8.t.max())
+    # ⚠ v2.1: o cronômetro é `_sust`, no termo de COMANDO — não há mais estado no
+    # termo de recompensa (`sustentacao` virou função pura, spec P2).
+    _antes8 = float(_t8c._sust.max())
     check("o cronômetro conta quando a caixa está no alvo",
           _antes8 > 0.0, f"t={_antes8:.3f} s")
     # ⚠ AGORA O PUSH. Ele NÃO pode zerar o contador.
@@ -2035,8 +2073,8 @@ try:
     _caixa8.write_root_link_velocity_to_sim(_t8.zeros(_e8.num_envs, 6))
     _e8.step(_t8.zeros(_e8.num_envs, _na8))
     check("um PUSH não zera o cronômetro — a régua lê SÓ a condição da tarefa",
-          float(_termo8.t.max()) >= _antes8,
-          f"antes {_antes8:.3f} s, depois {float(_termo8.t.max()):.3f} s; "
+          float(_t8c._sust.max()) >= _antes8,
+          f"antes {_antes8:.3f} s, depois {float(_t8c._sust.max()):.3f} s; "
           f"no g1_multitask isto zerava e o `perf` marcou 0 com o robô andando")
     del _e8
 except Exception as _e8x:      # noqa: BLE001
@@ -2161,7 +2199,9 @@ try:
     _tac.forca_avanco(_ids_a)
     check("o segundo avanço leva ao BOTAR, e `_passo` vai a 2",
           bool((_tac._elo == CMD.BOTAR).all()) and bool((_tac._passo == 2).all()))
-    check("o `avancou` é marcado", bool(_tac.avancou.all()))
+    check("v2.1: o `_sustain_alvo` é atualizado no avanço — BOTAR paga `sustenta_outros_s`",
+          bool((_tac._sustain_alvo == k.cadeia.sustenta_outros_s).all()),
+          f"{_tac._sustain_alvo.tolist()[:3]}")
     check("o cronômetro ZERA no avanço", float(_tac._sust.abs().max()) == 0.0)
     check("os σ são RECALCULADOS no avanço, contra a pose fresca",
           float((_tac.sigma_alcance - _sig_antes).abs().max()) > 1e-6,
@@ -3347,8 +3387,10 @@ except Exception as _e25x:      # noqa: BLE001
 
 # ============ 26. a RENDA DO BOTAR é MONÓTONA: pairar < apoiar < fechar < largar (spec §6.6)
 secao("26. a renda do BOTAR")
-check("16. o `load` é o espelho do `unload`: só no BOTAR, gateado por `perto`",
-      "== BOTAR" in inspect.getsource(RC_.load) and "raio_mult" in inspect.getsource(RC_.load))
+# ⚠ v2.1 (spec P3): `load` SAIU do módulo — a ausência é provada na seção "v2.1:
+# gradientes" (check 7, `"load" not in cfg.rewards`). O que ele fazia (fazer o fecho
+# do BOTAR pagar mais que pairar) é agora `renda_congelada`, provado nos checks 8 e 9
+# da mesma seção, e reaproveitado abaixo no MESMO env sintético desta seção.
 check("17. `squeeze` e `unload` são MASCARADOS no BOTAR (o precedente do g1_poc)",
       "_fora_do_botar" in inspect.getsource(RC_.squeeze)
       and "_fora_do_botar" in inspect.getsource(RC_.unload)
@@ -3389,8 +3431,9 @@ try:
         _sr = _e26.reward_manager._step_reward
         return (float(_sr.mean(0).sum()),
                 {n: float(_sr[:, _nm26.index(n)].mean())
-                 for n in ("staged", "precise_pos", "load", "largou", "unload", "squeeze",
-                           "postura_ereta", "track_linear_velocity", "pose")})
+                 for n in ("staged", "precise_pos", "largou", "unload", "squeeze",
+                           "postura_ereta", "sustentacao", "track_linear_velocity",
+                           "pose", "renda_congelada")})
 
     # 17. alcança no PEGAR com a caixa longe é ~0; no BOTAR é 1
     _pl = _cx26.data.root_link_pos_w.clone()
@@ -3423,7 +3466,11 @@ try:
 
     # A: pairar 2 cm acima do alvo, sem apoio
     _rA, _dA = _renda(passos=6, alvo_dz=0.02)
-    check("18. pairando, `load` é 0", abs(_dA["load"]) < 1e-6, f"{_dA['load']:.4f}")
+    # ⚠ v2.1: os DOIS `forca_avanco` acima (PEGAR->CARREGAR->BOTAR) já são dois fechos
+    # ganhos — `renda_congelada` já carrega essa soma antes mesmo de pairar no BOTAR.
+    check("18. pairando no BOTAR, `renda_congelada` já carrega os DOIS fechos "
+          "anteriores (PEGAR, CARREGAR)",
+          _dA["renda_congelada"] > 0.0, f"{_dA['renda_congelada']:.4f}")
     check("17. pairando no BOTAR, `unload` e `postura_ereta` são 0 (mascarados)",
           abs(_dA["unload"]) < 1e-9 and abs(_dA["postura_ereta"]) < 1e-9)
     # ⚠⚠ COMO SE PRODUZ "APOIADA" NUM TESTE, e o método é uma cicatriz de 03/09. A
@@ -3441,44 +3488,25 @@ try:
     _DZ_APOIA = -0.002
     _t26c._sust[:] = 0.0
     _rC, _dC = _renda(passos=6, alvo_dz=_DZ_APOIA)
-    check("18. apoiada no alvo, `load` é ~1 × 2,0", _dC["load"] > 1.8, f"{_dC['load']:.3f}")
+    check("18. apoiada no alvo, `sustentacao` já acumula crédito parcial que pairar "
+          "não tem — antes era `load` que fazia a diferença; `load` saiu (spec P3)",
+          _dC["sustentacao"] > _dA["sustentacao"],
+          f"apoiada {_dC['sustentacao']:.4f}, pairar {_dA['sustentacao']:.4f}")
     check("12. e ainda NÃO fechou (0,3 s de sustain, e são 6 passos)",
           not bool(_t26c.fechou.any()), f"sust {float(_t26c._sust.min()):.2f} s")
-    # ⚠ apoiada a 25 cm do alvo -> `load` 0. O deslocamento é em X, e não em Y: a laje
-    # tem meia-aresta de 0,30 e o alvo vai a y = ±0,12, portanto +0,25 em y sairia da
-    # laje e a força seria zero por AUSÊNCIA DE LAJE — o teste passaria pelo motivo
-    # errado. Em x o alvo vai a 0,30–0,40 e a laje cobre 0,20–0,80.
-    _dist_fora = 0.25
-    _rD, _dD = _renda(passos=4, alvo_dz=_DZ_APOIA, alvo_dx=_dist_fora)
-    _F_fora = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
-    _mg = float((_e26.limpo_massa * 9.81).mean())
-    check("18. apoiada a 25 cm do alvo, `load` é 0 — e é o GATE, não a falta de apoio",
-          abs(_dD["load"]) < 1e-6 and _F_fora > 0.5 * _mg,
-          f"load {_dD['load']:.4f} com F/mg {_F_fora/_mg:.2f}")
-    # ⚠ O CLAMP não se prova por penetração (a força nunca passa de m·g com a caixa
-    # pinada, ver a tabela acima). Prova-se pela MASSA PUBLICADA: `load` é
-    # `clamp(F/(m·g))`, portanto dividir `limpo_massa` por 3 põe o argumento em ~2,9 e o
-    # termo tem de ficar EXATAMENTE no teto de 2,0.
-    _m0 = _e26.limpo_massa.clone()
-    _e26.limpo_massa[:] = _m0 / 3.0
-    _t26c._sust[:] = 0.0
-    _rE, _dE = _renda(passos=3, alvo_dz=_DZ_APOIA)
-    _F = float(_t26.norm(_e26.scene[C.SENSOR_APOIO].data.force, dim=-1).mean())
-    _mg3 = float((_e26.limpo_massa * 9.81).mean())
-    check("18. com F/(m·g) ≈ 3, `load` fica EXATO no teto de 2,0 — o `clamp`",
-          _F > 2.0 * _mg3 and abs(_dE["load"] - 2.0) < 1e-6,
-          f"F/mg {_F/_mg3:.2f}, load {_dE['load']:.4f}")
-    _e26.limpo_massa[:] = _m0
     # ⚠⚠ A FORÇA DE APOIO É PROJETADA NO EIXO VERTICAL (decisão do dono, 03/09). A norma
-    # não tem direção: prensar a caixa de lado contra o tampo satisfazia `apoiada` e
-    # saturava o `load`, e o `BOTAR` fechava sem a laje carregar peso. `load` e o fecho
-    # leem a MESMA função, senão o termo pagaria por um estado que o elo não aceita.
-    check("18. `load` e o fecho do BOTAR leem a MESMA `forca_de_apoio`, que projeta em z",
-          "forca_de_apoio" in inspect.getsource(RC_.load)
-          and "forca_de_apoio" in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
+    # não tem direção: prensar a caixa de lado contra o tampo satisfazia `apoiada` sem a
+    # laje carregar peso nenhum. v2.1: `load` (que também lia esta projeção) SAIU —
+    # sobra o FECHO do `BOTAR`, que continua lendo a MESMA função.
+    check("18. o fecho do BOTAR lê `forca_de_apoio`, que projeta em z",
+          "forca_de_apoio" in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
           and "[..., 2].abs()" in inspect.getsource(CMD.forca_de_apoio))
     _t26c._sust[:] = 0.0
-    _renda(passos=6, alvo_dz=_DZ_APOIA)
+    # ⚠ v2.1: mais passos que os 6 originais — sem os desvios de 25 cm e de clamp de
+    # massa que existiam aqui antes de `load` sair, a caixa tinha MENOS ciclos de
+    # re-pino nesta posição para assentar o contato. `passos=6` deixava um resíduo
+    # horizontal (medido: 0,505 N contra o limiar de 0,05×m·g); `passos=15` assenta.
+    _renda(passos=15, alvo_dz=_DZ_APOIA)
     _f26 = _e26.scene[C.SENSOR_APOIO].data.force.squeeze(1)
     _mg26 = float((_e26.limpo_massa * 9.81).mean())
     _fz26 = float(_f26[:, 2].abs().mean())
@@ -3520,8 +3548,12 @@ try:
     check("16. a RENDA É MONÓTONA: pairar < apoiada < espera final (palmas longe)",
           _rA < _rC2 < _rF,
           f"pairar {_rA:.2f}  apoiada {_rC2:.2f}  espera final {_rF:.2f}  (/s)")
-    check("16. o rastreio entra na espera final e não antes",
-          _dC2["track_linear_velocity"] == 0.0 and _dF["track_linear_velocity"] > 1.0)
+    # ⚠ v2.1 (spec P4): o rastreio NÃO entra mais na espera final. O gate agora lê o
+    # elo INTERNO (`env.limpo_twist_zerado`), e ele continua BOTAR na espera final —
+    # só o PUBLICADO vira ANDAR. Antes (gate pelo publicado) o rastreio entrava aqui;
+    # ver o item 11 da seção "v2.1: gradientes" para a prova geral.
+    check("16. o rastreio NÃO entra nem na espera final — o elo INTERNO segue BOTAR",
+          _dC2["track_linear_velocity"] == 0.0 and _dF["track_linear_velocity"] == 0.0)
     print(f"  renda do BOTAR: pairar {_rA:.2f}  apoiada {_rC2:.2f}  espera final {_rF:.2f} /s")
     del _e26
 except Exception as _e26x:      # noqa: BLE001
@@ -3585,8 +3617,9 @@ secao("28. o REORIENTAR inerte")
 check("24. `voltas_max` é zero e `eixo_vertical` é falso em TODO nível",
       all(v == 0 for v in k.nivel.voltas_max) and not any(k.nivel.eixo_vertical),
       f"{k.nivel.voltas_max} / {k.nivel.eixo_vertical}")
-check("o REORIENTAR CONTINUA sorteável — o slot não pode ficar constante",
-      CMD.REORIENTAR in ELOS_SORTEAVEIS)
+check("o REORIENTAR CONTINUA sorteável — o slot não pode ficar constante (P8-b: 5%)",
+      CMD.REORIENTAR in ELOS_SORTEAVEIS
+      and cfg.curriculum["elo"].params["pesos_manip"][0] == k.cadeia.prob_reorientar_inerte)
 # ⚠ MEDIDO em 03/09: `voltas_max = 0` NÃO basta para o elo ficar inerte. A direção pedida
 # é "da caixa para o robô", e com o jitter lateral da caixa (±0,18 m em y) ela sai até
 # ~29° do eixo −X; somado ao desalinho de ±15°, ~1 em 6 envs nasce FORA dos 25° de
@@ -3616,6 +3649,366 @@ try:
     del _e28
 except Exception as _e28x:      # noqa: BLE001
     _falhas.append(f"o REORIENTAR inerte não pôde ser medido: {type(_e28x).__name__}: {_e28x}")
+
+secao("v2.1: gradientes")
+
+# --- 1. `precise_pos` no limiar do fecho, e a derivada do par caixa->alvo ---
+_pp_no_limiar = math.exp(-(tr.tol_pos / tr.precise_pos_sigma) ** 2)
+check("1. `precise_pos(d = tol_pos) >= 0,5` — a rampa de aceite paga no limiar do fecho",
+      _pp_no_limiar >= 0.5, f"{_pp_no_limiar:.4f}")
+
+
+def _deriv_par_v21(d: float) -> float:
+    """Derivada TOTAL do par caixa->alvo: `staged`/trazer efetivo + `precise_pos`.
+
+    ⚠ `2,7` é o peso EFETIVO do `staged` no ponto medido (peso 3,0 × alcança ~0,9), e
+    não o peso bruto do termo — spec `g1-limpo-gradientes-v2.md` §1, proposta §3 P1.
+    """
+    t_macro = 2.7 * (2.0 * d / 0.45 ** 2) * math.exp(-(d / 0.45) ** 2)
+    t_precise = (tr.precise_pos * (2.0 * d / tr.precise_pos_sigma ** 2)
+                 * math.exp(-(d / tr.precise_pos_sigma) ** 2))
+    return t_macro + t_precise
+
+
+_d_perto, _d_longe = _deriv_par_v21(tr.tol_pos), _deriv_par_v21(0.45)
+check("1. em d=0,10 a derivada do par bate com a spec (~16,1)",
+      abs(_d_perto - 16.1) < 0.2, f"{_d_perto:.3f}")
+check("1. a derivada do par é maior perto do alvo (d=tol_pos) que longe (d=0,45)",
+      _d_perto > _d_longe, f"perto={_d_perto:.2f} longe={_d_longe:.2f}")
+
+# --- 2. `sustentacao` lê o relógio do comando: `_sust/_sustain_alvo`, sem `avancou` ---
+try:
+    import torch as _t29
+
+    _c29 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)
+    _c29.scene.num_envs = 16
+    _e29 = ManagerBasedRlEnv(cfg=_c29, device="cpu")
+    _e29.reset()
+    _n29 = _e29.action_manager.total_action_dim
+    _passa_janela(_e29, _n29, _t29)
+    _t29c = _e29.command_manager.get_term("alvo_caixa")
+    _ids29 = _t29.arange(_e29.num_envs)
+
+    check("2. `_sustain_alvo` no PEGAR é `sustenta_pegar_s`",
+          bool((_t29c._sustain_alvo == kc.sustenta_pegar_s).all()),
+          f"{_t29c._sustain_alvo.tolist()[:3]}")
+    _sust_esperado = (_t29c._sust
+                     / _t29c._sustain_alvo.clamp(min=1e-6)).clamp(0.0, 1.0)
+    _sust_medido = RC_.sustentacao(_e29, "alvo_caixa")
+    check("2. `sustentacao` == `_sust / _sustain_alvo` × VALIDA, no PEGAR",
+          float((_sust_medido - _sust_esperado).abs().max()) < 1e-6,
+          f"medido {_sust_medido.tolist()[:3]}, esperado {_sust_esperado.tolist()[:3]}")
+
+    _t29c.forca_avanco(_ids29)          # PEGAR -> CARREGAR
+    _e29.step(_t29.zeros(_e29.num_envs, _n29))
+    check("2. após o avanço forçado, `sustentacao` == 0 no passo seguinte",
+          float(RC_.sustentacao(_e29, "alvo_caixa").abs().max()) == 0.0)
+    check("2. e `_sustain_alvo` virou `carregar_s` (cadeia 2 não é segurar-parado)",
+          bool((_t29c._sustain_alvo == kc.carregar_s).all()),
+          f"{_t29c._sustain_alvo.tolist()[:3]}")
+    check("2. o atributo `avancou` NÃO existe mais no termo de comando",
+          not hasattr(_t29c, "avancou"))
+    del _e29
+except Exception as _e29x:      # noqa: BLE001
+    _falhas.append(f"a `sustentacao` v2.1 não pôde ser medida: "
+                   f"{type(_e29x).__name__}: {_e29x}")
+
+# --- 3. `caixa_largada`: `caiu` vale SOZINHO, sem a arma do `pegou` ---
+try:
+    import torch as _t30
+
+    _c30 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c30.scene.num_envs = 16
+    _e30 = ManagerBasedRlEnv(cfg=_c30, device="cpu")
+    _e30.reset()
+    _n30 = _e30.action_manager.total_action_dim
+    _par30 = dict(cfg.terminations["caixa_largada"].params)
+
+    check("3. no reset, `caixa_largada` é falso (`limpo_pegou = 0`, caixa na laje)",
+          float(_e30.limpo_pegou.max()) == 0.0
+          and not bool(TE_.caixa_largada(_e30, **_par30).any()))
+
+    _cx30 = _e30.scene["box"]
+    _meia30 = _e30.limpo_meia_aresta[:, 2]
+    _q30 = _cx30.data.root_link_quat_w.clone()
+    _p30 = _cx30.data.root_link_pos_w.clone()
+    _p30[:, 2] = _e30.scene.env_origins[:, 2] + _meia30 + 0.01
+    _cx30.write_root_link_pose_to_sim(_t30.cat([_p30, _q30], -1))
+    _cx30.write_root_link_velocity_to_sim(_t30.zeros(_e30.num_envs, 6))
+    _e30.step(_t30.zeros(_e30.num_envs, _n30))
+    check("3. `caiu` vale SOZINHO: caixa no chão com `limpo_pegou = 0` já termina",
+          float(_e30.limpo_pegou.max()) == 0.0
+          and bool(TE_.caixa_largada(_e30, **_par30).all()),
+          "antes exigia `pegou`: derrubar da mesa antes da 1ª preensão não terminava")
+    del _e30
+except Exception as _e30x:      # noqa: BLE001
+    _falhas.append(f"o `caiu` desarmado não pôde ser medido: "
+                   f"{type(_e30x).__name__}: {_e30x}")
+
+# --- 4. P8-b: o REORIENTAR inerte FICA no sorteio, a 5% (decisão do dono, 2026-09-04) ---
+_p31 = dict(cfg.curriculum["elo"].params)
+_p31["fatia_loco"] = 0.5            # metade de manipulação: ~10.000 sorteios de elo
+_falso31 = types.SimpleNamespace(num_envs=20_000, device="cpu")
+CU2.sorteia_elo(_falso31, __import__("torch").arange(20_000), **_p31)
+_b31 = _falso31.limpo_elo
+_manip31 = int((_b31 != CMD.ANDAR).sum())
+_frac31 = int((_b31 == CMD.REORIENTAR).sum()) / max(_manip31, 1)
+check("4. P8-b: com os params do cfg de TREINO, o REORIENTAR inerte sai em [3%; 7%] da manipulação",
+      0.03 <= _frac31 <= 0.07, f"{_frac31:.4f} sobre {_manip31}")
+check("4. P8-b: `pesos_manip` do cfg é `(prob_reorientar_inerte, 1 − prob)`",
+      cfg.curriculum["elo"].params["pesos_manip"]
+      == (k.cadeia.prob_reorientar_inerte, 1.0 - k.cadeia.prob_reorientar_inerte),
+      str(cfg.curriculum["elo"].params["pesos_manip"]))
+
+# --- 5. `impacto_da_caixa` publica o PICO, não a média de um pico monótono ---
+check("5. `cfg.metrics['impacto_da_caixa'].reduce == 'max'`",
+      cfg.metrics["impacto_da_caixa"].reduce == "max")
+
+# --- 6. margem da pelve: a rampa do `postura_ereta` satura ACIMA do limiar do fecho ---
+check("6. `postura_ereta` recebe `pelve_alvo = tr.pelve_alvo + tr.pelve_margem`",
+      cfg.rewards["postura_ereta"].params["pelve_alvo"]
+      == tr.pelve_alvo + tr.pelve_margem,
+      f"{cfg.rewards['postura_ereta'].params['pelve_alvo']}")
+_rampa_no_fecho = ((tr.pelve_alvo - tr.pelve_piso)
+                   / (tr.pelve_alvo + tr.pelve_margem - tr.pelve_piso))
+check("6. em z = pelve_alvo (o limiar do fecho `de_pe`) a rampa vale < 1,0 — derivada viva",
+      _rampa_no_fecho < 1.0, f"{_rampa_no_fecho:.4f}")
+
+# --- 7. `renda_congelada` é o ÚLTIMO termo; `load` SAIU; `largou` perdeu o gate ---
+from g1_limpo.env_cfg import TERMOS_CONGELAVEIS      # noqa: E402
+
+check("7. `renda_congelada` é o ÚLTIMO termo de `cfg.rewards`",
+      list(cfg.rewards)[-1] == "renda_congelada", str(list(cfg.rewards)[-3:]))
+check("7. `load` SAIU do módulo (spec P3)", "load" not in cfg.rewards)
+check("7. `largou` perdeu `sensor_apoio` e `raio_mult`",
+      "sensor_apoio" not in cfg.rewards["largou"].params
+      and "raio_mult" not in cfg.rewards["largou"].params,
+      str(cfg.rewards["largou"].params))
+
+# --- 8 e 9: `renda_congelada` congela a soma do passo ANTERIOR ao fecho; regra 1 ---
+try:
+    import torch as _t33
+
+    _c33 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=3)
+    _c33.scene.num_envs = 32
+    _e33 = ManagerBasedRlEnv(cfg=_c33, device="cpu")
+    _e33.reset()
+    _n33 = _e33.action_manager.total_action_dim
+    _passa_janela(_e33, _n33, _t33)
+    _t33c = _e33.command_manager.get_term("alvo_caixa")
+    _ids33 = _t33.arange(_e33.num_envs)
+    _nm33 = list(_c33.rewards)
+    _idx_cong33 = [_nm33.index(n) for n in TERMOS_CONGELAVEIS]
+    _idx_rc33 = _nm33.index("renda_congelada")
+    _sr33 = _e33.reward_manager._step_reward
+
+    check("8. logo após a janela, `renda_congelada == 0` e `_fechos == 0` em todos",
+          float(_sr33[:, _idx_rc33].abs().max()) == 0.0
+          and bool((_t33c._fechos == 0).all()),
+          f"renda_congelada {_sr33[:, _idx_rc33].tolist()[:3]}, "
+          f"_fechos {_t33c._fechos.tolist()[:3]}")
+
+    def _avanca_e_confere33(rotulo: str, fechos_esperado: int, checa_soma: bool):
+        """Um `forca_avanco`, com a régua da regra 1 (check 9) em toda transição."""
+        _soma_termos_antes = _sr33[:, _idx_cong33].sum(-1).clone()
+        _soma_total_antes = _sr33.sum(-1).clone()
+        _t33c.forca_avanco(_ids33)
+        _e33.step(_t33.zeros(_e33.num_envs, _n33))
+        _soma_total_depois = _sr33.sum(-1)
+        check(f"9. regra 1 ({rotulo}): a renda TOTAL do passo seguinte ao fecho é >= "
+              "a do passo anterior − 1e−3",
+              bool((_soma_total_depois >= _soma_total_antes - 1e-3).all()),
+              f"antes {float(_soma_total_antes.mean()):.3f}/s, depois "
+              f"{float(_soma_total_depois.mean()):.3f}/s")
+        check(f"8. após {rotulo}, `_fechos == {fechos_esperado}`",
+              bool((_t33c._fechos == fechos_esperado).all()),
+              f"{_t33c._fechos.tolist()[:3]}")
+        if checa_soma:
+            _rc_depois = _sr33[:, _idx_rc33]
+            check(f"8. após {rotulo}, `renda_congelada` ≈ a soma dos "
+                  "`TERMOS_CONGELAVEIS` lida do passo ANTERIOR ao avanço",
+                  bool(_t33.allclose(_rc_depois, _soma_termos_antes,
+                                     rtol=1e-4, atol=1e-6)),
+                  f"medido {_rc_depois.tolist()[:3]}, esperado "
+                  f"{_soma_termos_antes.tolist()[:3]}")
+
+    _avanca_e_confere33("PEGAR->CARREGAR", 1, checa_soma=True)
+    _rc_apos_carregar33 = _sr33[:, _idx_rc33].clone()
+    _avanca_e_confere33("CARREGAR->BOTAR", 2, checa_soma=False)
+    _avanca_e_confere33("BOTAR->fecho terminal", 3, checa_soma=False)
+    check("8. após o fecho terminal, `renda_congelada` subiu de novo",
+          float(_sr33[:, _idx_rc33].mean()) > float(_rc_apos_carregar33.mean()),
+          f"após CARREGAR {float(_rc_apos_carregar33.mean()):.3f}, após terminal "
+          f"{float(_sr33[:, _idx_rc33].mean()):.3f}")
+    del _e33
+except Exception as _e33x:      # noqa: BLE001
+    _falhas.append(f"os checks 8/9 (`renda_congelada`) não puderam ser medidos: "
+                   f"{type(_e33x).__name__}: {_e33x}")
+
+# --- 10. o fecho INERTE do REORIENTAR não soma ao contador de fechos ---
+try:
+    import torch as _t34
+
+    _c34 = make_env_cfg(k, inspecao=True, elo=CMD.REORIENTAR, cadeia=1)
+    _c34.scene.num_envs = 16
+    _e34 = ManagerBasedRlEnv(cfg=_c34, device="cpu")
+    _e34.reset()
+    _n34 = _e34.action_manager.total_action_dim
+    _t34c = _e34.command_manager.get_term("alvo_caixa")
+    check("10. o env sintético nasce mesmo no REORIENTAR (forçado; o sorteio o produz em só 5%)",
+          bool((_t34c._elo == CMD.REORIENTAR).all()), f"{_t34c._elo.tolist()[:3]}")
+    # ⚠ SEM `_passa_janela`: o `forca_avanco` não depende do `VALIDA`, e o REORIENTAR
+    # inerte fecha por tempo (0,3 s) assim que ativo — esperar a janela (até 1,5 s) dava
+    # tempo de sobra para ele avançar SOZINHO antes deste `forca_avanco`, medido.
+    _ids34 = _t34.arange(_e34.num_envs)
+    _t34c.forca_avanco(_ids34)          # o fecho INERTE do REORIENTAR
+    _e34.step(_t34.zeros(_e34.num_envs, _n34))
+    check("10. após o fecho inerte, `_fechos == 0`",
+          bool((_t34c._fechos == 0).all()), f"{_t34c._fechos.tolist()[:3]}")
+    # ⚠ Lê `congelado` DIRETO da instância viva do termo, e não `_step_reward`: o
+    # `VALIDA` ainda pode estar em zero aqui (janela não passada), e `_step_reward`
+    # multiplicaria por esse gate — provaria o gate, não o `congelado` em si.
+    _idx_rc34 = list(_c34.rewards).index("renda_congelada")
+    _termo_rc34 = _e34.reward_manager._term_cfgs[_idx_rc34].func
+    check("10. e `congelado` continua 0 — nada foi congelado",
+          float(_termo_rc34.congelado.abs().max()) == 0.0,
+          f"{_termo_rc34.congelado.tolist()[:3]}")
+    del _e34
+except Exception as _e34x:      # noqa: BLE001
+    _falhas.append(f"o check 10 (REORIENTAR inerte) não pôde ser medido: "
+                   f"{type(_e34x).__name__}: {_e34x}")
+
+# --- 11. `rastreio_por_elo` só zera onde `limpo_twist_zerado == 1` ---
+try:
+    import torch as _t35
+
+    # A: PEGAR, durante a espera inicial (SEM `_passa_janela`)
+    _c35a = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c35a.scene.num_envs = 16
+    _e35a = ManagerBasedRlEnv(cfg=_c35a, device="cpu")
+    _e35a.reset()
+    _n35a = _e35a.action_manager.total_action_dim
+    _e35a.step(_t35.zeros(_e35a.num_envs, _n35a))
+    check("11. no PEGAR, durante a espera inicial, `limpo_twist_zerado == 1`",
+          bool((_e35a.limpo_twist_zerado == 1.0).all()))
+    _idx_tl35a = list(_c35a.rewards).index("track_linear_velocity")
+    check("11. e `track_linear_velocity == 0` nessa espera",
+          float(_e35a.reward_manager._step_reward[:, _idx_tl35a].abs().max()) == 0.0)
+    _params35a = dict(cfg.rewards["track_linear_velocity"].params)
+    _molde35a = _params35a.pop("func")
+    check("11. `rastreio_por_elo == 0` quando `limpo_twist_zerado == 1`",
+          float(RC_.rastreio_por_elo(_e35a, func=_molde35a, **_params35a)
+                .abs().max()) == 0.0)
+    del _e35a
+
+    # B: CARREGAR de segurar-parado (cadeia 3), via avanço forçado a partir do PEGAR
+    _c35b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=3)
+    _c35b.scene.num_envs = 16
+    _e35b = ManagerBasedRlEnv(cfg=_c35b, device="cpu")
+    _e35b.reset()
+    _n35b = _e35b.action_manager.total_action_dim
+    _passa_janela(_e35b, _n35b, _t35)
+    _t35b = _e35b.command_manager.get_term("alvo_caixa")
+    _t35b.forca_avanco(_t35.arange(_e35b.num_envs))         # PEGAR -> CARREGAR
+    _e35b.step(_t35.zeros(_e35b.num_envs, _n35b))
+    check("11. no CARREGAR de segurar-parado (cadeia 3), `limpo_twist_zerado == 1`",
+          bool((_t35b._elo == CMD.CARREGAR).all())
+          and bool((_e35b.limpo_twist_zerado == 1.0).all()),
+          f"elo {_t35b._elo.tolist()[:3]}")
+    del _e35b
+
+    # C: ANDAR — nada zera o twist
+    _c35c = make_env_cfg(k, elo=CMD.ANDAR)
+    _c35c.scene.num_envs = 16
+    _e35c = ManagerBasedRlEnv(cfg=_c35c, device="cpu")
+    _e35c.reset()
+    _n35c = _e35c.action_manager.total_action_dim
+    _e35c.step(_t35.zeros(_e35c.num_envs, _n35c))
+    check("11. no ANDAR, `limpo_twist_zerado == 0`",
+          bool((_e35c.limpo_twist_zerado == 0.0).all()))
+    _params35c = dict(cfg.rewards["track_linear_velocity"].params)
+    _molde35c = _params35c.pop("func")
+    _valor_molde35c = _molde35c(_e35c, **_params35c)
+    _valor_gate35c = RC_.rastreio_por_elo(_e35c, func=_molde35c, **_params35c)
+    check("11. `rastreio_por_elo` == o termo do molde quando `limpo_twist_zerado == 0`",
+          bool(_t35.allclose(_valor_gate35c, _valor_molde35c, atol=1e-6)))
+    del _e35c
+except Exception as _e35x:      # noqa: BLE001
+    _falhas.append(f"o check 11 (gate do rastreio) não pôde ser medido: "
+                   f"{type(_e35x).__name__}: {_e35x}")
+
+# --- 12. o twist FIXO no CARREGAR-andando (cadeia 2) ---
+try:
+    import torch as _t36
+
+    _c36 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)
+    _c36.scene.num_envs = 16
+    _e36 = ManagerBasedRlEnv(cfg=_c36, device="cpu")
+    _e36.reset()
+    _n36 = _e36.action_manager.total_action_dim
+    _passa_janela(_e36, _n36, _t36)
+    _t36c = _e36.command_manager.get_term("alvo_caixa")
+    _t36c.forca_avanco(_t36.arange(_e36.num_envs))          # PEGAR -> CARREGAR (anda)
+    _e36.step(_t36.zeros(_e36.num_envs, _n36))
+    _tw36 = _e36.command_manager.get_term("twist")
+    _cmd36_1 = _tw36.vel_command_b[:, :2].clone()
+    check("12. no CARREGAR-andando (cadeia 2), `‖vel_command_b[:, :2]‖ >= 0,3` em todo env",
+          bool((_t36c._elo == CMD.CARREGAR).all())
+          and float(_t36.norm(_cmd36_1, dim=-1).min()) >= 0.3 - 1e-6,
+          f"mín ‖cmd‖ = {float(_t36.norm(_cmd36_1, dim=-1).min()):.3f}")
+    _e36.step(_t36.zeros(_e36.num_envs, _n36))
+    _cmd36_2 = _tw36.vel_command_b[:, :2].clone()
+    check("12. e o comando é IGUAL em dois passos consecutivos — twist fixo (spec P5)",
+          bool(_t36.allclose(_cmd36_1, _cmd36_2)),
+          f"{_cmd36_1[0].tolist()} vs {_cmd36_2[0].tolist()}")
+    del _e36
+except Exception as _e36x:      # noqa: BLE001
+    _falhas.append(f"o check 12 (twist fixo do CARREGAR) não pôde ser medido: "
+                   f"{type(_e36x).__name__}: {_e36x}")
+
+# --- 13. a régua da caixa: `aproxima_caixa` e `renda_manipulacao` ---
+check("13. `cfg.metrics` tem `aproxima_caixa` (`reduce='last'`) e `renda_manipulacao`",
+      cfg.metrics["aproxima_caixa"].reduce == "last"
+      and "renda_manipulacao" in cfg.metrics,
+      str({n: cfg.metrics[n].reduce for n in ("aproxima_caixa", "renda_manipulacao")}))
+try:
+    import torch as _t37
+
+    _c37 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c37.scene.num_envs = 16
+    _e37 = ManagerBasedRlEnv(cfg=_c37, device="cpu")
+    _e37.reset()
+    _n37 = _e37.action_manager.total_action_dim
+    # ⚠ instância AD-HOC, como `impacto_da_caixa` já é medido acima (§26): uma
+    # instância fresca no MESMO env, e não a do manager — `__init__` não lê `cfg`.
+    _metrica37 = MT_.aproxima_caixa(None, _e37)
+    # ⚠ CAPTURA POR ENV no PRIMEIRO passo em que `VALIDA` liga, e não depois de
+    # `_passa_janela` (que sobre-espera até a MAIOR janela sorteada para TODOS os
+    # envs). MEDIDO: a base do robô assenta um pouco sob ação zero enquanto a espera
+    # corre, e o alvo do `PEGAR` é ANCORADO NA BASE (x,y recalculados a cada passo) —
+    # esperar além do necessário do PRÓPRIO env dá tempo de sobra para essa deriva
+    # afastar `d` do `sigma_trazer` calibrado no reset, e o valor cai bem abaixo de
+    # 1,0 mesmo sem bug nenhum no termo.
+    _capturado37 = _t37.zeros(_e37.num_envs, dtype=_t37.bool)
+    _valor37 = _t37.ones(_e37.num_envs)
+    for _ in range(int(k.alvo.espera_s[1] / _e37.step_dt) + 5):
+        _e37.step(_t37.zeros(_e37.num_envs, _n37))
+        _v37 = _metrica37(_e37, nome_do_comando="alvo_caixa")
+        _ativo37 = _e37.command_manager.get_command("alvo_caixa")[:, CMD.VALIDA] > 0.5
+        _novo37 = _ativo37 & ~_capturado37
+        if bool(_novo37.any()):
+            _valor37[_novo37] = _v37[_novo37]
+            _capturado37 |= _novo37
+        if bool(_capturado37.all()):
+            break
+    check("13. `aproxima_caixa` ≈ 1,0 no primeiro passo ativo (σ = d0)",
+          bool(_capturado37.all())
+          and float((_valor37 - 1.0).abs().max()) < 0.25,
+          f"{_valor37.tolist()[:3]}")
+    del _e37
+except Exception as _e37x:      # noqa: BLE001
+    _falhas.append(f"o check 13 (`aproxima_caixa`) não pôde ser medido: "
+                   f"{type(_e37x).__name__}: {_e37x}")
 
 # =============================================================================
 print()
