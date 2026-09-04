@@ -48,6 +48,8 @@ __all__ = [
     "pads_em_contato",
     "fracao_esperando",
     "impacto_da_caixa",
+    "aproxima_caixa",
+    "renda_manipulacao",
     "PES_NO_CHAO",
     "ALTURA_DO_PE",
     "MOMENTO_ANGULAR",
@@ -66,8 +68,10 @@ SITIOS_DOS_PES = ("left_foot", "right_foot")
 def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
            sensores_dorso: tuple[str, ...] = ("dorso_E", "dorso_D"),
            sensor_apoio: str = "apoio_caixa",
+           nome_do_comando: str = "alvo_caixa",
+           termos_congelaveis: tuple[str, ...] = (),
            ) -> dict[str, MetricsTermCfg]:
-    """Os cinco termos, montados aqui e em nenhum outro lugar.
+    """Os termos, montados aqui e em nenhum outro lugar.
 
     ⚠ O `SceneEntityCfg` TEM DE VIVER EM `params`, e este é o bug que custou a
     primeira execução: `manager_base.py:141-145` só resolve `SceneEntityCfg` que
@@ -114,7 +118,21 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         # ⚠ O PICO DE IMPACTO DA CAIXA NA LAJE (03/09). Decisão do dono: soltar de 5 cm
         # é permitido, jogar de mais alto não — e sem esta métrica os dois leem igual.
         "impacto_da_caixa": MetricsTermCfg(
-            func=impacto_da_caixa, params={"sensor_apoio": sensor_apoio}),
+            func=impacto_da_caixa, params={"sensor_apoio": sensor_apoio},
+            reduce="max"),
+        # ⚠ A RÉGUA DA CAIXA (v2.1, spec P10): sem ela não existia medição de quanto a
+        # caixa se aproximou do alvo — só os termos de recompensa, que SATURAM
+        # (`exp(-d²/σ²)`) e não distinguem "não saiu do lugar" de "oscila perto do alvo".
+        "aproxima_caixa": MetricsTermCfg(
+            func=aproxima_caixa, params={"nome_do_comando": nome_do_comando},
+            reduce="last"),
+        # ⚠ A RÉGUA DA REGRA 1 (v2.1, spec P10, proposta §0): "em todo instante existe
+        # incentivo até o alvo do elo; do fecho de um elo até o seguinte a renda não
+        # cai." Soma TUDO que depende de elo, ao vivo mais congelado — é o número que
+        # o smoke e o TensorBoard leem para provar que nenhuma transição tem degrau.
+        "renda_manipulacao": MetricsTermCfg(
+            func=renda_manipulacao,
+            params={"termos": termos_congelaveis + ("renda_congelada",)}),
     }
 
 
@@ -162,9 +180,10 @@ class impacto_da_caixa:
     A leitura: caixa apoiada em repouso dá ~1,0. Uma queda de 5 cm dá um pico de poucas
     unidades. Um valor que sobe ao longo da run é a política aprendendo a jogar.
 
-    ⚠ PICO, e não média. O `MetricsManager` divide por `step_count`, portanto uma média
-    diluiria o impacto num episódio de ~800 passos até a irrelevância — que é o mesmo
-    defeito de diluição que o `pico_de_altura` deste arquivo existe para evitar.
+    ⚠ `reduce="max"` no `MetricsTermCfg` (v2.1). O `self.pico` já é o MÁXIMO corrente a
+    cada passo, mas o `MetricsManager` reduzia isso com `reduce="mean"` (o default):
+    a média de um pico MONÓTONO ao longo do episódio é um PISO, não o pico — o painel
+    publicava um número sistematicamente menor que o impacto real.
 
     ⚠ E ela TEM `reset`: sem ele o pico de um episódio entra no seguinte
     (`metrics_manager.py:132` só chama `reset` em termo de classe que o tenha).
@@ -183,6 +202,69 @@ class impacto_da_caixa:
         if env_ids is None:
             env_ids = slice(None)
         self.pico[env_ids] = 0.0
+
+
+class aproxima_caixa:
+    """MÍNIMO CORRENTE de `d_alvo / sigma_trazer`, por env — a régua da caixa (spec P10).
+
+    ⚠ LEITURA: 1,0 é "a caixa não saiu de onde o elo abriu" (`sigma_trazer` é a
+    distância inicial daquele env, spec §4.2b — `comando.AlvoCaixaCmd.__init__`); 0 é
+    "a caixa está NO alvo". Sem esta régua, "a caixa não se move" e "a caixa oscila
+    perto do alvo" liam igual no painel: os termos de recompensa são `exp(-d²/σ²)`, que
+    SATURA — eles não distinguem progresso fino perto do alvo.
+
+    ⚠ SÓ ATUALIZA ONDE `VALIDA > 0,5`: no `ANDAR` não existe alvo de caixa, e computar
+    `d` ali mediria contra um alvo que não é da tarefa.
+
+    ⚠ `reduce="last"` no `MetricsTermCfg`: é MÍNIMO CORRENTE, portanto o último valor
+    do episódio JÁ é o mínimo acumulado — uma média diluiria o progresso, o mesmo
+    defeito que `impacto_da_caixa` e `pico_de_altura` já evitam com `reduce` não-padrão.
+
+    ⚠ E ela TEM `reset`: sem ele o mínimo de um episódio entraria no seguinte
+    (`metrics_manager.py:132` só chama `reset` em termo de classe que o tenha).
+    """
+
+    def __init__(self, cfg, env):
+        self.minimo = torch.ones(env.num_envs, device=env.device)
+
+    def __call__(self, env, nome_do_comando: str) -> torch.Tensor:
+        from g1_limpo.comando import ALVO, VALIDA
+        t = env.command_manager.get_term(nome_do_comando)
+        comando = env.command_manager.get_command(nome_do_comando)
+        caixa = env.scene["box"].data.root_link_pos_w
+        d = torch.norm(caixa - comando[:, ALVO], dim=-1) / t.sigma_trazer.clamp(min=1e-6)
+        valida = comando[:, VALIDA] > 0.5
+        self.minimo = torch.where(valida, torch.minimum(self.minimo, d), self.minimo)
+        return self.minimo
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.minimo[env_ids] = 1.0
+
+
+class renda_manipulacao:
+    """Soma de `_step_reward` sobre os `termos` dependentes de elo — a régua da REGRA 1
+    (spec P10, proposta §0): "em todo instante existe incentivo até o alvo do elo; do
+    fecho de um elo até o seguinte a renda não cai."
+
+    ⚠ A MESMA lista que `recompensas.renda_congelada` congela, MAIS o próprio
+    `renda_congelada`: é o total instantâneo de manipulação, ao vivo mais congelado —
+    a soma que os checks 8 e 9 do smoke conferem no comando (não aqui, esta classe só
+    publica o número no painel).
+
+    ⚠ Os índices são resolvidos uma vez em `__init__`, e não a cada `__call__` — e AQUI
+    isso é seguro (diferente de `renda_congelada`): o `MetricsManager` só carrega
+    DEPOIS que `env.reward_manager` já existe e está completo
+    (`manager_based_rl_env.py:329-339`).
+    """
+
+    def __init__(self, cfg, env):
+        self.idx = [env.reward_manager.active_terms.index(n)
+                    for n in cfg.params["termos"]]
+
+    def __call__(self, env, termos) -> torch.Tensor:
+        return env.reward_manager._step_reward[:, self.idx].sum(dim=-1)
 
 
 def pads_em_contato(env, sensores: tuple[str, ...]) -> torch.Tensor:

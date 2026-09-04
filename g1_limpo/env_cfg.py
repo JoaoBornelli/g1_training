@@ -18,7 +18,6 @@ gates entram na F2; os sete incentivos de manipulação, na F3.
 from __future__ import annotations
 
 import dataclasses
-import math
 
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -63,11 +62,35 @@ ELO_DE_TREINO = CMD.ANDAR
 # quais elos NÃO têm o twist zerado pelo comando.
 ELOS_QUE_ANDAM = (CMD.ANDAR, CMD.CARREGAR)
 
-# Os elos que o sorteio pode entregar num RESET. O `CARREGAR` e o `BOTAR` ficam fora
-# porque começam com a caixa NAS MÃOS — eles só existem como 2º elo de uma cadeia, e
-# isso é F4. Ver `curriculo.sorteia_elo` para o preço declarado (os slots 3 e 4 do
-# one-hot ficam constantes até lá) e a mitigação pré-registrada.
+# ⚠ `CARREGAR` e `BOTAR` NUNCA entram aqui: eles começam com a caixa NAS MÃOS, e só
+# existem como 2º elo de uma cadeia — isso é F4. Ver `curriculo.sorteia_elo` para o
+# preço declarado (os slots 3 e 4 do one-hot ficam constantes até lá) e a mitigação
+# pré-registrada.
 ELOS_SORTEAVEIS = (CMD.REORIENTAR, CMD.PEGAR)
+
+
+def pesos_dos_sorteaveis(k: Knobs) -> tuple[float, float]:
+    """`(p_REORIENTAR, p_PEGAR)` para `sorteia_elo` (v2.1, P8-b; decisão do dono 2026-09-04).
+
+    ⚠ O REORIENTAR inerte NÃO sai do sorteio. O canal dele no one-hot ficaria constante, e
+    o normalizador do rsl_rl (`(x − μ)/(σ + 0,01)`, sem clamp) o faria entrar como ×100 no
+    dia em que acendesse — a regra que fixa `fatia_loco = 0,95`. Ele cai para
+    `prob_reorientar_inerte` (5%). Com `reorientar_inerte = False` o sorteio é uniforme.
+    """
+    p = k.cadeia.prob_reorientar_inerte if k.cadeia.reorientar_inerte else 0.5
+    return (p, 1.0 - p)
+
+
+# ⚠ Os termos que DEPENDEM DO ELO, congelados por `renda_congelada` no fecho (v2.1,
+# spec P3). `track_linear_velocity` e `track_angular_velocity` ENTRAM: desde o
+# `rastreio_por_elo` (P4) eles também dependem do elo — pagam zero num elo parado e
+# ao vivo no CARREGAR-andando —, portanto podem CAIR numa transição (CARREGAR->BOTAR) e
+# precisam do mesmo congelamento. Os termos de locomoção que NÃO dependem de elo
+# (`action_rate_l2`, `joint_acc`, `pose`, `upright`, ...) ficam de fora: eles seguem AO
+# VIVO sempre, e congelá-los pagaria duas vezes pela mesma coisa.
+TERMOS_CONGELAVEIS = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
+                     "postura_ereta", "sustentacao", "track_linear_velocity",
+                     "track_angular_velocity")
 
 
 def aplica_pesos(cfg, r) -> None:
@@ -258,8 +281,9 @@ def make_env_cfg(
         canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
         elos_que_andam=ELOS_QUE_ANDAM)
 
-    # ⚠⚠ OS DOIS TERMOS DE RASTREIO VÃO A ZERO NOS ELOS QUE NÃO ANDAM (31/08), e a
-    # razão é a medição mais decisiva do módulo até hoje. O `smoke` mede o piso da
+    # ⚠⚠ OS DOIS TERMOS DE RASTREIO VÃO A ZERO ONDE A TAREFA ZEROU O TWIST (31/08;
+    # v2.1 §4.2 P4 trocou o gate de um CONJUNTO DE ELOS para `env.limpo_twist_zerado`),
+    # e a razão é a medição mais decisiva do módulo até hoje. O `smoke` mede o piso da
     # estátua por elo:
     #
     #     piso ANDAR = 3,863/s      piso PEGAR = 8,265/s
@@ -278,8 +302,6 @@ def make_env_cfg(
         _t = cfg.rewards[_nome_rastreio]
         _t.params["func"] = _t.func
         _t.func = RC.rastreio_por_elo
-        _t.params.update(canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
-                         elos_que_andam=ELOS_QUE_ANDAM)
 
     aplica_pesos(cfg, k.recompensa)
 
@@ -290,7 +312,9 @@ def make_env_cfg(
     # `Metrics/air_time_mean` dele NÃO EXISTE. Ver `metricas.py`.
     #
     # O `mean_action_acc` do molde FICA: ele já é `MetricsTermCfg` e não depende de peso.
-    cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO, C.SENSOR_APOIO))
+    cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO, C.SENSOR_APOIO,
+                                 nome_do_comando="alvo_caixa",
+                                 termos_congelaveis=TERMOS_CONGELAVEIS))
 
     # ------------------------------------------ 2d. a régua: `razao_marcha`
     # ⚠ O twist é RECONSTRUÍDO como subclasse, campo a campo por `dataclasses.fields`,
@@ -416,6 +440,7 @@ def make_env_cfg(
     cfg.curriculum["elo"] = CurriculumTermCfg(
         func=CU.sorteia_elo,
         params={"elo_loco": CMD.ANDAR, "elos_manip": ELOS_SORTEAVEIS,
+                "pesos_manip": pesos_dos_sorteaveis(k),
                 "fatia_loco": k.forma.fatia_loco,
                 "forcado": elo_alvo if elo_explicito else None},
     )
@@ -544,26 +569,32 @@ def make_env_cfg(
         func=RC.postura_ereta, weight=tr.postura_ereta,
         params={"nome_do_comando": _cmd, "sensores_palma": C.SENSOR_PALMA,
                 "sensor_apoio": C.SENSOR_APOIO, "mu": tr.squeeze_mu,
-                "pelve_alvo": tr.pelve_alvo, "pelve_piso": tr.pelve_piso,
+                # ⚠ v2.1: a rampa satura em `pelve_alvo + pelve_margem`, ACIMA do
+                # limiar do fecho `de_pe` — o comando (abaixo) continua recebendo só
+                # `pelve_alvo`, que é o limiar de fecho de verdade.
+                "pelve_alvo": tr.pelve_alvo + tr.pelve_margem,
+                "pelve_piso": tr.pelve_piso,
                 "asset_cfg": _palmas()})
     cfg.rewards["sustentacao"] = RewardTermCfg(
         func=RC.sustentacao, weight=tr.sustentacao,
-        params={"nome_do_comando": _cmd, "tol_pos": tr.tol_pos,
-                "tol_ang": math.radians(tr.tol_ang_deg),
-                "sustenta_s": tr.sustenta_s})
+        params={"nome_do_comando": _cmd})
 
     # ------------------------------------------- 3i. a renda do BOTAR (v2, spec §6.6.2)
-    # ⚠ Os DOIS termos que faltavam para o BOTAR fechar. `load` é o espelho do `unload`,
-    # só no BOTAR; `largou` paga por tirar as mãos na espera final. Ambos leem o elo
-    # INTERNO e o VALIDA. O smoke prova a monotonia da renda (§11.1 item 16).
-    cfg.rewards["load"] = RewardTermCfg(
-        func=RC.load, weight=tr.load,
-        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO,
-                "raio_mult": tr.load_raio_mult})
+    # ⚠ v2.1 (spec P3): `load` SAIU — o fecho terminal do BOTAR já congela ≈10/s via
+    # `renda_congelada`, sem número escolhido à mão, e ele ficou redundante. `largou`
+    # paga por tirar as mãos na espera final, e perdeu o gate `× load`.
     cfg.rewards["largou"] = RewardTermCfg(
         func=RC.largou, weight=tr.largou,
-        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO,
-                "raio_mult": tr.load_raio_mult, "sigma_solta": tr.sigma_solta})
+        params={"nome_do_comando": _cmd, "sigma_solta": tr.sigma_solta})
+
+    # ⚠⚠ O TERMO QUE CONGELA A RENDA DE TODO FECHO DE ELO (v2.1, spec P3). TEM DE SER
+    # O ÚLTIMO em `cfg.rewards` — ele lê `_step_reward` dos termos JÁ computados neste
+    # passo (ver `recompensas.renda_congelada`), e o `smoke` prova
+    # `list(cfg.rewards)[-1] == "renda_congelada"`. Nenhum termo pode entrar depois
+    # deste, no resto da função.
+    cfg.rewards["renda_congelada"] = RewardTermCfg(
+        func=RC.renda_congelada, weight=tr.renda_congelada,
+        params={"nome_do_comando": _cmd, "termos": TERMOS_CONGELAVEIS})
 
     # ---------------------------------------------------- 3d. modo INSPEÇÃO
     if inspecao or play:

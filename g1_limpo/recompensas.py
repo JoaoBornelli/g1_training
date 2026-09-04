@@ -18,7 +18,7 @@ from mjlab.utils.lab_api.math import quat_apply
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "sustentacao", "load", "largou"]
+           "postura_ereta", "sustentacao", "largou", "renda_congelada"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -143,23 +143,8 @@ def contato_mesa(env, sensor_name: str, joelho_N: float,
     return ((forca - joelho_N) / max(saturacao_N - joelho_N, 1e-6)).clamp(0.0, 1.0)
 
 
-def _anda_neste_elo(env, canal_do_elo: int, nome_do_comando: str,
-                    elos_que_andam: tuple[int, ...],
-                    ref: torch.Tensor) -> torch.Tensor:
-    """Máscara booleana: este env está num elo em que ANDAR é a tarefa?
-
-    Um lugar só para a leitura do canal do elo. O `PosturaPorElo` faz a mesma coisa
-    inline por herança; quem escrever um terceiro consumidor usa isto.
-    """
-    comando = env.command_manager.get_command(nome_do_comando)
-    assert comando is not None
-    elo = comando[:, canal_do_elo].long()
-    return torch.isin(elo, torch.tensor(elos_que_andam, device=ref.device))
-
-
-def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
-                     elos_que_andam: tuple[int, ...], **kwargs) -> torch.Tensor:
-    """O termo de rastreio do fabricante, ZERO nos elos que NÃO andam.
+def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
+    """O termo de rastreio do fabricante, ZERO onde a TAREFA zerou o twist.
 
     ⚠⚠ ESTE TERMO EXISTE POR UMA MEDIÇÃO, e ela é a mais decisiva do módulo até hoje.
     O `smoke` mede o piso da estátua por elo — robô travado, sem fazer nada:
@@ -187,6 +172,24 @@ def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
         ficar parado    75
         explorar        88
 
+    ⚠ v2.1 (spec P4): A REGRA É "TWIST ZERADO PELA TAREFA NÃO RENDE RASTREIO", lida de
+    `env.limpo_twist_zerado` — publicado por `comando._zera_twist_nos_parados`, e não
+    mais um conjunto fixo de elos. O gate cobre agora TRÊS estados que antes pagavam
+    ~4,0/s por velocidade zero FORÇADA, sem serem rastreio de coisa nenhuma: a espera
+    inicial, a espera final, e o segurar-parado do CARREGAR — as três zeram o twist
+    pelo elo INTERNO, e o buffer as inclui todas. `_anda_neste_elo` e os params
+    `canal_do_elo`, `nome_do_comando`, `elos_que_andam` saem: o gate é uma máscara, não
+    mais um conjunto de elos.
+
+    ⚠ O STANDING SORTEADO (10% da locomoção) NÃO é zerado por este buffer — o twist ali
+    é uma escolha do sorteio de marcha, não uma imposição da tarefa. Ele continua
+    rastreando e pagando, porque é rastreio de verdade.
+
+    ⚠ EFEITO MEDIDO NAS ESPERAS (proposta §3 P4): a espera inicial cai de ≈5,8/s para
+    ≈2,0/s, e a abertura do PEGAR passa a pagar ≈1,9/s — o degrau de −3,3 na abertura
+    da tarefa vira ≈0. Risco declarado, já aceito no PEGAR: nada paga por ficar parado
+    durante a espera. `action_rate` e o alvo ancorado na base seguram.
+
     ⚠ RETORNA ZERO, e não 1,0 como o `PosturaPorElo`. A diferença é o propósito: lá o
     termo NÃO TEM O QUE DIZER num elo de manipulação, e 1,0 o deixa neutro. Aqui o
     termo tem algo a dizer e o que ele diz está ERRADO — pagar pela ausência de tarefa.
@@ -205,17 +208,9 @@ def rastreio_por_elo(env, *, func, canal_do_elo: int, nome_do_comando: str,
     pega, portanto ele pode vagar. Mas o alvo do `PEGAR` é ancorado na BASE — vagar
     move o alvo junto, e não há ganho em vagar. Se `eficiencia_min` cair junto com
     `palmas_em_contato` subindo, é este risco se realizando.
-
-    ⚠ A ESPERA NÃO PRECISA DE LINHA PRÓPRIA (desde a v2, spec §6.3): o comando publica
-    `ANDAR` durante as duas esperas, portanto `_anda_neste_elo` já devolve verdadeiro
-    ali e o rastreio paga por manter velocidade zero — que é o contrato "fique parado,
-    e ainda não existe tarefa". A versão de 02/09 lia o buffer de espera do env aqui porque o
-    publicado ainda era `PEGAR`; ficou redundante e saiu.
     """
     valor = func(env, **kwargs)
-    anda = _anda_neste_elo(env, canal_do_elo, nome_do_comando,
-                           elos_que_andam, valor)
-    return torch.where(anda, valor, torch.zeros_like(valor))
+    return valor * (1.0 - env.limpo_twist_zerado)
 
 
 # =============================================================================
@@ -493,84 +488,39 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
     return rampa * descarga
 
 
-class sustentacao:
-    """`t_na_condição / alvo`. Paga por FICAR lá, e não só por passar por lá.
+def sustentacao(env, nome_do_comando: str) -> torch.Tensor:
+    """`_sust / _sustain_alvo`. Paga por FICAR lá, e não só por passar por lá.
 
-    ⚠ O CRONÔMETRO LÊ SÓ A CONDIÇÃO DA TAREFA. No `g1_multitask` ele lia também o erro
-    angular da base, e o `push_robot` (±0,78 rad/s a cada 1 a 3 s) estourava o teste e
-    ZERAVA o contador: o `perf` do locomover marcou 0 nas iterações 13.700 e 17.297
-    **com o robô já andando**. Uma régua que uma perturbação externa zera não mede
-    competência. Push e régua ficam em compartimentos separados.
+    ⚠ v2.1: SEM CRONÔMETRO PRÓPRIO (spec P2). O comando já acumula `_sust` enquanto a
+    condição de FECHO do elo vale, e já o zera no avanço e no reset — um relógio
+    duplicado aqui só podia divergir do que decide o fecho.
 
-    ⚠ E ele TEM `reset` — sem isso `reward_manager.py:174` nunca o chamaria, e o tempo
-    acumulado de um episódio entraria no seguinte.
+    ⚠ O relógio próprio pagava por `perto ∧ alinhado`, mais FROUXO que a condição de
+    fecho de verdade (no PEGAR o fecho também exige `de_pe`; no CARREGAR-andando,
+    `andou`): ele pagava por um estado que não fecha o elo.
+
+    ⚠ E ele morria: `avancou` era pegajoso, e se um env nunca mais avançasse depois do
+    primeiro avanço, o termo zerava para sempre. `_sust` não tem esse defeito — ele só
+    depende da condição de fecho, ponto.
     """
-
-    def __init__(self, cfg, env):
-        self.t = torch.zeros(env.num_envs, device=env.device)
-        self.dt = env.step_dt
-
-    def __call__(self, env, nome_do_comando: str, tol_pos: float,
-                 tol_ang: float, sustenta_s: float) -> torch.Tensor:
-        from g1_limpo.comando import ANG
-        cmd = env.command_manager.get_command(nome_do_comando)
-        perto = _dist_caixa_alvo(env, nome_do_comando) < tol_pos
-        alinhado = cmd[:, ANG] < tol_ang
-        na_condicao = perto & alinhado & (_valida(env, nome_do_comando) > 0.5)
-        self.t = torch.where(na_condicao, self.t + self.dt,
-                            torch.zeros_like(self.t))
-        # ⚠⚠ ZERA NO AVANÇO DE ELO. Sem isto o crédito VAZA de um elo para o seguinte:
-        # o `pegar` e o `carregar` pedem o MESMO alvo (é decisão, §4.2), portanto no
-        # instante em que o elo avança a condição continua valendo e o `self.t` já está
-        # saturado — o `carregar` nasceria pago sem nenhum trabalho novo. O termo tem o
-        # seu próprio cronômetro, separado do `_sust` do comando, e por isso precisa do
-        # seu próprio zeramento.
-        avancou = getattr(_t(env, nome_do_comando), "avancou", None)
-        if avancou is not None:
-            self.t = torch.where(avancou, torch.zeros_like(self.t), self.t)
-        return (self.t / max(sustenta_s, 1e-6)).clamp(max=1.0)
-
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
-        if env_ids is None:
-            env_ids = slice(None)
-        self.t[env_ids] = 0.0
-
-
-def load(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float) -> torch.Tensor:
-    """`clamp(F_apoio/m·g) × perto` — o espelho do `unload`, SÓ no `BOTAR` (spec §6.6.2).
-
-    Paga quando a laje carrega o peso da caixa perto do alvo. Sem ele o BOTAR não tinha
-    quem pagasse por apoiar: a condição de fecho exige `apoiada` e nenhuma recompensa a
-    pagava — pairar rendia mais (spec §6.6.1). É a peça do `g1_poc`
-    (`g1_poc/recompensas.py::load`), com o mesmo peso e o mesmo gate de posição.
-
-    ⚠ `clamp` em 1: prensar a caixa contra a laje não rende mais. ⚠ Gate de posição
-    `d ≤ raio_mult × tol_pos`: fecha o hack de largar a caixa em qualquer lugar do tampo.
-    ⚠ SEM gate de preensão: soltar É o objetivo. ⚠ Continua pagando na espera final,
-    porque o interno segue BOTAR — é isso que torna fechar melhor do que pairar.
-    """
-    from g1_limpo.comando import BOTAR, forca_de_apoio
     t = _t(env, nome_do_comando)
-    # ⚠ SÓ A COMPONENTE VERTICAL, e é a MESMA função que o fecho do `BOTAR` usa
-    # (`comando.forca_de_apoio`). Uma segunda leitura aqui poderia divergir do fecho, e
-    # aí o termo pagaria por um estado que o elo não aceita — ou o contrário. Ver o
-    # docstring de lá para a medição do sinal e para o resíduo declarado.
-    f = forca_de_apoio(env, sensor_apoio)
-    peso = (env.limpo_massa * 9.81).clamp(min=1e-6)
-    fracao = (f / peso).clamp(0.0, 1.0)
-    perto = (_dist_caixa_alvo(env, nome_do_comando) <= raio_mult * t.cfg.tol_pos).float()
-    no_botar = (t._elo == BOTAR).float()
-    return fracao * perto * no_botar * _valida(env, nome_do_comando)
+    return ((t._sust / t._sustain_alvo.clamp(min=1e-6)).clamp(0.0, 1.0)
+            * _valida(env, nome_do_comando))
 
 
-def largou(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float,
-           sigma_solta: float) -> torch.Tensor:
-    """`soltou × load × (1 − exp(−(d_palma/σ_solta)²))` — tirar as mãos (spec §6.6.2).
+def largou(env, nome_do_comando: str, sigma_solta: float) -> torch.Tensor:
+    """`soltou × (1 − exp(−(d_palma/σ_solta)²))` — tirar as mãos (spec §6.6.2, v2.1 P3).
 
-    Paga por afastar as palmas da caixa APOIADA no alvo, só na espera final. Sem ele a
-    espera final não ensinava a largar: `pose` em `standing` (σ 0,05) vale zero com os
-    braços fora e `action_rate` paga por não mover — o ótimo era congelar com as mãos na
-    caixa. Como `_alcancar ≡ 1` tirou o freio, um peso pequeno basta.
+    Paga por afastar as palmas da caixa, só na espera final. Sem ele a espera final não
+    ensinava a largar: `pose` em `standing` (σ 0,05) vale zero com os braços fora e
+    `action_rate` paga por não mover — o ótimo era congelar com as mãos na caixa. Como
+    `_alcancar ≡ 1` tirou o freio, um peso pequeno basta.
+
+    ⚠ v2.1: O `× load` SAIU. Ele era o gate de "a caixa está apoiada no alvo" — mas na
+    espera final o `BOTAR` JÁ fechou com `apoiada` (é condição do próprio fecho), e se a
+    caixa cair depois, `caiu` termina o episódio. O gate era redundante com o fecho e
+    com a terminação; `load` em si saiu do módulo (spec P3, `renda_congelada` cobre o
+    fecho do BOTAR sem número escolhido à mão).
     """
     soltou = getattr(env, "limpo_soltou", None)
     if soltou is None:
@@ -578,5 +528,60 @@ def largou(env, nome_do_comando: str, sensor_apoio: str, raio_mult: float,
     t = _t(env, nome_do_comando)
     d = t.dist_palma_caixa(torch.arange(env.num_envs, device=env.device))
     longe = 1.0 - torch.exp(-(d / max(sigma_solta, 1e-6)) ** 2)
-    return ((soltou > 0.5).float() * longe
-            * load(env, nome_do_comando, sensor_apoio, raio_mult))
+    return (soltou > 0.5).float() * longe
+
+
+class renda_congelada:
+    """A SOMA dos `termos` dependentes de elo, CONGELADA em número no fecho (spec P3).
+
+    ⚠ CONGELA A SOMA, e não os termos vivos contra o alvo velho. Um elo que fecha muda
+    o alvo dos termos que ele mede — depois do `CARREGAR` fechar, a caixa tem de sair
+    do peito, e termos ainda vivos contra o peito puniriam o elo novo por progredir. A
+    soma em número, uma vez, não tem esse problema: ela só cresce.
+
+    ⚠⚠ DEPENDE DE `_step_reward`, atributo PRIVADO do `RewardManager` do mjlab — que
+    guarda `peso × valor` por termo, por passo, na ordem do dict — e de ser o ÚLTIMO
+    termo de `cfg.rewards`: só assim a soma lida no passo `t` é a dos termos JÁ
+    computados neste mesmo passo, e ainda não sobrescrita pelo elo novo (a troca de elo
+    roda em `command_manager.compute`, DEPOIS de `reward_manager.compute` — mjlab
+    `manager_based_rl_env.py`). O `smoke` fixa os dois; um upgrade que renomeie o
+    buffer ou reordene o dict falha no smoke, e não no treino.
+
+    ⚠⚠ OS ÍNDICES SÃO RESOLVIDOS NO PRIMEIRO `__call__`, e não no `__init__`. Em
+    `__init__` o `RewardManager` deste PRÓPRIO termo ainda está se construindo:
+    `env.reward_manager` só passa a existir DEPOIS que `RewardManager.__init__`
+    retorna (`manager_based_rl_env.py:329`), e como este termo é UM DOS do próprio
+    `reward_manager`, ler `env.reward_manager` no `__init__` explode com
+    `AttributeError` — MEDIDO. Resolver no primeiro `__call__` ainda resolve uma vez só
+    (memoizado), só que mais tarde.
+    """
+
+    def __init__(self, cfg, env):
+        self._termos = cfg.params["termos"]
+        self._idx: list[int] | None = None
+        z = torch.zeros(env.num_envs, device=env.device)
+        self.soma_anterior, self.congelado = z.clone(), z.clone()
+        self.fechos_anterior = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    def __call__(self, env, nome_do_comando: str, termos) -> torch.Tensor:
+        if self._idx is None:
+            self._idx = [env.reward_manager.active_terms.index(n) for n in self._termos]
+        t = _t(env, nome_do_comando)
+        # ⚠⚠ A ORDEM 2→4 É O QUE GARANTE que se congela a soma do passo ANTERIOR ao
+        # fecho, e não a do passo do próprio fecho (que já lê o elo novo): (1) detecta
+        # o fecho pela SUBIDA do contador; (2) soma o QUE JÁ ESTAVA em `soma_anterior`
+        # — do passo passado — por cima do congelado; (3) atualiza o contador; (4) só
+        # DEPOIS relê `_step_reward` para o PRÓXIMO passo.
+        fechou_agora = t._fechos > self.fechos_anterior
+        self.congelado = self.congelado + torch.where(
+            fechou_agora, self.soma_anterior, torch.zeros_like(self.soma_anterior))
+        self.fechos_anterior = t._fechos.clone()
+        self.soma_anterior = env.reward_manager._step_reward[:, self._idx].sum(dim=-1)
+        return self.congelado * _valida(env, nome_do_comando)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.soma_anterior[env_ids] = 0.0
+        self.congelado[env_ids] = 0.0
+        self.fechos_anterior[env_ids] = 0

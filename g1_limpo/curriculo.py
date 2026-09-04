@@ -164,6 +164,7 @@ def sorteia_elo(
     elos_manip: tuple[int, ...],
     fatia_loco: float,
     forcado: int | None = None,
+    pesos_manip: tuple[float, ...] | None = None,
 ) -> float:
     """Sorteia o elo POR ENV. Devolve a fatia de locomoção medida, para o log.
 
@@ -180,6 +181,10 @@ def sorteia_elo(
     `rsl_rl/modules/normalization.py:48` divide por `_std + 1e−2` sem clamp: ao
     acender, 1,0 entra na rede como 100,0. Com 0,95, 5% dos episódios são de
     manipulação desde o passo 0 e os slots sorteáveis nunca são constantes.
+
+    ⚠ `pesos_manip` existe para o REORIENTAR inerte ficar a 5% em vez de SAIR do sorteio
+    (v2.1, P8-b, decisão do dono 2026-09-04). O canal dele no one-hot não pode ficar
+    constante — é a mesma regra do normalizador do parágrafo acima. `None` é uniforme.
 
     F5 troca o `fatia_loco` fixo pelo controlador de fatia, gateado pela
     `razao_marcha`. A assinatura não muda.
@@ -203,8 +208,12 @@ def sorteia_elo(
     n = len(env_ids)
     if n:
         sorteio = torch.rand(n, device=env.device)
-        # o índice do elo de manipulação, uniforme entre os sorteáveis
-        k = torch.randint(len(elos_manip), (n,), device=env.device)
+        # o índice do elo de manipulação: uniforme, ou com `pesos_manip` (v2.1, P8-b)
+        if pesos_manip is None:
+            k = torch.randint(len(elos_manip), (n,), device=env.device)
+        else:
+            pesos = torch.tensor(pesos_manip, dtype=torch.float, device=env.device)
+            k = torch.multinomial(pesos, n, replacement=True)
         tabela = torch.tensor(elos_manip, dtype=torch.long, device=env.device)
         buf[env_ids] = torch.where(sorteio < fatia_loco,
                                    torch.full((n,), int(elo_loco),

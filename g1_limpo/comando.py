@@ -356,13 +356,29 @@ class AlvoCaixaCmd(CommandTerm):
         # `_SEGURA_PARADO` o lê; as outras usam `carregar_s`.
         self._segurar = torch.zeros(n, device=d)
 
+        # ⚠ O TWIST FIXO do CARREGAR-andando (v2.1, spec P5): sorteado UMA vez na
+        # abertura do elo e mantido até o fecho, em vez de aceitar o que o resample de
+        # 3 a 8 s do twist do fabricante mandar. `_twist_valido` cai a `False` no reset
+        # e no avanço; enquanto falso, `_zera_twist_nos_parados` sorteia de novo.
+        self._twist_carregar = torch.zeros(n, 3, device=d)
+        self._twist_valido = torch.zeros(n, dtype=torch.bool, device=d)
+
         # ---------------------------------------------------------- F4: máquina de elo
         # Os buffers que controlam o avanço entre elos.
         self._cadeia = torch.zeros(n, dtype=torch.long, device=d)
         self._passo = torch.zeros(n, dtype=torch.long, device=d)  # 0 .. _TETO_ELOS-1
         self._sust = torch.zeros(n, dtype=torch.float, device=d)  # cronômetro em s
-        self.avancou = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ O ALVO do cronômetro acima, por env (v2.1, spec P2). Escrito em TODA
+        # abertura de elo — reset (`_resample_command`) e avanço (`_avanca_elo_force`)
+        # — com a MESMA regra que `_avanca_elo` lia inline: uma fonte só, e
+        # `recompensas.sustentacao` lê daqui em vez de recalcular.
+        self._sustain_alvo = torch.zeros(n, dtype=torch.float, device=d)
         self.fechou = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ O CONTADOR DE FECHOS GANHOS, por env (v2.1, spec P3). Sobe UM em todo fecho
+        # de elo — avanço dentro da cadeia OU fecho terminal —, exceto o inerte do
+        # REORIENTAR. `recompensas.renda_congelada` lê a SUBIDA deste contador para
+        # saber em que passo congelar a soma dos termos do elo que acabou de fechar.
+        self._fechos = torch.zeros(n, dtype=torch.long, device=d)
 
         # Métricas publicadas para o log (seção 4 do contrato F4)
         # ⚠ Todas são float para que `reset` possa tirar a média
@@ -412,6 +428,11 @@ class AlvoCaixaCmd(CommandTerm):
         # `knobs.Alvo.espera_s` para o porquê e para a origem no `g1_poc`.
         self._espera = torch.zeros(n, device=d)
         env.limpo_aguardando = torch.zeros(n, device=d)
+        # ⚠ A MÁSCARA "esta tarefa zerou o twist deste env", por env (v2.1, spec P4).
+        # Publicada por `_zera_twist_nos_parados`, e lida por
+        # `recompensas.rastreio_por_elo` — um gate só, em vez do conjunto de elos que
+        # o termo de recompensa lia antes.
+        env.limpo_twist_zerado = torch.zeros(n, device=d)
         # ⚠ A ESPERA FINAL (spec §6.6): depois do fecho do BOTAR, o publicado é ANDAR
         # até o fim do episódio; o interno segue BOTAR. `soltou` desarma o `escapou` da
         # terminação e liga o `largou` da recompensa.
@@ -575,6 +596,10 @@ class AlvoCaixaCmd(CommandTerm):
         self._pos_no_elo[ids] = self.robot.data.root_link_pos_w[ids]
         self._pegou[ids] = False
         self._sust[ids] = 0.0
+        # ⚠ SEM ISTO O ELO ENTREGUE FECHA NA HORA (achado pendente do lote C1, spec
+        # P2): `_sustain_alvo` ficaria no zero do `__init__`, e `_sust >= 0` é
+        # verdadeiro desde o primeiro passo. Mesma regra de toda abertura de elo.
+        self._sustain_alvo[ids] = self._sustain_alvo_de(ids)
         self.fechou[ids] = False
         lo, hi = self.cfg.espera_s
         self._espera[ids] = lo + (hi - lo) * torch.rand(len(ids), device=d)
@@ -678,8 +703,19 @@ class AlvoCaixaCmd(CommandTerm):
         # Zerar os buffers de avanço
         self._passo[env_ids] = 0
         self._sust[env_ids] = 0.0
-        self.avancou[env_ids] = False
         self.fechou[env_ids] = False
+        # ⚠ TODA abertura de elo escreve `_sustain_alvo` (v2.1, spec P2), e esta é a
+        # do RESET. Tem de vir DEPOIS de `_segurar` (linha 638) e de `_cadeia` (acima)
+        # já existirem: `_sustain_alvo_de` lê os dois via `_segura_parado`.
+        self._sustain_alvo[env_ids] = self._sustain_alvo_de(env_ids)
+        # ⚠ o CONTADOR DE FECHOS zera com escopo de EPISÓDIO (v2.1, spec P3) — o mesmo
+        # motivo do `_sust` acima: sem isto, um episódio novo herdaria os fechos do
+        # anterior e `renda_congelada` nasceria com crédito de um episódio que já acabou.
+        self._fechos[env_ids] = 0
+        # ⚠ o TWIST FIXO do CARREGAR-andando invalida na abertura (v2.1, spec P5): o
+        # elo pode nem ser CARREGAR, e se for, precisa de um sorteio novo, e não o de
+        # um episódio anterior.
+        self._twist_valido[env_ids] = False
 
         # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
         # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da
@@ -767,6 +803,19 @@ class AlvoCaixaCmd(CommandTerm):
         gateie por "comando ativo" passa a NÃO contar estes passos, que é o correto —
         eles são passos de comando zero de verdade, e não passos mascarados na
         leitura.
+
+        ⚠⚠ `env.limpo_twist_zerado` É PUBLICADO AQUI, logo depois de `parados` incluir
+        o segurar-parado, e ANTES do `return` cedo abaixo (v2.1, spec P4). Com o
+        `return` antes da publicação, o buffer ficaria com o valor do passo anterior
+        no passo em que ninguém está parado — e `recompensas.rastreio_por_elo`, que
+        lê este buffer, mediria o gate errado.
+
+        ⚠ P5 (v2.1): o CARREGAR-andando (`_elo == CARREGAR`, fora do segurar-parado)
+        NÃO tem mais o twist zerado nem deixado ao resample do fabricante — ele recebe
+        um twist FIXO, sorteado uma vez na abertura do elo e mantido até o fecho. Sem
+        isto, 10% dos envs recebiam standing (twist perto de zero) e nunca fechavam
+        `andou`, e o resample de 3 a 8 s do twist do fabricante podia inverter o
+        sentido antes de `andou` valer.
         """
         parados = torch.isin(self._elo, torch.tensor(self.cfg.elos_parados,
                                                      device=self.device))
@@ -774,9 +823,26 @@ class AlvoCaixaCmd(CommandTerm):
         # tem twist zero. Na cadeia 2 o CARREGAR continua andando.
         parados = parados | self._segura_parado(
             torch.arange(self.num_envs, device=self.device))
+        self._env.limpo_twist_zerado.copy_(parados.float())
+
+        tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
+
+        # --- P5: twist FIXO no CARREGAR-andando ---
+        todos = torch.arange(self.num_envs, device=self.device)
+        anda_c = (self._elo == CARREGAR) & ~self._segura_parado(todos)
+        novos = anda_c & ~self._twist_valido
+        if bool(novos.any()):
+            k = int(novos.sum())
+            v_x = 0.3 + (1.0 - 0.3) * torch.rand(k, device=self.device)
+            self._twist_carregar[novos, 0] = v_x
+            self._twist_carregar[novos, 1] = 0.0
+            self._twist_carregar[novos, 2] = 0.0
+            self._twist_valido[novos] = True
+        if bool(anda_c.any()):
+            tw.vel_command_b[anda_c] = self._twist_carregar[anda_c]
+
         if not bool(parados.any()):
             return
-        tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
         tw.vel_command_b[parados] = 0.0
 
     def _fecha_elo_corrente(self, ids: torch.Tensor) -> torch.Tensor:
@@ -860,6 +926,35 @@ class AlvoCaixaCmd(CommandTerm):
         # dentro de cada ramo seria quatro lugares para esquecer um.
         return fecha & ativo
 
+    def _sustain_alvo_de(self, ids: torch.Tensor) -> torch.Tensor:
+        """O sustain exigido pelo elo CORRENTE daqueles `ids`, em segundos (v2.1).
+
+        ⚠ FONTE ÚNICA do alvo de sustain: PEGAR → `sustenta_pegar_s`; CARREGAR →
+        `_segurar` (a espera sorteada) se `_segura_parado`, senão `carregar_s`;
+        REORIENTAR e BOTAR → `sustenta_outros_s`; ANDAR → 0 (não entra no laço). Antes
+        esta regra vivia inline em `_avanca_elo`, recalculada todo passo; agora ela é
+        escrita em `self._sustain_alvo` em TODA abertura de elo (reset e avanço,
+        spec P2) e `_avanca_elo` só lê o buffer.
+        """
+        d = self.device
+        elo_corrente = self._elo[ids]
+        alvo = torch.zeros(len(ids), device=d)
+        for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR):
+            m = elo_corrente == elo_tipo
+            if not bool(m.any()):
+                continue
+            if elo_tipo == PEGAR:
+                alvo[m] = self.cfg.sustenta_pegar_s
+            elif elo_tipo == CARREGAR:
+                # ⚠ em SEGURAR PARADO o sustain É a espera sorteada (spec §6.5)
+                segura = self._segura_parado(ids)[m]
+                seg_s = self._segurar[ids][m]
+                alvo[m] = torch.where(
+                    segura, seg_s, torch.full_like(seg_s, self.cfg.carregar_s))
+            else:  # REORIENTAR, BOTAR
+                alvo[m] = self.cfg.sustenta_outros_s
+        return alvo
+
     def _avanca_elo(self) -> None:
         """Avança de elo quando a condição de fechamento é satisfeita por sustain.
 
@@ -891,22 +986,9 @@ class AlvoCaixaCmd(CommandTerm):
             torch.zeros_like(self._sust[nao_fechou])
         )
 
-        # Determinar o sustain alvo de cada elo
-        elo_corrente = self._elo[nao_fechou]
-        sustain_alvo = torch.zeros(len(nao_fechou), device=d)
-        for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR):
-            m = elo_corrente == elo_tipo
-            if bool(m.any()):
-                if elo_tipo == PEGAR:
-                    sustain_alvo[m] = self.cfg.sustenta_pegar_s
-                elif elo_tipo == CARREGAR:
-                    # ⚠ em SEGURAR PARADO o sustain É a espera sorteada (spec §6.5)
-                    segura = self._segura_parado(nao_fechou)[m]
-                    seg_s = self._segurar[nao_fechou][m]
-                    sustain_alvo[m] = torch.where(
-                        segura, seg_s, torch.full_like(seg_s, self.cfg.carregar_s))
-                else:  # REORIENTAR, BOTAR
-                    sustain_alvo[m] = self.cfg.sustenta_outros_s
+        # ⚠ v2.1: LIDO do buffer, escrito em toda abertura de elo (reset e avanço) —
+        # uma fonte só. Antes recalculado aqui, todo passo; ver `_sustain_alvo_de`.
+        sustain_alvo = self._sustain_alvo[nao_fechou]
 
         # ⚠ SÓ QUEM TEM CADEIA pode avançar. Sem este filtro, um env de `ANDAR` entrava
         # em `_avanca_elo_force` A CADA PASSO: o laço por elo acima não cobre o `ANDAR`,
@@ -962,6 +1044,15 @@ class AlvoCaixaCmd(CommandTerm):
         prox = passo + 1
         pode = tem & (prox < n_elos)
 
+        # ⚠⚠ O CONTADOR DE FECHOS (v2.1, spec P3), lido por `recompensas.renda_congelada`.
+        # `origem` TEM DE SER LIDO AQUI, ANTES de `self._elo` mudar logo abaixo — senão
+        # um REORIENTAR que acabou de avançar já leria como o elo NOVO, e o inerte
+        # contaria como fecho ganho. Sobe em todo fecho — avanço (`pode`) ou terminal
+        # (`tem & ~pode`) —, exceto o do REORIENTAR inerte.
+        origem = self._elo[ids]
+        ganho = origem != REORIENTAR
+        self._fechos[ids] += (ganho & (pode | (tem & ~pode))).long()
+
         # --- os que AVANÇAM ---
         m = ids[pode]
         if len(m):
@@ -969,6 +1060,12 @@ class AlvoCaixaCmd(CommandTerm):
             self._passo[m] = np_
             self._elo[m] = _ELO_EM.to(d)[cad[pode], np_]
             self._sust[m] = 0.0
+            # ⚠ TODA abertura de elo escreve `_sustain_alvo` (v2.1, spec P2), e esta é
+            # a do AVANÇO — depois de `self._elo[m]` já apontar para o elo NOVO.
+            self._sustain_alvo[m] = self._sustain_alvo_de(m)
+            # ⚠ P5: invalida o twist fixo do CARREGAR-andando — o elo novo pode nem
+            # ser CARREGAR, e se for, precisa de um sorteio novo na abertura dele.
+            self._twist_valido[m] = False
             # ⚠ UMA chamada em lote. E `so_pose=False` porque aqui a pose JÁ está
             # fresca: o avanço roda no `_update_command`, não no reset.
             self._aplica_elo(m, so_pose=False)
@@ -1004,7 +1101,6 @@ class AlvoCaixaCmd(CommandTerm):
                 # passo a mais.
                 self._env.limpo_soltou[solta] = 1.0
 
-        self.avancou[ids] = pode
         # ⚠ Só o CONTADOR de avanços mora aqui — ele é por evento. O `passo_final` e o
         # `fatia_cadeia` são ESTADO, e são escritos todo passo no `_avanca_elo`.
         self.metrics["avancos"][ids] += pode.float()

@@ -552,29 +552,33 @@ class Tarefa:
     ensina a fazer. E booleano é platô — o `pegar` do `g1_poc` travou 22k iterações num
     `squeeze` booleano.
 
-    Soma dos pesos = 11,5/s. É o teto da tarefa, e ele se compara com o PISO DA ESTÁTUA
-    de **5,81/s** (medido 2026-08-26, robô travado num elo parado). Razão ~2:1 no
-    fecho completo, e é a resposta à pergunta "ficar parado paga mais que agir?".
+    Soma dos pesos = 12,5/s (v2.1: `precise_pos` 2,0 → 3,0). É o teto da tarefa, e ele
+    se compara com o PISO DA ESTÁTUA de **5,81/s** (medido 2026-08-26, robô travado num
+    elo parado). Razão ~2:1 no fecho completo, e é a resposta à pergunta "ficar parado
+    paga mais que agir?".
 
-    Mais `load` (2,0) e `largou` (1,0), só no BOTAR e na espera final — spec §6.6.2.
+    Mais `largou` (1,0), só na espera final, e `renda_congelada` (1,0), que fecha todo
+    elo — spec §6.6.2 e v2.1 spec P3.
     """
 
     # --- os sete pesos ---
     staged: float = 3.0            # alcançar × (1 + trazer). O motor da fase inicial
-    precise_pos: float = 2.0       # caixa NO alvo
+    precise_pos: float = 3.0       # caixa NO alvo
     precise_ori: float = 1.0       # face pedida apontando ao robô
     squeeze: float = 1.0           # força nas DUAS palmas
     unload: float = 2.0            # a caixa deixou de pesar na laje
     postura_ereta: float = 2.0     # ergueu SEM agachar
     sustentacao: float = 0.5       # ficou lá
 
-    # ⚠ A RENDA DO BOTAR (spec §6.6.2, decisão do dono 03/09). Sem estes dois, pairar a
-    # caixa a 1 cm da laje rendia 16,5/s e apoiá-la 12,5/s: o BOTAR não fechava. O
-    # `g1_poc` tinha `load` + as máscaras de `squeeze`/`unload` e a reescrita as perdeu.
-    load: float = 2.0              # clamp(F_apoio/m·g) × perto — o espelho do `unload`, só no BOTAR
-    largou: float = 1.0            # soltou × load × (1 − exp(−(d_palma/σ_solta)²)) — tirar as mãos
-    load_raio_mult: float = 2.0    # `perto` do load = d ≤ raio_mult × tol_pos (g1_poc: 2)
+    # ⚠ A RENDA DO BOTAR (spec §6.6.2, decisão do dono 03/09; v2.1 removeu `load` —
+    # spec P3, `renda_congelada` abaixo cobre o fecho sem número escolhido à mão).
+    largou: float = 1.0            # soltou × (1 − exp(−(d_palma/σ_solta)²)) — tirar as mãos
     sigma_solta: float = 0.10      # m; palmas a 10 cm rendem 63%, a 20 cm 98%
+
+    # ⚠ CONGELA a soma dos termos dependentes de elo no passo de todo fecho, e paga
+    # esse número como nível constante daí em diante (v2.1, spec P3). Peso 1,0: o
+    # valor já É a renda medida do elo que fechou, e não precisa de escala própria.
+    renda_congelada: float = 1.0
 
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
@@ -598,10 +602,12 @@ class Tarefa:
     # σ ~ 0 e o kernel viraria um pico impossível de manter.
     sigma_min: float = 0.08
 
-    # ⚠ O `precise_pos` é o ÚNICO com σ FIXO, e de propósito: ele mede "a caixa está NO
-    # alvo", que é uma tolerância de aceite e não uma rampa de aproximação. Quem faz a
-    # aproximação é o `staged`, com σ por env.
-    precise_pos_sigma: float = 0.05
+    # ⚠ O `precise_pos` é o ÚNICO com σ FIXO, e de propósito: ele é uma RAMPA DE ACEITE
+    # — "a caixa está NO alvo?" — e não uma rampa de aproximação (essa é o `staged`, com
+    # σ por env). O raio 0,18 é MAIOR que `tol_pos` (0,10): no limiar do fecho o termo
+    # já paga `exp(−(0,10/0,18)²) = 0,73`, contra 0,018 do σ velho de 0,05 — o raio de
+    # aceite cobre o raio de fechamento, em vez de morrer antes dele.
+    precise_pos_sigma: float = 0.18
 
     # --- squeeze: o μ que DERIVA a força de referência das palmas ---
     # ⚠ `F_ref = m·g/(2μ)` — a força de aperto que o atrito precisa para segurar a
@@ -622,13 +628,12 @@ class Tarefa:
     # descendo até a caixa. Medido na pose de pé: pelve em 0,798 m.
     pelve_alvo: float = 0.75       # acima disto a rampa paga cheio
     pelve_piso: float = 0.45       # abaixo disto ela paga zero
+    # ⚠ a rampa do `postura_ereta` satura em `pelve_alvo + pelve_margem`, ACIMA do
+    # limiar do fecho `de_pe` (que continua em `pelve_alvo`) — para a política não
+    # parar exatamente na borda do fecho, onde a derivada da rampa já seria zero.
+    pelve_margem: float = 0.03
 
     # --- sustentação ---
-    # ⚠ O cronômetro lê SÓ a condição da tarefa. No `g1_multitask` ele lia também o
-    # erro angular, e um push de ±0,78 rad/s a cada 1-3 s ZERAVA o contador: o
-    # `perf` ficou 0 nas iterações 13.700 e 17.297 com o robô já andando. Push e régua
-    # em compartimentos separados.
-    sustenta_s: float = 1.0
     # a tolerância que conta como "na condição", em metros e radianos
     tol_pos: float = 0.10
     tol_ang_deg: float = 25.0
@@ -686,6 +691,13 @@ class Cadeia:
     # `voltas_max = 0` sozinho não bastava (o jitter lateral da caixa tira a direção
     # pedida da tolerância em ~1 de 6 envs). Quando a reorientação virar foco: False.
     reorientar_inerte: bool = True
+    # ⚠ O REORIENTAR inerte CONTINUA no sorteio, a 5% (decisão do dono, 2026-09-04). O
+    # one-hot do elo tem um canal para ele; o normalizador do rsl_rl é `(x − μ)/(σ + 0,01)`
+    # sem clamp, e um canal constante tem σ = 0 — ao acender, `1,0` entra como ×100. É a
+    # mesma regra que fixa `fatia_loco = 0,95`.
+    # ⚠ O custo é 0,3 s em 5% dos envs de manipulação (0,08% do tempo). As cadeias 2 e 3
+    # vão de 2,8% para 5,3% dos envs. Com `reorientar_inerte = False` o sorteio volta a 50%.
+    prob_reorientar_inerte: float = 0.05
 
     # ⚠⚠ O `CARREGAR` EXIGE DESLOCAMENTO, e não só tempo. Defeito MEDIDO em 2026-08-26
     # (achado por code review): o `pegar` e o `carregar` publicam EXATAMENTE o mesmo
