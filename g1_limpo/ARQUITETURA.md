@@ -74,16 +74,20 @@ manipulação. É o idioma dominante do pacote: *reusar o fabricante e alterar u
 ### 0.3 Objeto chamável: `__call__`
 
 ```python
-class sustentacao:
-    def __init__(self, cfg, env): self.t = torch.zeros(env.num_envs)
+class impacto_da_caixa:      # métrica, não recompensa — mas o idioma é o mesmo
+    def __init__(self, cfg, env): self.pico = torch.zeros(env.num_envs)
     def __call__(self, env, ...):  ...      # chamada como se fosse função
-    def reset(self, env_ids=None): self.t[env_ids] = 0.0
+    def reset(self, env_ids=None): self.pico[env_ids] = 0.0
 ```
 
 Um objeto com `__call__` pode ser chamado como função: `obj(env, ...)`. É como o mjlab
-aceita um **termo de recompensa com estado**. Uma função pura não guarda cronômetro; esta
-classe guarda `self.t`. E o `reset` é o que impede o cronômetro de um episódio vazar para o
+aceita um **termo com estado**. Uma função pura não guarda nada entre passos; esta classe
+guarda `self.pico`. E o `reset` é o que impede o estado de um episódio vazar para o
 seguinte.
+
+> ⚠ v2.1: `recompensas.sustentacao` DEIXOU de ser este idioma (spec P2, §8.6). O
+> cronômetro que ela lia (`self.t`) foi removido; ela agora é uma FUNÇÃO PURA que lê
+> `_sust`/`_sustain_alvo` do termo de comando, que já tem o ciclo de vida certo.
 
 > ⚠ Regra do mjlab que aparece três vezes no código: `reward_manager.py:174` só chama
 > `reset()` em termo de **classe que tenha** um método `reset`. Uma classe sem `reset`
@@ -307,7 +311,7 @@ A variante `flat` já remove de graça o `terrain_scan`, o `height_scan`, o
 | 3f | obs `["caixa"]` nos **dois** grupos | 10 canais, gateados pelo elo **publicado** (spec §6.1) |
 | 3g | 7 termos de recompensa de tarefa | todos gateados por `VALIDA` |
 | 3h | obs `["elo_interno"]` **só no `critic`** | one-hot do elo interno; ator 114, crítico 131 — o crítico do fabricante já tem 12 canais privilegiados de pé (spec §6.1) |
-| 3i | `load`, `largou` | só no `BOTAR` e na espera final; leem o elo interno (spec §6.6.2) |
+| 3i | `largou`, `renda_congelada` | `largou` só na espera final (spec §6.6.2); `renda_congelada` congela todo fecho de elo e É O ÚLTIMO termo do dict (v2.1, spec P3) |
 | 3d | ramo inspeção | `trava_robo`, `terminations = {}` |
 | 4 | ramo play | remove `randomize_terrain` e `commands_vel` |
 
@@ -1253,7 +1257,7 @@ anterior no `knobs.py` dizia o contrário do que os valores fazem — foi corrig
    _aplica_elo(so_pose=False)   ← novo alvo, laje se move
    _recalcula_sigmas            ← σ do novo elo
    _pos_no_elo = base_pos       ← âncora de deslocamento
-   avancou = True               ← lido por recompensas.sustentacao
+   _sustain_alvo = _sustain_alvo_de(m)   ← nova abertura; lido por recompensas.sustentacao
 ```
 
 Quatro armadilhas consertadas neste bloco:
@@ -1553,7 +1557,7 @@ fonte do pacote** (excluindo `smoke.py` e `paridade.py`, que se auto-acusariam).
 | `squeeze` | **+1,0** | `tanh(min(F_n_E, F_n_D)/F_ref)` |
 | `unload` | **+2,0** | `(1 − F_apoio/mg) × preensão` |
 | `postura_ereta` | **+2,0** | `rampa_pelve × unload` |
-| `sustentacao` | **+0,5** | `t_na_condição / 1,0 s` |
+| `sustentacao` | **+0,5** | `_sust / _sustain_alvo` (do comando; v2.1) |
 | **soma** | **11,5/s** | contra o **piso da estátua de 5,81/s** (medido 26/08) |
 
 Razão ~2:1 no fecho completo, e é a resposta à pergunta *"ficar parado paga mais que agir?"*.
@@ -1710,28 +1714,25 @@ atalho de **baixar o corpo** para encurtar o alcance.
 - **A preensão não entra de novo**: o `unload` já a traz desde 28/08. Multiplicar aqui daria
   `preensão²`, que aperta a rampa sem acrescentar informação.
 
-#### `sustentacao` — a classe com cronômetro
+#### `sustentacao` — lê o relógio do comando (v2.1)
 
 ```python
-class sustentacao:
-    def __init__(self, cfg, env): self.t = torch.zeros(env.num_envs); self.dt = env.step_dt
-    def __call__(self, env, nome, tol_pos, tol_ang, sustenta_s):
-        na_condicao = perto & alinhado & (VALIDA > 0.5)
-        self.t = where(na_condicao, self.t + self.dt, zeros)
-        avancou = getattr(_t(env, nome), "avancou", None)
-        if avancou is not None:
-            self.t = where(avancou, zeros, self.t)        # ⚠ ZERA NO AVANÇO DE ELO
-        return (self.t / sustenta_s).clamp(max=1.0)
-    def reset(self, env_ids=None): self.t[env_ids] = 0.0
+def sustentacao(env, nome_do_comando):
+    t = _t(env, nome_do_comando)
+    return ((t._sust / t._sustain_alvo.clamp(min=1e-6)).clamp(0.0, 1.0)
+            * _valida(env, nome_do_comando))
 ```
 
 Paga por **ficar** lá, e não só por passar por lá.
 
-> ⚠⚠ **Zera no avanço de elo.** Sem isto o crédito **vaza** de um elo para o seguinte: o
-> `pegar` e o `carregar` pedem o **mesmo** alvo, portanto no instante em que o elo avança a
-> condição continua valendo e o `self.t` já está saturado — o `carregar` **nasceria pago**
-> sem nenhum trabalho novo. O termo tem o seu **próprio** cronômetro, separado do `_sust` do
-> comando, e por isso precisa do seu próprio zeramento.
+> ⚠⚠ **Sem cronômetro próprio (spec P2).** Até 04/09 isto era uma classe com `self.t`,
+> zerada à mão no avanço de elo via um buffer `avancou` do comando. O comando **já**
+> acumula `_sust` enquanto a condição de FECHO do elo vale, e já o zera no avanço e no
+> reset — um relógio duplicado só podia divergir do que decide o fecho. O relógio
+> próprio pagava por `perto ∧ alinhado`, mais FROUXO que o fecho (no `PEGAR` o fecho
+> também exige `de_pe`), e `avancou` era pegajoso: se um env nunca mais avançasse, o
+> termo zerava para sempre. `_sustain_alvo`, escrito pelo comando em toda abertura de
+> elo, é o alvo que `_avanca_elo` já calculava inline — uma fonte só.
 
 > ⚠ **O cronômetro lê SÓ a condição da tarefa.** No `g1_multitask` ele lia também o erro
 > angular da base, e o `push_robot` (±0,78 rad/s a cada 1 a 3 s) estourava o teste e
