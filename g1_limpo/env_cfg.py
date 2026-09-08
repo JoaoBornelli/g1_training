@@ -298,10 +298,16 @@ def make_env_cfg(
     # ⚠ O `func` original entra em `params`, e não numa subclasse: os dois termos do
     # fabricante são FUNÇÕES, não classes, portanto não há o que herdar. O `PosturaPorElo`
     # é classe porque `variable_posture` é classe.
+    #
+    # ⚠⚠ G1 (spec `g1-limpo-lento-e-estavel.md` §2): `nome_do_comando` VOLTA aos
+    # params dos DOIS rastreios — o P4 o havia removido. O gate agora consulta
+    # `VALIDA` (e `limpo_pegou`) além de `limpo_twist_zerado`, e os dois primeiros só
+    # existem no termo de comando `alvo_caixa`.
     for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
         _t = cfg.rewards[_nome_rastreio]
         _t.params["func"] = _t.func
         _t.func = RC.rastreio_por_elo
+        _t.params["nome_do_comando"] = "alvo_caixa"
 
     aplica_pesos(cfg, k.recompensa)
 
@@ -578,6 +584,36 @@ def make_env_cfg(
     cfg.rewards["sustentacao"] = RewardTermCfg(
         func=RC.sustentacao, weight=tr.sustentacao,
         params={"nome_do_comando": _cmd})
+
+    # ⚠ O MACRO DA POSE DE BRAÇO (spec `g1-limpo-espera-sigma-e-pose.md` §2): o `pose`
+    # do molde é canal morto nas DUAS janelas de espera (0,000 com derivada ZERO a 10%
+    # da faixa, medido no `PosturaPorElo`), e este termo fecha o buraco H5 da auditoria
+    # de gradientes mais a espera inicial. Ele NÃO é um dos sete: não depende do elo, e
+    # sim das DUAS janelas de espera — por isso não entra em `TERMOS_CONGELAVEIS`,
+    # mais abaixo.
+    #
+    # ⚠⚠ SEM `nome_do_comando` (correção medida na revisão de 2026-09-08): o gate
+    # deixou de ser `1 − VALIDA` — que pagava de graça nos 30% de envs de locomoção e
+    # não disparava na espera final — e passou a ler `limpo_aguardando`/`limpo_soltou`
+    # direto do env (`recompensas._gate_espera`). Ver `recompensas.pose_de_braco`.
+    cfg.rewards["pose_de_braco"] = RewardTermCfg(
+        func=RC.pose_de_braco, weight=tr.pose_de_braco,
+        params={"sigma": tr.pose_de_braco_sigma,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=list(C.JUNTAS_BRACO))})
+
+    # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): ANTES do
+    # `renda_congelada`, que TEM de continuar o último termo (ver comentário na 3i,
+    # abaixo). Não depende do elo — depende do REGIME do comando `twist`, que já é
+    # zero em todo elo de manipulação (`comando._zera_twist_nos_parados`). Por isso
+    # também NÃO entra em `TERMOS_CONGELAVEIS`.
+    cfg.rewards["velocidade_por_regime"] = RewardTermCfg(
+        func=RC.velocidade_por_regime, weight=tr.velocidade_por_regime,
+        params={"vel_max_standing": tr.vel_max_standing,
+                "vel_max_walking": tr.vel_max_walking,
+                "vel_max_running": tr.vel_max_running,
+                "command_name": "twist",
+                "walking_threshold": 0.05, "running_threshold": 1.5,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
     # ------------------------------------------- 3i. a renda do BOTAR (v2, spec §6.6.2)
     # ⚠ v2.1 (spec P3): `load` SAIU — o fecho terminal do BOTAR já congela ≈10/s via

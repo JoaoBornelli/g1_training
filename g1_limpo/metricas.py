@@ -44,6 +44,7 @@ __all__ = [
     "tempo_de_voo",
     "pico_de_altura",
     "velocidade_de_escorrego",
+    "velocidade_de_junta",
     "forca_de_pouso",
     "pads_em_contato",
     "fracao_esperando",
@@ -133,6 +134,12 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         "renda_manipulacao": MetricsTermCfg(
             func=renda_manipulacao,
             params={"termos": termos_congelaveis + ("renda_congelada",)}),
+        # ⚠ RECALIBRA `recompensas.velocidade_por_regime` (G2, spec
+        # `g1-limpo-lento-e-estavel.md` §3) sem precisar da sonda de CPU — foi a
+        # ausência dela que obrigou a sonda `mede_vel_junta.py` desta vez. Sem peso.
+        "velocidade_de_junta": MetricsTermCfg(
+            func=velocidade_de_junta,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])}),
     }
 
 
@@ -348,6 +355,18 @@ def velocidade_de_escorrego(env, sensor_name: str,
     assert contato.data.found is not None
     v = torch.norm(robo.data.site_lin_vel_w[:, asset_cfg.site_ids, :2], dim=-1)
     return _media_por_env(v, contato.data.found > 0)
+
+
+def velocidade_de_junta(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """RMS de `joint_vel` sobre as 29 juntas, por env. Sem peso.
+
+    ⚠ Existe para recalibrar os três dicts do `recompensas.velocidade_por_regime`
+    (spec `g1-limpo-lento-e-estavel.md` §0, §3) sem precisar da sonda de CPU
+    (`mede_vel_junta.py`) — foi a ausência desta métrica que obrigou aquela sonda.
+    """
+    robo: Entity = env.scene[asset_cfg.name]
+    v = robo.data.joint_vel[:, asset_cfg.joint_ids]
+    return torch.sqrt((v ** 2).mean(dim=-1))
 
 
 def forca_de_pouso(env, sensor_name: str = PES_NO_CHAO) -> torch.Tensor:

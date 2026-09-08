@@ -346,6 +346,26 @@ class AlvoCaixaCmd(CommandTerm):
         # dependente de pose no primeiro `_update_command`, quando a pose está fresca.
         self._pendente = torch.zeros(n, dtype=torch.bool, device=d)
 
+        # ⚠⚠ O `_sigma_pendente` existe por uma SEGUNDA armadilha, distinta da do
+        # `_pendente` acima (spec `g1-limpo-espera-sigma-e-pose.md` §1, 2026-09-08). O
+        # `_pendente` resolve "a pose está fresca?"; este resolve "a TAREFA já começou?".
+        #
+        # A janela de espera (`knobs.Alvo.espera_s`, 0,5 a 1,5 s) mantém `VALIDA = 0`
+        # depois do reset, e o robô aproxima as mãos de graça nesse intervalo — o
+        # `pose_de_braco` (F2) é o que paga por ele NÃO fazer isso, mas nada o impede
+        # fisicamente. Calcular o σ no reset mede a distância ERRADA: a de antes de a
+        # tarefa existir, não a de quando ela liga.
+        #
+        # MEDIDO no `play` do `bloco9` em 2026-09-08: σ fixado em 0,34 m no reset, mão a
+        # 0,20 m no fim da espera — `alcancar = exp(−(0,20/0,34)²) = 0,71` em vez dos
+        # `exp(−1) = 0,368` que o docstring do `_alcancar` promete.
+        #
+        # Fica verdadeiro do resample até o primeiro passo em que `VALIDA` acende
+        # (`_aplica_espera`), e nunca mais — no `ANDAR` de locomoção `VALIDA` nunca
+        # acende, e o buffer fica pendente o episódio todo, sem efeito: nenhum termo de
+        # manipulação lê σ com `VALIDA = 0`.
+        self._sigma_pendente = torch.zeros(n, dtype=torch.bool, device=d)
+
         # ⚠ Onde a base estava quando o elo corrente ABRIU. É o que permite ao
         # `CARREGAR` exigir DESLOCAMENTO em vez de só tempo — sem isso ele fechava sem o
         # robô andar um centímetro. Ver `knobs.Cadeia.carregar_dist_m`.
@@ -468,6 +488,14 @@ class AlvoCaixaCmd(CommandTerm):
 
         ⚠ Publica `env.limpo_aguardando` e `env.limpo_soltou` para as métricas e para a
         terminação. Sem elas, "o robô não espera" e "a janela não existe" leem igual.
+
+        ⚠⚠ O σ NASCE AQUI, e não no reset (F1, spec `g1-limpo-espera-sigma-e-pose.md`
+        §1). `VALIDA` acabou de ser escrito acima, DEPOIS da espera — portanto ele já é
+        o do passo CORRENTE, e não o do passo anterior. Para quem tinha `_sigma_pendente`
+        e viu `VALIDA` acender agora, o σ e o `_pos_no_elo` são calculados com a pose
+        FRESCA de agora, que é a distância que a TAREFA de fato começa medindo — e não a
+        do reset, quando o objetivo ainda nem existia. Ver o `⚠⚠` do `_sigma_pendente`
+        no `__init__` para o defeito medido que isto conserta.
         """
         self._espera.sub_(self._env.step_dt).clamp_(min=0.0)
         aguardando = self._espera > 0.0
@@ -482,6 +510,17 @@ class AlvoCaixaCmd(CommandTerm):
             publica_andar, torch.full_like(self._elo, ANDAR), self._elo).float()
         base = (self._elo != ANDAR).float()
         self._command[:, VALIDA] = base * (~aguardando).float()
+
+        # ⚠ O σ da TAREFA, no instante em que ela liga. `_sigma_pendente` é verdadeiro
+        # do resample até aqui; no `ANDAR` puro `VALIDA` nunca acende, e ele fica
+        # pendente o episódio todo — inofensivo, porque nenhum termo de manipulação lê
+        # σ com `VALIDA = 0`.
+        liga = self._sigma_pendente & (self._command[:, VALIDA] > 0.5)
+        ids = torch.arange(self.num_envs, device=self.device)[liga]
+        if len(ids):
+            self._recalcula_sigmas(ids)
+            self._pos_no_elo[ids] = self.robot.data.root_link_pos_w[ids]
+            self._sigma_pendente[ids] = False
 
     def _publica_pegou(self) -> None:
         """Atualiza a arma e a publica em `env.limpo_pegou`.
@@ -723,22 +762,21 @@ class AlvoCaixaCmd(CommandTerm):
         self._aplica_elo(env_ids)
         # a parte dependente de POSE fica pendente para o 1º passo (ver `_pendente`)
         self._pendente[env_ids] = True
+        # o σ fica pendente até a TAREFA começar, e não até a pose ficar fresca — a
+        # janela de espera ainda não correu aqui (ver `_sigma_pendente`)
+        self._sigma_pendente[env_ids] = True
 
     def _update_command(self) -> None:
         todos = torch.arange(self.num_envs, device=self.device)
 
-        # ⚠ PRIMEIRO os pendentes: aqui a pose já está fresca.
+        # ⚠ PRIMEIRO os pendentes: aqui a pose já está fresca. Só o ALVO e a pose são
+        # refeitos aqui — o σ e o `_pos_no_elo` NÃO, desde a F1 (spec
+        # `g1-limpo-espera-sigma-e-pose.md` §1): eles dependem de a TAREFA já ter
+        # começado, e isso só se sabe quando `VALIDA` acende, dentro de
+        # `_aplica_espera`, mais abaixo.
         pend = todos[self._pendente]
         if len(pend):
             self._aplica_elo(pend, so_pose=True)
-            # ⚠ O σ é recalculado AQUI e em nenhum outro lugar do reset: é o único
-            # ponto em que a pose da palma, da caixa e do alvo está fresca. Calculá-lo
-            # no `_resample_command` daria σ de pose obsoleta — o mesmo defeito que o
-            # `_pendente` existe para consertar.
-            self._recalcula_sigmas(pend)
-            # ⚠ A âncora de deslocamento do `CARREGAR`, na mesma passada em que a pose
-            # está fresca. No `_resample_command` ela seria de pose obsoleta.
-            self._pos_no_elo[pend] = self.robot.data.root_link_pos_w[pend]
             self._pendente[pend] = False
 
         # a caixa gira durante o episódio, portanto a normal da face acompanha. O
@@ -1337,6 +1375,14 @@ class AlvoCaixaCmd(CommandTerm):
         ⚠ O PISO não é estética: um env que nasce com a palma colada na caixa teria
         σ ≈ 0, e o kernel viraria um pico impossível de sustentar — a recompensa
         desabaria ao primeiro milímetro de tremor.
+
+        ⚠ CHAMADO POR `_aplica_espera` NO INSTANTE EM QUE `VALIDA` ACENDE (F1), e não
+        no reset. "Inicial" é a distância da TAREFA, não a do episódio: durante a
+        janela de espera (`VALIDA = 0`) o robô aproxima as mãos de graça, e um σ
+        travado no reset mediria a distância ERRADA. MEDIDO no `play` do `bloco9` em
+        2026-09-08: σ fixado no reset em 0,34 m, mão a 0,20 m no fim da espera —
+        `alcancar = exp(−(0,20/0,34)²) = 0,71` em vez do `exp(−1) = 0,368` que
+        `recompensas._alcancar` promete.
         """
         if len(ids) == 0:
             return

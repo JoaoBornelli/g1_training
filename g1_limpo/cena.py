@@ -32,7 +32,7 @@ __all__ = [
     "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CORPO_PRATELEIRA",
     "SENSOR_PALMA_PRATELEIRA", "SENSOR_DORSO_PRATELEIRA", "MESA_POR_GRUPO",
     "SENSOR_AUTO_COLISAO", "SENSOR_PES", "CORPOS_QUE_NAO_ESCORAM",
-    "GRUPO_TRONCO", "GRUPO_PALMA", "GRUPO_DORSO",
+    "GRUPO_TRONCO", "GRUPO_PALMA", "GRUPO_DORSO", "JUNTAS_BRACO",
     "spec_caixa", "spec_prateleira", "add_pads_de_palma", "robot_cfg",
     "regroup", "entidades", "sensores", "geometria_de_repouso",
 ]
@@ -148,6 +148,14 @@ CORPOS_QUE_NAO_ESCORAM = GRUPO_TRONCO + GRUPO_PALMA + GRUPO_DORSO
 # ⚠ O alias `CORPO_INTEIRO` FOI REMOVIDO em 28/08. A lista não é mais o corpo inteiro,
 # e um nome que mente é pior que um nome ausente: quem lesse `CORPO_INTEIRO` acharia
 # que punho e cotovelo continuam cobertos.
+
+# ⚠ AS 14 JUNTAS DE BRAÇO, por padrão de nome. A fonte é o `G1_ACTION_SCALE` do
+# fabricante: sete padrões por lado. O tronco (`waist_*`) NÃO entra — ele participa da
+# marcha e da pega, e a pose dele já é assunto do `pose` do molde.
+JUNTAS_BRACO = (".*_shoulder_pitch_joint", ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint", ".*_elbow_joint",
+                ".*_wrist_roll_joint", ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint")
 
 
 # ============================================================ specs de entidade

@@ -580,6 +580,65 @@ class Tarefa:
     # valor já É a renda medida do elo que fechou, e não precisa de escala própria.
     renda_congelada: float = 1.0
 
+    # ⚠ O `pose_de_braco` (spec `g1-limpo-espera-sigma-e-pose.md` §2): o macro que
+    # segura os braços na pose padrão nas DUAS janelas de espera, onde o `pose` do
+    # molde é canal morto (0,000 com derivada ZERO a 10% da faixa, medido no
+    # `PosturaPorElo`). NÃO é um dos sete — ele é gateado pelo `VALIDA`, não pelo elo.
+    pose_de_braco: float = 1.0
+    # ⚠ σ LARGO, e o número sai da tabela medida no `PosturaPorElo`: a faixa média das 17
+    # juntas de manipulação é 3,77 rad, e nem `running×5` sobrevive a 40% dela. Com
+    # σ = 1,0 rad o termo vale 0,37 a 1 rad de excursão e 0,02 a 2 rad — vivo nos dois.
+    pose_de_braco_sigma: float = 1.0
+
+    # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): penaliza
+    # velocidade de junta ACIMA do limite por regime de comando (standing/walking/
+    # running) — o espelho do `variable_posture` do fabricante, com VELOCIDADE em vez
+    # de POSIÇÃO.
+    #
+    # ⚠⚠ O LIMITE DO `standing` É UMA ENTRADA SÓ, como o `std_standing = {".*": 0.05}`
+    # do fabricante: a ordem do dono é "o robô inteiro lento", pernas, braços e tronco.
+    #
+    # ⚠ E o 2,0 NÃO é escolhido: é o p99 da LOCOMOÇÃO PARADA medido em 2026-09-08 (spec
+    # §0). A régua é "fique tão parado quanto você já fica sem a caixa". Medido no
+    # `model_4999`: com vmax 2,0 a mediana do comportamento de hoje cai em 0,474 — o
+    # meio da faixa, onde a derivada é máxima. Com 1,0 ela cai em 0,051 e o termo vira
+    # canal morto, que é o defeito medido no `PosturaPorElo`. Com 5,0 ela sobe a 0,887
+    # e o termo satura.
+    vel_max_standing: dict = field(default_factory=lambda: {".*": 2.0})
+
+    # ⚠ Os dois de baixo são o p99 MEDIDO de cada padrão naquele regime (spec §0). O
+    # termo paga 0,96 na marcha normal: ele não taxa a locomoção, ele morde o excesso.
+    # ⚠ E o `running` é `max(p99_running, p99_walking)` por padrão, e isso é decisão: o
+    # p99 de `running` saiu MENOR que o de `walking` em cinco padrões, porque a
+    # amostra veio do transiente do `velocity_stages` novo (lin_vel_x foi a 2,0 m/s na
+    # última iteração da bloco9). Limite de correr mais apertado que o de andar
+    # puniria correr, ao contrário.
+    vel_max_walking: dict = field(default_factory=lambda: {
+        r".*hip_pitch.*": 4.0,  r".*hip_roll.*": 5.0,   r".*hip_yaw.*": 4.0,
+        r".*knee.*": 6.5,       r".*ankle_pitch.*": 6.0, r".*ankle_roll.*": 4.0,
+        r".*waist_yaw.*": 3.0,  r".*waist_roll.*": 5.0, r".*waist_pitch.*": 2.5,
+        r".*shoulder_pitch.*": 3.0, r".*shoulder_roll.*": 4.0,
+        r".*shoulder_yaw.*": 2.0, r".*elbow.*": 3.0, r".*wrist.*": 2.5,
+    })
+    vel_max_running: dict = field(default_factory=lambda: {
+        r".*hip_pitch.*": 5.0,  r".*hip_roll.*": 5.0,   r".*hip_yaw.*": 4.0,
+        r".*knee.*": 10.0,      r".*ankle_pitch.*": 9.0, r".*ankle_roll.*": 4.0,
+        r".*waist_yaw.*": 3.0,  r".*waist_roll.*": 5.0, r".*waist_pitch.*": 2.5,
+        r".*shoulder_pitch.*": 3.5, r".*shoulder_roll.*": 4.5,
+        r".*shoulder_yaw.*": 2.5, r".*elbow.*": 3.0, r".*wrist.*": 2.5,
+    })
+    # ⚠⚠ PESO NEGATIVO, e é correção medida na revisão de 2026-09-08. A forma
+    # positiva `exp(−média(v²/vmax²))` pagaria 2,0/s a um robô PARADO, em TODO env —
+    # renda grátis que entra direto no piso da estátua (`recompensas.rastreio_por_elo`:
+    # medido 8,265/s no PEGAR contra 3,863/s no ANDAR, parado ganhando por 43%). A
+    # forma complementar `1 − exp(−média(v²/vmax²))` tem a MESMA derivada e paga ZERO
+    # parado: ela cobra o excesso de velocidade, não premia a ausência dele — o mesmo
+    # idioma do `contato_mesa` deste módulo (positivo em [0, 1]; o peso negativo é
+    # quem faz dela penalidade). Confira à mão: parado -> 1 − exp(0) = 0, custo zero.
+    # Tudo no limite -> 1 − exp(−1) = 0,632, custo 1,26/s. Tudo no dobro do limite ->
+    # 1 − exp(−4) = 0,982, custo 1,96/s.
+    velocidade_por_regime: float = -2.0
+
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
     # ⚠ ESTE É O ITEM DE MAIOR RISCO DA F3, e ele é medido. A palma nasce a 0,339 m da

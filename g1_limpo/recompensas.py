@@ -15,10 +15,13 @@ import torch
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
 from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.string import resolve_matching_names_values
 
-__all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo", "contato_mesa",
+__all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo",
+           "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "sustentacao", "largou", "renda_congelada"]
+           "postura_ereta", "sustentacao", "largou", "pose_de_braco",
+           "renda_congelada"]
 
 
 class AlturaDeBalanco(feet_swing_height):
@@ -143,8 +146,9 @@ def contato_mesa(env, sensor_name: str, joelho_N: float,
     return ((forca - joelho_N) / max(saturacao_N - joelho_N, 1e-6)).clamp(0.0, 1.0)
 
 
-def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
-    """O termo de rastreio do fabricante, ZERO onde a TAREFA zerou o twist.
+def rastreio_por_elo(env, *, func, nome_do_comando: str, **kwargs) -> torch.Tensor:
+    """O termo de rastreio do fabricante, com QUATRO estados: twist zerado, `VALIDA`
+    e `limpo_pegou` (G1, spec `g1-limpo-lento-e-estavel.md` §2, correção 2026-09-08).
 
     ⚠⚠ ESTE TERMO EXISTE POR UMA MEDIÇÃO, e ela é a mais decisiva do módulo até hoje.
     O `smoke` mede o piso da estátua por elo — robô travado, sem fazer nada:
@@ -152,8 +156,8 @@ def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
         piso ANDAR  = 3,863/s
         piso PEGAR  = 8,265/s      <- 2,1x mais
 
-    No elo `PEGAR` o twist é FORÇADO A ZERO. Portanto ficar imóvel é a resposta
-    PERFEITA para a metade de locomoção: os dois termos de rastreio pagam cheio
+    No elo `PEGAR` o twist é FORÇADO A ZERO. Portanto ficar imóvel era a resposta
+    PERFEITA para a metade de locomoção: os dois termos de rastreio pagavam cheio
     (2,0 + 2,0 = 4,0/s) por rastrear um comando nulo. O elo de manipulação era o lugar
     mais confortável do ambiente.
 
@@ -167,50 +171,63 @@ def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
     forma direta: **na ação MÉDIA o robô fica imóvel na pose default e não tenta pegar.**
     Não era gradiente morto nem preguiça. Era aritmética, e ela estava certa.
 
-    Zerar os dois nos elos de manipulação derruba o piso para ~4,27/s e inverte o sinal:
+    ⚠ v2.1 (spec P4): zerar os dois SEMPRE que `env.limpo_twist_zerado` for 1 derrubou
+    o piso para ~4,27/s. Mas isso também zerou o rastreio no `PEGAR` e no `BOTAR`
+    ATIVOS — onde ficar parado É a tarefa — e a §0 da spec
+    `g1-limpo-lento-e-estavel.md` mede o preço: manipulação parada corre 7,3× mais
+    rápido por junta no p90 (3,13 rad/s) que locomoção parada (0,43), embora as duas
+    recebam o MESMO comando zero.
 
-        ficar parado    75
-        explorar        88
+    ⚠⚠ G1 ACRESCENTA UM TERCEIRO ESTADO — "elo parado ATIVO paga cheio" — e a revisão
+    de 2026-09-08 acrescentou um QUARTO antes de ele ir ao treino: SEM o quarto, o
+    terceiro estado só olha `VALIDA`, e um env que fica parado com a tarefa ativa e
+    NUNCA toca a caixa colheria os 4,0/s por construção do fator (zerado=1, valida=1
+    bastaria) — de volta ao piso da estátua que o P4 tinha acabado de remover. O
+    quarto estado lê `env.limpo_pegou`, a arma monotônica que `comando._publica_pegou`
+    liga na primeira vez em que as DUAS palmas tocam a caixa com a tarefa ativa, e que
+    NÃO desarma ao soltar:
 
-    ⚠ v2.1 (spec P4): A REGRA É "TWIST ZERADO PELA TAREFA NÃO RENDE RASTREIO", lida de
-    `env.limpo_twist_zerado` — publicado por `comando._zera_twist_nos_parados`, e não
-    mais um conjunto fixo de elos. O gate cobre agora TRÊS estados que antes pagavam
-    ~4,0/s por velocidade zero FORÇADA, sem serem rastreio de coisa nenhuma: a espera
-    inicial, a espera final, e o segurar-parado do CARREGAR — as três zeram o twist
-    pelo elo INTERNO, e o buffer as inclui todas. `_anda_neste_elo` e os params
-    `canal_do_elo`, `nome_do_comando`, `elos_que_andam` saem: o gate é uma máscara, não
-    mais um conjunto de elos.
+        locomoção, `zerado = 0`                    paga cheio — rastreio de verdade
+        espera, `VALIDA = 0`                        paga ZERO  — não existe tarefa
+        elo parado ATIVO, nunca tocou a caixa       paga ZERO  — ainda é estátua
+        elo parado ATIVO, JÁ tocou a caixa          paga cheio — segurar É a tarefa
 
-    ⚠ O STANDING SORTEADO (10% da locomoção) NÃO é zerado por este buffer — o twist ali
-    é uma escolha do sorteio de marcha, não uma imposição da tarefa. Ele continua
-    rastreando e pagando, porque é rastreio de verdade.
+    `engajado = VALIDA × limpo_pegou`. `fator = 1 − zerado × (1 − engajado)` —
+    BRANCHLESS, e os quatro estados conferem à mão: zerado=0 -> fator=1; zerado=1,
+    valida=0 -> engajado=0 -> fator=0; zerado=1, valida=1, pegou=0 -> engajado=0 ->
+    fator=0; zerado=1, valida=1, pegou=1 -> engajado=1 -> fator=1.
 
-    ⚠ EFEITO MEDIDO NAS ESPERAS (proposta §3 P4): a espera inicial cai de ≈5,8/s para
-    ≈2,0/s, e a abertura do PEGAR passa a pagar ≈1,9/s — o degrau de −3,3 na abertura
-    da tarefa vira ≈0. Risco declarado, já aceito no PEGAR: nada paga por ficar parado
-    durante a espera. `action_rate` e o alvo ancorado na base seguram.
+    ⚠ `limpo_pegou` SOBREVIVE ao soltar — é monotônico dentro do episódio
+    (`comando._publica_pegou`, operador `|=`, só zera no resample). A espera final
+    segue paga, porque o robô já tocou a caixa antes de largá-la.
+
+    ⚠ O QUE ISTO COBRE: velocidade da BASE nos elos parados ativos JÁ ENGAJADOS.
+    Conserta o arrasto lateral com a caixa na mão (observação do dono) — mas só
+    depois do primeiro toque; antes dele a estátua parada continua de graça, de
+    propósito: não existe "segurar" sem ter pegado.
 
     ⚠ RETORNA ZERO, e não 1,0 como o `PosturaPorElo`. A diferença é o propósito: lá o
     termo NÃO TEM O QUE DIZER num elo de manipulação, e 1,0 o deixa neutro. Aqui o
-    termo tem algo a dizer e o que ele diz está ERRADO — pagar pela ausência de tarefa.
-    O que se quer é remover a renda, e 1,0 a manteria.
+    termo tem algo a dizer nos dois primeiros estados de zerado — pagar pela ausência
+    de tarefa está ERRADO — e nada a dizer nos dois últimos, onde ele volta a dizer a
+    verdade.
 
     ⚠ E o offset constante por elo NÃO enviesa a política. O canal do elo está nas duas
     observações (`actor` e `critic`), portanto a função de valor condiciona nele e
-    absorve o degrau; a vantagem é medida contra essa baseline. O argumento do
-    `PosturaPorElo` sobre "manter a escala de retorno comparável entre elos" era para o
-    controlador de fatia — e ele lê DURAÇÃO, não retorno (`curriculo.forma`).
+    absorve o degrau; a vantagem é medida contra essa baseline.
 
     ⚠ O QUE NÃO SAI: `upright` (fundação, e é o que guarda o eixo vertical) e `pose`.
     Só os dois de rastreio. E `fell_over` continua guardando a queda.
 
-    ⚠ O RISCO DECLARADO: sem o rastreio, nada paga por o robô ficar PARADO durante a
-    pega, portanto ele pode vagar. Mas o alvo do `PEGAR` é ancorado na BASE — vagar
-    move o alvo junto, e não há ganho em vagar. Se `eficiencia_min` cair junto com
-    `palmas_em_contato` subindo, é este risco se realizando.
+    ⚠ O RISCO DECLARADO: o alvo do `PEGAR` é ancorado na BASE, então vagar move o alvo
+    junto — não há ganho em vagar. O quarto estado só adia o pagamento até o primeiro
+    toque; depois disso o risco é o mesmo que a v2.1 já assumia. Se `eficiencia_min`
+    cair junto com `palmas_em_contato` subindo, é este risco se realizando.
     """
     valor = func(env, **kwargs)
-    return valor * (1.0 - env.limpo_twist_zerado)
+    engajado = _valida(env, nome_do_comando) * env.limpo_pegou
+    fator = 1.0 - env.limpo_twist_zerado * (1.0 - engajado)
+    return valor * fator
 
 
 # =============================================================================
@@ -241,6 +258,19 @@ def _valida(env, nome: str) -> torch.Tensor:
     return env.command_manager.get_command(nome)[:, VALIDA]
 
 
+def _gate_espera(env) -> torch.Tensor:
+    """1 nas DUAS janelas de espera (inicial e final): `aguardando + soltou`,
+    saturado em 1. A MESMA expressão de `metricas.fracao_esperando` — ver
+    `pose_de_braco` para o porquê de o gate certo não ser `1 − VALIDA`."""
+    v = getattr(env, "limpo_aguardando", None)
+    if v is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    s = getattr(env, "limpo_soltou", None)
+    if s is None:
+        return v
+    return torch.clamp(v + s, max=1.0)
+
+
 def _elo_interno(env, nome: str) -> torch.Tensor:
     """O elo INTERNO do termo de comando (spec §6.0): o que paga lê o interno."""
     return env.command_manager.get_term(nome)._elo
@@ -265,8 +295,14 @@ def _dist_caixa_alvo(env, nome: str) -> torch.Tensor:
 def _alcancar(env, nome: str) -> torch.Tensor:
     """`exp(−(d_palma/σ_alcance)²)`. O kernel de aproximação da mão.
 
-    No passo em que o elo abre ele vale `exp(−1) = 0,368` por construção, porque
-    `σ = d₀`. MEDIDO: 0,3679 a 0,3708 em 32 envs.
+    No passo em que `VALIDA` acende ele vale `exp(−1) = 0,368` por construção, porque
+    `σ = d₀`, a distância medida NAQUELE passo (F1, `comando._recalcula_sigmas`, chamada
+    de dentro de `_aplica_espera`). MEDIDO: 0,3679 a 0,3708 em 32 envs.
+
+    ⚠ ANTES DA F1 o σ era travado no RESET, e a janela de espera deixa o robô
+    aproximar as mãos de graça antes de `VALIDA` acender — a invariante acima era
+    falsa. MEDIDO no `play` do `bloco9` em 2026-09-08: σ = 0,34 m no reset, mão a
+    0,20 m no fim da espera, `alcancar = exp(−(0,20/0,34)²) = 0,71`.
 
     ⚠ `alcança ≡ 1` no BOTAR e na espera final (`soltou`) — spec §6.6.2 item 3, §8.3.
     No BOTAR as mãos já estão na caixa: σ cai no piso de 0,08 m e o kernel vale 1 por
@@ -529,6 +565,155 @@ def largou(env, nome_do_comando: str, sigma_solta: float) -> torch.Tensor:
     d = t.dist_palma_caixa(torch.arange(env.num_envs, device=env.device))
     longe = 1.0 - torch.exp(-(d / max(sigma_solta, 1e-6)) ** 2)
     return (soltou > 0.5).float() * longe
+
+
+class pose_de_braco:
+    """`exp(−(rms(Δq_braços)/σ)²)`, ativo só nas DUAS janelas de espera.
+
+    ⚠ ELE É O MACRO DE UM PAR, e o `pose` do molde é o preciso. A tabela medida no
+    `PosturaPorElo` deste arquivo mostra que o `pose` vale 0,000 com derivada ZERO a
+    10% da faixa de junta: com os braços fora ele não puxa nada. Este termo tem σ
+    LARGO e puxa em toda a faixa.
+
+    ⚠⚠ O GATE É `aguardando + soltou`, saturado em 1 — e NÃO `1 − VALIDA` (correção
+    medida na revisão de 2026-09-08). O `1 − VALIDA` original errava nas duas pontas:
+
+    (a) `VALIDA` é ZERO em TODO env de LOCOMOÇÃO, portanto o termo pagava 1,0/s aos
+    ~30% dos envs que andam, só para eles manterem os braços na pose padrão — renda
+    grátis que briga com o `angular_momentum` do fabricante, cujo docstring declara
+    que ele existe "to encourage natural arm swing". O `pose` do molde já regula a
+    pose de braço na locomoção, por regime.
+
+    (b) `VALIDA` é UM na espera FINAL (`comando._aplica_espera`: ela publica ANDAR
+    mas NÃO zera `VALIDA` — decisão declarada, spec §6.6.1). Portanto o termo NÃO
+    disparava ali, e ali era justamente o conserto do buraco H5 — "os braços não
+    voltam depois de largar".
+
+    O gate certo é "este env é de manipulação e não existe tarefa de caixa ATIVA
+    agora", e a expressão já existe no módulo: é a de `metricas.fracao_esperando`
+    (ver `_gate_espera`).
+
+    ⚠ AS DUAS JANELAS: a espera inicial (`limpo_aguardando`), antes de a tarefa
+    existir, e a espera final (`limpo_soltou`), depois de largar a caixa. Nas duas o
+    robô deve estar na pose padrão. Com a tarefa ativa, ou em locomoção, o termo cala.
+
+    ⚠ MÉDIA sobre as juntas, e não produto por junta. O produto de 17 gaussianas
+    colapsa para qualquer σ — é a medição que aposentou o `variable_posture` na
+    manipulação. Ver a tabela no `PosturaPorElo`.
+    """
+
+    def __init__(self, cfg, env):
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        self._default: torch.Tensor | None = None
+        self._resolve_default(env, asset_cfg)
+
+    def _resolve_default(self, env, asset_cfg: SceneEntityCfg) -> None:
+        # ⚠ RESOLUÇÃO TARDIA, como o `renda_congelada` abaixo: no `__init__` o
+        # `default_joint_pos` do robô pode não estar preenchido ainda. Guarda a FATIA
+        # das 14 juntas já resolvidas (`asset_cfg.joint_ids`), e não o tensor inteiro —
+        # a comparação no `__call__` é sempre coluna a coluna com o `joint_pos` atual.
+        default = env.scene[asset_cfg.name].data.default_joint_pos
+        if default is not None:
+            self._default = default[:, asset_cfg.joint_ids].clone()
+
+    def __call__(self, env, sigma: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+        if self._default is None:
+            self._resolve_default(env, asset_cfg)
+        q = env.scene[asset_cfg.name].data.joint_pos[:, asset_cfg.joint_ids]
+        rms = torch.sqrt(((q - self._default) ** 2).mean(dim=-1))
+        kernel = torch.exp(-(rms / sigma) ** 2)
+        return kernel * _gate_espera(env)
+
+
+class velocidade_por_regime:
+    """O `variable_posture` do fabricante, com ERRO DE VELOCIDADE em vez de POSIÇÃO
+    (G2, spec `g1-limpo-lento-e-estavel.md` §3): três regimes de vmax por padrão de
+    nome de junta, resolvidos por `resolve_matching_names_values` no `__init__`, como
+    o molde faz.
+
+    ⚠⚠ A MEDIÇÃO QUE JUSTIFICA O TERMO (spec §0, sonda `mede_vel_junta.py`,
+    `model_4999` do `bloco9`, 32 envs, 600 passos, CPU): o robô se move MAIS RÁPIDO
+    parado com a caixa do que correndo. p90 por junta, em rad/s:
+
+        manipulação parada   3,13
+        locomoção parada     0,43
+        andando              2,00
+        correndo             2,50
+
+    A locomoção parada recebe o MESMO comando zero e produz 7,3× menos. A diferença é
+    o `rastreio_por_elo`: ele paga por comando zero na locomoção e, sem este termo,
+    nada cobrava o excesso de velocidade na manipulação parada.
+
+    ⚠ O REGIME VEM DO COMANDO, não da velocidade medida: `total = ‖cmd[:2]‖ +
+    |cmd[2]|`, lido de `command_name` — o `twist`, e não o `alvo_caixa`. Em todo elo
+    de manipulação `comando._zera_twist_nos_parados` escreve zero no `twist`, portanto
+    `total = 0 < walking_threshold` SEMPRE, e o regime é `standing` — O REGIME JÁ É O
+    GATE DA TAREFA. Não acrescente gate por `limpo_twist_zerado` nem por `VALIDA`.
+
+    ⚠ `walking_threshold = 0,05` e `running_threshold = 1,5`, os MESMOS do molde
+    (`variable_posture`, `mjlab/tasks/velocity/mdp/rewards.py:437-438`) — não viram
+    knob: um segundo lugar com o mesmo número é como o `std_standing` do `pose`
+    deriva em silêncio num upgrade.
+
+    ⚠⚠ RETORNA `1 − exp(−média(v²/vmax²))`, e NÃO a forma positiva do molde —
+    correção medida na revisão de 2026-09-08. A forma positiva `exp(−média(v²/vmax²))`
+    vale 1,0 com o robô PARADO, em TODO env, e com peso positivo isso pagaria 2,0/s de
+    RENDA GRÁTIS que entra direto no piso da estátua (`rastreio_por_elo`: medido
+    8,265/s no PEGAR contra 3,863/s no ANDAR, parado ganhando por 43%). A forma
+    complementar tem a MESMA derivada e paga ZERO parado: ela cobra o excesso de
+    velocidade, não premia a ausência dele — o mesmo idioma do `contato_mesa` deste
+    arquivo (positivo em [0, 1]; o peso NEGATIVO, no `knobs`, é quem faz dela
+    penalidade).
+
+    ⚠ MÉDIA sobre as juntas, e não produto: um produto de 29 gaussianas colapsa para
+    qualquer vmax — o mesmo defeito medido no `PosturaPorElo` para posição.
+    """
+
+    def __init__(self, cfg, env):
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        asset = env.scene[asset_cfg.name]
+        _, joint_names = asset.find_joints(asset_cfg.joint_names)
+
+        _, _, vel_max_standing = resolve_matching_names_values(
+            data=cfg.params["vel_max_standing"], list_of_strings=joint_names)
+        self.vel_max_standing = torch.tensor(
+            vel_max_standing, device=env.device, dtype=torch.float32)
+
+        _, _, vel_max_walking = resolve_matching_names_values(
+            data=cfg.params["vel_max_walking"], list_of_strings=joint_names)
+        self.vel_max_walking = torch.tensor(
+            vel_max_walking, device=env.device, dtype=torch.float32)
+
+        _, _, vel_max_running = resolve_matching_names_values(
+            data=cfg.params["vel_max_running"], list_of_strings=joint_names)
+        self.vel_max_running = torch.tensor(
+            vel_max_running, device=env.device, dtype=torch.float32)
+
+    def __call__(self, env, vel_max_standing, vel_max_walking, vel_max_running,
+                 asset_cfg: SceneEntityCfg, command_name: str,
+                 walking_threshold: float = 0.05,
+                 running_threshold: float = 1.5) -> torch.Tensor:
+        del vel_max_standing, vel_max_walking, vel_max_running  # resolvidos no __init__
+
+        asset = env.scene[asset_cfg.name]
+        command = env.command_manager.get_command(command_name)
+        assert command is not None
+
+        linear_speed = torch.norm(command[:, :2], dim=1)
+        angular_speed = torch.abs(command[:, 2])
+        total_speed = linear_speed + angular_speed
+
+        standing_mask = (total_speed < walking_threshold).float()
+        walking_mask = ((total_speed >= walking_threshold)
+                       & (total_speed < running_threshold)).float()
+        running_mask = (total_speed >= running_threshold).float()
+
+        vmax = (self.vel_max_standing * standing_mask.unsqueeze(1)
+               + self.vel_max_walking * walking_mask.unsqueeze(1)
+               + self.vel_max_running * running_mask.unsqueeze(1))
+
+        v = asset.data.joint_vel[:, asset_cfg.joint_ids]
+        return 1.0 - torch.exp(-torch.mean((v / vmax) ** 2, dim=1))
 
 
 class renda_congelada:
