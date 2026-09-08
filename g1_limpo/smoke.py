@@ -1233,6 +1233,50 @@ try:
           not bool((_elo3 == CMD.PEGAR).any())
           or float(_pp[_elo3 == CMD.PEGAR].std()) > 0.0,
           "a neutralização por elo saiu (spec §3.1); 1,0 constante seria o defeito antigo")
+    # ⚠⚠ SEM ESCAPE VAZIO (revisão independente, item B6): o check acima passa por
+    # `not any()` quando o sorteio, por azar, não põe NENHUM env em PEGAR — e
+    # nunca testaria nada. Este bloco FORÇA `elo=PEGAR` num cfg próprio, chama o
+    # termo COM e SEM `pegou`, e confere o expoente contra a previsão analítica
+    # do divisor 29 -> 15 (braço sai só com `pegou`), não só "valores iguais".
+    try:
+        _cfg15 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+        _cfg15.scene.num_envs = 4
+        _env15 = ManagerBasedRlEnv(cfg=_cfg15, device="cpu")
+        _env15.reset()
+        _env15.step(_t3.zeros(4, _env15.action_manager.total_action_dim))
+        _idx15 = list(_cfg15.rewards).index("pose")
+        _termo15 = _env15.reward_manager._term_cfgs[_idx15].func
+        _robo15 = _env15.scene["robot"]
+        _params15 = dict(_cfg15.rewards["pose"].params)
+
+        _d15 = 0.2   # rad, MESMO desvio em TODAS as 29 juntas
+        _robo15.data.joint_pos[:] = _robo15.data.default_joint_pos + _d15
+
+        _env15.limpo_pegou[:] = 0.0
+        _env15.limpo_soltou[:] = 0.0
+        _v_sem15 = float(_termo15(_env15, **_params15).mean())
+        _env15.limpo_pegou[:] = 1.0
+        _v_com15 = float(_termo15(_env15, **_params15).mean())
+
+        # previsto: soma(err²) das 15 pernas+cintura (`_std_pernas`, acima) mais as
+        # 14 do braço (std = 1,0 cada), divididos por 29 (sem pegou) ou 15 (com).
+        _soma_pernas15 = float(((_d15 / _std_pernas) ** 2).sum())
+        _soma_braco15 = 14 * (_d15 / 1.0) ** 2
+        _exp_com_prev15 = _soma_pernas15 / 15
+        _exp_sem_prev15 = (_soma_pernas15 + _soma_braco15) / 29
+
+        check("15. PosturaPorElo(pegou=True): expoente bate com a previsão do "
+              "divisor 15 (braço fora)",
+              abs(-math.log(_v_com15) - _exp_com_prev15) < 0.05,
+              f"medido {-math.log(_v_com15):.4f}, previsto {_exp_com_prev15:.4f}")
+        check("15. PosturaPorElo(pegou=False): expoente bate com a previsão do "
+              "divisor 29 (braço dentro)",
+              abs(-math.log(_v_sem15) - _exp_sem_prev15) < 0.05,
+              f"medido {-math.log(_v_sem15):.4f}, previsto {_exp_sem_prev15:.4f}")
+        del _env15
+    except Exception as _e15x:      # noqa: BLE001
+        _falhas.append(f"item 15 (PosturaPorElo, elo forçado) não pôde ser "
+                       f"medido: {type(_e15x).__name__}: {_e15x}")
     check("num elo que ANDA a postura segue sendo a do fabricante (desvio > 0)",
           bool((~_manip_envs).any())
           and float(_pp[~_manip_envs].std()) > 0.0,
@@ -3496,12 +3540,13 @@ try:
     # massa que existiam aqui antes de `load` sair, a caixa tinha MENOS ciclos de
     # re-pino nesta posição para assentar o contato. `passos=6` deixava um resíduo
     # horizontal (medido: 0,505 N contra o limiar de 0,05×m·g); `passos=15` assentava.
-    # ⚠ dois-bits: o resíduo medido aqui hoje é MAIOR (0,6-1,2 N) — o `prateleira_xy[0]`
-    # subiu de 0,50 para 0,55 (Sonda 3b) e mudou a geometria de contato. O resíduo
-    # também se mostrou sensível à ordem de sorteios de OUTRAS seções antes desta
-    # (mesma semente fixa, RNG compartilhado) — não é uma relação limpa com `passos`.
-    # O limiar sobe para cobrir a faixa observada com folga; o comentário acima já
-    # chama isto de artefato do método de pino repetido, não física da tarefa.
+    # ⚠ dois-bits: o resíduo medido aqui hoje é MAIOR (0,6-1,2 N). Esta cena não usa
+    # a abertura do BOTAR (`_AVANCO_LAJE_BOTAR`) — ela pina a caixa direto no alvo
+    # corrente — então a causa não é essa constante. O resíduo se mostrou sensível
+    # à ordem de sorteios de OUTRAS seções antes desta (mesma semente fixa, RNG
+    # compartilhado) — não é uma relação limpa com `passos`. O limiar sobe para
+    # cobrir a faixa observada com folga; o comentário acima já chama isto de
+    # artefato do método de pino repetido, não física da tarefa.
     _renda(passos=15, alvo_dz=_DZ_APOIA)
     _f26 = _e26.scene[C.SENSOR_APOIO].data.force.squeeze(1)
     _mg26 = float((_e26.limpo_massa * 9.81).mean())
@@ -4194,15 +4239,46 @@ except Exception as _egx:      # noqa: BLE001
 # ⚠ FÓRMULA NOVA: `clamp(média(v²/vmax²), max=4,0)`. A `1 − exp(...)` SAIU: ela tinha
 # derivada ZERO no teto — esta é quadrática até 2× o limite (onde já vale 4,0) e
 # clampeia dali em diante.
-_v_parado = min(max((0.0) ** 2, 0.0), 4.0)
-_v_limite = min((1.0) ** 2, 4.0)
-_v_2x = min((2.0) ** 2, 4.0)
-_v_3x = min((3.0) ** 2, 4.0)
-check("3. fórmula de G2: v=0 -> 0,0; v=vmax -> 1,0; v=2·vmax -> 4,0 (o teto); "
-      "v=3·vmax -> ainda 4,0 (clampeado)",
-      abs(_v_parado - 0.0) < 1e-9 and abs(_v_limite - 1.0) < 1e-9
-      and abs(_v_2x - 4.0) < 1e-9 and abs(_v_3x - 4.0) < 1e-9,
-      f"{_v_parado:.4f} / {_v_limite:.4f} / {_v_2x:.4f} / {_v_3x:.4f}")
+#
+# ⚠⚠ INSTANCIADO DE VERDADE (revisão independente, item B1): a versão anterior só
+# fazia `min(max((0.0)**2,0),4.0)` em Python puro — NUNCA chamava
+# `velocidade_por_regime`. Isto passaria por construção mesmo se o `__call__` lesse
+# `joint_vel` errado, ou se `vmax` resolvesse do regime errado. Agora PINA
+# `joint_vel` em 0, `vmax`, e 3×`vmax` de verdade, com o robô em PEGAR (twist
+# zerado, regime `standing` garantido, sem depender do sorteio do twist).
+try:
+    import torch as _tg3
+
+    _cg3 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _cg3.scene.num_envs = 4
+    _eg3 = ManagerBasedRlEnv(cfg=_cg3, device="cpu")
+    _eg3.reset()
+    _ng3 = _eg3.action_manager.total_action_dim
+    _eg3.step(_tg3.zeros(4, _ng3))
+    _idx_vpr3 = list(_cg3.rewards).index("velocidade_por_regime")
+    _termo_vpr3 = _eg3.reward_manager._term_cfgs[_idx_vpr3].func
+    _robo3g = _eg3.scene["robot"]
+    _asset_cfg3g = _cg3.rewards["velocidade_por_regime"].params["asset_cfg"]
+    _vmax3g = float(tr.vel_max_standing[".*"])
+
+    def _custo_vel(mult: float) -> float:
+        jv = _tg3.full_like(_robo3g.data.joint_vel, mult * _vmax3g)
+        _robo3g.data.joint_vel[:] = jv
+        params = dict(_cg3.rewards["velocidade_por_regime"].params)
+        params.pop("func", None)
+        return float(_termo_vpr3(_eg3, **params).mean())
+
+    _v_parado, _v_limite, _v_2x, _v_3x = (
+        _custo_vel(0.0), _custo_vel(1.0), _custo_vel(2.0), _custo_vel(3.0))
+    check("3. `velocidade_por_regime` de verdade: v=0 -> 0,0; v=vmax -> 1,0; "
+          "v=2·vmax -> 4,0 (o teto); v=3·vmax -> ainda 4,0 (clampeado)",
+          abs(_v_parado - 0.0) < 1e-6 and abs(_v_limite - 1.0) < 1e-3
+          and abs(_v_2x - 4.0) < 1e-3 and abs(_v_3x - 4.0) < 1e-6,
+          f"{_v_parado:.4f} / {_v_limite:.4f} / {_v_2x:.4f} / {_v_3x:.4f}")
+    del _eg3
+except Exception as _eg3x:      # noqa: BLE001
+    _falhas.append(f"3. G2 instanciado não pôde ser medido: "
+                   f"{type(_eg3x).__name__}: {_eg3x}")
 check("3. `velocidade_por_regime` do módulo bate com a fórmula do clamp",
       "torch.clamp(torch.mean((v / vmax) ** 2, dim=1), max=4.0)"
       in inspect.getsource(RC_.velocidade_por_regime),
@@ -4445,9 +4521,13 @@ try:
     _base_p7 = _ev7.scene["robot"].data.root_link_pos_w
     _mesa7 = _ev7.scene["table"].data.root_link_pos_w
     _dist_xy7 = (_mesa7[:, :2] - _base_p7[:, :2]).norm(dim=-1)
-    check("7. a laje do BOTAR nasce a `prateleira_xy[0] ± delta_xy` da base CORRENTE",
+    # ⚠ contra `_AVANCO_LAJE_BOTAR`, não `k.cena.prateleira_xy[0]` (revisão do
+    # coordenador, item 1): o avanço do BOTAR usa a CONSTANTE de módulo, e o knob
+    # voltou a ser só a posição do RESET — comparar contra o knob acusaria falha
+    # mesmo com o código certo.
+    check("7. a laje do BOTAR nasce a `_AVANCO_LAJE_BOTAR ± delta_xy` da base CORRENTE",
           bool((_tv7c._elo == CMD.BOTAR).all())
-          and float((_dist_xy7 - k.cena.prateleira_xy[0]).abs().max())
+          and float((_dist_xy7 - CMD._AVANCO_LAJE_BOTAR).abs().max())
           <= k.alvo.botar_delta_xy + 0.05,
           f"dist {_dist_xy7.tolist()}")
     check("7. `|topo − topo0| <= delta_topo` (mais a folga de guarda física)",
@@ -4493,7 +4573,13 @@ try:
     _tv8c._avanca_elo_force(_idsv8)   # arma o fecho -> aguardando=True
     _nm8 = list(_cv8.rewards)
     _idx_rc8 = _nm8.index("renda_congelada")
-    _ev8.step(_tv8.zeros(4, _nv8))    # dentro da espera
+    # ⚠⚠ DOIS `step()`, não um (revisão independente, item B3). O `reward_manager.
+    # compute()` roda ANTES do `command_manager.compute()` dentro do MESMO
+    # `env.step()` — o 1º passo calcula a renda com o `_command[VALIDA]` de ANTES
+    # do arme (ele só muda depois, no `command_manager` deste MESMO passo). Só o
+    # 2º passo lê a renda já com `aguardando` em vigor.
+    _ev8.step(_tv8.zeros(4, _nv8))    # o arme entra em vigor no command_manager
+    _ev8.step(_tv8.zeros(4, _nv8))    # dentro da espera, com VALIDA já em 0
     _rc8 = _ev8.reward_manager._step_reward[:, _idx_rc8]
     check("8. `renda_congelada` PAGA durante `aguardando` depois de um fecho (sem × VALIDA)",
           float(_rc8.min()) > 0.0
@@ -4561,6 +4647,10 @@ check("12. G2 já medido na seção G1/G2 (v=0->0, v=vmax->1,0, v=3vmax->4,0)",
 
 # --- 13. de_pe: default -> True; joelho a +0,8 rad -> False; pelve baixa, pernas
 #          default -> True (de_pe não lê mais pelve) ---
+# ⚠⚠ CHAMA `_fecha_elo_corrente` DE VERDADE (revisão independente, item B4): a
+# versão anterior reimplementava `dq` num closure próprio — provava que O
+# CLOSURE estava certo, não que `_fecha_elo_corrente` lê `de_pe` do jeito certo.
+# Um erro de variável (tolerância errada, junta errada) ali passaria batido.
 try:
     import torch as _tv13
 
@@ -4569,24 +4659,39 @@ try:
     _ev13 = ManagerBasedRlEnv(cfg=_cv13, device="cpu")
     _ev13.reset()
     _nv13 = _ev13.action_manager.total_action_dim
-    _ev13.step(_tv13.zeros(4, _nv13))
+    _passa_janela(_ev13, _nv13, _tv13)
     _tv13c = _ev13.command_manager.get_term("alvo_caixa")
     _robo13 = _ev13.scene["robot"]
-    _q_def13 = _robo13.data.default_joint_pos.clone()
     _idsv13 = _tv13.arange(4)
 
-    def _dq13():
-        q = _robo13.data.joint_pos[:, _tv13c._ids_de_pe]
-        qd = _q_def13[:, _tv13c._ids_de_pe]
-        return (q - qd).abs().amax(dim=-1)
+    # a caixa NO alvo do PEGAR: `perto` (e `alinhado`) deixam de ser a variável —
+    # só o `de_pe` muda entre os três casos abaixo.
+    _cx13 = _ev13.scene["box"]
+    _cx13.write_root_link_pose_to_sim(
+        _tv13.cat([_tv13c.command[:, CMD.ALVO], _cx13.data.root_link_quat_w], -1))
+    _cx13.write_root_link_velocity_to_sim(_tv13.zeros(4, 6))
+    _ev13.step(_tv13.zeros(4, _nv13))
 
-    check("13. na pose DEFAULT, `dq` é ~0 (de_pe verdadeiro)",
-          float(_dq13().max()) < 1e-3)
+    check("13. na pose DEFAULT, `_fecha_elo_corrente` FECHA (de_pe verdadeiro)",
+          bool(_tv13c._fecha_elo_corrente(_idsv13).all()))
+
     _q_mod13 = _robo13.data.joint_pos.clone()
     _q_mod13[:, _tv13c._ids_de_pe[0]] += 0.8
     _robo13.write_joint_position_to_sim(_q_mod13)
-    check("13. joelho/perna a +0,8 rad do default: `dq` > `de_pe_tol_rad` (de_pe falso)",
-          float(_dq13().min()) > _cv13.commands["alvo_caixa"].de_pe_tol_rad)
+    check("13. joelho/perna a +0,8 rad do default: `_fecha_elo_corrente` NÃO fecha "
+          "(de_pe falso)",
+          not bool(_tv13c._fecha_elo_corrente(_idsv13).any()))
+    _robo13.write_joint_position_to_sim(_robo13.data.default_joint_pos.clone())
+
+    # ⚠ PELVE BAIXA, pernas no DEFAULT: `de_pe` NÃO lê mais a altura da pelve (spec
+    # §2.4) — abaixar só a base, sem mexer nas juntas, tem de CONTINUAR fechando.
+    _pose13 = _robo13.data.root_link_pose_w.clone()
+    _pose13[:, 2] -= 0.30
+    _robo13.write_root_link_pose_to_sim(_pose13)
+    _robo13.write_root_link_velocity_to_sim(_tv13.zeros(4, 6))
+    check("13. pelve baixa, pernas no DEFAULT: `_fecha_elo_corrente` FECHA "
+          "(de_pe não lê pelve)",
+          bool(_tv13c._fecha_elo_corrente(_idsv13).all()))
     del _ev13
 except Exception as _ev13x:      # noqa: BLE001
     _falhas.append(f"item 13 (de_pe) não pôde ser medido: "
@@ -4606,11 +4711,16 @@ try:
     _nv14 = _ev14.action_manager.total_action_dim
     _ev14.step(_tv14.zeros(1, _nv14))
     _par14 = dict(cfg.terminations["fell_over"].params)
+    # ⚠ `Caiu` é CLASSE agora (revisão independente, item A11) — a instância mora
+    # em `termination_manager._term_cfgs`, não em `TE_.Caiu` (a classe crua): o
+    # mesmo caminho que `_term_pose` já usa para `reward_manager`.
+    _idx_fell14 = list(_cv14.terminations).index("fell_over")
+    _termo_caiu14 = _ev14.termination_manager._term_cfgs[_idx_fell14].func
     check("14. de pé, na pose default: `caiu` é FALSO",
-          not bool(TE_.caiu(_ev14, **_par14).any()))
+          not bool(_termo_caiu14(_ev14, **_par14).any()))
 
     # o limiar se move em torno da altura REAL do joelho, em vez de mexer na pose —
-    # isola a comparação de `terminacoes.caiu` sem depender de cinemática manual.
+    # isola a comparação de `terminacoes.Caiu` sem depender de cinemática manual.
     _robo14 = _ev14.scene["robot"]
     _ids_joelho14, _ = _robo14.find_bodies((".*_knee_link",))
     _z_joelho14 = (_robo14.data.body_link_pose_w[:, _ids_joelho14, 2]
@@ -4619,11 +4729,11 @@ try:
     _par_alto14["joelho_z_min"] = float(_z_joelho14.min()) + 0.05
     check("14. limiar ACIMA da altura real do joelho (joelho baixo relativo ao "
           "limiar): `caiu` é VERDADEIRO",
-          bool(TE_.caiu(_ev14, **_par_alto14).all()))
+          bool(_termo_caiu14(_ev14, **_par_alto14).all()))
     _par_baixo14 = dict(_par14)
     _par_baixo14["joelho_z_min"] = float(_z_joelho14.min()) - 0.05
     check("14. joelho um pouco ACIMA do limiar: `caiu` é FALSO",
-          not bool(TE_.caiu(_ev14, **_par_baixo14).any()))
+          not bool(_termo_caiu14(_ev14, **_par_baixo14).any()))
 
     # pelve tombada 90° em torno de X: bad_orientation sozinho tem de acusar
     _pose14 = _robo14.data.root_link_pose_w.clone()
@@ -4650,8 +4760,9 @@ except Exception as _ev14x:      # noqa: BLE001
     _falhas.append(f"item 14 (fell_over) não pôde ser medido: "
                    f"{type(_ev14x).__name__}: {_ev14x}")
 
-# --- 15. PosturaPorElo (já medido na seção 16, acima) ---
-check("15. `PosturaPorElo` já medido na seção 16 (braço mascarado, sem "
+# --- 15. PosturaPorElo (já medido na seção "F2", acima: elo forçado, com/sem
+#          pegou, expoente contra a previsão analítica do divisor 29 -> 15) ---
+check("15. `PosturaPorElo` já medido na seção F2 (braço mascarado, sem "
       "neutralização por elo)",
       "canal_do_elo" not in cfg.rewards["pose"].params)
 
@@ -4721,30 +4832,68 @@ check("20. 28 termos de recompensa, 3 terminações (time_out, fell_over, caixa_
       == {"time_out", "fell_over", "caixa_largada"},
       f"{len(cfg.rewards)} termos; terminações {sorted(cfg.terminations)}")
 
-# --- 21. s_B, s_C sobrevivem a save -> load do runner ---
+# --- 21. s_B, s_C sobrevivem a save -> load do RUNNER de verdade ---
+# ⚠⚠ CHAMA `RunnerComEstadoDeCurriculo.save`/`.load` (revisão independente, item
+# B2): a versão anterior reimplementava a compreensão do `save` à mão e usava
+# `torch.save`/`torch.load` direto — o RUNNER nunca era exercitado, e um bug nele
+# (como o A6, `ultima_iter_bal` fora de `CHAVES_ESCALARES`) passaria batido.
 try:
     import tempfile as _tmp21
     import torch as _tv21
+    from dataclasses import asdict as _asdict21
+
+    from mjlab.rl import RslRlVecEnvWrapper as _Wrap21
+    from mjlab.tasks.registry import load_rl_cfg as _lrc21
 
     _cv21 = make_env_cfg(k)
     _cv21.scene.num_envs = 4
-    _ev21 = ManagerBasedRlEnv(cfg=_cv21, device="cpu")
-    _ev21.reset()
-    _ev21.step(_tv21.zeros(4, _ev21.action_manager.total_action_dim))
-    _ev21.limpo_forma["s_B"] = 0.1234
-    _ev21.limpo_forma["s_C"] = 0.5678
+    _agente21 = _lrc21(_PKG.TASK_ID)
+
+    _cru21 = ManagerBasedRlEnv(cfg=_cv21, device="cpu")
+    _env21 = _Wrap21(_cru21, clip_actions=_agente21.clip_actions)
+    _cru21.reset()
+    _cru21.limpo_forma["s_B"] = 0.1234
+    _cru21.limpo_forma["s_C"] = 0.5678
     check("21. `s_B`/`s_C` estão em `CHAVES_ESCALARES`",
           {"s_B", "s_C"} <= set(RN3.CHAVES_ESCALARES), str(RN3.CHAVES_ESCALARES))
-    _estado21 = {"forma": {c: float(_ev21.limpo_forma[c])
-                           for c in RN3.CHAVES_ESCALARES if c in _ev21.limpo_forma}}
+
+    _runner21 = RN3.RunnerComEstadoDeCurriculo(_env21, _asdict21(_agente21), device="cpu")
     _cam21 = str(pathlib.Path(_tmp21.mkdtemp()) / "ck21.pt")
-    _tv21.save({"infos": {"limpo_curriculo": _estado21}}, _cam21)
-    _volta21 = _tv21.load(_cam21, weights_only=False)["infos"]["limpo_curriculo"]
-    check("21. o ciclo salvar->carregar preserva `s_B` e `s_C`",
-          abs(_volta21["forma"]["s_B"] - 0.1234) < 1e-9
-          and abs(_volta21["forma"]["s_C"] - 0.5678) < 1e-9,
-          str(_volta21["forma"]))
-    del _ev21
+    _runner21.save(_cam21)
+
+    # um SEGUNDO env/runner frescos — o load tem de POPULAR `limpo_forma` deles
+    _cru21b = ManagerBasedRlEnv(cfg=_cv21, device="cpu")
+    _env21b = _Wrap21(_cru21b, clip_actions=_agente21.clip_actions)
+    _cru21b.reset()
+    _runner21b = RN3.RunnerComEstadoDeCurriculo(_env21b, _asdict21(_agente21), device="cpu")
+    _runner21b.load(_cam21, load_cfg={"actor": True, "critic": True}, map_location="cpu")
+    check("21. o ciclo save->load do RUNNER preserva `s_B` e `s_C`",
+          abs(float(_cru21b.limpo_forma["s_B"]) - 0.1234) < 1e-6
+          and abs(float(_cru21b.limpo_forma["s_C"]) - 0.5678) < 1e-6,
+          f"s_B={float(_cru21b.limpo_forma['s_B']):.4f} "
+          f"s_C={float(_cru21b.limpo_forma['s_C']):.4f}")
+
+    # ⚠ SEGUNDO CASO (pedido do coordenador): checkpoint ANTIGO, sem `s_B`/`s_C` na
+    # `forma` salva — o `load` não pode quebrar, e o balanceador tem de cair no
+    # PISO seedado por `garante_forma` (s_B=0,0, s_C=1,0), não ficar com lixo.
+    _bruto21 = _tv21.load(_cam21, weights_only=False)
+    del _bruto21["infos"]["limpo_curriculo"]["forma"]["s_B"]
+    del _bruto21["infos"]["limpo_curriculo"]["forma"]["s_C"]
+    _cam21c = str(pathlib.Path(_tmp21.mkdtemp()) / "ck21_antigo.pt")
+    _tv21.save(_bruto21, _cam21c)
+
+    _cru21c = ManagerBasedRlEnv(cfg=_cv21, device="cpu")
+    _env21c = _Wrap21(_cru21c, clip_actions=_agente21.clip_actions)
+    _cru21c.reset()
+    _runner21c = RN3.RunnerComEstadoDeCurriculo(_env21c, _asdict21(_agente21), device="cpu")
+    _runner21c.load(_cam21c, load_cfg={"actor": True, "critic": True}, map_location="cpu")
+    check("21. checkpoint ANTIGO sem `s_B`/`s_C`: o load NÃO quebra, e o piso "
+          "seedado sobrevive (s_B=0,0, s_C=1,0)",
+          abs(float(_cru21c.limpo_forma["s_B"]) - 0.0) < 1e-6
+          and abs(float(_cru21c.limpo_forma["s_C"]) - 1.0) < 1e-6,
+          f"s_B={float(_cru21c.limpo_forma['s_B']):.4f} "
+          f"s_C={float(_cru21c.limpo_forma['s_C']):.4f}")
+    del _cru21, _cru21b, _cru21c
 except Exception as _ev21x:      # noqa: BLE001
     _falhas.append(f"item 21 (checkpoint s_B/s_C) não pôde ser medido: "
                    f"{type(_ev21x).__name__}: {_ev21x}")
@@ -4765,11 +4914,42 @@ try:
     # a cada um — se `forca_avanco` reamasse a espera, ficaria presa no 1º elo.
     for _ in range(60):
         _ev22.step(_tv22.zeros(4, _nv22))
+    # ⚠ `and`, não `or` (revisão independente, item B5): `or` deixava passar um
+    # resultado PARCIAL — bastava UM dos dois `.all()` ser vagamente verdadeiro
+    # (às vezes por sorte de estado inicial) para o check inteiro passar.
     check("22. o evento de avanço do viewer PROGRIDE a cadeia — não congela na espera",
-          bool((_tv22c._passo > 0).all()) or bool((_tv22c._elo != _elo0_22).all()),
+          bool((_tv22c._passo > 0).all()) and bool((_tv22c._elo != _elo0_22).all()),
           f"elo inicial {_elo0_22}, passo final {_tv22c._passo.tolist()}, "
           f"elo final {_tv22c._elo.tolist()}")
     del _ev22
+
+    # ⚠ SEGUNDO CASO (revisão independente, item B5): `pegou=True` com a caixa
+    # LONGE do alvo — o cenário que A8 conserta. SEM o `_forcado` do
+    # `forca_avanco`, `_aplica_espera` gateia `avanca` por `perto`, e o viewer
+    # (que nunca move a caixa) travaria pra sempre num env que já pegou.
+    _cv22b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2,
+                          avanca_apos_s=0.06)  # C: PEGAR, BOTAR
+    _cv22b.scene.num_envs = 4
+    _ev22b = ManagerBasedRlEnv(cfg=_cv22b, device="cpu")
+    _ev22b.reset()
+    _nv22b = _ev22b.action_manager.total_action_dim
+    _tv22bc = _ev22b.command_manager.get_term("alvo_caixa")
+    _tv22bc._pegou[:] = True
+    _ev22b.limpo_pegou = _tv22bc._pegou.float()
+    _cx22b = _ev22b.scene["box"]
+    _p22b = _cx22b.data.root_link_pos_w.clone()
+    _p22b[:, 0] += 2.0                    # bem longe do alvo do PEGAR
+    _cx22b.write_root_link_pose_to_sim(_tv22.cat([_p22b, _cx22b.data.root_link_quat_w], -1))
+    _cx22b.write_root_link_velocity_to_sim(_tv22.zeros(4, 6))
+    _elo0_22b = int(_tv22bc._elo[0])
+    for _ in range(60):
+        _ev22b.step(_tv22.zeros(4, _nv22b))
+    check("22. com `pegou=True` e a caixa LONGE, o evento de avanço AINDA progride "
+          "(o `_forcado` do A8 contorna o gate `perto`)",
+          bool((_tv22bc._passo > 0).all()) and bool((_tv22bc._elo != _elo0_22b).all()),
+          f"elo inicial {_elo0_22b}, passo final {_tv22bc._passo.tolist()}, "
+          f"elo final {_tv22bc._elo.tolist()}")
+    del _ev22b
 except Exception as _ev22x:      # noqa: BLE001
     _falhas.append(f"item 22 (avanço do viewer) não pôde ser medido: "
                    f"{type(_ev22x).__name__}: {_ev22x}")
