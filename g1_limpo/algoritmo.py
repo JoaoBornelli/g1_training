@@ -47,7 +47,7 @@ from __future__ import annotations
 import torch
 from rsl_rl.algorithms import PPO
 
-from g1_limpo.comando import ANDAR
+from g1_limpo.comando import ELOS
 from g1_limpo.observacoes import fatia_do_elo_interno
 
 __all__ = ["PPOPorElo", "CAMINHO"]
@@ -73,6 +73,12 @@ class PPOPorElo(PPO):
         de retorno do rsl_rl é o que queremos; o que não queremos é só a normalização
         final. Reimplementar o GAE aqui seria uma segunda fonte de verdade para a parte
         que está CERTA, e ela derivaria no primeiro upgrade.
+
+        ⚠⚠ CINCO GRUPOS, um por slot de `elo_interno` (spec `g1-limpo-dois-bits.md`
+        §3.4), e não dois (`ANDAR` vs. o resto). Até a v3, a cauda `CARREGAR` (retorno
+        alto, variância baixa) caía no MESMO grupo "manip" que `PEGAR` e `BOTAR`
+        (curtos, variáveis) — a vantagem do elo de trabalho era dividida pelo desvio
+        da cauda. Agrupar pelos 5 slots separa cada estado da sua própria escala.
         """
         super().compute_returns(obs)
         st = self.storage
@@ -96,11 +102,12 @@ class PPOPorElo(PPO):
         # ⚠ Sobre a vantagem CRUA, e não sobre a que o `super()` já normalizou:
         # renormalizar o que já foi normalizado misturaria as duas escalas.
         crua = st.returns - st.values
-        eh_loco = (bloco.argmax(-1) == ANDAR).unsqueeze(-1)
+        argmax = bloco.argmax(-1)
 
         saida = crua.clone()
         desvios: dict[str, float] = {}
-        for nome, mascara in (("loco", eh_loco), ("manip", ~eh_loco)):
+        for elo_id, nome in enumerate(ELOS):
+            mascara = (argmax == elo_id).unsqueeze(-1)
             # ⚠ `< 2` e não `== 0`: com uma amostra só o `std` é NaN, e o NaN se
             # propaga para o gradiente inteiro no passo seguinte.
             if int(mascara.sum()) < 2:
@@ -111,7 +118,6 @@ class PPOPorElo(PPO):
         st.advantages = saida
 
         PPOPorElo._chamadas += 1
-        if PPOPorElo._chamadas % _INTERVALO == 1 and len(desvios) == 2:
-            razao = desvios["loco"] / max(desvios["manip"], 1e-8)
-            print(f"[ADV] std cru  loco={desvios['loco']:.4f}  "
-                  f"manip={desvios['manip']:.4f}  razao={razao:.3f}", flush=True)
+        if PPOPorElo._chamadas % _INTERVALO == 1 and len(desvios) >= 2:
+            partes = "  ".join(f"{nome}={v:.4f}" for nome, v in desvios.items())
+            print(f"[ADV] std cru por elo  {partes}", flush=True)

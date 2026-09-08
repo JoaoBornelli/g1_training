@@ -1,8 +1,14 @@
 """As terminações próprias do g1_limpo.
 
-`time_out` e `fell_over` vêm do molde e não aparecem aqui. O molde traz um terceiro, o
+`time_out` vem do molde e não aparece aqui. O molde traz um terceiro, o
 `out_of_terrain_bounds`, que o `env_cfg` remove: o terreno é plano e a mobília tem pose
 absoluta.
+
+⚠ `fell_over` GANHA UMA CLÁUSULA (spec `g1-limpo-dois-bits.md` §3.2): o MESMO slot
+`cfg.terminations["fell_over"]` passa a chamar `caiu`, deste módulo, que faz o
+`bad_orientation` do molde (70°, intocado) E acrescenta o joelho no chão — o caso
+que a orientação sozinha não vê: o robô agacha de LADO, sem tombar, e o joelho
+encosta.
 
 **Princípio: TERMINAR SÓ O QUE NÃO TEM COMO SER PAGO.** É a forma REVISADA, em 01/09, do
 "terminar em vez de penalizar" que o `g1_poc` adotou. A revisão vem de medição, e ela
@@ -34,8 +40,13 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from mjlab.envs.mdp import bad_orientation
+from mjlab.managers.scene_entity_config import SceneEntityCfg
+
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
+
+__all__ = ["caixa_largada", "caiu"]
 
 
 def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
@@ -87,3 +98,26 @@ def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
     if soltou is not None:
         escapou = escapou & (soltou < 0.5)
     return caiu | (escapou & (pegou > 0.5))
+
+
+def caiu(env: "ManagerBasedRlEnv", limit_angle: float, joelho_z_min: float,
+         asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """`fell_over`, com uma cláusula a mais (spec `g1-limpo-dois-bits.md` §3.2).
+
+    ⚠ MESMO SLOT `cfg.terminations["fell_over"]`. A 1ª cláusula é o `bad_orientation`
+    do molde, INTOCADA — os 70° ficam. A 2ª pega o caso que a orientação sozinha não
+    vê: o robô AGACHA DE LADO, sem tombar, e o joelho encosta no chão.
+
+    ⚠ ISTO É TERMINAÇÃO, não recompensa: um `joelho_z_min` alto mata o AGACHAMENTO
+    LEGÍTIMO que os níveis altos exigem (a laje a 0,04 m). O knob fica ABAIXO do p10
+    do agachamento medido (spec §2.4) e ACIMA do joelho no chão (~0,05).
+
+    ⚠ SEM SENSOR NOVO: `body_link_pose_w` (via `find_bodies`), o mesmo caminho que
+    `_meia`/`_ids_palma` já usam para sítios e para a meia-aresta por env.
+    """
+    tombou = bad_orientation(env, limit_angle, asset_cfg)
+    robo = env.scene[asset_cfg.name]
+    ids_joelho, _ = robo.find_bodies((".*_knee_link",))
+    z_joelho = (robo.data.body_link_pose_w[:, ids_joelho, 2]
+               - env.scene.env_origins[:, 2:3])
+    return tombou | (z_joelho.amin(dim=-1) < joelho_z_min)

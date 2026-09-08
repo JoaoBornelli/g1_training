@@ -51,64 +51,94 @@ class AlturaDeBalanco(feet_swing_height):
 
 
 class PosturaPorElo(variable_posture):
-    """O `variable_posture` do fabricante, NEUTRO nos elos de manipulação.
+    """O `variable_posture` do fabricante, sem os BRAÇOS enquanto eles TRABALHAM
+    (spec `g1-limpo-dois-bits.md` §3.1).
 
-    ⚠ POR QUE NÃO É UM 4º REGIME DE σ, que era o desenho do plano. Porque medi, e
-    nenhum σ resolve. O termo é `exp(−média(erro²/σ²))` sobre 29 juntas; com 17 delas
-    fora do default ele é um produto de 17 gaussianas, e colapsa para qualquer σ.
+    ⚠⚠ DUAS QUEBRAS na versão anterior (v3, revisão itens 2 e 3), e as duas saem
+    aqui:
 
-    MEDIDO em 2026-08-26, com a excursão em fração da faixa real de cada junta (faixa
-    média das 17 juntas de manipulação: 3,77 rad):
+    1. `__call__` devolvia 1,0 (neutro) fora de `ELOS_QUE_ANDAM` — o termo NUNCA
+       agia no `PEGAR`, que é justamente onde o joelho vai ao chão nos níveis
+       altos. Ele não tinha o que dizer em NENHUM elo de manipulação, nem os que
+       não exigem os braços fora da pose.
+    2. `variable_posture.__call__` do molde devolve um ESCALAR — média sobre as 29
+       juntas de uma vez. Não dá para zerar 14 juntas de fora por cima de um
+       escalar; o cálculo tem de ser refeito por dentro.
 
-        fração   standing   walking   running   run×3   run×5
-          0,10      0,000     0,014     0,184   0,829   0,935
-          0,20      0,000     0,000     0,001   0,471   0,763
-          0,30      0,000     0,000     0,000   0,184   0,544
-          0,40      0,000     0,000     0,000   0,049   0,338
+    ⚠ POR QUE NÃO É UM 4º REGIME DE σ. Medido em 2026-08-26: o termo é
+    `exp(−média(erro²/σ²))`, e com braços fora do default ele é um produto de 17
+    gaussianas — colapsa para qualquer σ. Nenhum σ resolve; o que resolve é o braço
+    SAIR da média, não ganhar um σ mais largo.
 
-    Três coisas saem daí:
+    ⚠ REIMPLEMENTA O CÁLCULO, não chama o do molde:
 
-    1. `std_standing` é **uma entrada só**, `.*` = 0,05, para TODAS as juntas. E o
-       `walking_threshold` do G1 é **0,05**, não 0,5 (medido no cfg). Com o twist
-       forçado a zero num elo de manipulação, `total_speed = 0 < 0,05` SEMPRE — logo o
-       regime `standing` é certo, não provável.
-    2. O termo não vale 0,93/s a menos: ele vale **exatamente zero**, já a 10% da
-       faixa. `exp(−muito)` é 0 em float32, **com gradiente zero**. Não é uma
-       penalidade forte, é um canal morto.
-    3. Nem `running×5` sobrevive a 40% da faixa. Um multiplicador só empurra o
-       penhasco alguns centímetros para a direita.
+        std   = std por regime (standing/walking/running), como o molde
+        err2  = ((q − q_default) / std) ** 2
+        ativa = 1 em toda junta; 0 nas de `JUNTAS_BRACO`, SÓ onde `pegou ∧ ¬soltou`
+        return exp(−(err2 × ativa).sum(-1) / ativa.sum(-1))
 
-    ⚠ E excluir os braços não basta. Medido: com os braços fora da média, um braço
-    esticado custa 0,000 — ótimo — mas um AGACHAMENTO com as pernas em `running` dá
-    0,128 a 10% da faixa e 0,000 a 20%. E o nível 4+ põe a laje a 0,04 m, o que EXIGE
-    agachar. Excluir as pernas também não sobra nada: o termo inteiro é "mantenha a
-    pose default", e um elo de manipulação exige sair dela.
+    Isso faz o termo agir em TODO elo — inclusive `PEGAR` e `BOTAR`, que é onde o
+    joelho precisa da postura — e sair de cena só quando o braço está de fato
+    ocupado segurando a caixa. Fora dessa janela (esperas, REORIENTAR, o braço
+    ainda livre no meio do alcançar), o termo cobra os 29 juntos, braços incluídos.
 
-    PORTANTO O TERMO NÃO TEM O QUE DIZER NUM ELO DE MANIPULAÇÃO, e a resposta certa é
-    ficar calado. É R3 na forma mais limpa: o que segura o robô de pé passa a ser o
-    `upright` (+1,0, do fabricante, e independente de elo) mais a própria condição de
-    fechamento do elo — o `PEGAR` só fecha "de pé". **Incentivo para a ação certa, e
-    não penalidade por transgressão.**
+    ⚠ `std_standing` deixa de ser `{".*": 0,05}` do fabricante — uma entrada tão
+    apertada que o termo morria a 10% da faixa de junta, com gradiente ZERO — e
+    vira um dict por padrão de junta (`knobs.Recompensa.std_standing`), calibrado
+    para o divisor real (15 juntas de perna+cintura quando os braços saem).
 
-    ⚠ RETORNA 1,0, E NÃO 0,0, nos elos de manipulação. Zero faria o env de manipulação
-    pagar 1,0/s só por estar naquele elo — uma penalidade por sorteio. Um faz o termo
-    NEUTRO, e mantém a escala de retorno comparável entre elos, que é o que o
-    controlador de fatia da F5 vai ler.
-
-    ⚠ Os braços seguem contidos por outros cinco termos que não dependem de elo:
-    `action_rate_l2`, `joint_acc`, `angular_momentum`, `body_ang_vel`,
-    `dof_pos_limits` e `self_collisions`. Não é terra sem lei — é só a instrução
-    "volte à pose default" que sai.
+    ⚠ Os braços, quando saem da conta, seguem contidos por outros cinco termos que
+    não dependem de elo: `action_rate_l2`, `joint_acc`, `angular_momentum`,
+    `body_ang_vel`, `dof_pos_limits` e `self_collisions`. Não é terra sem lei.
     """
 
-    def __call__(self, env, *args, canal_do_elo: int, nome_do_comando: str,
-                 elos_que_andam: tuple[int, ...], **kwargs) -> torch.Tensor:
-        valor = super().__call__(env, *args, **kwargs)
-        comando = env.command_manager.get_command(nome_do_comando)
-        assert comando is not None
-        elo = comando[:, canal_do_elo].long()
-        anda = torch.isin(elo, torch.tensor(elos_que_andam, device=valor.device))
-        return torch.where(anda, valor, torch.ones_like(valor))
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        from g1_limpo.cena import JUNTAS_BRACO
+
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        asset = env.scene[asset_cfg.name]
+        _, joint_names = asset.find_joints(asset_cfg.joint_names)
+        ids_braco, _ = asset.find_joints(list(JUNTAS_BRACO), joint_subset=joint_names)
+        self._mascara_braco = torch.zeros(len(joint_names), dtype=torch.bool,
+                                          device=env.device)
+        self._mascara_braco[ids_braco] = True
+
+    def __call__(self, env, asset_cfg: SceneEntityCfg, command_name: str,
+                 walking_threshold: float = 0.05, running_threshold: float = 1.5,
+                 **kwargs) -> torch.Tensor:
+        del kwargs  # `std_standing`/`std_walking`/`std_running` já resolvidos
+        asset = env.scene[asset_cfg.name]
+        command = env.command_manager.get_command(command_name)
+        assert command is not None
+
+        linear_speed = torch.norm(command[:, :2], dim=1)
+        angular_speed = torch.abs(command[:, 2])
+        total_speed = linear_speed + angular_speed
+        standing_mask = (total_speed < walking_threshold).float()
+        walking_mask = ((total_speed >= walking_threshold)
+                       & (total_speed < running_threshold)).float()
+        running_mask = (total_speed >= running_threshold).float()
+        std = (self.std_standing * standing_mask.unsqueeze(1)
+              + self.std_walking * walking_mask.unsqueeze(1)
+              + self.std_running * running_mask.unsqueeze(1))
+
+        q = asset.data.joint_pos[:, asset_cfg.joint_ids]
+        q_default = self.default_joint_pos[:, asset_cfg.joint_ids]
+        err2 = ((q - q_default) / std) ** 2
+
+        n = q.shape[-1]
+        ativa = torch.ones(env.num_envs, n, device=env.device)
+        pegou = getattr(env, "limpo_pegou", None)
+        if pegou is not None:
+            soltou = getattr(env, "limpo_soltou", None)
+            trabalhando = pegou.bool()
+            if soltou is not None:
+                trabalhando = trabalhando & ~soltou.bool()
+            zera = trabalhando.unsqueeze(-1) & self._mascara_braco.unsqueeze(0)
+            ativa = torch.where(zera, torch.zeros_like(ativa), ativa)
+
+        return torch.exp(-(err2 * ativa).sum(dim=-1) / ativa.sum(dim=-1))
 
 
 def contato_mesa(env, sensor_name: str, joelho_N: float,
@@ -593,15 +623,23 @@ class velocidade_por_regime:
     knob: um segundo lugar com o mesmo número é como o `std_standing` do `pose`
     deriva em silêncio num upgrade.
 
-    ⚠⚠ RETORNA `1 − exp(−média(v²/vmax²))`, e NÃO a forma positiva do molde —
-    correção medida na revisão de 2026-09-08. A forma positiva `exp(−média(v²/vmax²))`
-    vale 1,0 com o robô PARADO, em TODO env, e com peso positivo isso pagaria 2,0/s de
-    RENDA GRÁTIS que entra direto no piso da estátua (`rastreio_por_elo`: medido
-    8,265/s no PEGAR contra 3,863/s no ANDAR, parado ganhando por 43%). A forma
-    complementar tem a MESMA derivada e paga ZERO parado: ela cobra o excesso de
-    velocidade, não premia a ausência dele — o mesmo idioma do `contato_mesa` deste
-    arquivo (positivo em [0, 1]; o peso NEGATIVO, no `knobs`, é quem faz dela
-    penalidade).
+    ⚠⚠ RETORNA `clamp(média(v²/vmax²), max=4,0)` (spec `g1-limpo-dois-bits.md` §3.3,
+    mudança v3→v3.1). NÃO É `1 − exp(−média(v²/vmax²))`: aquela forma tem derivada
+    ZERO no teto (revisão, item 13) — acima de 2× o limite ela satura e para de
+    cobrar, exatamente onde o excesso é maior. Esta forma é quadrática: derivada 1
+    em v = vmax, dobrando até v = 2·vmax; ali ela JÁ vale 4,0 e o `clamp` trava —
+    acima disso o robô está caindo ou abrindo com violência, e −8,0/s por 5 passos
+    (−0,8) é menor que uma `terminacao` (−4,0). O que importa é a derivada em
+    x ∈ [0,5; 3], e ali ela é 1.
+
+    ⚠ Confira à mão: v=0 -> 0, custo 0; v=vmax -> 1,0, custo 2,0/s; v=2·vmax -> 4,0
+    (o teto), custo 8,0/s; v=3·vmax -> ainda 4,0 (clampeado), mesmos 8,0/s. A forma
+    NÃO paga renda grátis parado (v=0 -> 0), como a `1−exp` já garantia — ela só
+    troca ONDE a derivada morre: no teto físico, não no meio da faixa operável.
+
+    ⚠ Peso −2,0 FICA. Colateral aceito: `walking`/`running` passam a custar ~0,4/s
+    em vez de ~0,1/s — se `eficiencia_media` cair mais que isso, os `vel_max_*`
+    sobem 1,5×. Não mexer agora.
 
     ⚠ MÉDIA sobre as juntas, e não produto: um produto de 29 gaussianas colapsa para
     qualquer vmax — o mesmo defeito medido no `PosturaPorElo` para posição.
@@ -651,7 +689,7 @@ class velocidade_por_regime:
                + self.vel_max_running * running_mask.unsqueeze(1))
 
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
-        return 1.0 - torch.exp(-torch.mean((v / vmax) ** 2, dim=1))
+        return torch.clamp(torch.mean((v / vmax) ** 2, dim=1), max=4.0)
 
 
 class renda_congelada:

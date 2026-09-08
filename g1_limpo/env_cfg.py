@@ -18,6 +18,7 @@ gates entram na F2; os sete incentivos de manipulação, na F3.
 from __future__ import annotations
 
 import dataclasses
+import math
 
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -104,7 +105,9 @@ def aplica_pesos(cfg, r) -> None:
     iterações depois.
     """
     for nome, peso in dataclasses.asdict(r).items():
-        if nome == "altura_de_balanco":      # não é peso, é o alvo em metros
+        if nome in ("altura_de_balanco", "std_standing"):
+            # `altura_de_balanco`: não é peso, é o alvo em metros.
+            # `std_standing`: não é peso, é o dict de σ do `pose` (spec dois-bits §3.1).
             continue
         assert nome in cfg.rewards, (
             f"termo de recompensa '{nome}' não existe no molde; "
@@ -113,10 +116,14 @@ def aplica_pesos(cfg, r) -> None:
 
 
 def colhe_sigmas_de_postura(cfg) -> dict:
-    """Colhe os três dicionários de σ do G1 do cfg do fabricante.
+    """Lê os três dicionários de σ do termo `pose`, já montado.
 
-    Eles são calibrados POR ROBÔ e NÃO são redigitados aqui. O `smoke.py` prova por
-    identidade de objeto que eles foram colhidos, e não copiados.
+    ⚠ `std_walking` e `std_running` continuam COLHIDOS do fabricante, calibrados
+    POR ROBÔ e NÃO redigitados aqui — o `smoke.py` prova por identidade de objeto.
+    `std_standing` NÃO é mais colhido (spec dois-bits §3.1): é redigitado em
+    `knobs.Recompensa.std_standing`, porque o do fabricante (`{".*": 0,05}`) é canal
+    morto na manipulação. A prova de identidade do `smoke` para ele muda de alvo —
+    contra o knob, não contra o molde.
     """
     p = cfg.rewards["pose"].params
     return {
@@ -264,6 +271,15 @@ def make_env_cfg(
                 "dist_max": k.terminacao.caixa_dist_max,
                 "meia_aresta_ref": c.caixa_meia_aresta[2]})
 
+    # ⚠ `fell_over` GANHA UMA CLÁUSULA (spec dois-bits §3.2): o MESMO slot, a função
+    # muda de `bad_orientation` (só o molde) para `terminacoes.caiu`, que faz o
+    # `bad_orientation` e acrescenta o joelho no chão. Os 70° do molde ficam.
+    cfg.terminations["fell_over"] = TerminationTermCfg(
+        func=TE.caiu,
+        params={"limit_angle": math.radians(70.0),
+                "joelho_z_min": k.terminacao.joelho_z_min,
+                "asset_cfg": SceneEntityCfg("robot")})
+
     # ⚠ O `feet_swing_height` do fabricante NÃO tem `reset`, e `reward_manager.py:174`
     # só chama `reset` em termo de classe que tenha. Logo o `peak_heights` dele
     # atravessa o fim do episódio, e o pico do pé que estava no ar quando o robô caiu
@@ -271,16 +287,18 @@ def make_env_cfg(
     cfg.rewards["foot_swing_height"].func = RC.AlturaDeBalanco
     cfg.rewards["foot_swing_height"].params["target_height"] = k.recompensa.altura_de_balanco
 
-    # ⚠ A POSTURA FICA NEUTRA NOS ELOS DE MANIPULAÇÃO (F2). Não é um 4º regime de σ —
-    # medi, e nenhum σ resolve. Com o twist em zero o regime é SEMPRE `standing`
-    # (`walking_threshold` do G1 é 0,05, medido), cujo σ é uma entrada só, `.*` = 0,05
-    # para as 29 juntas. A 10% da faixa de junta o termo já vale 0,000, com GRADIENTE
-    # ZERO — é canal morto, não penalidade forte. Nem `running×5` sobrevive a 40%.
-    # Ver `recompensas.PosturaPorElo` para a tabela medida.
+    # ⚠ A POSTURA AGE EM TODO ELO (spec dois-bits §3.1) — não fica mais neutra fora
+    # de `ELOS_QUE_ANDAM`. O que sai da conta é só o BRAÇO, e só enquanto ele
+    # trabalha (`pegou ∧ ¬soltou`); pernas e cintura pagam sempre, inclusive no
+    # `PEGAR`, que é onde o joelho vai ao chão nos níveis altos.
+    #
+    # ⚠ `std_standing` deixa de ser COLHIDO do fabricante (`{".*": 0,05}`, uma
+    # entrada tão apertada que o termo morria a 10% da faixa, com gradiente ZERO —
+    # ver `recompensas.PosturaPorElo` para a tabela medida) e vira o dict próprio de
+    # `knobs.Recompensa.std_standing`, calibrado para o divisor de 15 juntas
+    # (perna+cintura) que sobra quando os braços saem.
     cfg.rewards["pose"].func = RC.PosturaPorElo
-    cfg.rewards["pose"].params.update(
-        canal_do_elo=CMD.ELO, nome_do_comando="alvo_caixa",
-        elos_que_andam=ELOS_QUE_ANDAM)
+    cfg.rewards["pose"].params["std_standing"] = k.recompensa.std_standing
 
     # ⚠⚠ OS DOIS TERMOS DE RASTREIO VÃO A ZERO ONDE A TAREFA ZEROU O TWIST (31/08;
     # v2.1 §4.2 P4 trocou o gate de um CONJUNTO DE ELOS para `env.limpo_twist_zerado`),

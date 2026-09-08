@@ -329,7 +329,25 @@ class Recompensa:
     track_linear_velocity: float = 2.0
     track_angular_velocity: float = 2.0
     upright: float = 1.0
-    pose: float = 1.0                     # `variable_posture`, σ COLHIDOS do molde
+    pose: float = 1.0                     # `PosturaPorElo` (spec dois-bits §3.1)
+
+    # ⚠ `std_standing` NÃO é mais COLHIDO do fabricante (spec dois-bits §3.1). O do
+    # molde é `{".*": 0,05}`, uma entrada só apertada demais: a 10% da faixa de
+    # junta o termo já vale 0,000, com GRADIENTE ZERO — canal morto, não penalidade
+    # forte (medido em `recompensas.PosturaPorElo`). Este dict é calibrado para o
+    # divisor REAL — as 15 juntas de perna+cintura que sobram quando o braço sai da
+    # conta (`pegou ∧ ¬soltou`).
+    #
+    # ⚠ VALIDAR NUM SCRIPT DE CPU, sem env, com o divisor de 15 juntas:
+    # `exp(−média) >= 0,8` a 0,1 rad de excursão uniforme; `<= 0,3` a 0,6 rad.
+    # Números abaixo são PONTO DE PARTIDA, a confirmar na medição.
+    std_standing: dict = field(default_factory=lambda: {
+        r".*hip_yaw.*": 0.30, r".*hip_roll.*": 0.30,
+        r".*hip_pitch.*": 0.50, r".*knee.*": 0.50, r".*ankle_pitch.*": 0.50,
+        r".*ankle_roll.*": 0.30,
+        r".*waist.*": 0.30,
+        r".*shoulder.*": 1.00, r".*elbow.*": 1.00, r".*wrist.*": 1.00,
+    })
 
     # ⚠ O ÚNICO termo POSITIVO de marcha, e o fabricante o entrega em ZERO. Fica em
     # zero na F1, e é decisão declarada, não descuido: mexer nele no mesmo bloco que
@@ -829,6 +847,16 @@ class Terminacao:
     MAIOR que a distância de nascimento típica — e mesmo assim a terminação não dispara
     no reset, porque ela é armada pela primeira preensão. Os dois freios são
     independentes de propósito."""
+
+    joelho_z_min: float = 0.10
+    """Altura mínima do joelho, em metros, acima da origem do env (spec dois-bits
+    §3.2). Abaixo disto, `terminacoes.caiu` acusa — mesmo sem `bad_orientation`
+    disparar: o robô agachou de LADO, sem tombar.
+
+    ⚠ MEDIR NO AGACHAMENTO, não andando: p10 da altura do joelho no PEGAR dos níveis
+    4–6 (laje a 0,04 m, exige agachar). O knob fica ABAIXO desse p10 — um limiar alto
+    mata o agachamento legítimo — e ACIMA do joelho no chão (~0,05). Fallback 0,10
+    até a medição."""
 
 
 @dataclass
