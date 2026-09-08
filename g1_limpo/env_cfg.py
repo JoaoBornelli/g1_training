@@ -272,10 +272,12 @@ def make_env_cfg(
                 "meia_aresta_ref": c.caixa_meia_aresta[2]})
 
     # ⚠ `fell_over` GANHA UMA CLÁUSULA (spec dois-bits §3.2): o MESMO slot, a função
-    # muda de `bad_orientation` (só o molde) para `terminacoes.caiu`, que faz o
+    # muda de `bad_orientation` (só o molde) para `terminacoes.Caiu`, que faz o
     # `bad_orientation` e acrescenta o joelho no chão. Os 70° do molde ficam.
+    # ⚠ CLASSE, não função (revisão independente, item A11): resolve o joelho por
+    # regex UMA VEZ no `__init__`, não a cada passo.
     cfg.terminations["fell_over"] = TerminationTermCfg(
-        func=TE.caiu,
+        func=TE.Caiu,
         params={"limit_angle": math.radians(70.0),
                 "joelho_z_min": k.terminacao.joelho_z_min,
                 "asset_cfg": SceneEntityCfg("robot")})

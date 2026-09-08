@@ -297,8 +297,12 @@ def _valida(env, nome: str) -> torch.Tensor:
 
 def _gate_espera(env) -> torch.Tensor:
     """1 nas DUAS janelas de espera (inicial e final): `aguardando + soltou`,
-    saturado em 1. A MESMA expressão de `metricas.fracao_esperando` — ver
-    `pose_de_braco` para o porquê de o gate certo não ser `1 − VALIDA`."""
+    saturado em 1. A MESMA expressão de `metricas.fracao_esperando`.
+
+    ⚠ NÃO É `1 − VALIDA` (revisão A14: `pose_de_braco`, que citava este motivo,
+    SAIU no dois-bits). Na espera final o `_elo` INTERNO fica BOTAR — só o
+    PUBLICADO vira ANDAR, via `soltou` — e `VALIDA` lê o interno: ela continua em
+    1 ali. `1 − VALIDA` capturaria só a espera INICIAL, e perderia a final."""
     v = getattr(env, "limpo_aguardando", None)
     if v is None:
         return torch.zeros(env.num_envs, device=env.device)
@@ -582,10 +586,13 @@ def load(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
     ⚠ `_fora_do_botar` é o gate que `unload`/`squeeze` já usam para ZERAR dentro do
     BOTAR; `load` usa o COMPLEMENTO — ele só existe DENTRO do BOTAR.
     """
-    from g1_limpo.comando import BOTAR
+    from g1_limpo.comando import BOTAR, forca_de_apoio
     t = _t(env, nome_do_comando)
     ids = torch.arange(env.num_envs, device=env.device)
-    f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
+    # ⚠ PROJEÇÃO EM Z, e não a norma (revisão independente, item A2): a norma
+    # satura prensando a caixa DE LADO contra o tampo, sem a laje carregar peso
+    # nenhum — o mesmo defeito que `forca_de_apoio` já corrige para o fecho.
+    f = forca_de_apoio(env, sensor_apoio)
     peso = env.limpo_massa * 9.81
     descarga = (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0)
     perto = t._perto(ids).float()

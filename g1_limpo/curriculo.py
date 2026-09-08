@@ -325,6 +325,25 @@ def garante_forma(env: "ManagerBasedRlEnv", f) -> dict:
     return env.limpo_forma
 
 
+def _estado_para_log(env: "ManagerBasedRlEnv", st: dict) -> dict:
+    """`{sorteio, p_C, s_B, s_C}`, para o `CurriculumManager` publicar como
+    `Curriculum/forma/{chave}` (revisão independente, item A5).
+
+    ⚠ SEM ISTO, `p_C`/`s_B`/`s_C` só existiam no CHECKPOINT — a spec §6 manda ler
+    `p_C` subindo do piso no PRIMEIRO log, e não havia onde ler. `_resolve_p_c` é
+    chamado pelo TERMO DE COMANDO (não importado direto: `curriculo.py` não
+    importa `comando.py`, por decisão — ver o topo do arquivo), o mesmo caminho
+    que `forma` já usa para ler `eficiencia_min` do `twist`.
+    """
+    p_c = 0.0
+    try:
+        p_c = float(env.command_manager.get_term("alvo_caixa")._resolve_p_c())
+    except (KeyError, AttributeError):
+        pass
+    return {"sorteio": st["sorteio"], "p_C": p_c,
+            "s_B": float(st.get("s_B", 0.0)), "s_C": float(st.get("s_C", 1.0))}
+
+
 def forma(
     env: "ManagerBasedRlEnv",
     env_ids: torch.Tensor,
@@ -347,7 +366,7 @@ def forma(
     if not f.controla:
         st["sorteio"] = resolve_sorteio(st["alvo"], st["dur_loco"], st["dur_manip"],
                                         f.sorteio_min, f.sorteio_max)
-        return st["sorteio"]
+        return _estado_para_log(env, st)
 
     # ⚠ A ITERAÇÃO É DERIVADA DO CONTADOR DE PASSOS DO ENV, e não incrementada aqui.
     # `common_step_counter` conta passos (`manager_based_rl_env.py:431`) e o mjlab o
@@ -448,4 +467,4 @@ def forma(
 
     st["sorteio"] = resolve_sorteio(st["alvo"], st["dur_loco"], st["dur_manip"],
                                     f.sorteio_min, f.sorteio_max)
-    return st["sorteio"]
+    return _estado_para_log(env, st)

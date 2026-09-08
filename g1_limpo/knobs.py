@@ -61,12 +61,12 @@ class Cena:
     prateleira_atrito: tuple[float, float, float] = (1.0, 0.02, 0.001)
     prateleira_rgba: tuple[float, float, float, float] = (0.5, 0.5, 0.55, 1.0)
     prateleira_condim: int = 3
-    # ⚠ ABERTURA DO BOTAR (spec dois-bits §1.4, revisão item 27): MEDIDO em CPU a
-    # força em `apoio_caixa` e `auto_colisao` nos 5 passos após o avanço forçado
-    # para BOTAR (caminho do inspetor, níveis 0 e 4). Nível 0: força zero. Nível 4:
-    # `apoio_caixa` pico a 282 N, p90 110 N — bem acima do peso da caixa (1 kg ≈
-    # 9,8 N). Houve pico: o valor sobe de 0,50 para 0,55.
-    prateleira_xy: tuple[float, float] = (0.55, 0.00)
+    # posição da laje no RESET (e no CARREGAR/ANDAR, afastada em z por `afasta_z`).
+    # ⚠ o avanço do BOTAR NÃO lê este knob (spec dois-bits §1.4, revisão do
+    # coordenador): usa a constante de módulo `comando._AVANCO_LAJE_BOTAR`, medida
+    # à parte — ver o comentário lá. Subir ESTE knob afastaria a caixa do PEGAR em
+    # todo nível, e não é o que a spec pediu.
+    prateleira_xy: tuple[float, float] = (0.50, 0.00)
     # ⚠ o piso é 0,04 porque a laje tem 4 cm de espessura total: com o TOPO em 0,04
     # ela APOIA no chão em vez de atravessá-lo. Dois corpos estáticos em contato
     # gastam slots de contato.
@@ -354,9 +354,10 @@ class Recompensa:
     # divisor REAL — as 15 juntas de perna+cintura que sobram quando o braço sai da
     # conta (`pegou ∧ ¬soltou`).
     #
-    # ⚠ VALIDAR NUM SCRIPT DE CPU, sem env, com o divisor de 15 juntas:
-    # `exp(−média) >= 0,8` a 0,1 rad de excursão uniforme; `<= 0,3` a 0,6 rad.
-    # Números abaixo são PONTO DE PARTIDA, a confirmar na medição.
+    # ⚠ MEDIDO 2026-09-08 (revisão independente, item A13), sem env, com o divisor
+    # de 15 juntas: `exp(−média) = 0,92` a 0,1 rad de excursão uniforme (limiar era
+    # `>= 0,8`); `exp(−média) = 0,051` a 0,6 rad (limiar era `<= 0,3`). Os dois
+    # folgam a barra — a tabela abaixo não é mais ponto de partida.
     std_standing: dict = field(default_factory=lambda: {
         r".*hip_yaw.*": 0.30, r".*hip_roll.*": 0.30,
         r".*hip_pitch.*": 0.50, r".*knee.*": 0.50, r".*ankle_pitch.*": 0.50,

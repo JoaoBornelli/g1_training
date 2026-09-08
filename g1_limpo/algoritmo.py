@@ -47,7 +47,7 @@ from __future__ import annotations
 import torch
 from rsl_rl.algorithms import PPO
 
-from g1_limpo.comando import ELOS
+from g1_limpo.comando import ANDAR, ELOS
 from g1_limpo.observacoes import fatia_do_elo_interno
 
 __all__ = ["PPOPorElo", "CAMINHO"]
@@ -104,13 +104,33 @@ class PPOPorElo(PPO):
         crua = st.returns - st.values
         argmax = bloco.argmax(-1)
 
+        # ⚠ O GRUPO "MANIPULAÇÃO INTEIRA" (revisão independente, item A7): a união
+        # dos 4 slots que não são ANDAR. É o FALLBACK de quem cai num grupo RALO
+        # (< 2 amostras) — REORIENTAR (5% do sorteio) e o BOTAR cedo no treino caem
+        # nisso o tempo todo. Deixar a vantagem CRUA ali (o `continue` antigo) a
+        # tirava da escala normalizada dos outros grupos; a normalização pela
+        # manipulação inteira mantém a mesma ORDEM de grandeza sem inventar uma
+        # escala própria para uma amostra só.
+        mascara_manip = (argmax != ANDAR).unsqueeze(-1)
+        media_manip = desvio_manip = None
+        if int(mascara_manip.sum()) >= 2:
+            a_manip = crua[mascara_manip]
+            media_manip = a_manip.mean()
+            desvio_manip = a_manip.std()
+
         saida = crua.clone()
         desvios: dict[str, float] = {}
         for elo_id, nome in enumerate(ELOS):
             mascara = (argmax == elo_id).unsqueeze(-1)
+            n = int(mascara.sum())
+            if n == 0:
+                continue
             # ⚠ `< 2` e não `== 0`: com uma amostra só o `std` é NaN, e o NaN se
             # propaga para o gradiente inteiro no passo seguinte.
-            if int(mascara.sum()) < 2:
+            if n < 2:
+                if elo_id != ANDAR and desvio_manip is not None:
+                    a = crua[mascara]
+                    saida[mascara] = (a - media_manip) / (desvio_manip + 1e-8)
                 continue
             a = crua[mascara]
             desvios[nome] = float(a.std())

@@ -194,6 +194,26 @@ ALCANCE_R = 0.85
 # botar_folga_laje` continua sendo o que de fato limita.
 _TOPO_TETO_FISICO = 0.80
 
+# ⚠ O AVANÇO EM X DA LAJE NO BOTAR (spec dois-bits §1.4, revisão do coordenador,
+# item 27). É NÚMERO MEDIDO, não sintonizável — não vira knob: `knobs.Cena.
+# prateleira_xy` continua em 0,50 (o reset), e só a chamada do BOTAR usa este
+# valor maior.
+#
+# ⚠⚠ A 1ª MEDIÇÃO (caminho do inspetor, robô TRAVADO, avanço FORÇADO) media
+# pico de 282 N em `apoio_caixa` no nível 4 — mas era ARTEFATO do método: sem
+# pega real, a caixa fica em cima da laje na pose do RESET, e o teleporte da
+# laje (novo xy pela base + yaw) atravessa a caixa já apoiada ali. `auto_colisao`
+# ficava em 0, o que confirma: não era o BOTAR real colidindo com nada.
+#
+# ⚠⚠ MEDIÇÃO REAL (2026-09-08, natural: policy `model_6999`, robô LIVRE,
+# `cadeia_forcada=C`, 64 envs, 1100 passos, 5 passos após cada avanço PEGAR→BOTAR
+# de verdade — exige `pegou ∧ perto`): nível 0, 30 avanços observados, força
+# ZERO nos dois sensores. Nível 4, 30 avanços observados: `apoio_caixa` ZERO,
+# mas `auto_colisao` com pico REAL de 121,18 N — o robô esbarra nele mesmo ao
+# alcançar a borda da laje mais perto (nível alto = caixa maior). Isto é
+# colisão de verdade, não artefato: o valor FICA em 0,55, e não volta a 0,50.
+_AVANCO_LAJE_BOTAR = 0.55
+
 _MAGENTA = (0.90, 0.20, 0.90, 1.00)
 _CIANO = (0.20, 0.90, 0.90, 1.00)
 _AMARELO = (0.95, 0.85, 0.20, 1.00)
@@ -246,9 +266,9 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     botar_folga_laje: float = 0.05
     # geometria de que o termo precisa para mover a laje
     afasta_z: float = 5.0
-    # ⚠ MEDIDO (spec §1.4, revisão item 27): força em `apoio_caixa` no avanço para
-    # BOTAR, nível 4 — pico 282 N. Subiu de 0,50 para 0,55; ver `knobs.Cena`.
-    prateleira_xy: tuple[float, float] = (0.55, 0.00)
+    # posição da laje no RESET. O avanço do BOTAR usa `_AVANCO_LAJE_BOTAR`, uma
+    # constante medida à parte — ver o comentário dela — e não este knob.
+    prateleira_xy: tuple[float, float] = (0.50, 0.00)
     prateleira_meia_z: float = 0.02
     prateleira_meia_xy: float = 0.30
     # o topo da laje APOIADA no chão. É o piso físico do `BOTAR`.
@@ -370,9 +390,10 @@ class AlvoCaixaCmd(CommandTerm):
         #
         # A janela de espera (`knobs.Alvo.espera_s`, 0,5 a 1,5 s) mantém `VALIDA = 0`
         # depois do reset, e o robô aproxima as mãos de graça nesse intervalo — o
-        # `pose_de_braco` (F2) é o que paga por ele NÃO fazer isso, mas nada o impede
-        # fisicamente. Calcular o σ no reset mede a distância ERRADA: a de antes de a
-        # tarefa existir, não a de quando ela liga.
+        # `PosturaPorElo` (spec dois-bits §3.1) é quem paga por ele NÃO fazer isso
+        # (o braço só sai da média com `pegou`, e na espera `pegou` ainda é falso),
+        # mas nada o impede fisicamente. Calcular o σ no reset mede a distância
+        # ERRADA: a de antes de a tarefa existir, não a de quando ela liga.
         #
         # MEDIDO no `play` do `bloco9` em 2026-09-08: σ fixado em 0,34 m no reset, mão a
         # 0,20 m no fim da espera — `alcancar = exp(−(0,20/0,34)²) = 0,71` em vez dos
@@ -401,8 +422,9 @@ class AlvoCaixaCmd(CommandTerm):
         self._sust = torch.zeros(n, dtype=torch.float, device=d)  # cronômetro em s
         # ⚠ O ALVO do cronômetro acima, por env (v2.1, spec P2). Escrito em TODA
         # abertura de elo — reset (`_resample_command`) e avanço (`_avanca_elo_force`)
-        # — com a MESMA regra que `_avanca_elo` lia inline: uma fonte só, e
-        # `recompensas.sustentacao` lê daqui em vez de recalcular.
+        # — com a MESMA regra que `_avanca_elo` lia inline: uma fonte só. `sustentacao`
+        # (recompensas.py) SAIU no dois-bits; hoje só `_avanca_elo` lê este buffer,
+        # para saber quando o `_sust` acumulado basta para armar o fecho.
         self._sustain_alvo = torch.zeros(n, dtype=torch.float, device=d)
         self.fechou = torch.zeros(n, dtype=torch.bool, device=d)
         # ⚠ O CONTADOR DE FECHOS GANHOS, por env (v2.1, spec P3). Sobe UM em todo fecho
@@ -484,6 +506,12 @@ class AlvoCaixaCmd(CommandTerm):
 
         self._pegou = torch.zeros(n, dtype=torch.bool, device=d)
         env.limpo_ids_palma = self._ids_palma
+        # ⚠ `_forcado` (spec §2.3, revisão independente item A8): `forca_avanco`
+        # zera `_espera`, mas sem isto o gate `perto` de `_aplica_espera` ainda
+        # bloqueia quem `pegou` e está longe do alvo — `--avanca-elo` do viewer
+        # congelava com a caixa fora de posição. Lido como `perto | _forcado`, e
+        # limpo assim que o avanço acontece.
+        self._forcado = torch.zeros(n, dtype=torch.bool, device=d)
         # ⚠ Publica ZEROS aqui, e não o resultado de `_publica_pegou`: no `__init__` os
         # buffers de sensor ainda não foram preenchidos. A leitura real começa no
         # primeiro `_update_command`.
@@ -495,7 +523,11 @@ class AlvoCaixaCmd(CommandTerm):
         anterior não descreve o novo.
         """
         mm = getattr(self._env, "metrics_manager", None)
-        cfg_term = getattr(mm, "cfg", {}).get("aproxima_caixa") if mm else None
+        # ⚠ `or {}`, e não só o `getattr` (revisão independente, item A9): o
+        # `NullMetricsManager` do `play` tem `.cfg = None` — um atributo que EXISTE
+        # com valor `None` não aciona o default do `getattr`, e `None.get(...)`
+        # explode. Isto quebraria o `play` toda vez.
+        cfg_term = (getattr(mm, "cfg", None) or {}).get("aproxima_caixa") if mm else None
         if cfg_term is not None and hasattr(cfg_term.func, "minimo"):
             cfg_term.func.minimo[ids] = 1.0
 
@@ -574,11 +606,15 @@ class AlvoCaixaCmd(CommandTerm):
         tem_prox = (self._passo + 1) < n_elos
         avanca = acabou & tem_prox
         if bool(self._pegou.any()):
-            perto = self._perto(todos)
+            # ⚠ `perto | _forcado` (revisão independente, item A8): `_forcado`
+            # contorna o gate para quem `forca_avanco` armou longe do alvo — senão
+            # `--avanca-elo` do viewer congela pra sempre num env fora de posição.
+            perto = self._perto(todos) | self._forcado
             avanca = torch.where(self._pegou, avanca & perto, avanca)
 
         ids_avanca = todos[avanca]
         if len(ids_avanca):
+            self._forcado[ids_avanca] = False
             cad = self._cadeia[ids_avanca]
             prox = self._passo[ids_avanca] + 1
             self._passo[ids_avanca] = prox
@@ -601,6 +637,7 @@ class AlvoCaixaCmd(CommandTerm):
         cauda = acabou & ~tem_prox & ~ja_em_cauda
         ids_cauda = todos[cauda]
         if len(ids_cauda):
+            self._forcado[ids_cauda] = False
             vira_carregar = ids_cauda[self._pegou[ids_cauda] & ~self._soltou[ids_cauda]]
             if len(vira_carregar):
                 self._elo[vira_carregar] = CARREGAR
@@ -699,15 +736,22 @@ class AlvoCaixaCmd(CommandTerm):
         return n
 
     def concluiu(self, ids: torch.Tensor) -> torch.Tensor:
-        """A cadeia CONCLUIU: `fechou ∧ (_passo == n_elos_da_cadeia − 1)`.
+        """A cadeia CONCLUIU: `tem ∧ fechou ∧ (_passo == n_elos_da_cadeia − 1)`.
 
         ⚠⚠ A ÚNICA DEFINIÇÃO DE SUCESSO (spec `g1-limpo-dois-bits.md` §2.2). Um elo
         que fechou e AINDA NÃO avançou (o próximo elo continua na mesma cadeia) não é
         a cadeia inteira — só o fecho do ÚLTIMO elo conta. `metrics["sucesso"]`,
         `curriculo.nivel` e o balanceador B/C leem TODOS este mesmo predicado; antes
         cada um recalculava a própria versão, e podiam divergir.
+
+        ⚠ O GUARDA `tem` (revisão independente, item A4): SEM ele, um env de `ANDAR`
+        (sem cadeia, `_passo` sempre 0) que `forca_avanco` fechasse por engano leria
+        `n_elos_da_cadeia == 1` e `concluiu == True` — sucesso falso para quem nunca
+        teve tarefa nenhuma.
         """
-        return self.fechou[ids] & (self._passo[ids] == (self.n_elos_da_cadeia(ids) - 1))
+        tem = self._cadeia[ids] >= 0
+        return (tem & self.fechou[ids]
+               & (self._passo[ids] == (self.n_elos_da_cadeia(ids) - 1)))
 
     def _perto(self, ids: torch.Tensor) -> torch.Tensor:
         """`‖caixa − alvo‖ <= tol_pos` — extraído de `_fecha_elo_corrente` (spec
@@ -744,6 +788,13 @@ class AlvoCaixaCmd(CommandTerm):
         if len(ainda_aberto):
             self._avanca_elo_force(ainda_aberto)
         self._espera[ids] = 0.0
+        # ⚠ CONTORNA o gate `perto` de `_aplica_espera` (revisão independente, item
+        # A8): sem isto, um env que `pegou` e está longe do alvo (o viewer moveu a
+        # caixa, ou o `--avanca-elo` chegou antes de alcançar) arma a espera mas
+        # NUNCA avança — `avanca = avanca & perto` fica falso para sempre, e
+        # `--avanca-elo` congela. `forca_avanco` é o atalho do inspetor: forçar
+        # SIGNIFICA avançar mesmo longe.
+        self._forcado[ids] = True
 
     def recebe_tarefa(self, ids: torch.Tensor, elo_novo: int) -> None:
         """Entrega uma tarefa de manipulação AO VIVO a quem estava no `ANDAR`.
@@ -1084,7 +1135,7 @@ class AlvoCaixaCmd(CommandTerm):
         Condição de fechamento POR ELO (spec `g1-limpo-dois-bits.md` §2.4):
             REORIENTAR: perto & alinhado
             PEGAR:      perto & alinhado & de pé
-            BOTAR:      perto & alinhado & apoiada
+            BOTAR:      perto & alinhado & apoiada & de pé
 
         ⚠ O CARREGAR NÃO ENTRA MAIS: ele saiu de `CADEIAS` e virou o estado de CAUDA
         de quem fechou o PEGAR e não vai botar (§2.1) — não há mais o que fechar ali.
@@ -1147,7 +1198,7 @@ class AlvoCaixaCmd(CommandTerm):
             elif elo_tipo == PEGAR:
                 fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
             elif elo_tipo == BOTAR:
-                fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
+                fecha[m] = (perto[m] & alinhado[m] & apoiada[m] & de_pe[m])
 
         # ⚠ O `ativo` entra NO FIM, e sobre todos os elos de uma vez. Pôr o `& ativo`
         # dentro de cada ramo seria três lugares para esquecer um.
@@ -1275,15 +1326,24 @@ class AlvoCaixaCmd(CommandTerm):
         self._sigma_pendente[ids] = True
         self._sust[ids] = 0.0
 
+        # ⚠ O FECHO DO PEGAR IMPLICA A PEGA (revisão independente, item A3): `perto`
+        # no peito já é o critério de fecho, e o sensor de PALMA pode nunca disparar
+        # — o tronco escora a maior parte do contato medido. Sem isto, a cauda de
+        # B/R nunca vira CARREGAR (`vira_carregar` exige `pegou`): o `_elo` fica
+        # PEGAR para sempre, o twist continua zerado, e o env fica INERTE até o
+        # time_out sem nenhuma terminação acusar.
+        ids_pegar = ids[origem == PEGAR]
+        if len(ids_pegar):
+            self._pegou[ids_pegar] = True
+            self._env.limpo_pegou = self._pegou.float()
+
         # ⚠ O FECHO TERMINAL (spec §2.2): quem fecha o ÚLTIMO elo da cadeia — e só
         # ele — grava `sucesso` AQUI, no instante do fecho, e não quando a espera
         # final acaba (revisão, item 1: métrica escrita no `_resample` sai um
-        # episódio atrasada). `concluiu(ids)` lê exatamente este par (`fechou` e
-        # `_passo == n_elos−1`), e por isso os dois concordam a partir de agora.
-        n_elos = torch.ones_like(cad)
-        if bool(tem.any()):
-            n_elos[tem] = _N_ELOS.to(d)[cad[tem]]
-        terminal = ids[tem & ((self._passo[ids] + 1) >= n_elos)]
+        # episódio atrasada). CHAMA `self.concluiu(ids)`, e não uma segunda conta
+        # da mesma coisa (revisão independente, item A4): `fechou` já está True
+        # duas linhas acima, e `concluiu` é a ÚNICA definição de sucesso do módulo.
+        terminal = ids[self.concluiu(ids)]
         if len(terminal):
             self.metrics["sucesso"][terminal] = 1.0
 
@@ -1396,10 +1456,13 @@ class AlvoCaixaCmd(CommandTerm):
                     min=c.prateleira_topo_piso)
 
                 # ⚠ A LAJE nasce perto da BASE, não da origem do env (revisão, item 5):
-                # `xy_laje = base_p + quat_apply_yaw(base_q, prateleira_xy + dxy)`.
+                # `xy_laje = base_p + quat_apply_yaw(base_q, _AVANCO_LAJE_BOTAR + dxy)`.
+                # ⚠ `_AVANCO_LAJE_BOTAR`, e NÃO `c.prateleira_xy` (revisão do
+                # coordenador): o avanço do BOTAR é medido à parte do reset — subir o
+                # knob afastaria a caixa do PEGAR em todo nível.
                 dxy = c.botar_delta_xy * (2.0 * torch.rand(k, 2, device=d) - 1.0)
                 off_laje = torch.zeros(k, 3, device=d)
-                off_laje[:, 0] = c.prateleira_xy[0] + dxy[:, 0]
+                off_laje[:, 0] = _AVANCO_LAJE_BOTAR + dxy[:, 0]
                 off_laje[:, 1] = dxy[:, 1]
                 xy_laje = base_p[:, :2] + quat_apply_yaw(base_q, off_laje)[:, :2]
                 self._laje_para(m, topo, xy=xy_laje)
@@ -1408,10 +1471,16 @@ class AlvoCaixaCmd(CommandTerm):
                 # 14). No centro o robô alcançaria por cima de 20 cm de tampo — defeito
                 # datado em 16/07 —, e a 0,04 m de topo a distância passaria de
                 # ALCANCE_R = 0,85. `botar_recuo_borda` recua o alvo do centro para a
-                # borda perto do robô; o jitter lateral vem de `xy_laje`, que já carrega
-                # o `dxy[:, 1]` da própria laje.
+                # borda perto do robô. ⚠ CORRIGIDO (revisão independente, item A10):
+                # o `dxy[:, 1]` da laje NÃO basta — ele desloca laje e alvo JUNTOS, e o
+                # deslocamento relativo entre os dois ficava sempre igual. O jitter
+                # lateral de verdade entra no PRÓPRIO `off_recuo`, abaixo.
                 off_recuo = torch.zeros(k, 3, device=d)
                 off_recuo[:, 0] = c.botar_recuo_borda + dxy[:, 0] * 0.5
+                # ⚠ JITTER LATERAL em y (spec §1.4, revisão independente item A10):
+                # sem ele, o deslocamento alvo↔laje em y é SEMPRE o mesmo (o jitter
+                # da própria laje cancela na subtração) — anti-decoreba do dono.
+                off_recuo[:, 1] = dxy[:, 1] * 0.5
                 a = torch.zeros(k, 3, device=d)
                 a[:, :2] = xy_laje - quat_apply_yaw(base_q, off_recuo)[:, :2]
                 a[:, 2] = topo + self._meia(m)[:, 2]

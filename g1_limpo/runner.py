@@ -48,7 +48,12 @@ CHAVES_ESCALARES = ("alvo", "dur_loco", "dur_manip", "razao",
                     # ⚠ o balanceador B/C (spec `g1-limpo-dois-bits.md` §2.5): sem
                     # eles todo resume volta a `p_C` no piso, como se nenhuma cadeia
                     # tivesse concluído ainda.
-                    "s_B", "s_C")
+                    "s_B", "s_C",
+                    # ⚠ `ultima_iter_bal` (revisão independente, item A6): SEM ela,
+                    # `garante_forma` recria o fresco `-1,0`, e a EMA do balanceador
+                    # dispara no primeiro reset pós-resume com uma contagem PARCIAL
+                    # (poucos episódios, não a janela inteira de uma iteração).
+                    "ultima_iter_bal")
 CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo")
 
 
@@ -86,6 +91,14 @@ class RunnerComEstadoDeCurriculo(MjlabOnPolicyRunner):
             f = e.cfg.curriculum["forma"].params["f"]
             st = garante_forma(e, f)
             st.update(estado["forma"])
+            # ⚠ ZERA OS ACUMULADORES do balanceador (revisão independente, item A6).
+            # Eles NÃO estão em `CHAVES_ESCALARES` (só a EMA já resolvida é
+            # persistida) — mas se `env.reset()` já rodou antes deste `load`, um
+            # episódio isolado pode ter incrementado `n_ep_*`/`n_concluiu_*` antes
+            # da restauração. Zerar aqui garante que a PRÓXIMA aplicação da EMA
+            # conta só episódios da sessão NOVA.
+            st["n_ep_B"] = st["n_concluiu_B"] = 0.0
+            st["n_ep_C"] = st["n_concluiu_C"] = 0.0
             print(f"[g1_limpo] currículo restaurado: alvo={st['alvo']:.3f} "
                   f"razao={st['razao']:.3f} iters_balanco={st['iters_balanco']:.0f}")
 

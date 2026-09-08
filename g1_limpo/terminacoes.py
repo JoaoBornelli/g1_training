@@ -46,7 +46,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-__all__ = ["caixa_largada", "caiu"]
+__all__ = ["caixa_largada", "Caiu"]
 
 
 def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
@@ -100,8 +100,7 @@ def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
     return caiu | (escapou & (pegou > 0.5))
 
 
-def caiu(env: "ManagerBasedRlEnv", limit_angle: float, joelho_z_min: float,
-         asset_cfg: SceneEntityCfg) -> torch.Tensor:
+class Caiu:
     """`fell_over`, com uma cláusula a mais (spec `g1-limpo-dois-bits.md` §3.2).
 
     ⚠ MESMO SLOT `cfg.terminations["fell_over"]`. A 1ª cláusula é o `bad_orientation`
@@ -114,10 +113,23 @@ def caiu(env: "ManagerBasedRlEnv", limit_angle: float, joelho_z_min: float,
 
     ⚠ SEM SENSOR NOVO: `body_link_pose_w` (via `find_bodies`), o mesmo caminho que
     `_meia`/`_ids_palma` já usam para sítios e para a meia-aresta por env.
+
+    ⚠⚠ VIROU CLASSE (revisão independente, item A11): a função rodava
+    `find_bodies((".*_knee_link",))` — uma busca por REGEX — A CADA PASSO, dentro
+    de uma terminação chamada todo passo de todo env. O `__init__` resolve os ids
+    UMA VEZ, o mesmo padrão que `PosturaPorElo` já usa para o braço.
     """
-    tombou = bad_orientation(env, limit_angle, asset_cfg)
-    robo = env.scene[asset_cfg.name]
-    ids_joelho, _ = robo.find_bodies((".*_knee_link",))
-    z_joelho = (robo.data.body_link_pose_w[:, ids_joelho, 2]
-               - env.scene.env_origins[:, 2:3])
-    return tombou | (z_joelho.amin(dim=-1) < joelho_z_min)
+
+    def __init__(self, cfg, env: "ManagerBasedRlEnv") -> None:
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        robo = env.scene[asset_cfg.name]
+        ids_joelho, _ = robo.find_bodies((".*_knee_link",))
+        self._ids_joelho = ids_joelho
+
+    def __call__(self, env: "ManagerBasedRlEnv", limit_angle: float,
+                joelho_z_min: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+        tombou = bad_orientation(env, limit_angle, asset_cfg)
+        robo = env.scene[asset_cfg.name]
+        z_joelho = (robo.data.body_link_pose_w[:, self._ids_joelho, 2]
+                   - env.scene.env_origins[:, 2:3])
+        return tombou | (z_joelho.amin(dim=-1) < joelho_z_min)

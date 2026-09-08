@@ -161,7 +161,11 @@ ESCADA = [
     # ditada por `pesos_dos_sorteaveis` (a fração do REORIENTAR) e pelo balanceador
     # B/C (`p_C`, que decide entre B e C para quem começa no PEGAR) — não mais por
     # uma tabela por nível.
-    (None, CH_FATIA_CADEIA, ">=", 0.10,
+    # ⚠ LIMIAR CORRIGIDO (revisão independente, item A12): `0,10` era INALCANÇÁVEL
+    # com `p_C` no piso (`balanceador_piso = 0,20`) — o esperado fica perto de
+    # 0,012, e o portão acusava falha desde a iteração 1, sempre, mesmo com tudo
+    # certo.
+    (None, CH_FATIA_CADEIA, ">=", 0.008,
      "as cadeias de 2 elos não estão sendo sorteadas: a máquina de elo não abriu. "
      "CONFERIR `Curriculum/elo` e o balanceador (`p_C`) antes de culpar o código"),
 
