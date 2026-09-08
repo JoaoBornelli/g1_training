@@ -310,6 +310,7 @@ A variante `flat` já remove de graça o `terrain_scan`, o `height_scan`, o
 | 3e | obs `["elo"]` nos **dois** grupos | one-hot de 5 |
 | 3f | obs `["caixa"]` nos **dois** grupos | 10 canais, gateados pelo elo **publicado** (spec §6.1) |
 | 3g | 7 termos de recompensa de tarefa | todos gateados por `VALIDA` |
+| 3g | `pose_de_braco` | macro que segura os braços na pose padrão nas DUAS janelas de espera; gateado por `1 − VALIDA`, não pelo elo (spec `g1-limpo-espera-sigma-e-pose.md` §2) |
 | 3h | obs `["elo_interno"]` **só no `critic`** | one-hot do elo interno; ator 114, crítico 131 — o crítico do fabricante já tem 12 canais privilegiados de pé (spec §6.1) |
 | 3i | `largou`, `renda_congelada` | `largou` só na espera final (spec §6.6.2); `renda_congelada` congela todo fecho de elo e É O ÚLTIMO termo do dict (v2.1, spec P3) |
 | 3d | ramo inspeção | `trava_robo`, `terminations = {}` |
@@ -1561,6 +1562,12 @@ fonte do pacote** (excluindo `smoke.py` e `paridade.py`, que se auto-acusariam).
 | **soma** | **11,5/s** | contra o **piso da estátua de 5,81/s** (medido 26/08) |
 
 Razão ~2:1 no fecho completo, e é a resposta à pergunta *"ficar parado paga mais que agir?"*.
+
+**`pose_de_braco` (**+1,0**, spec `g1-limpo-espera-sigma-e-pose.md` §2) NÃO é um dos sete.**
+Ele não depende do elo — depende do `VALIDA`: `exp(−(rms(Δq_braços)/σ)²) × (1 − VALIDA)`,
+com `σ = 1,0` rad. É o macro que segura os braços na pose padrão nas DUAS janelas de
+espera, onde o `pose` do molde é canal morto (0,000 com derivada ZERO a 10% da faixa de
+junta). Por não depender do elo, **não entra em `TERMOS_CONGELAVEIS`**.
 
 Três regras que valem para os sete:
 
