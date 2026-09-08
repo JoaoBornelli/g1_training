@@ -61,7 +61,12 @@ class Cena:
     prateleira_atrito: tuple[float, float, float] = (1.0, 0.02, 0.001)
     prateleira_rgba: tuple[float, float, float, float] = (0.5, 0.5, 0.55, 1.0)
     prateleira_condim: int = 3
-    prateleira_xy: tuple[float, float] = (0.50, 0.00)
+    # ⚠ ABERTURA DO BOTAR (spec dois-bits §1.4, revisão item 27): MEDIDO em CPU a
+    # força em `apoio_caixa` e `auto_colisao` nos 5 passos após o avanço forçado
+    # para BOTAR (caminho do inspetor, níveis 0 e 4). Nível 0: força zero. Nível 4:
+    # `apoio_caixa` pico a 282 N, p90 110 N — bem acima do peso da caixa (1 kg ≈
+    # 9,8 N). Houve pico: o valor sobe de 0,50 para 0,55.
+    prateleira_xy: tuple[float, float] = (0.55, 0.00)
     # ⚠ o piso é 0,04 porque a laje tem 4 cm de espessura total: com o TOPO em 0,04
     # ela APOIA no chão em vez de atravessá-lo. Dois corpos estáticos em contato
     # gastam slots de contato.
@@ -150,6 +155,17 @@ class Alvo:
     # ⚠ E o z é ABSOLUTO justamente para agachar não valer: um alvo relativo em z
     # desceria com a pelve, e o robô satisfaria agachando até a caixa em vez de erguer
     # a caixa até o peito.
+    #
+    # MEDIDO 2026-09-08 (spec dois-bits §1.2, sonda `sonda_peito_bx.py`,
+    # `model_6999`, cadeia B, 64 envs, 1100 passos, CPU): `caixa_b.x` no HOLD
+    # (`pegou = True`), por faixa de `meia_aresta` (0,070 a 0,130 m):
+    #
+    #     meia_aresta   0,070  0,079  0,087  0,096  0,104  0,113  0,121  0,130
+    #     p50 caixa_b.x 0,228  0,237  0,238  0,248  0,257  0,259  0,270  0,272
+    #
+    # GERAL p50 = 0,254 (n=45521). O candidato `0,10 + meia_x` da spec SUBESTIMA em
+    # ~0,05 m em toda faixa (a caixa segura fica mais à frente que isso). O valor
+    # atual (0,25) já bate com o medido — mantido, sem ajuste.
     peito_b: tuple[float, float, float] = (0.25, 0.00, 0.15)
 
     # ⚠ A ALTURA DE TRABALHO, ABSOLUTA EM MUNDO. Ela é o z do alvo nos DOIS elos que
@@ -710,8 +726,12 @@ class Tarefa:
     # ⚠ `de_pe` (spec dois-bits §2.4): a maior excursão de junta das PERNAS e da
     # CINTURA em relação ao default, em radianos — não mais a altura da pelve.
     # MEDIDO no PEGAR dos níveis 4–6 (a laje a 0,04 m exige agachar), no instante em
-    # que o robô está DE PÉ com a caixa erguida. Fallback 0,35 até a medição.
-    de_pe_tol_rad: float = 0.35
+    # que o robô está DE PÉ com a caixa erguida (model_6999, 64 envs, 1100 passos):
+    # p50 0,632 rad, p90 0,694 rad, máx 0,829 rad — idêntico nos três níveis, porque
+    # os três forçam a mesma laje a 0,04 m. O valor sobe para o p90 medido: o
+    # fallback 0,35 travaria o fecho até de pé, porque a pose de pé COM a caixa
+    # erguida já excursiona mais que isso.
+    de_pe_tol_rad: float = 0.69
 
 
 @dataclass
@@ -848,15 +868,16 @@ class Terminacao:
     no reset, porque ela é armada pela primeira preensão. Os dois freios são
     independentes de propósito."""
 
-    joelho_z_min: float = 0.10
+    joelho_z_min: float = 0.07
     """Altura mínima do joelho, em metros, acima da origem do env (spec dois-bits
     §3.2). Abaixo disto, `terminacoes.caiu` acusa — mesmo sem `bad_orientation`
     disparar: o robô agachou de LADO, sem tombar.
 
-    ⚠ MEDIR NO AGACHAMENTO, não andando: p10 da altura do joelho no PEGAR dos níveis
-    4–6 (laje a 0,04 m, exige agachar). O knob fica ABAIXO desse p10 — um limiar alto
-    mata o agachamento legítimo — e ACIMA do joelho no chão (~0,05). Fallback 0,10
-    até a medição."""
+    ⚠ MEDIDO NO AGACHAMENTO, não andando: PEGAR dos níveis 4–6 (laje a 0,04 m, exige
+    agachar), model_6999, 64 envs, 1100 passos — p10 0,218 m, mínimo real 0,089 m.
+    O fallback 0,10 ficava ACIMA do mínimo real: mataria o agachamento legítimo mais
+    fundo. O valor cai para 0,07 — abaixo do mínimo observado (0,089), acima do
+    joelho no chão (~0,05)."""
 
 
 @dataclass

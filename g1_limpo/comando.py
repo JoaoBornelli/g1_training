@@ -234,9 +234,9 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     pelve_alvo: float = 0.75
     # ⚠ `de_pe` do fecho (spec §2.4): a maior excursão de junta das PERNAS e da
     # CINTURA em relação ao default, em radianos. MEDIDO no PEGAR dos níveis 4–6
-    # (laje a 0,04 m, exige agachar), com o robô DE PÉ e a caixa erguida. Fallback
-    # 0,35 até a medição.
-    de_pe_tol_rad: float = 0.35
+    # (laje a 0,04 m, exige agachar), com o robô DE PÉ e a caixa erguida: p90 0,69
+    # rad — ver `knobs.Tarefa.de_pe_tol_rad`, fonte única do valor real.
+    de_pe_tol_rad: float = 0.69
     # alvo do BOTAR — lateral, num topo novo PERTO do atual (spec dois-bits §1.4).
     # ⚠ saem `botar_x`, `botar_y`, `botar_topo_piso`, `botar_topo_teto`: o topo não é
     # mais sorteado numa faixa absoluta, ele deriva do topo CORRENTE (`limpo_topo`).
@@ -246,7 +246,9 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     botar_folga_laje: float = 0.05
     # geometria de que o termo precisa para mover a laje
     afasta_z: float = 5.0
-    prateleira_xy: tuple[float, float] = (0.50, 0.00)
+    # ⚠ MEDIDO (spec §1.4, revisão item 27): força em `apoio_caixa` no avanço para
+    # BOTAR, nível 4 — pico 282 N. Subiu de 0,50 para 0,55; ver `knobs.Cena`.
+    prateleira_xy: tuple[float, float] = (0.55, 0.00)
     prateleira_meia_z: float = 0.02
     prateleira_meia_xy: float = 0.30
     # o topo da laje APOIADA no chão. É o piso físico do `BOTAR`.
