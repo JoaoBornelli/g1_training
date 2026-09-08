@@ -82,15 +82,16 @@ def pesos_dos_sorteaveis(k: Knobs) -> tuple[float, float]:
 
 
 # ⚠ Os termos que DEPENDEM DO ELO, congelados por `renda_congelada` no fecho (v2.1,
-# spec P3). `track_linear_velocity` e `track_angular_velocity` ENTRAM: desde o
-# `rastreio_por_elo` (P4) eles também dependem do elo — pagam zero num elo parado e
-# ao vivo no CARREGAR-andando —, portanto podem CAIR numa transição (CARREGAR->BOTAR) e
-# precisam do mesmo congelamento. Os termos de locomoção que NÃO dependem de elo
-# (`action_rate_l2`, `joint_acc`, `pose`, `upright`, ...) ficam de fora: eles seguem AO
-# VIVO sempre, e congelá-los pagaria duas vezes pela mesma coisa.
+# spec P3; migrado na spec dois-bits §2.6). `sustentacao` SAIU — o termo em si foi
+# removido (§2.7). `load` ENTRA — ele volta a pagar por `apoiada` no BOTAR.
+# `track_linear_velocity`/`track_angular_velocity` SAEM: no fecho do PEGAR o twist é
+# zero e eles pagam ~4/s por "rastrear zero"; congelar isso e pagar de novo ao vivo
+# na cauda contaria o mesmo canal duas vezes. A lista fica só com incentivos de
+# manipulação. Os termos de locomoção que NÃO dependem de elo (`action_rate_l2`,
+# `joint_acc`, `pose`, `upright`, ...) seguem de fora: eles ficam AO VIVO sempre, e
+# congelá-los pagaria duas vezes pela mesma coisa.
 TERMOS_CONGELAVEIS = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
-                     "postura_ereta", "sustentacao", "track_linear_velocity",
-                     "track_angular_velocity")
+                     "postura_ereta", "load")
 
 
 def aplica_pesos(cfg, r) -> None:
@@ -299,15 +300,13 @@ def make_env_cfg(
     # fabricante são FUNÇÕES, não classes, portanto não há o que herdar. O `PosturaPorElo`
     # é classe porque `variable_posture` é classe.
     #
-    # ⚠⚠ G1 (spec `g1-limpo-lento-e-estavel.md` §2): `nome_do_comando` VOLTA aos
-    # params dos DOIS rastreios — o P4 o havia removido. O gate agora consulta
-    # `VALIDA` (e `limpo_pegou`) além de `limpo_twist_zerado`, e os dois primeiros só
-    # existem no termo de comando `alvo_caixa`.
+    # ⚠⚠ `nome_do_comando` SAIU dos params (spec dois-bits §2.7, revisão do PM item
+    # 2): `engajado` agora é só `limpo_pegou`, sem `× VALIDA` — e `VALIDA` era a
+    # única razão de `rastreio_por_elo` precisar do nome do comando.
     for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
         _t = cfg.rewards[_nome_rastreio]
         _t.params["func"] = _t.func
         _t.func = RC.rastreio_por_elo
-        _t.params["nome_do_comando"] = "alvo_caixa"
 
     aplica_pesos(cfg, k.recompensa)
 
@@ -482,21 +481,24 @@ def make_env_cfg(
         sigma_fator=k.tarefa.sigma_fator,
         sigma_min=k.tarefa.sigma_min,
         # ------------------------------------------------------- a cadeia (F4)
-        # ⚠ SEM ESTAS LINHAS A MÁQUINA DE ELO É INERTE, e em silêncio: o campo
-        # `prob_por_nivel` do cfg tem default `()`, e o sorteio cai no ramo "não há
-        # cadeia". Foi o que aconteceu na primeira entrega — toda cadeia saía 0 e
-        # nenhum env avançava, sem nenhum erro.
-        prob_por_nivel=k.cadeia.prob_por_nivel,
+        # ⚠ SEM ESTA LINHA A MÁQUINA DE ELO É INERTE, e em silêncio: o campo
+        # `cadeia_ativa` tem default `True`, mas se um dia o `Knobs.Cadeia.ativa`
+        # mudar sem que este fio exista, a cadeia nunca lê o knob.
+        cadeia_ativa=k.cadeia.ativa,
         sustenta_pegar_s=k.cadeia.sustenta_pegar_s,
         sustenta_outros_s=k.cadeia.sustenta_outros_s,
-        carregar_s=k.cadeia.carregar_s,
         reorientar_inerte=k.cadeia.reorientar_inerte,
+        # ⚠ O BALANCEADOR B/C (spec dois-bits §2.5): das 28 probabilidades de
+        # `prob_por_nivel`, sobraram estes 2 números.
+        balanceador_piso=k.cadeia.balanceador_piso,
+        balanceador_alpha=k.cadeia.balanceador_alpha,
         # as tolerâncias de FECHAMENTO são as mesmas da régua de sustentação da F3:
         # um elo que "fecha" com tolerância diferente da que a recompensa paga
         # ensinaria duas coisas contraditórias.
         tol_pos=k.tarefa.tol_pos,
         tol_ang_deg=k.tarefa.tol_ang_deg,
         pelve_alvo=k.tarefa.pelve_alvo,
+        de_pe_tol_rad=k.tarefa.de_pe_tol_rad,
         nome_sensor_apoio=C.SENSOR_APOIO,
         elo_forcado=elo_alvo if elo_explicito else None,
         # ⚠ A cadeia forçada, para o inspetor e o play. Ela VENCE o `elo_forcado`: o elo
@@ -581,25 +583,9 @@ def make_env_cfg(
                 "pelve_alvo": tr.pelve_alvo + tr.pelve_margem,
                 "pelve_piso": tr.pelve_piso,
                 "asset_cfg": _palmas()})
-    cfg.rewards["sustentacao"] = RewardTermCfg(
-        func=RC.sustentacao, weight=tr.sustentacao,
-        params={"nome_do_comando": _cmd})
-
-    # ⚠ O MACRO DA POSE DE BRAÇO (spec `g1-limpo-espera-sigma-e-pose.md` §2): o `pose`
-    # do molde é canal morto nas DUAS janelas de espera (0,000 com derivada ZERO a 10%
-    # da faixa, medido no `PosturaPorElo`), e este termo fecha o buraco H5 da auditoria
-    # de gradientes mais a espera inicial. Ele NÃO é um dos sete: não depende do elo, e
-    # sim das DUAS janelas de espera — por isso não entra em `TERMOS_CONGELAVEIS`,
-    # mais abaixo.
-    #
-    # ⚠⚠ SEM `nome_do_comando` (correção medida na revisão de 2026-09-08): o gate
-    # deixou de ser `1 − VALIDA` — que pagava de graça nos 30% de envs de locomoção e
-    # não disparava na espera final — e passou a ler `limpo_aguardando`/`limpo_soltou`
-    # direto do env (`recompensas._gate_espera`). Ver `recompensas.pose_de_braco`.
-    cfg.rewards["pose_de_braco"] = RewardTermCfg(
-        func=RC.pose_de_braco, weight=tr.pose_de_braco,
-        params={"sigma": tr.pose_de_braco_sigma,
-                "asset_cfg": SceneEntityCfg("robot", joint_names=list(C.JUNTAS_BRACO))})
+    # ⚠ `sustentacao` e `pose_de_braco` SAÍRAM (spec dois-bits §2.7): o primeiro é
+    # redundante com o próprio fecho, e na cauda ficaria travado em 1,0 para sempre;
+    # o segundo perde para `PosturaPorElo` (§3.1), que passa a agir também no PEGAR.
 
     # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): ANTES do
     # `renda_congelada`, que TEM de continuar o último termo (ver comentário na 3i,
@@ -615,13 +601,13 @@ def make_env_cfg(
                 "walking_threshold": 0.05, "running_threshold": 1.5,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
-    # ------------------------------------------- 3i. a renda do BOTAR (v2, spec §6.6.2)
-    # ⚠ v2.1 (spec P3): `load` SAIU — o fecho terminal do BOTAR já congela ≈10/s via
-    # `renda_congelada`, sem número escolhido à mão, e ele ficou redundante. `largou`
-    # paga por tirar as mãos na espera final, e perdeu o gate `× load`.
-    cfg.rewards["largou"] = RewardTermCfg(
-        func=RC.largou, weight=tr.largou,
-        params={"nome_do_comando": _cmd, "sigma_solta": tr.sigma_solta})
+    # ------------------------------------------- 3i. a renda do BOTAR (spec §2.7)
+    # ⚠⚠ `load` VOLTA (mudança v3->v3.1). `largou` SAIU: a cauda é ANDAR com twist, e
+    # sair andando já tira as mãos — `escapou` já desarma por `soltou`. Nada além do
+    # fecho pagava por `apoiada`; `load` cobre exatamente isso, só dentro do BOTAR.
+    cfg.rewards["load"] = RewardTermCfg(
+        func=RC.load, weight=tr.load,
+        params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO})
 
     # ⚠⚠ O TERMO QUE CONGELA A RENDA DE TODO FECHO DE ELO (v2.1, spec P3). TEM DE SER
     # O ÚLTIMO em `cfg.rewards` — ele lê `_step_reward` dos termos JÁ computados neste

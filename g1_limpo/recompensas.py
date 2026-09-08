@@ -20,7 +20,7 @@ from mjlab.utils.lab_api.string import resolve_matching_names_values
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo",
            "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "sustentacao", "largou", "pose_de_braco",
+           "postura_ereta", "load",
            "renda_congelada"]
 
 
@@ -146,7 +146,7 @@ def contato_mesa(env, sensor_name: str, joelho_N: float,
     return ((forca - joelho_N) / max(saturacao_N - joelho_N, 1e-6)).clamp(0.0, 1.0)
 
 
-def rastreio_por_elo(env, *, func, nome_do_comando: str, **kwargs) -> torch.Tensor:
+def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
     """O termo de rastreio do fabricante, com QUATRO estados: twist zerado, `VALIDA`
     e `limpo_pegou` (G1, spec `g1-limpo-lento-e-estavel.md` §2, correção 2026-09-08).
 
@@ -192,10 +192,17 @@ def rastreio_por_elo(env, *, func, nome_do_comando: str, **kwargs) -> torch.Tens
         elo parado ATIVO, nunca tocou a caixa       paga ZERO  — ainda é estátua
         elo parado ATIVO, JÁ tocou a caixa          paga cheio — segurar É a tarefa
 
-    `engajado = VALIDA × limpo_pegou`. `fator = 1 − zerado × (1 − engajado)` —
-    BRANCHLESS, e os quatro estados conferem à mão: zerado=0 -> fator=1; zerado=1,
-    valida=0 -> engajado=0 -> fator=0; zerado=1, valida=1, pegou=0 -> engajado=0 ->
-    fator=0; zerado=1, valida=1, pegou=1 -> engajado=1 -> fator=1.
+    ⚠⚠ `engajado = limpo_pegou`, SEM `× VALIDA` (spec `g1-limpo-dois-bits.md` §2.7,
+    revisão do PM item 2). Até a v3, `engajado = VALIDA × limpo_pegou`: na espera
+    ENTRE elos, com a caixa JÁ na mão, `VALIDA` é 0 e `engajado` caía a zero — o
+    rastreio de v=0 pagava zero, e derivar durante a espera era grátis. Como
+    `limpo_pegou` só liga depois do primeiro toque com a tarefa ATIVA
+    (`comando._publica_pegou` lê `_espera`, não `VALIDA`), o gate contra a estátua
+    ANTES da pega continua de pé sem o fator extra.
+
+    `fator = 1 − zerado × (1 − engajado)` — BRANCHLESS, e os quatro estados
+    conferem à mão: zerado=0 -> fator=1; zerado=1, pegou=0 -> engajado=0 -> fator=0;
+    zerado=1, pegou=1 -> engajado=1 -> fator=1 (com ou sem VALIDA).
 
     ⚠ `limpo_pegou` SOBREVIVE ao soltar — é monotônico dentro do episódio
     (`comando._publica_pegou`, operador `|=`, só zera no resample). A espera final
@@ -225,7 +232,7 @@ def rastreio_por_elo(env, *, func, nome_do_comando: str, **kwargs) -> torch.Tens
     cair junto com `palmas_em_contato` subindo, é este risco se realizando.
     """
     valor = func(env, **kwargs)
-    engajado = _valida(env, nome_do_comando) * env.limpo_pegou
+    engajado = env.limpo_pegou
     fator = 1.0 - env.limpo_twist_zerado * (1.0 - engajado)
     return valor * fator
 
@@ -524,105 +531,36 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
     return rampa * descarga
 
 
-def sustentacao(env, nome_do_comando: str) -> torch.Tensor:
-    """`_sust / _sustain_alvo`. Paga por FICAR lá, e não só por passar por lá.
+def load(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
+    """`(1 − descarga) × perto × VALIDA`, só em BOTAR (spec `g1-limpo-dois-bits.md`
+    §2.7, mudança v3→v3.1: VOLTA).
 
-    ⚠ v2.1: SEM CRONÔMETRO PRÓPRIO (spec P2). O comando já acumula `_sust` enquanto a
-    condição de FECHO do elo vale, e já o zera no avanço e no reset — um relógio
-    duplicado aqui só podia divergir do que decide o fecho.
+    ⚠⚠ POR QUE VOLTA. Sem ele, nada paga por `apoiada`: `unload` e `postura_ereta`
+    pagam por NÃO apoiar (o gate `_fora_do_botar` os zera dentro do BOTAR), e
+    `renda_congelada` só congela no FECHO terminal — antes dele, pairar a 1 cm do
+    alvo valia o mesmo que apoiar de verdade. `load` é o incentivo que falta: ele
+    paga pela caixa ASSENTADA (`descarga -> 0`) e PERTO do alvo, e é a máscara que o
+    `g1_poc` já tinha.
 
-    ⚠ O relógio próprio pagava por `perto ∧ alinhado`, mais FROUXO que a condição de
-    fecho de verdade (no PEGAR o fecho também exige `de_pe`; no CARREGAR-andando,
-    `andou`): ele pagava por um estado que não fecha o elo.
+    ⚠ `perto`, e não a distância crua: reusa `AlvoCaixaCmd._perto` (spec §2.3,
+    revisão item 29) — o MESMO limiar `tol_pos` do fecho, uma fonte só.
 
-    ⚠ E ele morria: `avancou` era pegajoso, e se um env nunca mais avançasse depois do
-    primeiro avanço, o termo zerava para sempre. `_sust` não tem esse defeito — ele só
-    depende da condição de fecho, ponto.
+    ⚠ `descarga` é a MESMA conta do `unload` (`1 − F_apoio/(m·g)`, clamp[0,1]):
+    apoiada de verdade, `F_apoio -> m·g` e `descarga -> 0`; pairando, `F_apoio -> 0`
+    e `descarga -> 1`.
+
+    ⚠ `_fora_do_botar` é o gate que `unload`/`squeeze` já usam para ZERAR dentro do
+    BOTAR; `load` usa o COMPLEMENTO — ele só existe DENTRO do BOTAR.
     """
+    from g1_limpo.comando import BOTAR
     t = _t(env, nome_do_comando)
-    return ((t._sust / t._sustain_alvo.clamp(min=1e-6)).clamp(0.0, 1.0)
-            * _valida(env, nome_do_comando))
-
-
-def largou(env, nome_do_comando: str, sigma_solta: float) -> torch.Tensor:
-    """`soltou × (1 − exp(−(d_palma/σ_solta)²))` — tirar as mãos (spec §6.6.2, v2.1 P3).
-
-    Paga por afastar as palmas da caixa, só na espera final. Sem ele a espera final não
-    ensinava a largar: `pose` em `standing` (σ 0,05) vale zero com os braços fora e
-    `action_rate` paga por não mover — o ótimo era congelar com as mãos na caixa. Como
-    `_alcancar ≡ 1` tirou o freio, um peso pequeno basta.
-
-    ⚠ v2.1: O `× load` SAIU. Ele era o gate de "a caixa está apoiada no alvo" — mas na
-    espera final o `BOTAR` JÁ fechou com `apoiada` (é condição do próprio fecho), e se a
-    caixa cair depois, `caiu` termina o episódio. O gate era redundante com o fecho e
-    com a terminação; `load` em si saiu do módulo (spec P3, `renda_congelada` cobre o
-    fecho do BOTAR sem número escolhido à mão).
-    """
-    soltou = getattr(env, "limpo_soltou", None)
-    if soltou is None:
-        return torch.zeros(env.num_envs, device=env.device)
-    t = _t(env, nome_do_comando)
-    d = t.dist_palma_caixa(torch.arange(env.num_envs, device=env.device))
-    longe = 1.0 - torch.exp(-(d / max(sigma_solta, 1e-6)) ** 2)
-    return (soltou > 0.5).float() * longe
-
-
-class pose_de_braco:
-    """`exp(−(rms(Δq_braços)/σ)²)`, ativo só nas DUAS janelas de espera.
-
-    ⚠ ELE É O MACRO DE UM PAR, e o `pose` do molde é o preciso. A tabela medida no
-    `PosturaPorElo` deste arquivo mostra que o `pose` vale 0,000 com derivada ZERO a
-    10% da faixa de junta: com os braços fora ele não puxa nada. Este termo tem σ
-    LARGO e puxa em toda a faixa.
-
-    ⚠⚠ O GATE É `aguardando + soltou`, saturado em 1 — e NÃO `1 − VALIDA` (correção
-    medida na revisão de 2026-09-08). O `1 − VALIDA` original errava nas duas pontas:
-
-    (a) `VALIDA` é ZERO em TODO env de LOCOMOÇÃO, portanto o termo pagava 1,0/s aos
-    ~30% dos envs que andam, só para eles manterem os braços na pose padrão — renda
-    grátis que briga com o `angular_momentum` do fabricante, cujo docstring declara
-    que ele existe "to encourage natural arm swing". O `pose` do molde já regula a
-    pose de braço na locomoção, por regime.
-
-    (b) `VALIDA` é UM na espera FINAL (`comando._aplica_espera`: ela publica ANDAR
-    mas NÃO zera `VALIDA` — decisão declarada, spec §6.6.1). Portanto o termo NÃO
-    disparava ali, e ali era justamente o conserto do buraco H5 — "os braços não
-    voltam depois de largar".
-
-    O gate certo é "este env é de manipulação e não existe tarefa de caixa ATIVA
-    agora", e a expressão já existe no módulo: é a de `metricas.fracao_esperando`
-    (ver `_gate_espera`).
-
-    ⚠ AS DUAS JANELAS: a espera inicial (`limpo_aguardando`), antes de a tarefa
-    existir, e a espera final (`limpo_soltou`), depois de largar a caixa. Nas duas o
-    robô deve estar na pose padrão. Com a tarefa ativa, ou em locomoção, o termo cala.
-
-    ⚠ MÉDIA sobre as juntas, e não produto por junta. O produto de 17 gaussianas
-    colapsa para qualquer σ — é a medição que aposentou o `variable_posture` na
-    manipulação. Ver a tabela no `PosturaPorElo`.
-    """
-
-    def __init__(self, cfg, env):
-        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
-        self._default: torch.Tensor | None = None
-        self._resolve_default(env, asset_cfg)
-
-    def _resolve_default(self, env, asset_cfg: SceneEntityCfg) -> None:
-        # ⚠ RESOLUÇÃO TARDIA, como o `renda_congelada` abaixo: no `__init__` o
-        # `default_joint_pos` do robô pode não estar preenchido ainda. Guarda a FATIA
-        # das 14 juntas já resolvidas (`asset_cfg.joint_ids`), e não o tensor inteiro —
-        # a comparação no `__call__` é sempre coluna a coluna com o `joint_pos` atual.
-        default = env.scene[asset_cfg.name].data.default_joint_pos
-        if default is not None:
-            self._default = default[:, asset_cfg.joint_ids].clone()
-
-    def __call__(self, env, sigma: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-        if self._default is None:
-            self._resolve_default(env, asset_cfg)
-        q = env.scene[asset_cfg.name].data.joint_pos[:, asset_cfg.joint_ids]
-        rms = torch.sqrt(((q - self._default) ** 2).mean(dim=-1))
-        kernel = torch.exp(-(rms / sigma) ** 2)
-        return kernel * _gate_espera(env)
+    ids = torch.arange(env.num_envs, device=env.device)
+    f = torch.norm(env.scene[sensor_apoio].data.force, dim=-1).squeeze(-1)
+    peso = env.limpo_massa * 9.81
+    descarga = (1.0 - f / peso.clamp(min=1e-6)).clamp(0.0, 1.0)
+    perto = t._perto(ids).float()
+    dentro_do_botar = 1.0 - _fora_do_botar(env, nome_do_comando)
+    return (1.0 - descarga) * perto * _valida(env, nome_do_comando) * dentro_do_botar
 
 
 class velocidade_por_regime:
@@ -762,7 +700,10 @@ class renda_congelada:
             fechou_agora, self.soma_anterior, torch.zeros_like(self.soma_anterior))
         self.fechos_anterior = t._fechos.clone()
         self.soma_anterior = env.reward_manager._step_reward[:, self._idx].sum(dim=-1)
-        return self.congelado * _valida(env, nome_do_comando)
+        # ⚠ SEM `× _valida` (spec dois-bits §2.6): com esperas ENTRE elos (a cadeia
+        # agora tem uma antes de cada um), `× _valida` zerava a renda ganha em toda
+        # espera — o congelado existe justamente para pagar DURANTE elas.
+        return self.congelado
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:

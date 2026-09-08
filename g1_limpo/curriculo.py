@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 __all__ = ["nivel", "garante_nivel", "sorteia_elo", "garante_elo",
-           "forma", "garante_forma", "resolve_sorteio"]
+           "forma", "garante_forma", "resolve_sorteio", "resolve_p_c"]
 
 # ⚠ ESTE ARQUIVO NÃO IMPORTA `comando.py`, e não é estilo: `comando.py` importa
 # `garante_nivel` daqui, portanto o import de volta seria um ciclo. Os ids de elo
@@ -110,7 +110,11 @@ def nivel(
         try:
             cmd = env.command_manager.get_term(nome_do_comando)
             de_cadeia = cmd._cadeia[env_ids] >= 0
-            sucesso = cmd.fechou[env_ids]
+            # ⚠ `concluiu`, e não `fechou` sozinho (spec dois-bits §2.2, §5 item 11): um
+            # elo que fechou e nunca avançou (o episódio terminou na espera entre
+            # elos) não é a cadeia INTEIRA. `concluiu` é a ÚNICA definição de sucesso,
+            # e o mesmo predicado que `metrics["sucesso"]` e o balanceador leem.
+            sucesso = cmd.concluiu(env_ids)
         except (KeyError, AttributeError):
             de_cadeia = sucesso = None
         if de_cadeia is not None and bool(de_cadeia.any()):
@@ -256,6 +260,22 @@ def resolve_sorteio(alvo: float, dur_loco: float, dur_manip: float,
     return min(max(a * tm / denom, lo), hi)
 
 
+def resolve_p_c(s_b: float, s_c: float, piso: float) -> float:
+    """`p_C` do balanceador B/C (spec `g1-limpo-dois-bits.md` §2.5).
+
+        p_C = clamp((1 − s_C) / ((1 − s_B) + (1 − s_C) + 1e-6), piso, 1 − piso)
+
+    `s_B`, `s_C` são as EMAs de `concluiu` por cadeia (0..1). Quanto MENOS a cadeia C
+    conclui, MAIS ela é sorteada — o balanceador abre a cadeia que ainda falha.
+
+    ⚠ PURA, como `resolve_sorteio`: nenhum tensor, nenhum env. É o que permite testar
+    a aritmética contra a tabela da spec sem simulador.
+    """
+    denom = (1.0 - s_b) + (1.0 - s_c) + 1e-6
+    p_c = (1.0 - s_c) / denom
+    return min(max(p_c, piso), 1.0 - piso)
+
+
 def garante_forma(env: "ManagerBasedRlEnv", f) -> dict:
     """Cria o estado do balanço, se ainda não existe. Devolve o dicionário.
 
@@ -285,6 +305,22 @@ def garante_forma(env: "ManagerBasedRlEnv", f) -> dict:
             "iters_balanco": 0.0,         # DERIVADO, para o log e o checkpoint
             "ultimo_degrau": -1.0,        # a iteração do último degrau da rampa
             "abriu": 0.0,                 # 1.0 depois de o portão abrir a 1ª vez
+            # -------------------------------------------------- o balanceador B/C
+            # (spec `g1-limpo-dois-bits.md` §2.5). Vive no MESMO dict, e não num
+            # buffer próprio, porque é o que `RunnerComEstadoDeCurriculo` já salva e
+            # restaura (`runner.py`, `CHAVES_ESCALARES`) — um checkpoint novo custaria
+            # uma segunda cópia da mesma máquina de save/load.
+            #
+            # ⚠ SEMENTE ASSIMÉTRICA: `s_C = 1, s_B = 0` faz `p_C` nascer no PISO (a
+            # cadeia C, mais difícil, começa RARA) e abrir conforme ela deixa de
+            # concluir. Sem isto, metade da manipulação cairia no BOTAR na iteração 0.
+            "s_B": 0.0,
+            "s_C": 1.0,
+            # os acumuladores DENTRO da iteração corrente — `_atualiza_balanceador`
+            # (comando.py) os zera ao aplicar a EMA, uma vez por iteração de PPO.
+            "n_ep_B": 0.0, "n_concluiu_B": 0.0,
+            "n_ep_C": 0.0, "n_concluiu_C": 0.0,
+            "ultima_iter_bal": -1.0,
         }
     return env.limpo_forma
 

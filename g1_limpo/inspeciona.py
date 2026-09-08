@@ -47,8 +47,8 @@ def _ambiente(nivel: int | None, elo: int, *, n_envs: int, device: str,
               cadeia_forcada: int | None = None):
     """Constrói o MESMO cfg do treino, com nível e elo forçados. Nada de mock.
 
-    `cadeia_forcada`: índice de cadeia (0-3) para forçar. Requer que a máquina de elo (F4)
-    esteja implementada. Ignorado se não existir.
+    `cadeia_forcada`: índice de cadeia (0-2, spec dois-bits §2.1) para forçar. Requer
+    que a máquina de elo (F4) esteja implementada. Ignorado se não existir.
     """
     from mjlab.envs import ManagerBasedRlEnv
 
@@ -406,8 +406,14 @@ def viewer(args) -> int:
         print(f"⚠ o AVANÇO dispara em {g1_limpo.AVANCA_APOS_S:.0f} s — os primeiros "
               f"{g1_limpo.AVANCA_APOS_S:.0f} s mostram o 1º elo, depois a cena muda "
               f"para o 2º")
-        if CMD.CADEIAS[cadeia_id][1] == CMD.CARREGAR:
-            print("  o que olhar: a MESA SOBE (vai para +5 m) e o chão fica livre")
+        # ⚠ `CARREGAR` NÃO é mais o índice [1] de cadeia nenhuma (spec dois-bits
+        # §2.1): ele é a CAUDA de quem fecha o PEGAR sem botar, escrita por
+        # `_aplica_espera` — não um passo escrito em `CADEIAS`. Ela só aparece numa
+        # 2ª rodada de avanço (o evento de intervalo repete a cada
+        # `AVANCA_APOS_S`), depois de o PEGAR fechar.
+        if CMD.CADEIAS[cadeia_id][-1] != CMD.BOTAR:
+            print("  em seguida (mais um avanço): a MESA SOBE (vai para +5 m) e o "
+                  "chão fica livre — o PEGAR fechou e virou a CAUDA carregar")
         if CMD.CADEIAS[cadeia_id][1] == CMD.BOTAR:
             print("  o que olhar: a laje REAPARECE num topo novo, e o alvo lateral "
                   "cai em cima dela")
@@ -455,7 +461,9 @@ def tabela(args) -> int:
     # ⚠ NOVO: Se --cadeia foi passado, a tabela cobre o PÓS-AVANÇO também.
     # Não é um erro para cadeias de 1 elo; é um no-op (não avança).
     fazer_pos_avanco = args.cadeia is not None
-    cadeias_ids = [0, 1, 2, 3]  # As 4 cadeias
+    # ⚠ DERIVADO de `CMD.CADEIAS` (spec dois-bits §2.1: 3 cadeias, não 4). Uma lista
+    # escrita à mão sai de sincronia no dia em que uma cadeia mudar.
+    cadeias_ids = list(range(len(CMD.CADEIAS)))
 
     # Parse --cadeia
     cadeia_forcada_id = None
@@ -474,7 +482,8 @@ def tabela(args) -> int:
             if args.cadeia.lower().replace("-", "_") in nomes_cadeias:
                 cadeia_forcada_id = nomes_cadeias.index(args.cadeia.lower().replace("-", "_"))
             else:
-                print(f"cadeia {args.cadeia!r} desconhecida. Use 0-3 ou um de {nomes_cadeias}")
+                print(f"cadeia {args.cadeia!r} desconhecida. Use 0..{len(cadeias_ids)-1} "
+                      f"ou um de {nomes_cadeias}")
                 return 2
 
     if args.elo is not None:
@@ -546,8 +555,10 @@ def tabela(args) -> int:
         # `--nivel N` restringe a esse nível, para depuração.
         _niveis = ([args.nivel] if args.nivel is not None
                    else list(range(Knobs().nivel.n_niveis)))
-        # ⚠ v2: a cadeia 3 tem TRÊS elos. `salto` diz quantos avanços dar antes de ler:
-        # 1 lê o 2º elo, 2 lê o 3º. Cada (cadeia, nível, salto) é um env novo.
+        # ⚠ Nenhuma cadeia tem mais TRÊS elos (spec dois-bits §2.1: o CARREGAR saiu de
+        # `CADEIAS`, e virou CAUDA). `salto` continua genérico — 1 avanço lê o 2º
+        # elo — mas hoje só existe esse caso (as duas cadeias de 2+ elos, R e C, têm
+        # exatamente 2). Cada (cadeia, nível, salto) é um env novo.
         for cadeia_id, niv, salto in ((c, v, s) for c in cadeias_ids[1:] for v in _niveis
                                       for s in range(1, len(CMD.CADEIAS[c]))):
 
@@ -561,16 +572,12 @@ def tabela(args) -> int:
                 cmd_term = env.command_manager.get_term("alvo_caixa")
                 ids = torch.arange(env.num_envs, device=env.device)
                 if hasattr(cmd_term, "forca_avanco"):
-                  # ⚠ v2: `salto` avanços, um passo pinado depois de cada um. E o
-                  # SUSTAIN do CARREGAR de segurar parado é TRAVADO: o inspetor zera a
-                  # espera, portanto o `_segurar` sorteado é zero e o CARREGAR fecharia
-                  # sozinho no passo da leitura — a laje seria lida com o buffer de +5 m
-                  # e o BOTAR acusaria "laje dentro da caixa". Era leitura obsoleta, não
-                  # defeito (medido em 03/09).
+                  # ⚠ `salto` avanços, um passo pinado depois de cada um. `forca_avanco`
+                  # (spec dois-bits §2.2) arma o fecho (se ainda aberto) E zera a
+                  # espera — o avanço de verdade acontece no `env.step()` seguinte,
+                  # dentro de `_aplica_espera`.
                   for _salto_i in range(salto):
                     cmd_term.forca_avanco(ids)
-                    if hasattr(cmd_term, "_segurar"):
-                        cmd_term._segurar[:] = 1.0e9
                     # ⚠⚠ UM PASSO, E COM A CAIXA PINADA. Sem isto a leitura é do
                     # buffer VELHO: o `_laje_para` chama `write_mocap_pose_to_sim`, e
                     # os buffers de `.data` só são recomputados no forward seguinte.
@@ -597,6 +604,24 @@ def tabela(args) -> int:
                     env.step(torch.zeros(
                         env.num_envs, env.action_manager.total_action_dim,
                         device=env.device))
+
+                  # ⚠⚠ UM PASSO A MAIS, SÓ PARA A LEITURA (achado ao implementar a
+                  # spec dois-bits §1.4). O MOCAP da laje é como a caixa: escrever
+                  # `write_mocap_pose_to_sim` não atualiza `.data.root_link_pos_w` no
+                  # mesmo passo — só no forward SEGUINTE. O último `_salto_i` escreve
+                  # o topo NOVO do BOTAR dentro do próprio passo de avanço, e sem mais
+                  # um passo a leitura via `_medidas` via o topo ANTIGO (o do PEGAR) —
+                  # uma checagem acusava "a laje nasceu dentro da caixa" por ~5 cm,
+                  # exatamente o `botar_folga_laje`: era a leitura, não a geometria. A
+                  # caixa é re-pinada de novo, pela mesma razão do passo de cada salto.
+                  pose = torch.cat([caixa.data.root_link_pos_w,
+                                    caixa.data.root_link_quat_w], dim=-1).clone()
+                  caixa.write_root_link_pose_to_sim(pose)
+                  caixa.write_root_link_velocity_to_sim(
+                      torch.zeros(env.num_envs, 6, device=env.device))
+                  env.step(torch.zeros(
+                      env.num_envs, env.action_manager.total_action_dim,
+                      device=env.device))
 
                 if cadeia_id == cadeias_ids[1]:
                     _cadeia_forcada_prova(env, cadeia_id)

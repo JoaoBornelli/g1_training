@@ -442,12 +442,17 @@ def avanca_elo_no_viewer(
     reescrever o `run_play` — que foi o motivo pelo qual este caminho ficou como no-op
     na primeira tentativa.
 
-    ⚠ IDEMPOTENTE por construção: o `_avanca_elo_force` só avança quem tem elo seguinte
-    na cadeia, e marca `fechou` no último. Portanto disparar de novo não faz nada. É o
-    que permite ao evento repetir sem estragar o que se está olhando.
+    ⚠⚠ CHAMA `forca_avanco`, e não `_avanca_elo_force` direto (spec dois-bits §2.2,
+    revisão item 5). Até a v2.1, o fecho JÁ avançava o elo — chamar de novo a cada dt
+    era idempotente e seguro. Desde a v3, o fecho só ARMA a espera; se este evento
+    chamasse `_avanca_elo_force` a cada dt, ele reamaria a espera com um sorteio NOVO
+    todo passo, e a cadeia NUNCA avançaria — congelaria para sempre no elo aberto.
+    `forca_avanco` (i) fecha quem ainda está aberto e (ii) zera a espera de TODOS,
+    para o avanço de verdade — dentro de `_aplica_espera` — processar no passo
+    seguinte. Chamado de novo num env já em cauda, é um no-op seguro.
 
-    ⚠ E ele NÃO faz nada num env sem cadeia (`CADEIA_NENHUMA`): o `--avanca-elo` só tem
-    sentido com uma cadeia forçada, e o inspetor recusa a combinação inválida.
+    ⚠ E ele NÃO faz nada útil num env sem cadeia (`CADEIA_NENHUMA`): o `--avanca-elo`
+    só tem sentido com uma cadeia forçada, e o inspetor recusa a combinação inválida.
     """
     del env_ids
     termo = env.command_manager.get_term(nome_do_comando)

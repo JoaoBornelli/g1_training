@@ -156,16 +156,14 @@ ESCADA = [
     # dispararia no instante em que o bloco da F4 começa — o contador já passou de 5000
     # na F1. Ver `_fim_de_run`.
 
-    # ⚠ O ALVO É DERIVADO DA TABELA DE CADEIAS, e não escolhido. `fatia_cadeia` é a
-    # fração de episódios que são cadeia de 2 elos, e ela é ditada pelo
-    # `prob_por_nivel` do `knobs.Cadeia` combinado com onde o nível se equilibra. O
-    # 0,50 abaixo é o valor da LINHA DO NÍVEL 0 da tabela: se o nível ficar no piso, a
-    # fatia medida tem de bater com aquela linha, e ficar MUITO abaixo dela significa
-    # que o sorteio de cadeia não está funcionando.
+    # ⚠ `fatia_cadeia` é a fração de episódios que são as cadeias de 2 elos (R ou C —
+    # a de 1 elo, B, não conta). Desde a spec `g1-limpo-dois-bits.md` §2.5 ela é
+    # ditada por `pesos_dos_sorteaveis` (a fração do REORIENTAR) e pelo balanceador
+    # B/C (`p_C`, que decide entre B e C para quem começa no PEGAR) — não mais por
+    # uma tabela por nível.
     (None, CH_FATIA_CADEIA, ">=", 0.10,
      "as cadeias de 2 elos não estão sendo sorteadas: a máquina de elo não abriu. "
-     "CONFERIR contra a linha do nível corrente em `knobs.Cadeia.prob_por_nivel` "
-     "antes de culpar o código — o alvo depende de onde o nível se equilibrou"),
+     "CONFERIR `Curriculum/elo` e o balanceador (`p_C`) antes de culpar o código"),
 
     # ⚠ Este é o portão de VERDADE da F4, e ele é frouxo de propósito: `> 0` só pede que
     # a transição aconteça ALGUMA vez. Um alvo alto aqui confundiria "a máquina de elo

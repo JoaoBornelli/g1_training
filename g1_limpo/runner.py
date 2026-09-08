@@ -20,6 +20,8 @@ atravessa vários reinícios. O `mjlab` persiste apenas o `common_step_counter`
     alvo, dur_loco, dur_manip, razao   as EMAs e a fatia — a rampa em si
     iters_balanco                      a carência, contada de quando o balanço começou
     abriu                              se o portão já abriu alguma vez
+    s_B, s_C                           o balanceador B/C (spec dois-bits §2.5) — sem
+                                       eles todo resume volta a `p_C` no piso
     nivel (por env)                    a dificuldade conquistada
     elo (por env)                      para as durações do 1º reset após o resume
                                        serem atribuídas ao lado certo
@@ -42,7 +44,11 @@ __all__ = ["RunnerComEstadoDeCurriculo", "CHAVES_ESCALARES", "CHAVES_POR_ENV"]
 # balanco comecou a carencia seria recontada do zero a cada sessao.
 CHAVES_ESCALARES = ("alvo", "dur_loco", "dur_manip", "razao",
                     "passo_inicial", "ultimo_degrau",
-                    "iters_balanco", "abriu", "sorteio")
+                    "iters_balanco", "abriu", "sorteio",
+                    # ⚠ o balanceador B/C (spec `g1-limpo-dois-bits.md` §2.5): sem
+                    # eles todo resume volta a `p_C` no piso, como se nenhuma cadeia
+                    # tivesse concluído ainda.
+                    "s_B", "s_C")
 CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo")
 
 

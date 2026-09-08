@@ -549,49 +549,38 @@ class Forma:
 
 @dataclass
 class Tarefa:
-    """Os sete incentivos da manipulação. TODOS positivos e contínuos (R3).
+    """Os incentivos da manipulação. TODOS positivos e contínuos (R3).
 
     ⚠ Nenhuma penalidade aqui. Penalidade limita COMO fazer o que já existe; ela não
     ensina a fazer. E booleano é platô — o `pegar` do `g1_poc` travou 22k iterações num
     `squeeze` booleano.
 
-    Soma dos pesos = 12,5/s (v2.1: `precise_pos` 2,0 → 3,0). É o teto da tarefa, e ele
-    se compara com o PISO DA ESTÁTUA de **5,81/s** (medido 2026-08-26, robô travado num
-    elo parado). Razão ~2:1 no fecho completo, e é a resposta à pergunta "ficar parado
-    paga mais que agir?".
+    ⚠ `sustentacao` SAIU (spec dois-bits §2.7): redundante com o fecho, e na cauda
+    ficaria travado em 1,0 para sempre. `largou`/`sigma_solta` e `pose_de_braco`/
+    `pose_de_braco_sigma` também saíram — a cauda é ANDAR com twist, e sair andando já
+    tira as mãos; os braços na espera são assunto do `PosturaPorElo` (§3.1).
 
-    Mais `largou` (1,0), só na espera final, e `renda_congelada` (1,0), que fecha todo
-    elo — spec §6.6.2 e v2.1 spec P3.
+    `load` VOLTA (spec §2.7, mudança v3→v3.1): nada pagava por `apoiada` no BOTAR —
+    pairar a 1 cm do alvo valia o mesmo que apoiar. `renda_congelada` (1,0) fecha todo
+    elo.
     """
 
-    # --- os sete pesos ---
+    # --- os incentivos ---
     staged: float = 3.0            # alcançar × (1 + trazer). O motor da fase inicial
     precise_pos: float = 3.0       # caixa NO alvo
     precise_ori: float = 1.0       # face pedida apontando ao robô
     squeeze: float = 1.0           # força nas DUAS palmas
     unload: float = 2.0            # a caixa deixou de pesar na laje
     postura_ereta: float = 2.0     # ergueu SEM agachar
-    sustentacao: float = 0.5       # ficou lá
 
-    # ⚠ A RENDA DO BOTAR (spec §6.6.2, decisão do dono 03/09; v2.1 removeu `load` —
-    # spec P3, `renda_congelada` abaixo cobre o fecho sem número escolhido à mão).
-    largou: float = 1.0            # soltou × (1 − exp(−(d_palma/σ_solta)²)) — tirar as mãos
-    sigma_solta: float = 0.10      # m; palmas a 10 cm rendem 63%, a 20 cm 98%
+    # ⚠ VOLTA (spec §2.7): a caixa apoiada no alvo, só no BOTAR, mesmo gate
+    # `~_fora_do_botar` que `unload`/`postura_ereta` já usam para zerar lá.
+    load: float = 2.0
 
     # ⚠ CONGELA a soma dos termos dependentes de elo no passo de todo fecho, e paga
     # esse número como nível constante daí em diante (v2.1, spec P3). Peso 1,0: o
     # valor já É a renda medida do elo que fechou, e não precisa de escala própria.
     renda_congelada: float = 1.0
-
-    # ⚠ O `pose_de_braco` (spec `g1-limpo-espera-sigma-e-pose.md` §2): o macro que
-    # segura os braços na pose padrão nas DUAS janelas de espera, onde o `pose` do
-    # molde é canal morto (0,000 com derivada ZERO a 10% da faixa, medido no
-    # `PosturaPorElo`). NÃO é um dos sete — ele é gateado pelo `VALIDA`, não pelo elo.
-    pose_de_braco: float = 1.0
-    # ⚠ σ LARGO, e o número sai da tabela medida no `PosturaPorElo`: a faixa média das 17
-    # juntas de manipulação é 3,77 rad, e nem `running×5` sobrevive a 40% dela. Com
-    # σ = 1,0 rad o termo vale 0,37 a 1 rad de excursão e 0,02 a 2 rad — vivo nos dois.
-    pose_de_braco_sigma: float = 1.0
 
     # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): penaliza
     # velocidade de junta ACIMA do limite por regime de comando (standing/walking/
@@ -690,51 +679,42 @@ class Tarefa:
     # descendo até a caixa. Medido na pose de pé: pelve em 0,798 m.
     pelve_alvo: float = 0.75       # acima disto a rampa paga cheio
     pelve_piso: float = 0.45       # abaixo disto ela paga zero
-    # ⚠ a rampa do `postura_ereta` satura em `pelve_alvo + pelve_margem`, ACIMA do
-    # limiar do fecho `de_pe` (que continua em `pelve_alvo`) — para a política não
-    # parar exatamente na borda do fecho, onde a derivada da rampa já seria zero.
+    # ⚠ a rampa do `postura_ereta` satura ACIMA do próprio `pelve_alvo` (soma com
+    # `pelve_margem`) para a política não parar exatamente na borda de onde a rampa já
+    # satura, onde a derivada seria zero. `de_pe` do fecho NÃO lê mais `pelve_alvo`
+    # (spec dois-bits §2.4): ele virou pose de junta — ver `de_pe_tol_rad`, abaixo.
     pelve_margem: float = 0.03
 
-    # --- sustentação ---
+    # --- tolerâncias de fechamento ---
     # a tolerância que conta como "na condição", em metros e radianos
     tol_pos: float = 0.10
     tol_ang_deg: float = 25.0
+    # ⚠ `de_pe` (spec dois-bits §2.4): a maior excursão de junta das PERNAS e da
+    # CINTURA em relação ao default, em radianos — não mais a altura da pelve.
+    # MEDIDO no PEGAR dos níveis 4–6 (a laje a 0,04 m exige agachar), no instante em
+    # que o robô está DE PÉ com a caixa erguida. Fallback 0,35 até a medição.
+    de_pe_tol_rad: float = 0.35
 
 
 @dataclass
 class Cadeia:
-    """A tabela de cadeias de elo, fase F4.
+    """A tabela de cadeias de elo (spec `g1-limpo-dois-bits.md` §2).
 
-    ⚠ O TETO É DERIVADO de `CADEIAS` (hoje 3). As cadeias são:
-      índice 0: (PEGAR,)                 -> 1 elo (cadeia curta da F3)
-      índice 1: (REORIENTAR, PEGAR)
-      índice 2: (PEGAR, CARREGAR)        -> andar com a caixa
-      índice 3: (PEGAR, CARREGAR, BOTAR) -> pegar, SEGURAR PARADO, botar (spec §6.5)
+    ⚠ O TETO É DERIVADO de `CADEIAS` (hoje 3) — B, R, C:
+      índice 0 (B): (PEGAR,)              -> pegar, depois CAUDA carregar
+      índice 1 (R): (REORIENTAR, PEGAR)   -> reorientar, pegar, depois CAUDA carregar
+      índice 2 (C): (PEGAR, BOTAR)        -> pegar, botar, depois CAUDA botar
 
-    O `pegar` aparece em TODAS: ele é o eixo de que não se esquece.
+    O `pegar` aparece em TODAS: ele é o eixo de que não se esquece. O `CARREGAR` SAIU
+    das tuplas — ele é o estado de CAUDA de quem fechou o PEGAR e não vai botar, e
+    não fecha mais.
     """
 
-    # [7 níveis × 4 cadeias] de probabilidades. Cada linha soma 1,0.
-    # Nível baixo concentra na cadeia de 1 elo (índice 0);
-    # nível alto abre as de 2 elos.
-    prob_por_nivel: tuple[tuple[float, ...], ...] = (
-        # Nível 0: cadeia curta domina (1 elo).
-        # Racional: robustecer a pega antes de transições.
-        (0.80, 0.10, 0.05, 0.05),
-        # Nível 1: ainda principalmente cadeia curta.
-        (0.75, 0.10, 0.10, 0.05),
-        # Nível 2: distribui mais para 2 elos; reorientar entra.
-        (0.60, 0.20, 0.10, 0.10),
-        # Nível 3: equilibrado entre 1 e 2 elos; todas as cadeias.
-        (0.40, 0.25, 0.20, 0.15),
-        # Nível 4 e acima: favorece cadeias de 2 elos (transições).
-        # Racional: com dificuldade física alta, a transição é o aprendizado.
-        (0.20, 0.25, 0.30, 0.25),
-        # Nível 5: mais 2 elos ainda.
-        (0.15, 0.25, 0.35, 0.25),
-        # Nível 6: máxima diversidade, 2 elos dominam.
-        (0.10, 0.25, 0.35, 0.30),
-    )
+    # ⚠ O INTERRUPTOR DA MÁQUINA DE ELO (§2.1). `prob_por_nivel = ()` — a tabela [7
+    # níveis × 4 cadeias] — era o desliga; virou este bool. Com `False`,
+    # `smoke.py` e `inspeciona.py` montam cfgs sem cadeia nenhuma, como faziam
+    # passando a tabela vazia.
+    ativa: bool = True
 
     # Tempos de sustentação (em segundos) quando o elo fecha.
     # PEGAR exige menor sustain (mais rápido em fechar e transicionar).
@@ -761,25 +741,26 @@ class Cadeia:
     # vão de 2,8% para 5,3% dos envs. Com `reorientar_inerte = False` o sorteio volta a 50%.
     prob_reorientar_inerte: float = 0.05
 
-    # ⚠⚠ O `CARREGAR` EXIGE DESLOCAMENTO, e não só tempo. Defeito MEDIDO em 2026-08-26
-    # (achado por code review): o `pegar` e o `carregar` publicam EXATAMENTE o mesmo
-    # alvo (é decisão, §4.2), e as condições de fechamento eram
+    # ⚠ `carregar_dist_m`/`carregar_s` SAÍRAM (spec dois-bits §2.4): o CARREGAR não
+    # fecha mais, e não há mais "andou" para exigir — ele é a CAUDA de quem fechou o
+    # PEGAR, e dura o resto do episódio.
+
+    # ⚠⚠ O BALANCEADOR B/C (spec §2.5), o mecanismo que substitui `prob_por_nivel` (28
+    # números) por 2. Decide, para quem começa no PEGAR, entre a cadeia B (segurar e
+    # carregar) e a C (botar):
     #
-    #     PEGAR     perto & alinhado & de_pé
-    #     CARREGAR  perto
+    #     p_C = clamp((1 − s_C) / ((1 − s_B) + (1 − s_C) + 1e−6), piso, 1 − piso)
     #
-    # `perto` é SUBCONJUNTO de `perto & alinhado & de_pé` sobre um alvo que não muda.
-    # Portanto no instante em que o `pegar` fechava, o `carregar` JÁ estava satisfeito:
-    # o robô ficava parado 1,5 s e a cadeia era marcada como SUCESSO — o que move o
-    # currículo de nível. A cadeia `pegar -> carregar` treinava "não andar".
+    # `s_B`, `s_C` são EMAs de `concluiu` por cadeia, atualizadas UMA VEZ por
+    # ITERAÇÃO de PPO — não por reset. Quanto menos uma cadeia conclui, mais ela é
+    # sorteada.
     #
-    # DERIVAÇÃO do 0,50 m: a faixa de comando do fabricante vai a 1,0 m/s e o portão da
-    # F1 exige rastrear METADE dela, logo um robô aprovado cobre ~0,5 m em 1,0 s. Com
-    # `carregar_s = 1,5 s` o pedido é conservador — não exige mais do que a locomoção já
-    # provou fazer.
-    carregar_dist_m: float = 0.50
-    # o PISO de tempo do carregar (tempo mínimo andando), não um teto
-    carregar_s: float = 1.5
+    # ⚠ `piso` trava `p_C` numa faixa: um slot do one-hot constante em 0 ou 1 entraria
+    # como ×100 no normalizador do dia em que acendesse — a mesma regra de
+    # `fatia_loco = 0,95`. A semente (`s_C = 1, s_B = 0`) nasce em `p_C = piso`: a
+    # cadeia C, mais difícil, começa RARA e abre conforme deixa de concluir.
+    balanceador_piso: float = 0.20
+    balanceador_alpha: float = 0.05
 
 
 @dataclass
