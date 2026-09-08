@@ -208,11 +208,16 @@ _TOPO_TETO_FISICO = 0.80
 # ⚠⚠ MEDIÇÃO REAL (2026-09-08, natural: policy `model_6999`, robô LIVRE,
 # `cadeia_forcada=C`, 64 envs, 1100 passos, 5 passos após cada avanço PEGAR→BOTAR
 # de verdade — exige `pegou ∧ perto`): nível 0, 30 avanços observados, força
-# ZERO nos dois sensores. Nível 4, 30 avanços observados: `apoio_caixa` ZERO,
-# mas `auto_colisao` com pico REAL de 121,18 N — o robô esbarra nele mesmo ao
-# alcançar a borda da laje mais perto (nível alto = caixa maior). Isto é
-# colisão de verdade, não artefato: o valor FICA em 0,55, e não volta a 0,50.
-_AVANCO_LAJE_BOTAR = 0.55
+# ZERO nos dois sensores. Nível 4, 30 avanços observados: `apoio_caixa` em
+# 0 N, `auto_colisao` com pico de 121 N.
+#
+# ⚠⚠ REINTERPRETADO (revisão do coordenador): o pico de 121 N em `auto_colisao`,
+# com `apoio_caixa` em ZERO, é o robô esbarrando NELE MESMO ao alcançar baixo —
+# POSTURA de alcance, não contato com a laje. Mover a laje 5 cm não resolve
+# isso, e afasta o alvo sem razão medida. REGRA CORRIGIDA: só `apoio_caixa`
+# decide a distância da laje, e ele deu ZERO nos dois níveis — o valor volta
+# a 0,50.
+_AVANCO_LAJE_BOTAR = 0.50
 
 _MAGENTA = (0.90, 0.20, 0.90, 1.00)
 _CIANO = (0.20, 0.90, 0.90, 1.00)
@@ -228,9 +233,12 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # A ÂNCORA DO PEITO, no frame da BASE. Alvo dos DOIS elos que seguram a caixa; a
     # diferença é só o REFERENCIAL — `carregar` relativo ao robô, `pegar` congelado
     # em mundo.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.15)
-    # ⚠ o z do alvo é ABSOLUTO nos dois elos que seguram: agachar não baixa o alvo
-    altura_carregar: float = 0.95
+    # ⚠ MEDIDO (revisão do coordenador): `caixa_b.z` no hold, p50 1,025 — ver
+    # `knobs.Alvo.peito_b`, fonte única do valor real.
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
+    # ⚠ o z do alvo é ABSOLUTO nos dois elos que seguram: agachar não baixa o alvo.
+    # `0,798 + peito_b.z (0,222) = 1,02` — ver `knobs.Alvo.altura_carregar`.
+    altura_carregar: float = 1.02
     # os elos que exigem o robô PARADO. O twist deles é forçado a ZERO, e é isso —
     # e não a forma do alvo — que impede o robô de andar com a caixa.
     elos_parados: tuple[int, ...] = (1, 2, 4)      # REORIENTAR, PEGAR, BOTAR

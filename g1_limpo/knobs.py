@@ -166,7 +166,15 @@ class Alvo:
     # GERAL p50 = 0,254 (n=45521). O candidato `0,10 + meia_x` da spec SUBESTIMA em
     # ~0,05 m em toda faixa (a caixa segura fica mais à frente que isso). O valor
     # atual (0,25) já bate com o medido — mantido, sem ajuste.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.15)
+    #
+    # ⚠ ADENDO — `caixa_b.z` MUNDIAL (revisão do coordenador): mesma sonda, geral
+    # (n=44988), `root_link_pos_w[:,2] − env_origin_z` no HOLD: p10 0,913, p50
+    # 1,025, p90 1,076. `caixa_b.y`: p10 −0,046, p50 −0,020, p90 0,054 — centrado,
+    # sem desvio. O desvio de ~10 cm medido antes (relógio) era em Z, não em x/y:
+    # o alvo a `altura_carregar = 0,95` ficava 7,5 cm ABAIXO de onde a caixa
+    # repousa de verdade no peito. `peito_b.z` sobe de 0,15 para 0,222 (ver
+    # `altura_carregar`, abaixo, para a derivação).
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
 
     # ⚠ A ALTURA DE TRABALHO, ABSOLUTA EM MUNDO. Ela é o z do alvo nos DOIS elos que
     # seguram a caixa, e o referencial é dividido POR EIXO:
@@ -178,10 +186,17 @@ class Alvo:
     # desce junto com a pelve e a caixa nunca precisa subir. Foi a inconsistência que
     # o dono apontou em 25/08, e ela é a mesma classe do defeito do `pegar`.
     #
-    # DERIVAÇÃO do 0,95: a pelve do keyframe joelhos-flexionados fica em z = 0,798
-    # (MEDIDO), e `peito_b.z = 0,15`. Logo `0,798 + 0,15 = 0,948`. O `smoke` confere
-    # esta soma contra a pose default do robô, para o número não derivar em silêncio.
-    altura_carregar: float = 0.95
+    # DERIVAÇÃO (revisão do coordenador, MEDIDO 2026-09-08): a pelve do keyframe
+    # joelhos-flexionados fica em z = 0,798, e `peito_b.z = 0,222` (medido, ver
+    # acima). Logo `0,798 + 0,222 = 1,020`. O `smoke` confere esta soma contra a
+    # pose default do robô, para o número não derivar em silêncio.
+    #
+    # ⚠ POR QUE SUBIU de 0,95: `caixa_b.z` medido no HOLD (sonda `sonda_peito_bx.
+    # py`, n=44988) dá p10 0,913, p50 1,025, p90 1,076 — o alvo antigo (0,95)
+    # ficava 7,5 cm ABAIXO de onde a caixa de fato repousa no peito. Esse desvio
+    # em z (não em x/y, que estão centrados) era o que fazia `perto` oscilar no
+    # limiar do fecho.
+    altura_carregar: float = 1.02
 
     # ⚠ NÃO EXISTE JITTER NO ALVO, e é decisão do dono em 25/08: o alvo do `pegar` e o
     # do `carregar` são **exatamente iguais**. Um jitter em y de ±0,05 sobre x = 0,25
@@ -726,12 +741,20 @@ class Tarefa:
     tol_ang_deg: float = 25.0
     # ⚠ `de_pe` (spec dois-bits §2.4): a maior excursão de junta das PERNAS e da
     # CINTURA em relação ao default, em radianos — não mais a altura da pelve.
-    # MEDIDO no PEGAR dos níveis 4–6 (a laje a 0,04 m exige agachar), no instante em
-    # que o robô está DE PÉ com a caixa erguida (model_6999, 64 envs, 1100 passos):
-    # p50 0,632 rad, p90 0,694 rad, máx 0,829 rad — idêntico nos três níveis, porque
-    # os três forçam a mesma laje a 0,04 m. O valor sobe para o p90 medido: o
-    # fallback 0,35 travaria o fecho até de pé, porque a pose de pé COM a caixa
-    # erguida já excursiona mais que isso.
+    # MEDIDO no PEGAR dos níveis 4–6, no instante em que o robô está DE PÉ com a
+    # caixa erguida (model_6999, 64 envs, 1100 passos): p50 0,632 rad, p90 0,694
+    # rad, máx 0,829 rad — idêntico nos três níveis.
+    #
+    # ⚠ MEDIÇÃO INVALIDADA (revisão do coordenador): "idêntico nos três níveis"
+    # NÃO é porque os três forçam a mesma laje a 0,04 m — é porque `limpo_topo`
+    # saiu igual (p50 0,43) nos três, ou seja, o FORÇAR DE NÍVEL NÃO AGIU. A laje
+    # real da medição ficou em ~0,43 m, não 0,04 m. DOMINADO por `left_hip_pitch`
+    # (p90 0,73 rad) e `left_knee` (p90 0,61 rad) — postura ASSIMÉTRICA, perna
+    # esquerda mais dobrada que a direita para equilíbrio.
+    #
+    # O valor 0,69 FICA — o fallback 0,35 travaria o fecho até de pé de qualquer
+    # jeito — mas precisa ser RE-MEDIDO no nível 6 de verdade (laje a 0,04 m),
+    # depois de consertar o forçar de nível na sonda.
     de_pe_tol_rad: float = 0.69
 
 
@@ -869,16 +892,21 @@ class Terminacao:
     no reset, porque ela é armada pela primeira preensão. Os dois freios são
     independentes de propósito."""
 
-    joelho_z_min: float = 0.07
+    joelho_z_min: float = 0.05
     """Altura mínima do joelho, em metros, acima da origem do env (spec dois-bits
     §3.2). Abaixo disto, `terminacoes.caiu` acusa — mesmo sem `bad_orientation`
     disparar: o robô agachou de LADO, sem tombar.
 
-    ⚠ MEDIDO NO AGACHAMENTO, não andando: PEGAR dos níveis 4–6 (laje a 0,04 m, exige
-    agachar), model_6999, 64 envs, 1100 passos — p10 0,218 m, mínimo real 0,089 m.
-    O fallback 0,10 ficava ACIMA do mínimo real: mataria o agachamento legítimo mais
-    fundo. O valor cai para 0,07 — abaixo do mínimo observado (0,089), acima do
-    joelho no chão (~0,05)."""
+    ⚠ MEDIÇÃO INVALIDADA (revisão do coordenador): a sonda por nível forçado deu
+    `limpo_topo` IDÊNTICO nos níveis 4, 5 e 6 (p50 0,43) — o forçar de nível NÃO
+    variou a laje, e o mínimo de joelho 0,089 m foi medido numa laje a ~0,43 m,
+    não a 0,04 m como o comentário anterior afirmava. Na laje baixa de verdade o
+    agachamento é mais fundo, e 0,089 m não é um limite confiável.
+
+    ⚠ VALOR CONSERVADOR: 0,05 m é o RAIO do joelho — a terminação só dispara com o
+    joelho de fato tocando o chão, e não mata agachamento legítimo nenhum. Fica
+    até uma medição na laje a 0,04 m de verdade (nível 6 real) resolver o
+    forçar de nível."""
 
 
 @dataclass
