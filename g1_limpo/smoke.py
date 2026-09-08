@@ -1250,7 +1250,9 @@ try:
         _params15 = dict(_cfg15.rewards["pose"].params)
 
         _d15 = 0.2   # rad, MESMO desvio em TODAS as 29 juntas
-        _robo15.data.joint_pos[:] = _robo15.data.default_joint_pos + _d15
+        # ⚠ `write_joint_position_to_sim`, e NÃO `.data.joint_pos[:] = ...`: a
+        # atribuição direta não gruda — o buffer é sobrescrito antes da leitura.
+        _robo15.write_joint_position_to_sim(_robo15.data.default_joint_pos + _d15)
 
         _env15.limpo_pegou[:] = 0.0
         _env15.limpo_soltou[:] = 0.0
@@ -4262,8 +4264,10 @@ try:
     _vmax3g = float(tr.vel_max_standing[".*"])
 
     def _custo_vel(mult: float) -> float:
+        # ⚠ `write_joint_velocity_to_sim`, e NÃO `.data.joint_vel[:] = ...`: a
+        # atribuição direta não gruda — o buffer é sobrescrito antes da leitura.
         jv = _tg3.full_like(_robo3g.data.joint_vel, mult * _vmax3g)
-        _robo3g.data.joint_vel[:] = jv
+        _robo3g.write_joint_velocity_to_sim(jv)
         params = dict(_cg3.rewards["velocidade_por_regime"].params)
         params.pop("func", None)
         return float(_termo_vpr3(_eg3, **params).mean())
@@ -4474,7 +4478,14 @@ try:
     _idsv6 = _tv6.arange(4)
     _tv6c._pegou[:] = True          # o PEGAR fechando implica JÁ segurar a caixa
     _ev6.limpo_pegou = _tv6c._pegou.float()
-    _tv6c.forca_avanco(_idsv6)      # arma o fecho do PEGAR (1º elo de C)
+    # ⚠ `_avanca_elo_force` DIRETO, e não `forca_avanco` (spec §2.2, revisão
+    # independente item A8): `forca_avanco` agora TAMBÉM seta `_forcado=True`, que
+    # CONTORNA o gate `perto` de propósito — usá-lo aqui mascararia exatamente o
+    # gate que este item testa. Mas o arme puro sorteia uma `_espera` ALEATÓRIA
+    # (0,5-1,5 s) — zera à mão, como `forca_avanco` faria, SEM tocar `_forcado`,
+    # para o avanço ser resolvido já no passo seguinte.
+    _tv6c._avanca_elo_force(_idsv6)  # arma o fecho do PEGAR (1º elo de C)
+    _tv6c._espera[_idsv6] = 0.0
     # a caixa longe do alvo do PEGAR (`peito_b`, fixo): `_perto` falha
     _cx6 = _ev6.scene["box"]
     _p6 = _cx6.data.root_link_pos_w.clone()
