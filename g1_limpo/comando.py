@@ -56,7 +56,7 @@ from mjlab.tasks.velocity.mdp import (
     UniformVelocityCommand,
     UniformVelocityCommandCfg,
 )
-from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
 
 from g1_limpo.curriculo import garante_elo, garante_nivel
 
@@ -195,6 +195,12 @@ FACE_AXES = (
 # esse envelope, arredondado para baixo.
 ALCANCE_R = 0.85
 
+# ⚠ O TETO FÍSICO do topo do `BOTAR` (spec dois-bits §1.4). Era o knob
+# `botar_topo_teto`; virou constante porque o topo não é mais sorteado numa faixa
+# absoluta — ele deriva do topo CORRENTE (`limpo_topo`), e o guarda `teto = fundo −
+# botar_folga_laje` continua sendo o que de fato limita.
+_TOPO_TETO_FISICO = 0.80
+
 _MAGENTA = (0.90, 0.20, 0.90, 1.00)
 _CIANO = (0.20, 0.90, 0.90, 1.00)
 _AMARELO = (0.95, 0.85, 0.20, 1.00)
@@ -230,11 +236,12 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     tol_ang_deg: float = 25.0
     # altura mínima da pelve para considerar "de pé" (não agachado)
     pelve_alvo: float = 0.75
-    # alvo do BOTAR — lateral, num topo novo
-    botar_x: tuple[float, float] = (0.30, 0.40)
-    botar_y: tuple[float, float] = (-0.12, 0.12)
-    botar_topo_piso: float = 0.30
-    botar_topo_teto: float = 0.80
+    # alvo do BOTAR — lateral, num topo novo PERTO do atual (spec dois-bits §1.4).
+    # ⚠ saem `botar_x`, `botar_y`, `botar_topo_piso`, `botar_topo_teto`: o topo não é
+    # mais sorteado numa faixa absoluta, ele deriva do topo CORRENTE (`limpo_topo`).
+    botar_delta_topo: float = 0.10
+    botar_delta_xy: float = 0.10
+    botar_recuo_borda: float = 0.15
     botar_folga_laje: float = 0.05
     # geometria de que o termo precisa para mover a laje
     afasta_z: float = 5.0
@@ -376,12 +383,9 @@ class AlvoCaixaCmd(CommandTerm):
         # `_SEGURA_PARADO` o lê; as outras usam `carregar_s`.
         self._segurar = torch.zeros(n, device=d)
 
-        # ⚠ O TWIST FIXO do CARREGAR-andando (v2.1, spec P5): sorteado UMA vez na
-        # abertura do elo e mantido até o fecho, em vez de aceitar o que o resample de
-        # 3 a 8 s do twist do fabricante mandar. `_twist_valido` cai a `False` no reset
-        # e no avanço; enquanto falso, `_zera_twist_nos_parados` sorteia de novo.
-        self._twist_carregar = torch.zeros(n, 3, device=d)
-        self._twist_valido = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ O TWIST FIXO do CARREGAR-andando (v2.1, spec P5) SAIU (spec dois-bits §1.1):
+        # o CARREGAR agora é o estado de CAUDA, e recebe o twist do fabricante SEM
+        # filtro — decisão do dono: a cauda de B é `normal`.
 
         # ---------------------------------------------------------- F4: máquina de elo
         # Os buffers que controlam o avanço entre elos.
@@ -519,6 +523,15 @@ class AlvoCaixaCmd(CommandTerm):
         ids = torch.arange(self.num_envs, device=self.device)[liga]
         if len(ids):
             self._recalcula_sigmas(ids)
+            # ⚠ REANCORA O ALVO do PEGAR e do CARREGAR aqui (spec dois-bits §1.2, 2º
+            # momento). Com `push_robot` ativo, 0,5–1,5 s de espera movem o robô; o
+            # alvo tem de nascer da pose de AGORA, não da do reset (ou da abertura do
+            # elo anterior). O REORIENTAR e o ANDAR não entram: o alvo deles é a
+            # própria caixa, e não a base.
+            reancora = ids[torch.isin(
+                self._elo[ids], torch.tensor((PEGAR, CARREGAR), device=self.device))]
+            if len(reancora):
+                self._alvo_ancorado_na_base(reancora)
             self._pos_no_elo[ids] = self.robot.data.root_link_pos_w[ids]
             self._sigma_pendente[ids] = False
 
@@ -751,10 +764,6 @@ class AlvoCaixaCmd(CommandTerm):
         # motivo do `_sust` acima: sem isto, um episódio novo herdaria os fechos do
         # anterior e `renda_congelada` nasceria com crédito de um episódio que já acabou.
         self._fechos[env_ids] = 0
-        # ⚠ o TWIST FIXO do CARREGAR-andando invalida na abertura (v2.1, spec P5): o
-        # elo pode nem ser CARREGAR, e se for, precisa de um sorteio novo, e não o de
-        # um episódio anterior.
-        self._twist_valido[env_ids] = False
 
         # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
         # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da
@@ -782,17 +791,17 @@ class AlvoCaixaCmd(CommandTerm):
         # a caixa gira durante o episódio, portanto a normal da face acompanha. O
         # ÂNGULO pedido é fixo no episódio; a NORMAL não é.
         self._atualiza_face(todos)
-        # o alvo do CARREGAR é ancorado na BASE, portanto ele anda com o robô.
-        self._alvo_ancorado_na_base(todos[self._elo == CARREGAR])
         # o alvo do REORIENTAR e do ANDAR é a própria caixa (no ANDAR ele é inerte,
         # porque `VALIDA = 0` — mas um alvo em zero no log é armadilha de leitura).
+        #
+        # ⚠ O ALVO DO PEGAR e do CARREGAR NÃO é mais recalculado aqui, todo passo
+        # (spec dois-bits §1.2). `_alvo_ancorado_na_base` roda só em TRÊS momentos:
+        # na abertura do elo (`_aplica_elo`), no fim da espera (`_aplica_espera`,
+        # bloco `liga`), e todo passo SÓ com o twist ≠ 0 — ver o fim deste método.
+        # Com twist zero, o alvo fica CONGELADO no que foi escrito nos dois primeiros.
         segue = todos[(self._elo == REORIENTAR) | (self._elo == ANDAR)]
         if len(segue):
             self._command[segue, ALVO] = self.caixa.data.root_link_pos_w[segue]
-        # o alvo do PEGAR é o MESMO do CARREGAR: relativo ao robô em x,y
-        self._alvo_ancorado_na_base(todos[self._elo == PEGAR])
-        # e o que impede o robô de andar no `pegar` é o twist em ZERO
-        self._zera_twist_nos_parados()
 
         # a arma do `caixa_largada`, ANTES do avanço de elo: uma cadeia que avança não
         # desarma a terminação, porque a caixa continua sendo a mesma caixa.
@@ -807,6 +816,20 @@ class AlvoCaixaCmd(CommandTerm):
         # --- F4: AVANÇO DE ELO ---
         # Deve rodar APÓS a atualização do alvo e da face, porque usa pose fresca.
         self._avanca_elo()
+
+        # ⚠ O TWIST ZERADO roda DEPOIS de `_aplica_espera` e `_avanca_elo` (spec
+        # dois-bits §1.1): só assim ele lê `_elo`, `_espera` e `_soltou` do passo
+        # CORRENTE, e não do passo anterior.
+        self._zera_twist_nos_parados()
+
+        # ⚠ O ALVO DO CARREGAR, referenciado no robô, TODO PASSO — mas só com o twist
+        # ATIVO (spec dois-bits §1.2, terceiro momento): `anda = (elo == CARREGAR) &
+        # (twist_zerado < 0.5)`. É o que faz o alvo acompanhar o robô enquanto ele anda
+        # com a caixa; com twist zero (não deveria acontecer no CARREGAR, mas o gate é
+        # autodocumentado) o alvo continuaria congelado.
+        anda = todos[(self._elo == CARREGAR) & (self._env.limpo_twist_zerado < 0.5)]
+        if len(anda):
+            self._alvo_ancorado_na_base(anda)
 
     def _update_metrics(self) -> None:
         pass
@@ -826,61 +849,50 @@ class AlvoCaixaCmd(CommandTerm):
         return seg & (self._elo[ids] == CARREGAR)
 
     def _zera_twist_nos_parados(self) -> None:
-        """Força o comando de velocidade a ZERO nos elos que exigem o robô parado.
+        """Força o comando de velocidade a ZERO nos elos que exigem o robô parado
+        (spec `g1-limpo-dois-bits.md` §1.1).
 
         ⚠ É ISTO que impede o robô de andar com a caixa no `pegar`, no `reorientar` e
         no `botar` — e não a forma do alvo. Decisão do dono em 25/08, e é o que o
         `g1_poc` faz (`comando.py:826`), cuja manipulação funcionou.
 
-        ⚠ ORDEM: o `twist` é inserido no dict de comandos ANTES deste termo (ele vem
-        do molde do fabricante), e o dict é ordenado por inserção. Portanto o
-        `compute` dele já rodou quando este roda, e a escrita aqui não é sobrescrita
-        no mesmo passo.
+            parados = (elo ∈ elos_parados ∧ ¬soltou) ∨ (espera > 0)
+
+        `& ~soltou`: na cauda pós-BOTAR o `_elo` fica BOTAR e o twist tem de fluir. O
+        `espera > 0` cobre toda janela de espera, em qualquer elo.
+
+        ⚠ ORDEM NO PASSO: este método roda DEPOIS de `_aplica_espera` e de
+        `_avanca_elo`, para ler `_elo`, `_espera` e `_soltou` já do passo CORRENTE.
+        Rodando antes (como fazia até a v2.1), `limpo_twist_zerado` ficava um passo
+        atrasado.
+
+        ⚠ ORDEM COM O `twist`: o `twist` é inserido no dict de comandos ANTES deste
+        termo (ele vem do molde do fabricante), e o dict é ordenado por inserção.
+        Portanto o `compute` dele já rodou quando este roda, e a escrita aqui não é
+        sobrescrita no mesmo passo.
 
         ⚠ A escrita é DESTRUTIVA no buffer, e é de propósito: qualquer métrica que
         gateie por "comando ativo" passa a NÃO contar estes passos, que é o correto —
         eles são passos de comando zero de verdade, e não passos mascarados na
         leitura.
 
-        ⚠⚠ `env.limpo_twist_zerado` É PUBLICADO AQUI, logo depois de `parados` incluir
-        o segurar-parado, e ANTES do `return` cedo abaixo (v2.1, spec P4). Com o
-        `return` antes da publicação, o buffer ficaria com o valor do passo anterior
-        no passo em que ninguém está parado — e `recompensas.rastreio_por_elo`, que
-        lê este buffer, mediria o gate errado.
+        ⚠⚠ `env.limpo_twist_zerado` É PUBLICADO ANTES do `return` cedo abaixo (v2.1,
+        spec P4). Com o `return` antes da publicação, o buffer ficaria com o valor do
+        passo anterior no passo em que ninguém está parado — e
+        `recompensas.rastreio_por_elo`, que lê este buffer, mediria o gate errado.
 
-        ⚠ P5 (v2.1): o CARREGAR-andando (`_elo == CARREGAR`, fora do segurar-parado)
-        NÃO tem mais o twist zerado nem deixado ao resample do fabricante — ele recebe
-        um twist FIXO, sorteado uma vez na abertura do elo e mantido até o fecho. Sem
-        isto, 10% dos envs recebiam standing (twist perto de zero) e nunca fechavam
-        `andou`, e o resample de 3 a 8 s do twist do fabricante podia inverter o
-        sentido antes de `andou` valer.
+        ⚠ O CARREGAR-andando (spec dois-bits §1.1) NÃO tem twist filtrado: ele recebe
+        o do fabricante SEM filtro — nem zerado, nem fixado. A v2.1 sorteava um twist
+        próprio (P5); esse bloco saiu.
         """
-        parados = torch.isin(self._elo, torch.tensor(self.cfg.elos_parados,
-                                                     device=self.device))
-        # ⚠ REGRA POR CADEIA (spec §6.5 item 2): o CARREGAR de segurar parado também
-        # tem twist zero. Na cadeia 2 o CARREGAR continua andando.
-        parados = parados | self._segura_parado(
-            torch.arange(self.num_envs, device=self.device))
+        parados = (torch.isin(self._elo, torch.tensor(
+            self.cfg.elos_parados, device=self.device)) & ~self._soltou
+        ) | (self._espera > 0.0)
         self._env.limpo_twist_zerado.copy_(parados.float())
-
-        tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
-
-        # --- P5: twist FIXO no CARREGAR-andando ---
-        todos = torch.arange(self.num_envs, device=self.device)
-        anda_c = (self._elo == CARREGAR) & ~self._segura_parado(todos)
-        novos = anda_c & ~self._twist_valido
-        if bool(novos.any()):
-            k = int(novos.sum())
-            v_x = 0.3 + (1.0 - 0.3) * torch.rand(k, device=self.device)
-            self._twist_carregar[novos, 0] = v_x
-            self._twist_carregar[novos, 1] = 0.0
-            self._twist_carregar[novos, 2] = 0.0
-            self._twist_valido[novos] = True
-        if bool(anda_c.any()):
-            tw.vel_command_b[anda_c] = self._twist_carregar[anda_c]
 
         if not bool(parados.any()):
             return
+        tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
         tw.vel_command_b[parados] = 0.0
 
     def _fecha_elo_corrente(self, ids: torch.Tensor) -> torch.Tensor:
@@ -1101,9 +1113,6 @@ class AlvoCaixaCmd(CommandTerm):
             # ⚠ TODA abertura de elo escreve `_sustain_alvo` (v2.1, spec P2), e esta é
             # a do AVANÇO — depois de `self._elo[m]` já apontar para o elo NOVO.
             self._sustain_alvo[m] = self._sustain_alvo_de(m)
-            # ⚠ P5: invalida o twist fixo do CARREGAR-andando — o elo novo pode nem
-            # ser CARREGAR, e se for, precisa de um sorteio novo na abertura dele.
-            self._twist_valido[m] = False
             # ⚠ UMA chamada em lote. E `so_pose=False` porque aqui a pose JÁ está
             # fresca: o avanço roda no `_update_command`, não no reset.
             self._aplica_elo(m, so_pose=False)
@@ -1179,7 +1188,6 @@ class AlvoCaixaCmd(CommandTerm):
             if len(m) == 0:
                 continue
             k = len(m)
-            org = self._env.scene.env_origins[m]
 
             if elo == ANDAR:
                 # não há alvo de caixa. O alvo é o TWIST, e ele é outro comando.
@@ -1210,60 +1218,71 @@ class AlvoCaixaCmd(CommandTerm):
                 self._alvo_ancorado_na_base(m)
 
             elif elo == CARREGAR:
-                # a caixa JÁ está nas mãos (no treino, o elo anterior a pegou), então
-                # aqui só a LAJE sobe.
+                # ⚠ a chamada `_laje_para(m, afasta_z, sobe_caixa=False)` SAIU deste
+                # ramo (spec dois-bits §1.3): o CARREGAR virou o estado de CAUDA de
+                # quem fechou o PEGAR e não vai botar, e é a cauda — em
+                # `_aplica_espera` — quem manda a laje para longe, uma vez só.
                 self._command[m, VALIDA] = 1.0
-                self._laje_para(m, c.afasta_z, sobe_caixa=False)
                 self._alvo_ancorado_na_base(m)
 
             elif elo == BOTAR:
                 self._command[m, VALIDA] = 1.0
-                # ⚠ O TETO EFETIVO é o fundo da caixa SEGURADA menos a folga. O knob
-                # `botar_topo_teto` é só um teto do teto: sem este clamp a laje
-                # nasceria DENTRO da caixa.
-                # ⚠⚠ O LIMITE FÍSICO VENCE O KNOB, e isto foi um DEFEITO MEDIDO em
-                # 2026-08-26 ao estender o inspetor para os 7 níveis.
-                #
-                # A versão anterior fazia `piso = botar_topo_piso` (0,30) e depois
-                # `teto = maximum(teto, piso)`. Com a caixa segurada BAIXA — o que
-                # acontece nos níveis altos, onde a laje nasce a 0,04 m — o
-                # `fundo − folga` cai abaixo de 0,30, e aquele `maximum` SOBREPUNHA o
-                # limite físico com o knob: a laje nascia em 0,300 contra um
-                # `fundo − folga` de 0,067. Dentro da caixa, exatamente o que a spec
-                # avisa. O meu check da F4 não pegou porque rodava um nível só.
-                #
-                # Agora o PISO CEDE: ele é o valor desejado, mas nunca passa do teto
-                # físico. O último recurso é a laje no chão (`prateleira_topo_piso`).
+                # ⚠ ABERTURA DO BOTAR (spec dois-bits §1.4). Usa a pose CORRENTE da
+                # base, e não a origem do env: `_pos_no_elo` é o do PEGAR, e o robô se
+                # moveu ao alcançar. O topo novo nasce PERTO do topo ATUAL
+                # (`limpo_topo`), e não sorteado numa faixa absoluta.
+                base_p = self.robot.data.root_link_pos_w[m]
+                base_q = self.robot.data.root_link_quat_w[m]
+                topo0 = self._env.limpo_topo[m]
+                dtopo = c.botar_delta_topo * (2.0 * torch.rand(k, device=d) - 1.0)
+                # ⚠ O GUARDA `teto = fundo − botar_folga_laje` FICA: o limite físico
+                # (o fundo da caixa SEGURADA menos a folga) sempre vence — sem ele a
+                # laje nasceria DENTRO da caixa. `botar_topo_teto` era um teto do teto;
+                # virou a constante `_TOPO_TETO_FISICO`.
                 fundo = self.caixa.data.root_link_pos_w[m, 2] - self._meia(m)[:, 2]
-                teto = torch.clamp(fundo - c.botar_folga_laje, max=c.botar_topo_teto)
-                piso = torch.clamp(
-                    torch.full_like(teto, c.botar_topo_piso), max=teto)
-                # ⚠ e nunca ENTERRADA: com o topo abaixo disto a laje atravessa o chão.
-                piso = torch.maximum(
-                    piso, torch.full_like(piso, c.prateleira_topo_piso))
+                teto = torch.clamp(fundo - c.botar_folga_laje, max=_TOPO_TETO_FISICO)
                 # ⚠ CASO DECLARADO: se a caixa está segurada MAIS BAIXA que a laje mais
-                # fina possível, nenhum topo satisfaz as duas coisas. Aí a laje vai ao
-                # chão, e o alvo fica acima do fundo da caixa — geometricamente
-                # impossível de satisfazer, e é melhor declarar que violar em silêncio.
-                teto = torch.maximum(teto, piso)
-                topo = piso + (teto - piso) * torch.rand(k, device=d)
-                self._laje_para(m, topo)
-                # o alvo é LATERAL, em cima do topo novo. O frontal exigiria alcançar
-                # por cima de 20 cm de tampo — defeito medido em 16/07.
-                bx, by = c.botar_x, c.botar_y
+                # fina possível, nenhum topo satisfaz as duas coisas. O `clamp(min=...)`
+                # sobe a laje até `prateleira_topo_piso` (nunca ENTERRADA), mesmo que
+                # isso passe do `teto` — geometricamente impossível de satisfazer, e é
+                # melhor declarar que violar em silêncio.
+                topo = torch.minimum(topo0 + dtopo, teto).clamp(
+                    min=c.prateleira_topo_piso)
+
+                # ⚠ A LAJE nasce perto da BASE, não da origem do env (revisão, item 5):
+                # `xy_laje = base_p + quat_apply_yaw(base_q, prateleira_xy + dxy)`.
+                dxy = c.botar_delta_xy * (2.0 * torch.rand(k, 2, device=d) - 1.0)
+                off_laje = torch.zeros(k, 3, device=d)
+                off_laje[:, 0] = c.prateleira_xy[0] + dxy[:, 0]
+                off_laje[:, 1] = dxy[:, 1]
+                xy_laje = base_p[:, :2] + quat_apply_yaw(base_q, off_laje)[:, :2]
+                self._laje_para(m, topo, xy=xy_laje)
+
+                # ⚠ O ALVO fica na BORDA PERTO do tampo, não no centro (revisão, item
+                # 14). No centro o robô alcançaria por cima de 20 cm de tampo — defeito
+                # datado em 16/07 —, e a 0,04 m de topo a distância passaria de
+                # ALCANCE_R = 0,85. `botar_recuo_borda` recua o alvo do centro para a
+                # borda perto do robô; o jitter lateral vem de `xy_laje`, que já carrega
+                # o `dxy[:, 1]` da própria laje.
+                off_recuo = torch.zeros(k, 3, device=d)
+                off_recuo[:, 0] = c.botar_recuo_borda + dxy[:, 0] * 0.5
                 a = torch.zeros(k, 3, device=d)
-                a[:, 0] = org[:, 0] + bx[0] + (bx[1] - bx[0]) * torch.rand(k, device=d)
-                a[:, 1] = org[:, 1] + by[0] + (by[1] - by[0]) * torch.rand(k, device=d)
+                a[:, :2] = xy_laje - quat_apply_yaw(base_q, off_recuo)[:, :2]
                 a[:, 2] = topo + self._meia(m)[:, 2]
                 self._command[m, ALVO] = a
 
         self._atualiza_face(ids)
 
-    def _laje_para(self, ids: torch.Tensor, topo, *, sobe_caixa: bool = False) -> None:
+    def _laje_para(self, ids: torch.Tensor, topo, *, sobe_caixa: bool = False,
+                  xy: torch.Tensor | None = None) -> None:
         """Move a laje (mocap) para um topo. A pose é o CENTRO do corpo.
 
         `sobe_caixa=True` leva a CAIXA junto, apoiada no topo novo. É o que o `ANDAR`
         precisa: com a laje a +5 m e a caixa no chão, o robô tropeçaria nela.
+
+        `xy` (spec dois-bits §1.3): posição x,y em MUNDO da laje. `None` usa
+        `org + prateleira_xy` (o comportamento de sempre). O `BOTAR` passa a sua
+        própria x,y — o topo novo nasce perto da base CORRENTE, não da origem do env.
         """
         k = len(ids)
         d = self.device
@@ -1272,8 +1291,12 @@ class AlvoCaixaCmd(CommandTerm):
         topo_t = (torch.full((k,), float(topo), device=d)
                   if not torch.is_tensor(topo) else topo)
         pose = torch.zeros(k, 7, device=d)
-        pose[:, 0] = org[:, 0] + c.prateleira_xy[0]
-        pose[:, 1] = org[:, 1] + c.prateleira_xy[1]
+        if xy is None:
+            pose[:, 0] = org[:, 0] + c.prateleira_xy[0]
+            pose[:, 1] = org[:, 1] + c.prateleira_xy[1]
+        else:
+            pose[:, 0] = xy[:, 0]
+            pose[:, 1] = xy[:, 1]
         pose[:, 2] = topo_t - c.prateleira_meia_z
         pose[:, 3] = 1.0
         self.prateleira.write_mocap_pose_to_sim(pose, env_ids=ids)

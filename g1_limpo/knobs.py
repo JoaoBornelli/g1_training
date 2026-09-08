@@ -190,12 +190,15 @@ class Alvo:
     # alvo de 0,78 ficava 6 cm acima das palmas em repouso (0,717), e ABAIXO da âncora
     # do `carregar` (0,95): o robô teria de erguer de novo depois de já ter "pego".
 
-    # elo `botar`: deslocamento LATERAL. O frontal exigiria alcançar por cima de
-    # 20 cm de tampo — defeito medido em 16/07.
-    botar_x: tuple[float, float] = (0.30, 0.40)
-    botar_y: tuple[float, float] = (-0.12, 0.12)
-    botar_topo_piso: float = 0.30
-    botar_topo_teto: float = 0.80
+    # ⚠ elo `botar` (spec g1-limpo-dois-bits.md §1.4): o topo NOVO nasce PERTO do topo
+    # ATUAL (`limpo_topo`), não sorteado numa faixa absoluta — `botar_delta_topo` é a
+    # excursão máxima, pra cima ou pra baixo. O alvo é LATERAL, na BORDA perto do
+    # robô: `botar_delta_xy` espalha o ponto de pouso sobre a laje, e
+    # `botar_recuo_borda` recua o alvo do centro para a borda — alcançar por cima do
+    # tampo inteiro era o defeito medido em 16/07.
+    botar_delta_topo: float = 0.10
+    botar_delta_xy: float = 0.10
+    botar_recuo_borda: float = 0.15
     # folga entre o topo NOVO da prateleira e o fundo da caixa segurada, no instante
     # em que o `pegar` fecha na cadeia `pegar` -> `botar`. Sem este teto efetivo a
     # laje nasceria DENTRO da caixa.

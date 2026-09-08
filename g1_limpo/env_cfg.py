@@ -458,9 +458,9 @@ def make_env_cfg(
     cfg.commands["alvo_caixa"] = CMD.AlvoCaixaCmdCfg(
         peito_b=k.alvo.peito_b,
         altura_carregar=k.alvo.altura_carregar,
-        botar_x=k.alvo.botar_x, botar_y=k.alvo.botar_y,
-        botar_topo_piso=k.alvo.botar_topo_piso,
-        botar_topo_teto=k.alvo.botar_topo_teto,
+        botar_delta_topo=k.alvo.botar_delta_topo,
+        botar_delta_xy=k.alvo.botar_delta_xy,
+        botar_recuo_borda=k.alvo.botar_recuo_borda,
         botar_folga_laje=k.alvo.botar_folga_laje,
         afasta_z=c.afasta_z,
         prateleira_xy=c.prateleira_xy,
@@ -725,8 +725,20 @@ def make_env_cfg(
         # PARADA enquanto se confere alvo e eixo. Sem isto um robô sem política cai
         # em meio segundo.
         #
-        # O intervalo é o próprio `dt`, portanto o evento dispara a CADA passo.
+        # ⚠⚠ TAMBÉM em `mode="reset"`, e não só `interval` (achado ao implementar a
+        # spec dois-bits §1.2). O alvo do PEGAR agora CONGELA na pose de quando a
+        # tarefa abre — e com `espera_s = (0, 0)` (o inspetor zera a janela em
+        # `_ambiente`), essa abertura é NO PRÓPRIO reset, antes de o evento de
+        # INTERVALO ter tido a chance de rodar uma vez sequer. Sem o reset aqui, o
+        # alvo congelava na pose ALEATÓRIA do `reset_base_por_elo`, e não na
+        # `POSE_TRAVADA` — o inspetor acusava o alvo "de lado" por um artefato da
+        # PRÓPRIA inspeção, não um defeito do alvo.
+        #
+        # O intervalo continua existindo para RE-pinar a cada passo: sem ele o robô
+        # cairia depois do primeiro reset.
         dt = cfg.sim.mujoco.timestep * cfg.decimation
+        cfg.events["trava_robo_reset"] = EventTermCfg(
+            func=EV.trava_robo, mode="reset", params={})
         cfg.events["trava_robo"] = EventTermCfg(
             func=EV.trava_robo, mode="interval",
             interval_range_s=(dt, dt),

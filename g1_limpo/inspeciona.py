@@ -245,8 +245,12 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
                      f"máximo {float(m['twist'].abs().max()):.4f}")
 
     if elo == CMD.CARREGAR:
-        if float(topo.min()) < c.afasta_z - 1e-3:
-            f.append("no `carregar` a mobília devia estar a +5 m")
+        # ⚠ O CHECK "a mobília está a +5 m" SAIU DAQUI (spec dois-bits §1.3/§2.1): o
+        # CARREGAR é o estado de CAUDA de quem fechou o PEGAR, e é a CAUDA — dentro de
+        # `_aplica_espera` — quem manda a laje para longe, uma vez só. Um `elo_forcado
+        # = CARREGAR` direto no reset (esta task por-elo) não passa pela cauda, e a
+        # laje fica onde `posiciona_cena` a pôs. A checagem de verdade é a do
+        # PÓS-AVANÇO em `tabela()`, que passa pela cauda de verdade.
         # no `carregar` o twist é ATIVO: é o que diferencia do `pegar`
         if float(m["twist"].abs().max()) == 0.0:
             f.append("o twist do `carregar` está zerado: ele devia estar ATIVO")
@@ -268,8 +272,11 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
             f.append(f"a laje nasceu DENTRO da caixa no env {i}: topo "
                      f"{float(topo[i]):.3f} > fundo−folga "
                      f"{float(fundo[i] - a.botar_folga_laje):.3f}")
-        if float(topo.min()) < a.botar_topo_piso - 1e-4:
-            f.append(f"o topo do `botar` desceu abaixo do piso {a.botar_topo_piso}")
+        # ⚠ `a.botar_topo_piso` SAIU (spec dois-bits §1.4): o piso físico agora é
+        # `c.prateleira_topo_piso` — a laje nunca fica abaixo dele, mesmo quando
+        # geometricamente impossível de não enterrar na caixa.
+        if float(topo.min()) < c.prateleira_topo_piso - 1e-4:
+            f.append(f"o topo do `botar` desceu abaixo do piso {c.prateleira_topo_piso}")
         if float((m["alvo"][:, 2] - (topo + meia_cx)).abs().max()) > 1e-3:
             f.append("o alvo do `botar` não está em cima do topo novo")
 
