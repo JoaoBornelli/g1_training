@@ -49,31 +49,28 @@ if TYPE_CHECKING:
 __all__ = ["caixa_largada", "Caiu"]
 
 
-def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
-                  dist_max: float, meia_aresta_ref: float) -> torch.Tensor:
-    """A caixa caiu no chão, ou ela escapou das DUAS palmas depois de pega.
+def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float, v_solta: float,
+                  raio_solta: float, meia_aresta_ref: float,
+                  nome_do_comando: str = "alvo_caixa") -> torch.Tensor:
+    """A caixa caiu no chão, ou foi solta/atirada fora do alvo depois de pega.
 
-    ⚠ `caiu` NÃO EXIGE A ARMA (v2.1, spec P7). Até 04/09 as duas condições dependiam
-    de `pegou`, e uma caixa derrubada da mesa ANTES da primeira preensão não terminava:
-    o env ficava morto até o time_out, pagando ~2/s sem aprender nada por até 18 s.
-    `caiu` no RESET continua falso mesmo sem a arma: o fundo da caixa fica a
-    `topo ≥ 0,04 > folga_chao = 0,02` do chão.
+    ⚠⚠ REESCRITA v3.2 (spec `g1-limpo-soltar-termina.md` §2). A cláusula antiga
+    (`escapou`, distância das palmas > 0,45 m) não pegava o arremesso curto: a caixa
+    pousa no alvo antes de se afastar 0,45 m da mão. `soltou_fora` troca a distância
+    pela VELOCIDADE relativa da caixa à base — caixa rápida e fora do alvo foi solta,
+    perto ou longe da mão.
 
-    ⚠ `escapou` CONTINUA ARMADO pela primeira preensão, e nunca antes. A arma é
-    `env.limpo_pegou`, escrita pelo comando quando as duas palmas registram força pela
-    primeira vez no episódio. Sem ela, todo episódio começaria terminando por
-    `escapou`: no reset a caixa está na laje e as palmas estão longe.
+    ⚠ `caiu` NÃO EXIGE A ARMA (v2.1, spec P7): sem ela, derrubar a caixa ANTES da
+    primeira preensão não terminava, e o env ficava morto até o `time_out`.
 
-    ⚠ Ela FECHA o atalho que o porteiro do `unload` abre pela metade. Com o porteiro,
-    derrubar a caixa deixa de pagar; com esta terminação, derrubar a caixa DEPOIS de
-    tê-la pegado acaba o episódio. Os dois juntos cobrem "nunca pegou" e "pegou e
-    largou". O `g1_poc` tem a mesma terminação e a mesma arma.
+    ⚠ `soltou_fora` CONTINUA ARMADO só pela primeira preensão (`env.limpo_pegou`),
+    e DESARMA na espera final (`env.limpo_soltou`): depois do fecho do `BOTAR` as
+    mãos TÊM de sair, e isso não pode terminar o episódio.
 
-    ⚠ `escapou` exige as DUAS palmas longe (`all`), e não uma. Uma mão que solta para
-    reposicionar é parte de uma pega, não o fim dela.
-
-    ⚠ Limitação declarada: uma caixa que cai TOMBADA sobre uma aresta tem o centro em
-    a·√2 e escapa ao caiu; fora da espera final o escapou a pega.
+    ⚠⚠ `apos_pegar` GUARDA a janela entre o TOQUE (arma `pegou`) e o FECHO do `PEGAR`:
+    a caixa ainda está na laje ali, e um tropeço ou push forte na base não pode matar
+    a pega. `elo != PEGAR` não bastaria: a espera depois do `REORIENTAR` fechar também
+    toca a caixa sem o `PEGAR` ter fechado.
     """
     caixa = env.scene["box"].data.root_link_pos_w
     # ⚠ o z é RELATIVO à origem do env: com `env_spacing` os envs não estão todos em
@@ -88,16 +85,25 @@ def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float,
     if pegou is None:
         return caiu
 
-    palmas = env.scene["robot"].data.site_pos_w[:, env.limpo_ids_palma, :]
-    dist = torch.norm(palmas - caixa.unsqueeze(1), dim=-1)          # [B,2]
-    escapou = (dist > dist_max).all(dim=-1)
-    # ⚠ O GUARDA DA ESPERA FINAL (spec §6.6.3): depois do fecho do BOTAR as mãos TÊM de
-    # sair da caixa — `escapou` dispararia por fazer a coisa certa. `caiu` continua
-    # armado: largar é permitido, derrubar não.
+    # ⚠ `alvo` é `_command[:, ALVO]`, o MESMO ponto que `recompensas._alvo` lê — uma
+    # fonte só para "onde a caixa deve ficar".
+    from g1_limpo.comando import ALVO, BOTAR, CARREGAR, PEGAR
+    alvo = env.command_manager.get_command(nome_do_comando)[:, ALVO]
+    t = env.command_manager.get_term(nome_do_comando)
+    v_caixa = env.scene["box"].data.root_link_lin_vel_w
+    v_base = env.scene["robot"].data.root_link_lin_vel_w
+    v_rel = torch.norm(v_caixa - v_base, dim=-1)
+    d_alvo = torch.norm(caixa - alvo, dim=-1)
+    no_alvo = d_alvo <= raio_solta          # raio_solta = tarefa.precise_pos_sigma, REUSO
+    soltou_fora = (v_rel > v_solta) & ~no_alvo
+
+    # ⚠ hold (PEGAR fechado), CARREGAR, BOTAR — não "elo != PEGAR" (ver docstring).
+    apos_pegar = (t._elo == CARREGAR) | (t._elo == BOTAR) | ((t._elo == PEGAR) & t.fechou)
+
     soltou = getattr(env, "limpo_soltou", None)
     if soltou is not None:
-        escapou = escapou & (soltou < 0.5)
-    return caiu | (escapou & (pegou > 0.5))
+        soltou_fora = soltou_fora & (soltou < 0.5)
+    return caiu | (soltou_fora & (pegou > 0.5) & apos_pegar)
 
 
 class Caiu:

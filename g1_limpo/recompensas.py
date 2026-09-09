@@ -345,22 +345,26 @@ def _alcancar(env, nome: str) -> torch.Tensor:
     falsa. MEDIDO no `play` do `bloco9` em 2026-09-08: σ = 0,34 m no reset, mão a
     0,20 m no fim da espera, `alcancar = exp(−(0,20/0,34)²) = 0,71`.
 
-    ⚠ `alcança ≡ 1` no BOTAR e na espera final (`soltou`) — spec §6.6.2 item 3, §8.3.
-    No BOTAR as mãos já estão na caixa: σ cai no piso de 0,08 m e o kernel vale 1 por
-    construção; ele não carrega informação ali, só paga 3/s por MANTER as mãos na caixa,
-    que é o freio contra largar. Com `≡ 1`, `staged` vira `3 × (1 + trazer)` e
-    `precise_ori` vira `alinha`: pagam pela caixa, indiferentes às mãos.
+    ⚠⚠ MUDANÇA v3.2 (spec `g1-limpo-soltar-termina.md` §3): `alcança ≡ 1` só no BOTAR
+    ATIVO (`soltou < 0.5`) — não mais na espera final. Na cauda (`soltou > 0.5`) o
+    ramo devolve 0: a terminação `caixa_largada` (§2) agora GARANTE que a mão está na
+    caixa enquanto o BOTAR paga, então o `≡ 1` deixou de ser suposição para virar
+    imposição de fora. Pagar `≡ 1` na cauda inflava `staged`/`precise_ori` mesmo com a
+    caixa a metros de distância (spec §0) — só `renda_congelada` deve pagar ali.
     """
     from g1_limpo.comando import BOTAR
     t = _t(env, nome)
     ids = torch.arange(env.num_envs, device=t.sigma_alcance.device)
     d = t.dist_palma_caixa(ids)
     kernel = torch.exp(-(d / t.sigma_alcance.clamp(min=1e-6)) ** 2)
-    um = t._elo == BOTAR
     soltou = getattr(env, "limpo_soltou", None)
-    if soltou is not None:
-        um = um | (soltou > 0.5)
-    return torch.where(um, torch.ones_like(kernel), kernel)
+    if soltou is None:
+        um = t._elo == BOTAR
+        return torch.where(um, torch.ones_like(kernel), kernel)
+    no_botar = (t._elo == BOTAR) & (soltou < 0.5)
+    depois = soltou > 0.5
+    return torch.where(depois, torch.zeros_like(kernel),
+                       torch.where(no_botar, torch.ones_like(kernel), kernel))
 
 
 def _forca_das_palmas(env, sensores: tuple[str, ...],

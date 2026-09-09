@@ -268,8 +268,13 @@ def make_env_cfg(
     cfg.terminations["caixa_largada"] = TerminationTermCfg(
         func=TE.caixa_largada,
         params={"folga_chao": k.terminacao.caixa_folga_chao,
-                "dist_max": k.terminacao.caixa_dist_max,
-                "meia_aresta_ref": c.caixa_meia_aresta[2]})
+                "v_solta": k.terminacao.v_solta,
+                # ⚠ `raio_solta` NÃO é knob novo (spec §4): reusa o raio de aceite do
+                # `precise_pos`. DESVIO da spec registrado no relatório: o campo vive
+                # em `k.tarefa`, não em `k.recompensa` como o texto da spec afirma.
+                "raio_solta": k.tarefa.precise_pos_sigma,
+                "meia_aresta_ref": c.caixa_meia_aresta[2],
+                "nome_do_comando": "alvo_caixa"})
 
     # ⚠ `fell_over` GANHA UMA CLÁUSULA (spec dois-bits §3.2): o MESMO slot, a função
     # muda de `bad_orientation` (só o molde) para `terminacoes.Caiu`, que faz o

@@ -884,13 +884,19 @@ class Terminacao:
     `caiu = z_centro − meia_aresta_env < folga`: "o fundo está a menos de 2 cm do chão".
     Menor que `prateleira_topo_piso` (0,04), senão a laje mais baixa dispararia."""
 
-    caixa_dist_max: float = 0.45
-    """Distância, em metros, de AMBAS as palmas ao centro da caixa para ela ter escapado.
+    v_solta: float = 1.2
+    """Velocidade relativa (caixa − base), em m/s, acima da qual a caixa foi solta ou
+    atirada fora do alvo (spec `g1-limpo-soltar-termina.md` §2, `terminacoes.caixa_largada`).
+    Substitui `caixa_dist_max` (v3.2): distância não pegava o arremesso curto.
 
-    ⚠ A palma nasce a 0,339 m da caixa (mín 0,211, máx 0,481). Portanto este limiar é
-    MAIOR que a distância de nascimento típica — e mesmo assim a terminação não dispara
-    no reset, porque ela é armada pela primeira preensão. Os dois freios são
-    independentes de propósito."""
+    ⚠ MEDIDO 2026-09-09 (`scratchpad/sonda_v_solta.py`, model_6999, 32 envs, cadeia B,
+    CPU): (a) caixa na mão, p90 0,85 m/s (p99/máx brutos, 2,1/3,5, são caixa JÁ perdida
+    com `limpo_pegou` preso em 1 — não hold); (c) push na pega, longe da mão, p90
+    1,08 m/s (p99/máx brutos, 2,1/4,7, são transiente de contato no RESET de um único
+    env, não push — `push_robot` é ~0,5 m/s); (b) queda livre do peito (+0,45 m):
+    0,71 / 0,85 / 1,31 m/s nos passos 1/3/5. `v_solta` fica acima do p90 LIMPO de
+    (a)/(c) e abaixo de b.passo5 — não do máx/p99 brutos, contaminados (ver
+    `sonda_v_solta.out`)."""
 
     joelho_z_min: float = 0.05
     """Altura mínima do joelho, em metros, acima da origem do env (spec dois-bits
