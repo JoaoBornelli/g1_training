@@ -345,26 +345,44 @@ def _alcancar(env, nome: str) -> torch.Tensor:
     falsa. MEDIDO no `play` do `bloco9` em 2026-09-08: σ = 0,34 m no reset, mão a
     0,20 m no fim da espera, `alcancar = exp(−(0,20/0,34)²) = 0,71`.
 
-    ⚠⚠ MUDANÇA v3.2 (spec `g1-limpo-soltar-termina.md` §3): `alcança ≡ 1` só no BOTAR
-    ATIVO (`soltou < 0.5`) — não mais na espera final. Na cauda (`soltou > 0.5`) o
-    ramo devolve 0: a terminação `caixa_largada` (§2) agora GARANTE que a mão está na
-    caixa enquanto o BOTAR paga, então o `≡ 1` deixou de ser suposição para virar
-    imposição de fora. Pagar `≡ 1` na cauda inflava `staged`/`precise_ori` mesmo com a
-    caixa a metros de distância (spec §0) — só `renda_congelada` deve pagar ali.
+    ⚠ EXCEÇÃO NO BOTAR, e ela REFUTA a invariante do primeiro parágrafo ali. O σ é
+    `d₀ × fator` com PISO `sigma_min = 0,08` (`comando.py:1648`), e quando o `VALIDA`
+    do BOTAR acende as palmas JÁ estão na caixa — o produto cai abaixo do piso e o σ
+    trava em 0,08 em todo env. Ali o kernel nasce em 0,570, não em 0,368.
+
+    MEDIDO 2026-09-09 na cauda `CARREGAR` da cadeia B (`model_6999`, 32 envs, 4284
+    amostras), que é a MESMA pose de segurar: `d` p10/p50/p90 = 0,041 / 0,058 /
+    0,094 m, σ p50 = 0,0800 — o piso —, e o kernel 0,251 / 0,595 / 0,770.
+
+    ⚠⚠ MUDANÇA v3.3 (spec `g1-limpo-mao-no-alcancar.md` §1): o `≡ 1` no BOTAR SAIU.
+    `staged` e `precise_ori` voltam a medir a mão DENTRO do BOTAR — mão fora da caixa,
+    os dois caem juntos. No piso do σ o gradiente é forte: mover a palma de 0,12 m para
+    0,06 m multiplica o pagamento por 5,4.
+
+    POR QUE ELE SAIU. Com o `≡ 1`, segurar a caixa perto do alvo rendia 3,99/s sem
+    exigir a mão, e fechar o BOTAR congelava aproximadamente a mesma soma — o fecho
+    ganhava ~zero e arriscava morte. MEDIDO na bloco12, it 7499: `time_out` 66,4%,
+    `caixa_largada` 29,4%, `load` 0,0001, `s_C` 0,0000. O robô aprendeu a segurar a
+    caixa até o fim do episódio, e nada foi apoiado.
+
+    ⚠ A v3.2 afirmava AQUI que a terminação `caixa_largada` GARANTIA a mão na caixa
+    enquanto o BOTAR pagava. ESTÁ REFUTADO pela medição acima: ela só dispara com
+    `v_rel > v_solta = 1,2`, portanto depositar a caixa na laje devagar não mata, e
+    `_soltou` só acende no fecho — caixa na laje, mãos livres, renda cheia. O `≡ 1`
+    era suposição, não imposição de fora.
+
+    ⚠ A CAUDA CONTINUA EM ZERO, e isto a v3.2 acertou: com `soltou > 0.5` o termo
+    devolve 0. Pagar ali inflava `staged`/`precise_ori` com a caixa a metros de
+    distância; só `renda_congelada` deve pagar na cauda.
     """
-    from g1_limpo.comando import BOTAR
     t = _t(env, nome)
     ids = torch.arange(env.num_envs, device=t.sigma_alcance.device)
     d = t.dist_palma_caixa(ids)
     kernel = torch.exp(-(d / t.sigma_alcance.clamp(min=1e-6)) ** 2)
     soltou = getattr(env, "limpo_soltou", None)
     if soltou is None:
-        um = t._elo == BOTAR
-        return torch.where(um, torch.ones_like(kernel), kernel)
-    no_botar = (t._elo == BOTAR) & (soltou < 0.5)
-    depois = soltou > 0.5
-    return torch.where(depois, torch.zeros_like(kernel),
-                       torch.where(no_botar, torch.ones_like(kernel), kernel))
+        return kernel
+    return torch.where(soltou > 0.5, torch.zeros_like(kernel), kernel)
 
 
 def _forca_das_palmas(env, sensores: tuple[str, ...],
