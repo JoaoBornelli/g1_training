@@ -3844,6 +3844,12 @@ try:
     _idx_cong33 = [_nm33.index(n) for n in TERMOS_CONGELAVEIS]
     _idx_rc33 = _nm33.index("renda_congelada")
     _sr33 = _e33.reward_manager._step_reward
+    # ⚠ a INSTÂNCIA, para ler `.congelado` direto (spec §2.6, revisão do
+    # coordenador, regra 1): `_step_reward[:, idx_rc]` é o mesmo `congelado`
+    # multiplicado pelo peso, mas lido em OUTRO ponto do passo (`reward_manager.
+    # compute()` roda antes do `command_manager.compute()`) — ler o atributo
+    # direto evita essa defasagem de um passo.
+    _termo_rc33 = _e33.reward_manager._term_cfgs[_idx_rc33].func
 
     check("8. logo após a janela, `renda_congelada == 0` e `_fechos == 0` em todos",
           float(_sr33[:, _idx_rc33].abs().max()) == 0.0
@@ -3852,17 +3858,39 @@ try:
           f"_fechos {_t33c._fechos.tolist()[:3]}")
 
     def _avanca_e_confere33(rotulo: str, fechos_esperado: int, checa_soma: bool):
-        """Um `forca_avanco`, com a régua da regra 1 (check 9) em toda transição."""
+        """Um `forca_avanco`, com a régua da regra 1 (check 9) em toda transição.
+
+        ⚠⚠ REGRA 1 É SOBRE A RENDA DE MANIPULAÇÃO, não a renda TOTAL do passo
+        (revisão do coordenador). `pose` cai de propósito no fecho do BOTAR:
+        `soltou` liga, os 14 braços voltam a entrar na média (`PosturaPorElo`),
+        com ~1 rad de erro contra o default — é o puxão desejado de volta à
+        postura, não um buraco de renda. A régua certa é `congelado + Σ dos
+        TERMOS_CONGELAVEIS`, ANTES e DEPOIS do passo do fecho.
+        """
         _soma_termos_antes = _sr33[:, _idx_cong33].sum(-1).clone()
-        _soma_total_antes = _sr33.sum(-1).clone()
+        _termos_antes = _sr33[:, _idx_cong33].clone()
+        _congelado_antes = _termo_rc33.congelado.clone()
+        _renda_manip_antes = _congelado_antes + _soma_termos_antes
         _t33c.forca_avanco(_ids33)
         _e33.step(_t33.zeros(_e33.num_envs, _n33))
-        _soma_total_depois = _sr33.sum(-1)
-        check(f"9. regra 1 ({rotulo}): a renda TOTAL do passo seguinte ao fecho é >= "
-              "a do passo anterior − 1e−3",
-              bool((_soma_total_depois >= _soma_total_antes - 1e-3).all()),
-              f"antes {float(_soma_total_antes.mean()):.3f}/s, depois "
-              f"{float(_soma_total_depois.mean()):.3f}/s")
+        _termos_depois = _sr33[:, _idx_cong33].clone()
+        _congelado_depois = _termo_rc33.congelado.clone()
+        _renda_manip_depois = _congelado_depois + _termos_depois.sum(-1)
+        _falha_regra1 = _renda_manip_depois < (_renda_manip_antes - 1e-3)
+        check(f"9. regra 1 ({rotulo}): a renda de MANIPULAÇÃO (congelado + "
+              "TERMOS_CONGELAVEIS) não cai no fecho",
+              not bool(_falha_regra1.any()),
+              f"antes {float(_renda_manip_antes.mean()):.3f}/s, depois "
+              f"{float(_renda_manip_depois.mean()):.3f}/s")
+        if bool(_falha_regra1.any()):
+            idx_f = _falha_regra1.nonzero(as_tuple=True)[0].tolist()
+            print(f"  [regra 1, {rotulo}] envs que falharam: {idx_f}")
+            for i in idx_f:
+                print(f"    env {i}: congelado {float(_congelado_antes[i]):.4f} -> "
+                      f"{float(_congelado_depois[i]):.4f}")
+                for j, nome in enumerate(TERMOS_CONGELAVEIS):
+                    print(f"      {nome}: {float(_termos_antes[i, j]):.4f} -> "
+                          f"{float(_termos_depois[i, j]):.4f}")
         check(f"8. após {rotulo}, `_fechos == {fechos_esperado}`",
               bool((_t33c._fechos == fechos_esperado).all()),
               f"{_t33c._fechos.tolist()[:3]}")

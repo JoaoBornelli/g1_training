@@ -748,9 +748,9 @@ class Tarefa:
     # ⚠ MEDIÇÃO INVALIDADA (revisão do coordenador): "idêntico nos três níveis"
     # NÃO é porque os três forçam a mesma laje a 0,04 m — é porque `limpo_topo`
     # saiu igual (p50 0,43) nos três, ou seja, o FORÇAR DE NÍVEL NÃO AGIU. A laje
-    # real da medição ficou em ~0,43 m, não 0,04 m. DOMINADO por `left_hip_pitch`
-    # (p90 0,73 rad) e `left_knee` (p90 0,61 rad) — postura ASSIMÉTRICA, perna
-    # esquerda mais dobrada que a direita para equilíbrio.
+    # real da medição ficou em ~0,43 m, não 0,04 m. DOMINADO pelo quadril esquerdo
+    # (pitch, p90 0,73 rad) e pelo joelho esquerdo (p90 0,61 rad) — postura
+    # ASSIMÉTRICA, perna esquerda mais dobrada que a direita para equilíbrio.
     #
     # O valor 0,69 FICA — o fallback 0,35 travaria o fecho até de pé de qualquer
     # jeito — mas precisa ser RE-MEDIDO no nível 6 de verdade (laje a 0,04 m),
