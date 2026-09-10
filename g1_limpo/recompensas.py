@@ -558,9 +558,12 @@ def unload(env, nome_do_comando: str, sensor_apoio: str,
 
 def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
                   sensor_apoio: str, mu: float,
-                  pelve_alvo: float, pelve_piso: float,
+                  pelve_alvo: float, pelve_piso: float, pelve_piso_cauda: float,
                   asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Rampa na pelve × preensão × descarga. Paga por erguer SEM agachar.
+
+    ⚠ E, DEPOIS do fecho do BOTAR, a rampa SOZINHA, com piso próprio — ver o bloco
+    `⚠ v3.5` no corpo (spec `g1-limpo-cauda-parada-de-pe.md` §2.3).
 
     ⚠ É o termo que impede o robô de satisfazer o alvo DESCENDO até a caixa. O alvo já
     tem z absoluto, o que remove o atalho de baixar o alvo; este termo remove o atalho
@@ -584,7 +587,24 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
                       sensores_palma, mu, asset_cfg)
     # ⚠ o `unload` já traz o `VALIDA` E a preensão desde 28/08; não multiplicar
     # nenhum dos dois de novo (daria VALIDA² e preensão²).
-    return rampa * descarga
+    #
+    # ⚠ v3.5 — A ÚNICA ADIÇÃO DO LOTE, autorizada pelo dono. Depois do fecho do BOTAR
+    # a caixa está apoiada, `descarga → 0`, e este termo valia zero faça o que fizer a
+    # pelve. Ali ele passa a pagar UMA RAMPA SOZINHA: erguer o corpo depois de largar.
+    # Sem isto, levantar rendia ~+1,5/s contra ~11,6/s de anuidade — 5% do episódio —
+    # e o robô ficava agachado (spec v3.5 §0.3). Com peso 2,0 a rampa dobra o delta.
+    # ⚠ PISO PRÓPRIO (`pelve_piso_cauda`): a pelve no fecho está em 0,33–0,62 m
+    # (MEDIDO, §3), abaixo do `pelve_piso` do PEGAR. Com o piso do PEGAR a rampa
+    # nasceria em zero com derivada zero em metade dos fechos.
+    # ⚠ SEM PENHASCO: dentro do BOTAR o termo é 0 (`_fora_do_botar` dentro de
+    # `descarga`); depois do fecho vira `rampa_cauda ≥ 0`. Monótono no fecho.
+    # ⚠ `clamp(0, 1)` em cima: ficar na ponta do pé ou subir na caixa não paga mais.
+    soltou = getattr(env, "limpo_soltou", None)
+    if soltou is None:
+        return rampa * descarga
+    rampa_cauda = ((z - pelve_piso_cauda)
+                   / max(pelve_alvo - pelve_piso_cauda, 1e-6)).clamp(0.0, 1.0)
+    return torch.where(soltou > 0.5, rampa_cauda, rampa * descarga)
 
 
 def load(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:

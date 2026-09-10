@@ -729,6 +729,12 @@ class Tarefa:
     # descendo até a caixa. Medido na pose de pé: pelve em 0,798 m.
     pelve_alvo: float = 0.75       # acima disto a rampa paga cheio
     pelve_piso: float = 0.45       # abaixo disto ela paga zero
+    # ⚠ v3.5: o piso da rampa DEPOIS do fecho do BOTAR. MEDIDO no `model_9499`, estado
+    # do fecho (`perto ∧ apoiada`), 8762 amostras: pelve p10 0,379 / p50 0,443 / p90
+    # 0,571 / mín 0,334. O `pelve_piso` de 0,45 fica acima da MEDIANA — metade dos
+    # fechos teria rampa 0 com derivada 0, onde a subida tem de nascer. 0,32 fica
+    # 1,4 cm abaixo do mínimo observado; no p50 a rampa vale 0,29 e sobe até 1,0.
+    pelve_piso_cauda: float = 0.32
     # ⚠ a rampa do `postura_ereta` satura ACIMA do próprio `pelve_alvo` (soma com
     # `pelve_margem`) para a política não parar exatamente na borda de onde a rampa já
     # satura, onde a derivada seria zero. `de_pe` do fecho NÃO lê mais `pelve_alvo`

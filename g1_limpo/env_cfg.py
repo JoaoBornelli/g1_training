@@ -607,6 +607,9 @@ def make_env_cfg(
                 # `pelve_alvo`, que é o limiar de fecho de verdade.
                 "pelve_alvo": tr.pelve_alvo + tr.pelve_margem,
                 "pelve_piso": tr.pelve_piso,
+                # ⚠ v3.5: o piso da rampa da CAUDA, medido separado (spec
+                # `g1-limpo-cauda-parada-de-pe.md` §2.3). O do PEGAR não serve lá.
+                "pelve_piso_cauda": tr.pelve_piso_cauda,
                 "asset_cfg": _palmas()})
     # ⚠ `sustentacao` e `pose_de_braco` SAÍRAM (spec dois-bits §2.7): o primeiro é
     # redundante com o próprio fecho, e na cauda ficaria travado em 1,0 para sempre;
