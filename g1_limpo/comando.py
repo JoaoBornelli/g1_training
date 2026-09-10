@@ -325,7 +325,10 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # sorteia cadeia nenhuma — o mesmo comportamento de antes com a tabela vazia.
     cadeia_ativa: bool = True
     sustenta_pegar_s: float = 0.5
-    sustenta_outros_s: float = 0.3
+    # ⚠ 0,3 → 0,5 s na v3.4 (spec `g1-limpo-botar-fecha-e-para.md` §2.3). O ESPELHO
+    # deste número é `knobs.Cadeia.sustenta_outros_s`, e `env_cfg` copia de lá — mude
+    # os dois, ou eles derivam em silêncio.
+    sustenta_outros_s: float = 0.5
     # ⚠ O BALANCEADOR B/C (spec dois-bits §2.5): decide, para quem começa no PEGAR,
     # entre a cadeia B (segurar e carregar) e a C (botar). `piso` trava `p_C` numa
     # faixa (nunca 0 nem 1, pela mesma regra do `fatia_loco`: um slot do one-hot
@@ -652,8 +655,19 @@ class AlvoCaixaCmd(CommandTerm):
                 self._alvo_ancorado_na_base(vira_carregar)
             # senão, o `_elo` FICA `BOTAR` (revisão, item 3): o crítico vê o interno
             # BOTAR, o publicado ANDAR (via `soltou`), e prevê a renda congelada.
-            sobe_caixa = (~self._pegou[ids_cauda]) | self._soltou[ids_cauda]
-            self._laje_para(ids_cauda, self.cfg.afasta_z, sobe_caixa=sobe_caixa)
+            # ⚠ O PÓS-BOTAR NÃO MEXE NA CENA (decisão do dono, 2026-09-10). O robô se
+            # APOIA na caixa: a sonda de 10/09 mediu `forca_de_apoio` p50 = 1,24·m·g,
+            # isto é MAIS que o peso da caixa — parte do corpo dele está ali. Tirar a
+            # laje no instante do fecho o derruba, e o crédito da queda vai para o
+            # fecho: seria desincentivo a botar.
+            # ⚠ E a regra dos dois bits CONCORDA: a laje só saía porque a cauda ia ter
+            # twist ≠ 0. A §2.2 zerou esse twist, logo `twist = 0 ⟹ laje presente`.
+            # ⚠ A cauda de B e de R (CARREGAR, `soltou = False`) CONTINUA afastando a
+            # laje: ali o robô sai andando com a caixa, e a laje na frente é obstáculo.
+            fica = ids_cauda[~self._soltou[ids_cauda]]
+            if len(fica):
+                self._laje_para(fica, self.cfg.afasta_z,
+                                sobe_caixa=~self._pegou[fica])
 
         # --- publicação ---
         publica_andar = self._soltou | (aguardando & ~self._pegou)
@@ -1074,8 +1088,8 @@ class AlvoCaixaCmd(CommandTerm):
         self._avanca_elo()
 
         # ⚠ O TWIST ZERADO roda DEPOIS de `_aplica_espera` e `_avanca_elo` (spec
-        # dois-bits §1.1): só assim ele lê `_elo`, `_espera` e `_soltou` do passo
-        # CORRENTE, e não do passo anterior.
+        # dois-bits §1.1): só assim ele lê `_elo` e `_espera` do passo CORRENTE, e não
+        # do passo anterior.
         self._zera_twist_nos_parados()
 
         # ⚠ O ALVO DO CARREGAR, referenciado no robô, TODO PASSO — mas só com o twist
@@ -1098,13 +1112,20 @@ class AlvoCaixaCmd(CommandTerm):
         no `botar` — e não a forma do alvo. Decisão do dono em 25/08, e é o que o
         `g1_poc` faz (`comando.py:826`), cuja manipulação funcionou.
 
-            parados = (elo ∈ elos_parados ∧ ¬soltou) ∨ (espera > 0)
+            parados = (elo ∈ elos_parados) ∨ (espera > 0)
 
-        `& ~soltou`: na cauda pós-BOTAR o `_elo` fica BOTAR e o twist tem de fluir. O
-        `espera > 0` cobre toda janela de espera, em qualquer elo.
+        ⚠ O `& ~soltou` SAIU (v3.4, spec `g1-limpo-botar-fecha-e-para.md` §2.2). Ele
+        deixava o twist fluir na cauda pós-BOTAR. O dono reverteu em 10/09: depois do
+        BOTAR o robô recebe o comando de ficar PARADO DE PÉ, e nada mais. Na cauda o
+        `_elo` fica BOTAR, e BOTAR está em `elos_parados`, portanto o twist agora fica
+        zero até o fim do episódio. O `espera > 0` cobre toda janela de espera, em
+        qualquer elo.
+
+        ⚠ Isto afeta SÓ a cauda pós-BOTAR. A cauda das cadeias B e R é `CARREGAR`, que
+        NÃO está em `elos_parados` — ela continua andando.
 
         ⚠ ORDEM NO PASSO: este método roda DEPOIS de `_aplica_espera` e de
-        `_avanca_elo`, para ler `_elo`, `_espera` e `_soltou` já do passo CORRENTE.
+        `_avanca_elo`, para ler `_elo` e `_espera` já do passo CORRENTE.
         Rodando antes (como fazia até a v2.1), `limpo_twist_zerado` ficava um passo
         atrasado.
 
@@ -1127,9 +1148,8 @@ class AlvoCaixaCmd(CommandTerm):
         o do fabricante SEM filtro — nem zerado, nem fixado. A v2.1 sorteava um twist
         próprio (P5); esse bloco saiu.
         """
-        parados = (torch.isin(self._elo, torch.tensor(
-            self.cfg.elos_parados, device=self.device)) & ~self._soltou
-        ) | (self._espera > 0.0)
+        parados = torch.isin(self._elo, torch.tensor(
+            self.cfg.elos_parados, device=self.device)) | (self._espera > 0.0)
         self._env.limpo_twist_zerado.copy_(parados.float())
 
         if not bool(parados.any()):
@@ -1143,7 +1163,14 @@ class AlvoCaixaCmd(CommandTerm):
         Condição de fechamento POR ELO (spec `g1-limpo-dois-bits.md` §2.4):
             REORIENTAR: perto & alinhado
             PEGAR:      perto & alinhado & de pé
-            BOTAR:      perto & alinhado & apoiada & de pé
+            BOTAR:      perto & alinhado & apoiada
+
+        ⚠ O "de pé" SAIU DO BOTAR (v3.4, spec `g1-limpo-botar-fecha-e-para.md` §2.1).
+        MEDIDO em 10/09 sobre 62 109 passos de BOTAR: os outros três portões passavam
+        e o "de pé" reprovava em 99,975% deles, sempre pelo JOELHO. A causa é
+        geométrica: a laje fica entre 0,30 e 0,55 m, apoiar ali exige agachar, e o
+        "de pé" proíbe agachar. O PEGAR CONTINUA exigindo o "de pé" — o alvo dele é o
+        peito, o robô ergue a caixa e se levanta antes de fechar, e ele fecha em 89%.
 
         ⚠ O CARREGAR NÃO ENTRA MAIS: ele saiu de `CADEIAS` e virou o estado de CAUDA
         de quem fechou o PEGAR e não vai botar (§2.1) — não há mais o que fechar ali.
@@ -1206,7 +1233,7 @@ class AlvoCaixaCmd(CommandTerm):
             elif elo_tipo == PEGAR:
                 fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
             elif elo_tipo == BOTAR:
-                fecha[m] = (perto[m] & alinhado[m] & apoiada[m] & de_pe[m])
+                fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 
         # ⚠ O `ativo` entra NO FIM, e sobre todos os elos de uma vez. Pôr o `& ativo`
         # dentro de cada ramo seria três lugares para esquecer um.
@@ -1504,10 +1531,15 @@ class AlvoCaixaCmd(CommandTerm):
         precisa: com a laje a +5 m e a caixa no chão, o robô tropeçaria nela.
 
         ⚠ `sobe_caixa` ACEITA TENSOR (spec dois-bits §2.3): a cauda chama isto com
-        `~pegou | soltou`, uma máscara MISTA sobre `ids` — parte vira CARREGAR (a
-        caixa fica nas mãos, `sobe_caixa=False` para esses) e parte fica em BOTAR
-        (`sobe_caixa=True`). Um bool escalar continua funcionando para os outros dois
-        chamadores (ANDAR, sempre `True`; BOTAR, sempre `False`).
+        `~pegou`, uma máscara MISTA sobre `ids` — parte vira CARREGAR (a caixa fica
+        nas mãos, `sobe_caixa=False` para esses) e parte nunca pegou (`True`). Um bool
+        escalar continua funcionando para os outros dois chamadores (ANDAR, sempre
+        `True`; BOTAR, sempre `False`).
+
+        ⚠ QUEM SOLTOU NÃO CHEGA MAIS AQUI (v3.4, spec §2.4): a cauda pós-BOTAR não
+        mexe na cena, portanto `ids` já vem filtrado por `~soltou`. É por isso que
+        `limpo_topo` também deixa de ser reescrito para esses envs — e é o correto: a
+        laje deles continua onde estava.
 
         `xy` (spec dois-bits §1.3): posição x,y em MUNDO da laje. `None` usa
         `org + prateleira_xy` (o comportamento de sempre). O `BOTAR` passa a sua

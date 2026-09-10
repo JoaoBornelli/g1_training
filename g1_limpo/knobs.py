@@ -779,17 +779,17 @@ class Cadeia:
     ativa: bool = True
 
     # Tempos de sustentação (em segundos) quando o elo fecha.
-    # PEGAR exige menor sustain (mais rápido em fechar e transicionar).
-    # ⚠ O `pegar` exige o sustain MAIOR (0,5 s contra 0,3 s), e é decisão: ele é o elo
-    # do qual todas as cadeias dependem, e um fecho por acidente de um frame
-    # propagaria para os outros três. Um comentário anterior dizia o contrário do que
-    # os valores fazem.
+    # ⚠ OS DOIS VALEM 0,5 s desde a v3.4. O `pegar` pede 0,5 s porque ele é o elo do
+    # qual TODAS as cadeias dependem, e um fecho por acidente de um frame propagaria
+    # para os outros três.
     sustenta_pegar_s: float = 0.5
-    # ⚠ O comentário anterior aqui dizia "outros elos têm sustain MAIOR" com 0,3 contra
-    # os 0,5 do `pegar` — dizia o contrário do que os valores fazem. O `pegar` tem o
-    # sustain MAIOR de propósito: ele é o elo do qual TODAS as cadeias dependem, e um
-    # fecho por acidente de um frame propagaria para os outros três.
-    sustenta_outros_s: float = 0.3
+    # ⚠ 0,3 → 0,5 s na v3.4 (spec `g1-limpo-botar-fecha-e-para.md` §2.3). Pedido do
+    # dono: a caixa tem de ficar estável no alvo por mais de 0,5 s antes do fecho do
+    # BOTAR. Ele aceita que o robô decore o tempo. Efeito colateral aceito: o
+    # REORIENTAR inerte também lê este knob, e o atraso dele passa de 0,3 para 0,5 s.
+    # ⚠⚠ ESTE NÚMERO VIVE EM DOIS ARQUIVOS: aqui e em `comando.AlvoCaixaCmdCfg`.
+    # Mude os dois, ou eles derivam em silêncio.
+    sustenta_outros_s: float = 0.5
     # ⚠ O REORIENTAR ESTÁ INERTE NA v2 (spec §8.3): o fecho dele ignora `alinhado` e o
     # elo vira um atraso de `sustenta_outros_s` antes do PEGAR. MEDIDO em 03/09 que
     # `voltas_max = 0` sozinho não bastava (o jitter lateral da caixa tira a direção
