@@ -63,9 +63,20 @@ def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float, v_solta: float,
     ⚠ `caiu` NÃO EXIGE A ARMA (v2.1, spec P7): sem ela, derrubar a caixa ANTES da
     primeira preensão não terminava, e o env ficava morto até o `time_out`.
 
-    ⚠ `soltou_fora` CONTINUA ARMADO só pela primeira preensão (`env.limpo_pegou`),
-    e DESARMA na espera final (`env.limpo_soltou`): depois do fecho do `BOTAR` as
-    mãos TÊM de sair, e isso não pode terminar o episódio.
+    ⚠⚠ `soltou_fora` CONTINUA ARMADO só pela primeira preensão (`env.limpo_pegou`), e
+    desde a v3.5 ele NÃO DESARMA MAIS na espera final (spec
+    `g1-limpo-cauda-parada-de-pe.md` §2.2). A regra antiga — "as mãos TÊM de sair
+    depois do fecho, e isso não pode terminar o episódio" — está REFUTADA: as mãos
+    saírem não move a caixa, e quem protege o fecho legítimo é o `~no_alvo`, não o
+    desarme. Com o desarme, bater na caixa e arrastá-la 30 cm sobre a laje saía de
+    graça: só `caiu` terminava. Pedido do dono: "se o robô bater e tirar do
+    alvo/derrubar a caixa ele termina".
+
+    ⚠ E o limiar MUDA de lado no fecho. ANTES dele, sair do alvo exige VELOCIDADE
+    (`v_rel > v_solta`) — é o arremesso. DEPOIS dele, estar fora do alvo BASTA: a
+    caixa está parada onde o robô a pôs, e se ela saiu do raio foi ele que bateu.
+    A folga é de 8 cm: o fecho exige `perto <= tol_pos = 0,10 m` e a terminação só
+    dispara fora de `raio_solta = precise_pos_sigma = 0,18 m`.
 
     ⚠⚠ `apos_pegar` GUARDA a janela entre o TOQUE (arma `pegou`) e o FECHO do `PEGAR`:
     a caixa ainda está na laje ali, e um tropeço ou push forte na base não pode matar
@@ -95,14 +106,17 @@ def caixa_largada(env: "ManagerBasedRlEnv", folga_chao: float, v_solta: float,
     v_rel = torch.norm(v_caixa - v_base, dim=-1)
     d_alvo = torch.norm(caixa - alvo, dim=-1)
     no_alvo = d_alvo <= raio_solta          # raio_solta = tarefa.precise_pos_sigma, REUSO
-    soltou_fora = (v_rel > v_solta) & ~no_alvo
 
     # ⚠ hold (PEGAR fechado), CARREGAR, BOTAR — não "elo != PEGAR" (ver docstring).
     apos_pegar = (t._elo == CARREGAR) | (t._elo == BOTAR) | ((t._elo == PEGAR) & t.fechou)
 
+    # ⚠ v3.5: ANTES do fecho, soltar fora do alvo exige velocidade (arremesso). DEPOIS
+    # do fecho, fora do alvo BASTA: a caixa está onde o robô a pôs, e se saiu do raio
+    # foi ele que bateu nela. Pedido do dono: "se o robô bater e tirar do alvo/derrubar
+    # a caixa ele termina".
     soltou = getattr(env, "limpo_soltou", None)
-    if soltou is not None:
-        soltou_fora = soltou_fora & (soltou < 0.5)
+    depois = soltou > 0.5 if soltou is not None else torch.zeros_like(no_alvo)
+    soltou_fora = ((v_rel > v_solta) | depois) & ~no_alvo
     return caiu | (soltou_fora & (pegou > 0.5) & apos_pegar)
 
 
