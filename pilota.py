@@ -484,8 +484,12 @@ def main() -> None:
     print("[pilota] setas: vx/vy   , .: wz   espaço: zera   - =: tetos   "
           "0-4: elo   r: reset   [ ]: tempo")
 
-    import mujoco.viewer
-    with mujoco.viewer.launch_passive(m, d, key_callback=piloto.tecla) as viewer:
+    # ⚠ `from ... import ... as`, e NÃO `import mujoco.viewer`: a segunda forma liga o
+    # nome `mujoco` no escopo LOCAL de `main`, e todo uso anterior nesta função — o
+    # `mujoco.MjData(m)` lá em cima — passa a levantar `UnboundLocalError`. O import
+    # continua adiado de propósito: o `--paridade` roda sem GL.
+    from mujoco import viewer as mj_viewer
+    with mj_viewer.launch_passive(m, d, key_callback=piloto.tecla) as viewer:
         while viewer.is_running():
             t0 = time.perf_counter()
 
