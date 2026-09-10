@@ -566,27 +566,39 @@ class AlvoCaixaCmd(CommandTerm):
 
         ⚠ `ja_em_cauda = ~_sigma_pendente`: reaproveita um estado que já existe, em vez
         de um buffer novo. Funciona porque `_sigma_pendente` só volta a `True` num
-        fecho novo (`_avanca_elo_force`), e a cauda nunca fecha de novo — uma vez
-        limpo pelo bloco de σ mais abaixo, ele fica limpo para sempre NESTE env. Por
-        isso ele é lido AQUI, antes desse bloco rodar.
+        fecho novo (`_avanca_elo_force`). Por isso ele é lido AQUI, antes do bloco de σ
+        rodar.
 
-        ⚠⚠ TUDO É RECALCULADO DO INTERNO, e não lido do próprio canal. Uma versão
-        anterior fazia `where(aguardando, 0, self._command[:, VALIDA])` — DESTRUTIVO: no
-        passo seguinte lia o zero que ela mesma tinha escrito, e o bit nunca voltava a 1.
-        Medido no smoke em 02/09.
+        ⚠⚠ NA CAUDA DO BOTAR A FLAG NÃO É MAIS LIMPA, e o bloco da cauda REEXECUTA
+        todo passo (spec `g1-limpo-cauda-parada-de-pe.md` §2.1): entrar na cauda exige
+        `_sigma_pendente = True`, e desde a v3.5 o `liga` abaixo lê o `VALIDA` já
+        zerado pelo `soltou`, portanto nunca dispara ali. É INÓCUO — `vira_carregar` e
+        `fica` são filtrados por `~_soltou` e ficam vazios, e sobra `_forcado = False`,
+        idempotente. O que deixa de rodar na cauda C é `_recalcula_sigmas` (todo leitor
+        de σ é `× VALIDA`, zerado) e `_pos_no_elo` (write-only no pacote).
+
+        ⚠⚠ TUDO É RECALCULADO, e não lido de um canal que este método já escreveu num
+        passo ANTERIOR. Uma versão antiga fazia `where(aguardando, 0,
+        self._command[:, VALIDA])` — DESTRUTIVO: no passo seguinte lia o zero que ela
+        mesma tinha escrito, e o bit nunca voltava a 1. Medido no smoke em 02/09. Ler o
+        `ELO` publicado no `VALIDA` (v3.5) NÃO é esse defeito: a linha acima reescreve
+        o canal inteiro a partir de `_elo` e `publica_andar`, todo passo.
 
             publicado = ANDAR   se soltou ∨ (aguardando ∧ ¬pegou), senão o interno
-            VALIDA    = (interno ≠ ANDAR) ∧ ¬aguardando
+            VALIDA    = (PUBLICADO ≠ ANDAR) ∧ ¬aguardando
 
         ⚠⚠ `publicado` MUDOU (revisão do PM, item 2): antes era `ANDAR` em TODA
         espera. Agora, com a caixa JÁ na mão (`pegou`), a espera ENTRE elos publica o
         INTERNO — a caixa fica visível, e o crítico vê o estado real. Só a espera
         ANTES da primeira pega (`¬pegou`) publica `ANDAR` com os canais zerados.
 
-        ⚠ A espera FINAL (`soltou`) publica ANDAR mas NÃO zera o VALIDA: os incentivos
-        do estado "caixa apoiada no alvo" continuam pagando depois do fecho do BOTAR. É
-        o que fecha o buraco da renda (spec §6.6.1). A v12 dizia o contrário e estava
-        errada.
+        ⚠⚠ A espera FINAL (`soltou`) publica ANDAR e AGORA ZERA O VALIDA (v3.5, spec
+        `g1-limpo-cauda-parada-de-pe.md` §2.1). A regra anterior — "não zera, os
+        incentivos do estado 'caixa apoiada no alvo' continuam pagando" — valia
+        enquanto a cauda mandava a caixa a +5 m e os termos paravam sozinhos. A v3.4
+        tirou o teleporte, e eles voltaram a pagar AO VIVO por cima da renda já
+        congelada no fecho: `precise_pos` (3,0) e `load` (2,0) contados duas vezes.
+        Quem paga o estado "apoiada" na cauda é o `renda_congelada`, uma vez só.
 
         ⚠ Publica `env.limpo_aguardando` e `env.limpo_soltou` para as métricas e para a
         terminação. Sem elas, "o robô não espera" e "a janela não existe" leem igual.
@@ -673,7 +685,11 @@ class AlvoCaixaCmd(CommandTerm):
         publica_andar = self._soltou | (aguardando & ~self._pegou)
         self._command[:, ELO] = torch.where(
             publica_andar, torch.full_like(self._elo, ANDAR), self._elo).float()
-        base = (self._elo != ANDAR).float()
+        # ⚠ v3.5: o elo PUBLICADO, não o interno. Depois do fecho do BOTAR o interno
+        # fica BOTAR (para o crítico) mas a tarefa ACABOU — e `VALIDA` significa "há
+        # tarefa ativa". Com o interno, `precise_pos` e `load` pagavam ao vivo na
+        # cauda POR CIMA da renda congelada (spec v3.5 §0.1).
+        base = (self._command[:, ELO] != ANDAR).float()
         self._command[:, VALIDA] = base * (~aguardando).float()
 
         # ⚠ O σ da TAREFA, no instante em que ela liga. `_sigma_pendente` é verdadeiro
