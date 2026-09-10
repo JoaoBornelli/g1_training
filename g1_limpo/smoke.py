@@ -834,12 +834,60 @@ check("o twist é a NOSSA subclasse, com a `razao_marcha`",
 check("o `build` foi sobrescrito — o mjlab não usa `class_type`",
       _tw.build.__qualname__.startswith("TwistComRazaoDeMarchaCfg"),
       "command_manager.py:268 chama cfg.build(env); um `class_type` seria campo morto")
+# ⚠ `ranges` SAI da comparação, e não é frouxidão: o envelope de guinada é
+# reescrito de propósito (ver o check logo abaixo). Todo o RESTO tem de bater.
 check("nenhum campo do twist do fabricante se perdeu na reconstrução",
       all(getattr(_tw, f.name) == getattr(fab.commands["twist"], f.name)
-          for f in dataclasses.fields(fab.commands["twist"])),
+          for f in dataclasses.fields(fab.commands["twist"]) if f.name != "ranges"),
       "rel_standing_envs perdido mudaria 10% dos envs sem uma linha de log")
+check("fora do `ang_vel_z`, a faixa do twist é a do fabricante",
+      _tw.ranges.lin_vel_x == fab.commands["twist"].ranges.lin_vel_x
+      and _tw.ranges.lin_vel_y == fab.commands["twist"].ranges.lin_vel_y
+      and _tw.ranges.heading == fab.commands["twist"].ranges.heading,
+      "só o giro sobe; o envelope linear é o do molde")
 check("o limiar de comando ativo vem do knobs", _tw.limiar_comando == k.marcha.limiar_comando)
-check("`ang_vel_z` é a faixa do fabricante", _tw.ranges.ang_vel_z == (-0.5, 0.5))
+
+# --- O ENVELOPE DE GUINADA (10/09): uma volta em 4 s ---
+# ⚠ `2π/4 s = 1,5708 rad/s`; o teto adotado é 1,6 (volta em 3,93 s). O molde para em
+# ±0,5 na base de treino e em ±0,7 no estágio 1 do currículo — 8,98 s por volta.
+_WZ = k.giro.wz_teto
+check("o teto do giro vem do knobs, e dá a volta em menos de 4 s",
+      _WZ == 1.6 and 2 * math.pi / _WZ < 4.0,
+      f"volta em {2 * math.pi / _WZ:.2f} s")
+check("a faixa BASE de `ang_vel_z` é o teto do knobs, e NÃO a do fabricante",
+      _tw.ranges.ang_vel_z == (-_WZ, _WZ)
+      and fab.commands["twist"].ranges.ang_vel_z == (-0.5, 0.5),
+      str(_tw.ranges.ang_vel_z))
+# ⚠ ESTE É O CAMINHO DO `pilota`. O `exporta_cena` monta o env com `play=True` e lê
+# `cfg.commands["twist"].ranges`. O `0,7` que o `pilota` anunciava NÃO saía da base de
+# treino (±0,5): saía de `unitree_g1_flat_env_cfg`, que no ramo `play` reescreve
+# `lin_vel_x = (−1,5; 2,0)` e `ang_vel_z = (−0,7; 0,7)`
+# (`mjlab/tasks/velocity/config/g1/env_cfgs.py:215-218`). A nossa escrita vem DEPOIS.
+check("no `play` — que é o que o `exporta_cena` grava para o `pilota` — o envelope "
+      "angular também é o do knobs",
+      play.commands["twist"].ranges.ang_vel_z == (-_WZ, _WZ),
+      str(play.commands["twist"].ranges.ang_vel_z))
+check("o `turning_wz_min` cabe no teto novo — senão `uniform_(from > to)` estoura "
+      "no primeiro re-sorteio de uma run paga",
+      k.marcha.turning_wz_min <= _WZ)
+
+# --- O CURRÍCULO DE COMANDO: o estágio 0 é rampa, o 1 é o envelope ---
+_ests_sm = cfg.curriculum["command_vel"].params["velocity_stages"]
+check("o terceiro estágio do molde continua CORTADO (nada com step >= 10000×24)",
+      all(e["step"] < 10000 * 24 for e in _ests_sm), str(_ests_sm))
+check("o estágio 0 fica INTOCADO em ±0,5 — ele é a rampa de uma run do ZERO",
+      [e for e in _ests_sm if e["step"] == 0][0]["ang_vel_z"] == (-0.5, 0.5),
+      str(_ests_sm))
+check("todo estágio com `step > 0` sobe para o teto do knobs",
+      all(e["ang_vel_z"] == (-_WZ, _WZ)
+          for e in _ests_sm if e["step"] > 0 and "ang_vel_z" in e),
+      "num resume acima de 5000×24 o estágio 1 vale já no primeiro passo: "
+      "`commands_vel` aplica TODO estágio com `common_step_counter >= step`")
+check("o `lin_vel_x` dos estágios que ficaram NÃO foi tocado",
+      all(e["lin_vel_x"] == f["lin_vel_x"]
+          for e, f in zip(_ests_sm,
+                          fab.curriculum["command_vel"].params["velocity_stages"])),
+      "só o giro sobe")
 
 # --- a ARITMÉTICA da razão, sem simulador ---
 # ⚠ Aritmética pura sobre a MESMA fórmula do termo. Não é substituto de rodar; é o
@@ -1137,13 +1185,61 @@ _TL, _TA = "track_linear_velocity", "track_angular_velocity"
 check("os dois `track_*` passam pelo despachante de elo",
       all(cfg.rewards[n].func is RC_.rastreio_por_elo for n in (_TL, _TA)),
       f"{cfg.rewards[_TL].func} / {cfg.rewards[_TA].func}")
-check("o `func` do FABRICANTE é preservado dentro de `params`",
-      all(cfg.rewards[n].params["func"] is fab.rewards[n].func for n in (_TL, _TA)),
+# ⚠ O ANGULAR SAI DESTES DOIS CHECKS, e é de propósito: desde o lote do giro ele NÃO
+# é mais o termo do molde (é o `giro_sem_gingado`) e desde o lote do envelope o `std`
+# fixo dele deu lugar a dois params de σ. O que vale para ele está no bloco logo
+# abaixo. O LINEAR continua sendo o do fabricante, intocado.
+check("o `func` do FABRICANTE é preservado dentro de `params` (rastreio LINEAR)",
+      cfg.rewards[_TL].params["func"] is fab.rewards[_TL].func,
       "o gate embrulha o termo do molde; ele não o reescreve")
-check("os params do fabricante seguem intactos sob o embrulho",
-      all(all(cfg.rewards[n].params[x] == fab.rewards[n].params[x]
-              for x in fab.rewards[n].params) for n in (_TL, _TA)),
+check("os params do fabricante seguem intactos sob o embrulho (rastreio LINEAR)",
+      all(cfg.rewards[_TL].params[x] == fab.rewards[_TL].params[x]
+          for x in fab.rewards[_TL].params),
       "gatear não pode ter mexido no σ nem no nome do comando")
+
+# --- O GIRO: termo próprio, e σ proporcional ao comando ---
+check("o rastreio ANGULAR chama o `giro_sem_gingado`, e não o termo do molde",
+      cfg.rewards[_TA].params["func"] is RC_.giro_sem_gingado
+      and cfg.rewards[_TA].params["func"] is not fab.rewards[_TA].func,
+      "o termo do molde soma `wx² + wy²` — roll e pitch da base, que ninguém comanda")
+check("o `command_name` do fabricante sobreviveu à troca",
+      cfg.rewards[_TA].params["command_name"] == fab.rewards[_TA].params["command_name"])
+check("o `std` FIXO do molde SAIU dos params — com o envelope em ±1,6 rad/s ele "
+      "daria `exp(−1,6²/0,5) = 0,006` para quem não gira, derivada 0,038/rad/s",
+      "std" not in cfg.rewards[_TA].params
+      and fab.rewards[_TA].params["std"] == math.sqrt(0.5),
+      str(sorted(cfg.rewards[_TA].params)))
+check("os dois params de σ vêm do `knobs.Giro`",
+      cfg.rewards[_TA].params["sigma_fator"] == k.giro.sigma_fator
+      and cfg.rewards[_TA].params["sigma_min"] == k.giro.sigma_min)
+check("`std` não sobrou na assinatura do termo — dois σ concorrentes é bug esperando",
+      "std" not in inspect.signature(RC_.giro_sem_gingado).parameters,
+      str(list(inspect.signature(RC_.giro_sem_gingado).parameters)))
+
+
+# --- A ARITMÉTICA do σ do giro, sem simulador ---
+def _sigma_giro(cmd: float) -> float:
+    return max(abs(cmd) * k.giro.sigma_fator, k.giro.sigma_min)
+
+
+def _paga_parado(cmd: float) -> float:
+    """o que um robô que NÃO gira recebe, com comando `cmd`."""
+    return math.exp(-(cmd ** 2) / _sigma_giro(cmd) ** 2)
+
+
+check("o PISO morde até 0,707: até ali o kernel é IDÊNTICO ao de ontem",
+      all(abs(_sigma_giro(c) - math.sqrt(0.5)) < 1e-12 for c in (0.0, 0.3, 0.707))
+      and abs(_paga_parado(0.5) - math.exp(-0.25 / 0.5)) < 1e-12,
+      "a mudança de σ NÃO mexe na faixa que o robô já treinou")
+check("acima do piso o σ é o próprio comando: resposta ZERO paga exp(−1) = 0,37 em "
+      "QUALQUER ponto do envelope, e é o mesmo que se pagava no topo de 0,7",
+      all(abs(_paga_parado(c) - math.exp(-1.0)) < 1e-12 for c in (1.0, 1.6)),
+      f"cmd 1,6 pagava {math.exp(-(1.6 ** 2) / 0.5):.4f} com σ fixo")
+check("a derivada no TOPO sobe ~12× contra o σ fixo",
+      (2 * _WZ / _sigma_giro(_WZ) ** 2 * _paga_parado(_WZ))
+      / (2 * _WZ / 0.5 * math.exp(-(_WZ ** 2) / 0.5)) > 11.0,
+      "é o que torna o topo do envelope aprendível")
+
 check("G1->dois-bits (spec §2.7, revisão 2026-09-08): `rastreio_por_elo` NÃO injeta "
       "`nome_do_comando` nem `VALIDA` — o fator lê `env.limpo_pegou` direto. "
       "`elos_que_andam` e `canal_do_elo` continuam fora: o gate por CONJUNTO DE "

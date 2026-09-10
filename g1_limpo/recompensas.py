@@ -283,10 +283,10 @@ def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
-def giro_sem_gingado(env, std: float, command_name: str,
+def giro_sem_gingado(env, sigma_fator: float, sigma_min: float, command_name: str,
                      asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG) -> torch.Tensor:
     """`exp(−(wz_cmd − wz)²/σ²)`. O `track_angular_velocity` do fabricante SEM o
-    roll e o pitch da base.
+    roll e o pitch da base, e com σ PROPORCIONAL AO COMANDO.
 
     ⚠⚠ POR QUE. O termo do molde soma `wx² + wy²` ao erro de guinada
     (`velocity/mdp/rewards.py:62`). Roll e pitch da base NUNCA são comandados: são o
@@ -298,9 +298,25 @@ def giro_sem_gingado(env, std: float, command_name: str,
     ⚠ O gingado CONTINUA punido, uma vez só: `body_ang_vel` (peso −0,05) já mede
     velocidade angular do corpo. No molde ele era cobrado duas vezes.
 
-    ⚠ `std` NÃO muda: fica em `sqrt(0.5)` do molde. Sem o `xy_error`, um erro de
-    guinada de 0,7 rad/s — o topo do envelope — dá `exp(−0,49/0,5) = 0,37`. O kernel
-    já cobre a faixa; mexer no σ junto misturaria duas mudanças numa medição.
+    ⚠⚠ O σ CONSTANTE SAI, E ISSO É O ENVELOPE QUE MANDA (10/09). O teto de guinada
+    subiu de ±0,7 para ±1,6 rad/s (uma volta em 4 s, pedido do dono; ver
+    `knobs.Giro`). Com o `std` fixo de `sqrt(0.5)` do molde, um robô que NÃO gira com
+    comando de 1,6 rad/s receberia `exp(−1,6²/0,5) = 0,006`, com derivada de 0,038
+    por rad/s — kernel morto, e o topo do envelope inaprendível. É o mesmo defeito
+    que travou o `g1_poc` nos σ da manipulação: σ fixo pequeno = derivada zero.
+
+    O σ agora é o do `sigma_alcance` do termo de comando — proporcional, com piso:
+
+        σ = (|cmd_wz| · sigma_fator).clamp(min=sigma_min)
+
+    Com `sigma_fator = 1,0` e `sigma_min = sqrt(0.5)` o kernel é IDÊNTICO ao de
+    ontem para todo `|cmd| <= 0,707` (o piso morde), e um esticamento exato acima
+    disso: resposta zero no topo paga `exp(−1) = 0,37`, o mesmo que se pagava no topo
+    de 0,7, e a derivada no topo sobe de 0,038 para 0,46 por rad/s — 12×.
+
+    ⚠ O parâmetro `std` SAIU da assinatura, e não foi empilhado com os dois novos:
+    dois σ concorrentes no mesmo termo é um bug esperando o dia em que alguém mexer
+    no errado. Quem passa os dois é o `env_cfg`, do `knobs.Giro`.
 
     ⚠ `track_linear_velocity` NÃO muda. Ele também soma um termo não comandado
     (`vz²`), mas vive a 59% do máximo, com erro² 0,132. Sem defeito medido, sem
@@ -310,7 +326,9 @@ def giro_sem_gingado(env, std: float, command_name: str,
     command = env.command_manager.get_command(command_name)
     assert command is not None, f"comando '{command_name}' não existe"
     wz = asset.data.root_link_ang_vel_b[:, 2]
-    return torch.exp(-torch.square(command[:, 2] - wz) / std**2)
+    cmd_wz = command[:, 2]
+    sigma = (cmd_wz.abs() * sigma_fator).clamp(min=sigma_min)
+    return torch.exp(-torch.square(cmd_wz - wz) / sigma**2)
 
 
 # =============================================================================

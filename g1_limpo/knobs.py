@@ -11,6 +11,7 @@ Ver `specs/g1-limpo.md` e `docs/planos/2026-08-25-g1-limpo.md`.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -500,6 +501,43 @@ class Marcha:
 
 
 @dataclass
+class Giro:
+    """O envelope de guinada e o σ que o mede.
+
+    ⚠ O TETO É UM PEDIDO DO DONO (10/09): "uma rotação completa precisa levar no
+    máximo 4 s". `2π / 4 s = 1,5708 rad/s`, e o teto adotado é 1,6 — volta em
+    3,93 s. O molde para em ±0,7 rad/s no segundo estágio do currículo de comando,
+    o que dá 8,98 s por volta.
+
+    ⚠⚠ O σ NÃO PODE FICAR CONSTANTE COM ESTE TETO, e não é preferência. Com σ fixo
+    em `sqrt(0.5)` (o valor do molde) e comando em 1,6 rad/s, um robô que NÃO gira
+    recebe `exp(−1,6²/0,5) = 0,006`, com derivada de 0,038 por rad/s: kernel morto,
+    e o topo do envelope seria inaprendível. É o mesmo defeito medido nos sete
+    incentivos da manipulação — σ fixo pequeno = derivada zero.
+
+    O σ vira PROPORCIONAL AO COMANDO, com piso, igual ao `sigma_alcance` do termo de
+    comando (`comando.AlvoCaixaCmd`):
+
+        σ = (|cmd_wz| · sigma_fator).clamp(min=sigma_min)
+
+    Com `sigma_fator = 1,0` e `sigma_min = sqrt(0.5)` o kernel fica IDÊNTICO ao de
+    hoje para todo comando `|cmd| <= 0,707` (o piso morde) e vira um esticamento
+    exato acima disso: a resposta ZERO no topo paga `exp(−1) = 0,37`, o mesmo que
+    hoje se paga no topo de 0,7, e a derivada no topo sobe de 0,038 para 0,46 por
+    rad/s — 12×.
+    """
+
+    # o teto do envelope, em rad/s. Vale para a faixa BASE do twist e para o segundo
+    # estágio do currículo de comando. O estágio 0 (±0,5) fica intocado: ele é a
+    # rampa de uma run do zero.
+    wz_teto: float = 1.6
+
+    # σ do `recompensas.giro_sem_gingado`: proporção do comando, e o piso.
+    sigma_fator: float = 1.0
+    sigma_min: float = math.sqrt(0.5)
+
+
+@dataclass
 class Forma:
     """A fatia entre locomoção e manipulação. F5 põe o controlador.
 
@@ -934,6 +972,7 @@ class Knobs:
     nivel: Nivel = field(default_factory=Nivel)
     recompensa: Recompensa = field(default_factory=Recompensa)
     marcha: Marcha = field(default_factory=Marcha)
+    giro: Giro = field(default_factory=Giro)
     forma: Forma = field(default_factory=Forma)
     piso: Piso = field(default_factory=Piso)
     tarefa: Tarefa = field(default_factory=Tarefa)

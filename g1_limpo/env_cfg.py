@@ -337,7 +337,15 @@ def make_env_cfg(
     # gira. O gingado continua punido uma vez, por `body_ang_vel` (peso −0,05).
     # ⚠ A troca tem de vir ANTES do laço abaixo: ele guarda `_t.func` em
     # `params["func"]`, portanto trocar depois faria o wrapper chamar o termo velho.
+    # ⚠⚠ E O σ DELE É PROPORCIONAL AO COMANDO, com piso. O `std` fixo de `sqrt(0.5)`
+    # do molde SAI dos params (por `del`, e não `pop`: um rename no upgrade do mjlab
+    # tem de estourar aqui, e não virar um σ morto). Com o envelope em ±1,6 rad/s
+    # (§ abaixo), o σ fixo daria `exp(−1,6²/0,5) = 0,006` para quem não gira —
+    # derivada 0,038/rad/s, kernel morto. Ver `knobs.Giro` e `recompensas`.
     cfg.rewards["track_angular_velocity"].func = RC.giro_sem_gingado
+    del cfg.rewards["track_angular_velocity"].params["std"]
+    cfg.rewards["track_angular_velocity"].params["sigma_fator"] = k.giro.sigma_fator
+    cfg.rewards["track_angular_velocity"].params["sigma_min"] = k.giro.sigma_min
 
     for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
         _t = cfg.rewards[_nome_rastreio]
@@ -476,8 +484,9 @@ def make_env_cfg(
     # 10,7% para 16,3% — a cauda de B e R sorteia do MESMO envelope e o robô perde a
     # caixa andando a 3 m/s. A tarefa é caminhar com caixa e apoiar em mesa.
     # ⚠ ISTO QUEBRA A PARIDADE com o molde, de propósito. O assert do notebook muda
-    # junto. Os dois primeiros estágios ficam INTOCADOS, e `ang_vel_z` também: o
-    # terceiro estágio não o toca. Quem trata o giro é o `giro_sem_gingado`.
+    # junto. O CORTE em si não toca `lin_vel_x` nem `ang_vel_z` dos dois primeiros
+    # estágios; quem sobe o `ang_vel_z` do estágio 1 é o bloco do ENVELOPE DE GUINADA,
+    # logo abaixo, e é outra decisão.
     # ⚠ O filtro é por `step`, e não `[:2]`: um upgrade do `mjlab` que acrescente um
     # estágio intermediário quebraria o corte por índice em silêncio.
     # ⚠ O ramo de `play` mais abaixo faz `cfg.curriculum.pop("command_vel")`, por isso
@@ -486,6 +495,38 @@ def make_env_cfg(
         _ests = cfg.curriculum["command_vel"].params["velocity_stages"]
         cfg.curriculum["command_vel"].params["velocity_stages"] = [
             e for e in _ests if e["step"] < 10000 * 24]
+
+    # ⚠⚠ O ENVELOPE DE GUINADA SOBE PARA ±1,6 rad/s (decisão do dono, 10/09): "uma
+    # rotação completa precisa levar no máximo 4 s". `2π/4 = 1,5708`, e 1,6 dá a volta
+    # em 3,93 s. O molde para em ±0,7 — 8,98 s por volta. O valor mora em
+    # `knobs.Giro.wz_teto`, e o σ do `giro_sem_gingado` sobe junto (§ acima): com σ
+    # fixo, este teto seria inaprendível.
+    #
+    # ⚠ O ESTÁGIO 0 FICA INTOCADO em ±0,5. Ele é a rampa de uma run do ZERO, e é a
+    # única rampa que existe: `commands_vel` (`velocity/mdp/curriculums.py:101-108`)
+    # aplica TODO estágio com `common_step_counter >= step`, em ordem, portanto num
+    # resume acima de 5000×24 o estágio 1 já vale no primeiro passo.
+    # ⚠ O filtro é por `step`, e não por índice, pelo mesmo motivo do corte acima.
+    #
+    # ⚠⚠ A FAIXA BASE SOBE JUNTO, e ela não é redundante — importa por dois caminhos:
+    # 1) o ramo de `play` mais abaixo faz `cfg.curriculum.pop("command_vel")`, e ali
+    #    só a base vale;
+    # 2) o `exporta_cena` lê `cfg.commands["twist"].ranges` para gravar o
+    #    `envelope_treino` do `.npz` que o `pilota` consome.
+    # ⚠ ONDE ESTAVA O 0,7 QUE O `pilota` ANUNCIAVA: NÃO na base do molde de treino
+    # (que é ±0,5, `velocity_env_cfg.py:193`). É o próprio molde do G1 que reescreve
+    # a base no modo play — `unitree_g1_flat_env_cfg` faz `ranges.lin_vel_x =
+    # (−1,5; 2,0)` e `ranges.ang_vel_z = (−0,7; 0,7)` em
+    # `velocity/config/g1/env_cfgs.py:215-218` — e o `exporta_cena` constrói o env com
+    # `play=True`. Daí o `2,0 / 1,0 / 0,7`. Por isso a escrita da base mora AQUI,
+    # depois da chamada do molde, e vale nos dois ramos.
+    _wz = k.giro.wz_teto
+    cfg.commands["twist"].ranges.ang_vel_z = (-_wz, _wz)
+    if "command_vel" in cfg.curriculum:
+        cfg.curriculum["command_vel"].params["velocity_stages"] = [
+            {**e, "ang_vel_z": (-_wz, _wz)} if e["step"] > 0 and "ang_vel_z" in e
+            else e
+            for e in cfg.curriculum["command_vel"].params["velocity_stages"]]
 
     cfg.curriculum["forma"] = CurriculumTermCfg(
         func=CU.forma,
