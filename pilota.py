@@ -343,13 +343,103 @@ class Ator:
 
 # ----------------------------------------------------------------------- o teclado
 
-# Códigos GLFW, que é o que o `launch_passive` entrega ao `key_callback`.
-_CIMA, _BAIXO, _ESQ, _DIR = 265, 264, 263, 262
-_ESPACO, _VIRGULA, _PONTO = 32, 44, 46
-_MENOS, _IGUAL = 45, 61
-_ABRE, _FECHA = 91, 93
-_ERRE = ord("R")
-_DIGITOS = {ord(str(i)): i for i in range(5)}
+# ⚠⚠ NENHUMA TECLA QUE O `simulate` RESERVA, E A v1 ERRAVA NISTO. O `key_callback` do
+# `launch_passive` é entregue ao `_Simulate` em C++, que trata os PRÓPRIOS atalhos
+# ANTES de nos chamar — o dono confirmou no uso: `0`–`4` mudavam a visualização da cena
+# e nunca chegavam aqui. O mapa da v1 usava oito reservadas: os dígitos, o espaço, as
+# quatro setas, o `[` e o `]`. Todas saíram; sobraram letras e quatro sinais.
+#
+# ⚠ O MAPA É DADO, e não uma escada de `if/elif`, e duas coisas dependem disso: a
+# bandeira `--teclas "w=vx+,s=vx-"`, que sobrepõe entradas sem esperar um lote se
+# alguma tecla ainda colidir; e o cabeçalho da partida, MONTADO deste dict — texto
+# escrito à mão sai de sincronia no primeiro remapeamento.
+
+# As ações, e o que cada uma faz. O cabeçalho sai desta ordem, e `--teclas` valida
+# contra estas chaves.
+ACOES: dict[str, str] = {
+    "vx+": "vx + passo",
+    "vx-": "vx − passo",
+    "vy+": "vy + passo",
+    "vy-": "vy − passo",
+    "wz+": "wz + passo",
+    "wz-": "wz − passo",
+    "zera": "zera o twist",
+    **{f"elo:{_n}": f"elo {_n}" for _n in ELOS},
+    "teto-": "os três tetos × 0,8",
+    "teto+": "os três tetos × 1,25",
+    "tempo-": "fator de tempo ÷ 2",
+    "tempo+": "fator de tempo × 2",
+    "reset": "volta a cena ao reset do treino",
+}
+
+# A tecla é o CARACTERE, em minúscula. O `key_callback` recebe o código GLFW, e para
+# letra ele é o ASCII MAIÚSCULO; a conversão mora no `Piloto.tecla`.
+TECLAS: dict[str, str] = {
+    "w": "vx+", "s": "vx-",
+    "a": "vy+", "d": "vy-",
+    "q": "wz+", "e": "wz-",
+    "x": "zera",
+    "z": "elo:ANDAR", "c": "elo:REORIENTAR", "v": "elo:PEGAR",
+    "b": "elo:CARREGAR", "n": "elo:BOTAR",
+    "-": "teto-", "=": "teto+",
+    ",": "tempo-", ".": "tempo+",
+    "p": "reset",
+}
+
+assert set(TECLAS.values()) <= set(ACOES), \
+    f"tecla apontando para ação que não existe: {sorted(set(TECLAS.values()) - set(ACOES))}"
+
+
+def analisa_teclas(texto: str) -> dict[str, str]:
+    """Lê `--teclas "w=vx+,s=vx-"` e devolve o `TECLAS` com as entradas sobrepostas.
+
+    ⚠ ELA SOBREPÕE, e não substitui: o dono conserta uma colisão sem redigitar as 17
+    entradas. Ação desconhecida aborta na partida, e não vira tecla morta no laço.
+
+    ⚠ O PARSE NÃO É `split("=")`. As teclas `=` e `-` estão no mapa, e `"==teto+"`
+    partido no primeiro `=` daria tecla vazia. Aqui a tecla é sempre o PRIMEIRO
+    caractere da entrada, e o `=` é o segundo.
+
+    ⚠ SEPARADOR: espaço é sempre separador (o espaço é reservado pelo `simulate` e
+    não está no mapa); a vírgula é separador MENOS quando o próximo caractere é `=`,
+    e é isto que deixa `",=tempo-"` remapear a própria vírgula.
+
+    ⚠ Sobra uma ambiguidade, e ela é declarada: `"-=teto-,=teto+"` lê a segunda
+    entrada como a tecla `,`. Separe por ESPAÇO quando a ação anterior terminar em
+    `-`. O cabeçalho imprime o mapa resultante, portanto o engano aparece na partida.
+    """
+    mapa = dict(TECLAS)
+    i, n = 0, len(texto)
+    while i < n:
+        if texto[i] in " \t" or (texto[i] == "," and texto[i + 1:i + 2] != "="):
+            i += 1
+            continue
+        if texto[i + 1:i + 2] != "=":
+            raise SystemExit(
+                f"--teclas: esperava <tecla>=<ação> e achei {texto[i:]!r}")
+        tecla = texto[i].lower()
+        j = i + 2
+        while j < n and texto[j] not in ", \t":
+            j += 1
+        acao = texto[i + 2:j]
+        if acao not in ACOES:
+            raise SystemExit(f"--teclas: a ação {acao!r} não existe. "
+                             f"As que existem: {', '.join(ACOES)}")
+        mapa[tecla] = acao
+        i = j
+    return mapa
+
+
+def cabecalho(teclas: dict[str, str]) -> str:
+    """O mapa CORRENTE, montado do dict, para a partida imprimir."""
+    por_acao: dict[str, list[str]] = {}
+    for tecla, acao in teclas.items():
+        por_acao.setdefault(acao, []).append(tecla)
+    linhas = ["[pilota] teclas:"]
+    linhas += [f"  {' '.join(por_acao[a]):<10s} {ACOES[a]}"
+               for a in ACOES if a in por_acao]
+    return "\n".join(linhas)
+
 
 # ⚠ O envelope do TREINO, e o teto de quem dirige, são coisas diferentes. O envelope
 # vem do `.npz` (lido do `cfg.commands["twist"].ranges` no modo play): 2,0 / 1,0 / 0,7.
@@ -361,9 +451,11 @@ class Piloto:
     """O estado que o teclado muda. Sem máquina de estados: cada tecla é um efeito."""
 
     def __init__(self, tetos: tuple[float, float, float],
-                 envelope: np.ndarray):
+                 envelope: np.ndarray,
+                 teclas: dict[str, str] | None = None):
         self.tetos = np.asarray(tetos, dtype=np.float64)
         self.envelope = np.asarray(envelope, dtype=np.float64)
+        self.teclas = dict(TECLAS if teclas is None else teclas)
         self.twist = np.zeros(3)
         self.elo = ANDAR
         self.fator = 1.0
@@ -395,33 +487,52 @@ class Piloto:
         self._recorta()
 
     def tecla(self, codigo: int) -> None:
+        """O `key_callback` do viewer. Traduz o código GLFW em caractere e despacha.
+
+        ⚠⚠ TECLA DESCONHECIDA SE ANUNCIA. O `_Simulate` em C++ trata os atalhos dele
+        ANTES de nos chamar, portanto uma tecla que ele engole NUNCA chega aqui — e
+        sem esta linha o dono acha que o pilota travou, em vez de descobrir na hora
+        qual tecla trocar por `--teclas`.
+
+        ⚠ O `\\n` na frente existe porque o laço escreve a linha de status com `\\r`:
+        sem ele o aviso nasce por cima do status e some no quadro seguinte.
+        """
+        char = chr(codigo).lower() if 32 <= codigo < 127 else ""
+        acao = self.teclas.get(char)
+        if acao is None:
+            print(f"\n[pilota] tecla {codigo} ('{char or '?'}') não está no mapa",
+                  flush=True)
+            return
+        self.aplica(acao)
+
+    def aplica(self, acao: str) -> None:
         p = self.passo
-        if codigo == _CIMA:
+        if acao == "vx+":
             self.twist[0] += p[0]
-        elif codigo == _BAIXO:
+        elif acao == "vx-":
             self.twist[0] -= p[0]
-        elif codigo == _ESQ:
+        elif acao == "vy+":
             self.twist[1] += p[1]
-        elif codigo == _DIR:
+        elif acao == "vy-":
             self.twist[1] -= p[1]
-        elif codigo == _VIRGULA:
-            self.twist[2] -= p[2]
-        elif codigo == _PONTO:
+        elif acao == "wz+":
             self.twist[2] += p[2]
-        elif codigo == _ESPACO:
+        elif acao == "wz-":
+            self.twist[2] -= p[2]
+        elif acao == "zera":
             self.twist[:] = 0.0
-        elif codigo == _MENOS:
+        elif acao.startswith("elo:"):
+            self.elo = ELOS.index(acao[4:])
+        elif acao == "teto-":
             self._escala_tetos(0.8)
-        elif codigo == _IGUAL:
+        elif acao == "teto+":
             self._escala_tetos(1.25)
-        elif codigo in _DIGITOS:
-            self.elo = _DIGITOS[codigo]
-        elif codigo == _ERRE:
-            self.reset_pedido = True
-        elif codigo == _ABRE:
+        elif acao == "tempo-":
             self.fator = max(self.fator / 2.0, 1.0 / 64.0)
-        elif codigo == _FECHA:
+        elif acao == "tempo+":
             self.fator = min(self.fator * 2.0, 8.0)
+        elif acao == "reset":
+            self.reset_pedido = True
         else:
             return
         self._recorta()
@@ -455,7 +566,12 @@ def main() -> None:
     ap.add_argument("--vx-max", type=float, default=_TETOS_PADRAO[0])
     ap.add_argument("--vy-max", type=float, default=_TETOS_PADRAO[1])
     ap.add_argument("--wz-max", type=float, default=_TETOS_PADRAO[2])
+    # ⚠ A SAÍDA DE EMERGÊNCIA DO MAPA. Se o `simulate` engolir mais alguma tecla, o
+    # aviso de "não está no mapa" diz qual, e esta bandeira a troca na hora.
+    ap.add_argument("--teclas", default="",
+                    help="sobrepõe entradas do mapa: \"w=vx+,s=vx-\"")
     args = ap.parse_args()
+    teclas = analisa_teclas(args.teclas)
 
     m, c = carrega_cena(args.cena)
     d = mujoco.MjData(m)
@@ -467,7 +583,7 @@ def main() -> None:
 
     envelope = np.asarray(c.envelope_treino, dtype=np.float64)
     tetos = np.minimum([args.vx_max, args.vy_max, args.wz_max], envelope)
-    piloto = Piloto(tuple(tetos), envelope)
+    piloto = Piloto(tuple(tetos), envelope, teclas)
 
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
@@ -481,8 +597,7 @@ def main() -> None:
 
     print(f"[pilota] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt * 1000:.0f} ms  decimation={decimation}")
-    print("[pilota] setas: vx/vy   , .: wz   espaço: zera   - =: tetos   "
-          "0-4: elo   r: reset   [ ]: tempo")
+    print(cabecalho(piloto.teclas))
 
     # ⚠ `from ... import ... as`, e NÃO `import mujoco.viewer`: a segunda forma liga o
     # nome `mujoco` no escopo LOCAL de `main`, e todo uso anterior nesta função — o
