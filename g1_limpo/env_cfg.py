@@ -329,6 +329,16 @@ def make_env_cfg(
     # ⚠⚠ `nome_do_comando` SAIU dos params (spec dois-bits §2.7, revisão do PM item
     # 2): `engajado` agora é só `limpo_pegou`, sem `× VALIDA` — e `VALIDA` era a
     # única razão de `rastreio_por_elo` precisar do nome do comando.
+    # ⚠⚠ O GIRO PERDE O GINGADO, E A ORDEM AQUI É CONTRATO. O termo do molde soma
+    # `wx² + wy²` — roll e pitch da base, que NUNCA são comandados — ao erro de
+    # guinada. MEDIDO na `bloco14` it 9847: o canal angular vale 6,5% do máximo
+    # contra 59% do linear, e o erro² angular é 1,37 contra 0,132. O expoente é
+    # dominado pelo que não se pede e a derivada da guinada quase some: o robô não
+    # gira. O gingado continua punido uma vez, por `body_ang_vel` (peso −0,05).
+    # ⚠ A troca tem de vir ANTES do laço abaixo: ele guarda `_t.func` em
+    # `params["func"]`, portanto trocar depois faria o wrapper chamar o termo velho.
+    cfg.rewards["track_angular_velocity"].func = RC.giro_sem_gingado
+
     for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
         _t = cfg.rewards[_nome_rastreio]
         _t.params["func"] = _t.func
@@ -458,6 +468,25 @@ def make_env_cfg(
     #
     # O `elo` continua sendo termo de CURRÍCULO (e não evento) porque o reset de pose e
     # o alvo o leem — e todo termo de currículo roda antes de todo evento.
+
+    # ⚠⚠ O TERCEIRO ESTÁGIO DO ENVELOPE SAI (decisão do dono, 2026-09-10). O molde
+    # sobe `lin_vel_x` para (−2,0; 3,0) na iteração 10000, por PASSO FIXO e não por
+    # desempenho (`velocity_env_cfg.py:405`). MEDIDO na `bloco14`: ao cruzar,
+    # `s_C` caiu 0,195 -> 0,142, o reward 156 -> 127 e o `caixa_largada` subiu de
+    # 10,7% para 16,3% — a cauda de B e R sorteia do MESMO envelope e o robô perde a
+    # caixa andando a 3 m/s. A tarefa é caminhar com caixa e apoiar em mesa.
+    # ⚠ ISTO QUEBRA A PARIDADE com o molde, de propósito. O assert do notebook muda
+    # junto. Os dois primeiros estágios ficam INTOCADOS, e `ang_vel_z` também: o
+    # terceiro estágio não o toca. Quem trata o giro é o `giro_sem_gingado`.
+    # ⚠ O filtro é por `step`, e não `[:2]`: um upgrade do `mjlab` que acrescente um
+    # estágio intermediário quebraria o corte por índice em silêncio.
+    # ⚠ O ramo de `play` mais abaixo faz `cfg.curriculum.pop("command_vel")`, por isso
+    # o corte vive AQUI, antes dele; a guarda cobre o caso de a chave já não existir.
+    if "command_vel" in cfg.curriculum:
+        _ests = cfg.curriculum["command_vel"].params["velocity_stages"]
+        cfg.curriculum["command_vel"].params["velocity_stages"] = [
+            e for e in _ests if e["step"] < 10000 * 24]
+
     cfg.curriculum["forma"] = CurriculumTermCfg(
         func=CU.forma,
         params={"f": k.forma, "elo_loco": CMD.ANDAR, "nome_do_twist": "twist"},

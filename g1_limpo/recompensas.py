@@ -18,6 +18,7 @@ from mjlab.utils.lab_api.math import quat_apply
 from mjlab.utils.lab_api.string import resolve_matching_names_values
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "rastreio_por_elo",
+           "giro_sem_gingado",
            "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
            "postura_ereta", "load",
@@ -274,6 +275,42 @@ def rastreio_por_elo(env, *, func, **kwargs) -> torch.Tensor:
     engajado = env.limpo_pegou
     fator = 1.0 - env.limpo_twist_zerado * (1.0 - engajado)
     return valor * fator
+
+
+# ⚠ O molde guarda o mesmo default num privado do módulo dele
+# (`velocity/mdp/rewards.py:25`). Aqui ele é redeclarado, e não importado: o privado
+# de outro módulo não é contrato, e um upgrade do `mjlab` pode movê-lo sem aviso.
+_DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+
+
+def giro_sem_gingado(env, std: float, command_name: str,
+                     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG) -> torch.Tensor:
+    """`exp(−(wz_cmd − wz)²/σ²)`. O `track_angular_velocity` do fabricante SEM o
+    roll e o pitch da base.
+
+    ⚠⚠ POR QUE. O termo do molde soma `wx² + wy²` ao erro de guinada
+    (`velocity/mdp/rewards.py:62`). Roll e pitch da base NUNCA são comandados: são o
+    gingado da marcha. MEDIDO na `bloco14` it 9847: o canal angular vale 6,5% do
+    máximo contra 59% do linear, e o erro² angular é 1,37 contra 0,132 — o expoente é
+    dominado pelo que não se pede, e a derivada em relação à guinada quase some. O
+    robô não gira, e o `play` confirma.
+
+    ⚠ O gingado CONTINUA punido, uma vez só: `body_ang_vel` (peso −0,05) já mede
+    velocidade angular do corpo. No molde ele era cobrado duas vezes.
+
+    ⚠ `std` NÃO muda: fica em `sqrt(0.5)` do molde. Sem o `xy_error`, um erro de
+    guinada de 0,7 rad/s — o topo do envelope — dá `exp(−0,49/0,5) = 0,37`. O kernel
+    já cobre a faixa; mexer no σ junto misturaria duas mudanças numa medição.
+
+    ⚠ `track_linear_velocity` NÃO muda. Ele também soma um termo não comandado
+    (`vz²`), mas vive a 59% do máximo, com erro² 0,132. Sem defeito medido, sem
+    mudança.
+    """
+    asset = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    assert command is not None, f"comando '{command_name}' não existe"
+    wz = asset.data.root_link_ang_vel_b[:, 2]
+    return torch.exp(-torch.square(command[:, 2] - wz) / std**2)
 
 
 # =============================================================================
