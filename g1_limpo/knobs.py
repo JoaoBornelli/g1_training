@@ -366,8 +366,9 @@ class Recompensa:
     # molde é `{".*": 0,05}`, uma entrada só apertada demais: a 10% da faixa de
     # junta o termo já vale 0,000, com GRADIENTE ZERO — canal morto, não penalidade
     # forte (medido em `recompensas.PosturaPorElo`). Este dict é calibrado para o
-    # divisor REAL — as 15 juntas de perna+cintura que sobram quando o braço sai da
-    # conta (`pegou ∧ ¬soltou`).
+    # divisor REAL — as 21 juntas que sobram quando o braço sai da conta
+    # (`pegou ∧ ¬soltou`): as 15 de perna+cintura mais os 6 punhos, que desde a v3.5
+    # FICAM na média (spec `g1-limpo-cauda-parada-de-pe.md` §2.4).
     #
     # ⚠ MEDIDO 2026-09-08 (revisão independente, item A13), sem env, com o divisor
     # de 15 juntas: `exp(−média) = 0,92` a 0,1 rad de excursão uniforme (limiar era
@@ -378,7 +379,12 @@ class Recompensa:
         r".*hip_pitch.*": 0.50, r".*knee.*": 0.50, r".*ankle_pitch.*": 0.50,
         r".*ankle_roll.*": 0.30,
         r".*waist.*": 0.30,
-        r".*shoulder.*": 1.00, r".*elbow.*": 1.00, r".*wrist.*": 1.00,
+        r".*shoulder.*": 1.00, r".*elbow.*": 1.00,
+        # ⚠ v3.5: o MESMO 0,30 que o fabricante dá ao punho no `std_walking`
+        # (`mjlab/.../g1/env_cfgs.py`), e o mesmo das outras juntas de rotação que
+        # devem ficar neutras (hip_yaw, hip_roll, ankle_roll, waist). Com 1,00 um punho
+        # a 57° custava 3,4% do `pose`; com 0,30 custa 41% (divisor de 21 juntas).
+        r".*wrist.*": 0.30,
     })
 
     # ⚠ O ÚNICO termo POSITIVO de marcha, e o fabricante o entrega em ZERO. Fica em

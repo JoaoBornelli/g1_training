@@ -302,8 +302,9 @@ def make_env_cfg(
     # ⚠ `std_standing` deixa de ser COLHIDO do fabricante (`{".*": 0,05}`, uma
     # entrada tão apertada que o termo morria a 10% da faixa, com gradiente ZERO —
     # ver `recompensas.PosturaPorElo` para a tabela medida) e vira o dict próprio de
-    # `knobs.Recompensa.std_standing`, calibrado para o divisor de 15 juntas
-    # (perna+cintura) que sobra quando os braços saem.
+    # `knobs.Recompensa.std_standing`, calibrado para o divisor de 21 juntas que
+    # sobra quando os braços saem — as 15 de perna+cintura mais os 6 punhos, que
+    # desde a v3.5 FICAM na média (spec `g1-limpo-cauda-parada-de-pe.md` §2.4).
     cfg.rewards["pose"].func = RC.PosturaPorElo
     cfg.rewards["pose"].params["std_standing"] = k.recompensa.std_standing
 

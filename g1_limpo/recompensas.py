@@ -62,7 +62,7 @@ class PosturaPorElo(variable_posture):
        altos. Ele não tinha o que dizer em NENHUM elo de manipulação, nem os que
        não exigem os braços fora da pose.
     2. `variable_posture.__call__` do molde devolve um ESCALAR — média sobre as 29
-       juntas de uma vez. Não dá para zerar 14 juntas de fora por cima de um
+       juntas de uma vez. Não dá para zerar 8 juntas de fora por cima de um
        escalar; o cálculo tem de ser refeito por dentro.
 
     ⚠ POR QUE NÃO É UM 4º REGIME DE σ. Medido em 2026-08-26: o termo é
@@ -74,7 +74,8 @@ class PosturaPorElo(variable_posture):
 
         std   = std por regime (standing/walking/running), como o molde
         err2  = ((q − q_default) / std) ** 2
-        ativa = 1 em toda junta; 0 nas de `JUNTAS_BRACO`, SÓ onde `pegou ∧ ¬soltou`
+        ativa = 1 em toda junta; 0 nas de `JUNTAS_BRACO` SEM O PUNHO (v3.5), SÓ
+                onde `pegou ∧ ¬soltou`
         return exp(−(err2 × ativa).sum(-1) / ativa.sum(-1))
 
     Isso faz o termo agir em TODO elo — inclusive `PEGAR` e `BOTAR`, que é onde o
@@ -85,7 +86,8 @@ class PosturaPorElo(variable_posture):
     ⚠ `std_standing` deixa de ser `{".*": 0,05}` do fabricante — uma entrada tão
     apertada que o termo morria a 10% da faixa de junta, com gradiente ZERO — e
     vira um dict por padrão de junta (`knobs.Recompensa.std_standing`), calibrado
-    para o divisor real (15 juntas de perna+cintura quando os braços saem).
+    para o divisor real — 21 juntas quando o braço sai (v3.5: as 15 de perna+cintura
+    mais os 6 punhos, que ficam na média).
 
     ⚠ Os braços, quando saem da conta, seguem contidos por outros cinco termos que
     não dependem de elo: `action_rate_l2`, `joint_acc`, `angular_momentum`,
@@ -99,7 +101,14 @@ class PosturaPorElo(variable_posture):
         asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
         asset = env.scene[asset_cfg.name]
         _, joint_names = asset.find_joints(asset_cfg.joint_names)
-        ids_braco, _ = asset.find_joints(list(JUNTAS_BRACO), joint_subset=joint_names)
+        # ⚠ v3.5: o PUNHO não sai da máscara. Ombro e cotovelo trabalham para alcançar
+        # e saem da média enquanto seguram; o punho não precisa girar para segurar
+        # uma caixa, e girava (dono, `play` da bloco13: "a mão virada"). Pedido:
+        # "a mão sempre, ou sempre que possível, alinhada com o antebraço".
+        # `JUNTAS_BRACO` NÃO muda — `_ids_de_pe` é o complemento dela, e pôr o punho
+        # no `de_pe` do PEGAR exigiria punho neutro no fecho, que hoje passa a 89%.
+        braco_sem_punho = [p for p in JUNTAS_BRACO if "wrist" not in p]
+        ids_braco, _ = asset.find_joints(braco_sem_punho, joint_subset=joint_names)
         self._mascara_braco = torch.zeros(len(joint_names), dtype=torch.bool,
                                           device=env.device)
         self._mascara_braco[ids_braco] = True
