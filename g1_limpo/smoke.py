@@ -1182,9 +1182,13 @@ check("os elos com twist ativo são ANDAR e CARREGAR",
 # com 60% de morte na mesa e episódio de 17,6 s. O `play` do bloco 6 confirmou direto —
 # na ação MÉDIA o robô fica na pose default e não tenta pegar.
 _TL, _TA = "track_linear_velocity", "track_angular_velocity"
-check("os dois `track_*` passam pelo despachante de elo",
-      all(cfg.rewards[n].func is RC_.rastreio_por_elo for n in (_TL, _TA)),
+check("os dois `track_*` passam pelo `PesoPorEstado` — a tabela por estado",
+      all(cfg.rewards[n].func is RC_.PesoPorEstado for n in (_TL, _TA)),
       f"{cfg.rewards[_TL].func} / {cfg.rewards[_TA].func}")
+check("a tabela dos dois rastreios é a do `knobs.PesoPorEstado`, por IDENTIDADE",
+      cfg.rewards[_TL].params["tabela"] is k.peso_por_estado.track_linear_velocity
+      and cfg.rewards[_TA].params["tabela"] is k.peso_por_estado.track_angular_velocity,
+      "o wrapper lê `params[\"tabela\"]`; uma cópia redigitada derivaria em silêncio")
 # ⚠ O ANGULAR SAI DESTES DOIS CHECKS, e é de propósito: desde o lote do giro ele NÃO
 # é mais o termo do molde (é o `giro_sem_gingado`) e desde o lote do envelope o `std`
 # fixo dele deu lugar a dois params de σ. O que vale para ele está no bloco logo
@@ -1240,26 +1244,32 @@ check("a derivada no TOPO sobe ~12× contra o σ fixo",
       / (2 * _WZ / 0.5 * math.exp(-(_WZ ** 2) / 0.5)) > 11.0,
       "é o que torna o topo do envelope aprendível")
 
-check("G1->dois-bits (spec §2.7, revisão 2026-09-08): `rastreio_por_elo` NÃO injeta "
-      "`nome_do_comando` nem `VALIDA` — o fator lê `env.limpo_pegou` direto. "
-      "`elos_que_andam` e `canal_do_elo` continuam fora: o gate por CONJUNTO DE "
-      "ELOS não voltou",
+check("tabela-por-estado §3: o `PesoPorEstado` NÃO injeta `nome_do_comando`, "
+      "`VALIDA`, `limpo_pegou` nem `limpo_twist_zerado` — o gate é a coluna de "
+      "`env.limpo_estado`. `elos_que_andam` e `canal_do_elo` continuam fora: o gate "
+      "por CONJUNTO DE ELOS não voltou",
       all("elos_que_andam" not in cfg.rewards[n].params
           and "canal_do_elo" not in cfg.rewards[n].params
           and "nome_do_comando" not in cfg.rewards[n].params
           for n in (_TL, _TA))
-      # ⚠ `co_names` é o CORPO compilado, não a docstring — ela CITA "VALIDA" em
-      # prosa (o mecanismo antigo, para contraste), o que faria uma busca ingênua
-      # no `getsource` inteiro falhar por um comentário, não por código.
-      and "limpo_pegou" in RC_.rastreio_por_elo.__code__.co_names
-      and "VALIDA" not in RC_.rastreio_por_elo.__code__.co_names,
+      # ⚠ `co_names` é o CORPO compilado, não a docstring — ela CITA "VALIDA" e o
+      # `rastreio_por_elo` em prosa (o mecanismo antigo, para contraste), o que
+      # faria uma busca ingênua no `getsource` inteiro falhar por um comentário.
+      and "limpo_estado" in RC_.PesoPorEstado.__call__.__code__.co_names
+      and not ({"VALIDA", "limpo_pegou", "limpo_twist_zerado", "limpo_aguardando"}
+               & set(RC_.PesoPorEstado.__call__.__code__.co_names)),
       str({n: set(cfg.rewards[n].params) for n in (_TL, _TA)}))
 check("o PESO dos dois segue o do fabricante — o gate não é um corte de peso",
       all(cfg.rewards[n].weight == fab.rewards[n].weight == 2.0 for n in (_TL, _TA)),
       "o que muda é ONDE o termo paga, e não QUANTO")
 
 # a postura (spec dois-bits §3.1: reimplementa o cálculo, sem neutralização por elo)
-check("a postura é a NOSSA subclasse", cfg.rewards["pose"].func is RC_.PosturaPorElo)
+check("a postura é a NOSSA subclasse, DENTRO do `PesoPorEstado` (pelo wrapper, sem "
+      "fallback): `func` é o wrapper, `params[\"func\"]` é o `PosturaPorElo`",
+      cfg.rewards["pose"].func is RC_.PesoPorEstado
+      and cfg.rewards["pose"].params["func"] is RC_.PosturaPorElo
+      and cfg.rewards["pose"].params["tabela"] is k.peso_por_estado.pose,
+      f"{cfg.rewards['pose'].func} / {cfg.rewards['pose'].params.get('func')}")
 check("ela NÃO recebe mais `canal_do_elo` nem `elos_que_andam` — a neutralização "
       "por elo SAIU",
       "canal_do_elo" not in cfg.rewards["pose"].params
@@ -1282,6 +1292,102 @@ check("o `walking_threshold` do G1 é 0,05, não 0,5",
 check("`std_standing` tem uma entrada por padrão de junta — 10, não `.*` único",
       len(cfg.rewards["pose"].params["std_standing"]) == 10,
       str(cfg.rewards["pose"].params["std_standing"]))
+
+# --- A TABELA POR ESTADO, SEM ENV (spec `g1-limpo-tabela-por-estado.md` §2, §7) ---
+_TABELA = k.peso_por_estado
+_DEZ = [f.name for f in dataclasses.fields(_TABELA)]
+check("a tabela tem os dez termos: os SETE, os dois rastreios e o `pose`",
+      set(_DEZ) == {"staged", "precise_pos", "precise_ori", "squeeze", "unload",
+                    "postura_ereta", "load", "track_linear_velocity",
+                    "track_angular_velocity", "pose"}, str(_DEZ))
+check("cada linha tem uma coluna por estado de `comando.ESTADOS` — o `knobs` NÃO "
+      "importa o `comando` (cena -> knobs -> comando fecharia o ciclo); este check é o nó",
+      all(len(getattr(_TABELA, n)) == len(CMD.ESTADOS) == 10 for n in _DEZ),
+      str({n: len(getattr(_TABELA, n)) for n in _DEZ}))
+check("os dez passam pelo `PesoPorEstado`, e a tabela de cada um é a do knob, por "
+      "IDENTIDADE",
+      all(cfg.rewards[n].func is RC_.PesoPorEstado
+          and cfg.rewards[n].params["tabela"] is getattr(_TABELA, n) for n in _DEZ),
+      str({n: cfg.rewards[n].func for n in _DEZ}))
+_SETE_T = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
+           "postura_ereta", "load")
+check("a invariante do `VALIDA` de ontem, explícita: nos SETE a coluna ANDAR é 0 e a "
+      "soma das duas colunas de espera é 0",
+      all(getattr(_TABELA, n)[CMD.ESTADO_ANDAR] == 0.0
+          and getattr(_TABELA, n)[CMD.ESTADO_ESPERA_SEM]
+          + getattr(_TABELA, n)[CMD.ESTADO_ESPERA_COM] == 0.0 for n in _SETE_T),
+      str({n: getattr(_TABELA, n)[:3] for n in _SETE_T}))
+check("os números da spec §2: BOTAR = 2 nos sete; CARREGAR só `precise_pos` = 1; "
+      "rastreio 3,5 no CARREGAR; `postura_ereta` e `pose` = 8 na CAUDA; `pose` = 4 em "
+      "PEGAR_COM e ESPERA_COM, e 1 em PEGAR_SEM, BOTAR e CARREGAR",
+      all(getattr(_TABELA, n)[CMD.ESTADO_BOTAR] == 2.0 for n in _SETE_T)
+      and _TABELA.precise_pos[CMD.ESTADO_CARREGAR] == 1.0
+      and all(getattr(_TABELA, n)[CMD.ESTADO_CARREGAR] == 0.0
+              for n in _SETE_T if n != "precise_pos")
+      and _TABELA.track_linear_velocity[CMD.ESTADO_CARREGAR] == 3.5
+      and _TABELA.track_angular_velocity[CMD.ESTADO_CARREGAR] == 3.5
+      and _TABELA.postura_ereta[CMD.ESTADO_CAUDA] == 8.0
+      and _TABELA.pose[CMD.ESTADO_CAUDA] == 8.0
+      and _TABELA.pose[CMD.ESTADO_PEGAR_COM] == 4.0
+      and _TABELA.pose[CMD.ESTADO_ESPERA_COM] == 4.0
+      and _TABELA.pose[CMD.ESTADO_PEGAR_SEM] == 1.0
+      and _TABELA.pose[CMD.ESTADO_BOTAR] == 1.0
+      and _TABELA.pose[CMD.ESTADO_CARREGAR] == 1.0)
+check("as linhas de rastreio reproduzem os quatro estados do antigo `rastreio_por_elo`: "
+      "0 em ESPERA_SEM, REORIENTAR_SEM e PEGAR_SEM; 1 em ANDAR, ESPERA_COM, "
+      "REORIENTAR_COM, PEGAR_COM, BOTAR e CAUDA",
+      all(getattr(_TABELA, n)[i] == 0.0
+          for n in ("track_linear_velocity", "track_angular_velocity")
+          for i in (CMD.ESTADO_ESPERA_SEM, CMD.ESTADO_REORIENTAR_SEM,
+                    CMD.ESTADO_PEGAR_SEM))
+      and all(getattr(_TABELA, n)[i] == 1.0
+              for n in ("track_linear_velocity", "track_angular_velocity")
+              for i in (CMD.ESTADO_ANDAR, CMD.ESTADO_ESPERA_COM,
+                        CMD.ESTADO_REORIENTAR_COM, CMD.ESTADO_PEGAR_COM,
+                        CMD.ESTADO_BOTAR, CMD.ESTADO_CAUDA)))
+
+# --- `limpo_estado`: faixa e precedência, SEM ENV, com a função pura do comando ---
+import itertools as _it  # noqa: E402
+
+_comb = list(_it.product(range(len(CMD.ELOS)), (False, True), (False, True),
+                         (False, True)))
+_elo_s = torch.tensor([c[0] for c in _comb], dtype=torch.long)
+_agu_s = torch.tensor([c[1] for c in _comb])
+_peg_s = torch.tensor([c[2] for c in _comb])
+_sol_s = torch.tensor([c[3] for c in _comb])
+_est_s = CMD.estado_de_recompensa(_elo_s, _agu_s, _peg_s, _sol_s)
+check("`estado_de_recompensa` só assume valores em range(10), e cobre os dez",
+      bool(((_est_s >= 0) & (_est_s < 10)).all())
+      and set(_est_s.tolist()) == set(range(10)),
+      str(sorted(set(_est_s.tolist()))))
+_POR_ELO = {CMD.ANDAR: (CMD.ESTADO_ANDAR, CMD.ESTADO_ANDAR),
+            CMD.REORIENTAR: (CMD.ESTADO_REORIENTAR_SEM, CMD.ESTADO_REORIENTAR_COM),
+            CMD.PEGAR: (CMD.ESTADO_PEGAR_SEM, CMD.ESTADO_PEGAR_COM),
+            CMD.CARREGAR: (CMD.ESTADO_CARREGAR, CMD.ESTADO_CARREGAR),
+            CMD.BOTAR: (CMD.ESTADO_BOTAR, CMD.ESTADO_BOTAR)}
+
+
+def _esperado(elo, agu, peg, sol) -> int:
+    if sol:
+        return CMD.ESTADO_CAUDA
+    if agu:
+        return CMD.ESTADO_ESPERA_COM if peg else CMD.ESTADO_ESPERA_SEM
+    return _POR_ELO[elo][int(peg)]
+
+
+check("a precedência é `soltou > aguardando > elo`, e `_SEM/_COM` segue `pegou` — nas "
+      "40 combinações",
+      all(int(e) == _esperado(*c) for e, c in zip(_est_s.tolist(), _comb)),
+      str([(c, int(e)) for e, c in zip(_est_s.tolist(), _comb)
+           if int(e) != _esperado(*c)][:5]))
+_src_esp_t = inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
+check("`limpo_estado` é escrito em `_aplica_espera`, DEPOIS do `VALIDA` e do MESMO "
+      "`aguardando` — e NÃO no fim de `_update_command`",
+      _src_esp_t.index("VALIDA] = base") < _src_esp_t.index("limpo_estado.copy_(")
+      and "estado_de_recompensa(" in _src_esp_t
+      and "limpo_estado" not in inspect.getsource(CMD.AlvoCaixaCmd._update_command),
+      "no fim de `_update_command` o `_avanca_elo` já correu: a espera apareceria um "
+      "passo antes do `VALIDA`")
 
 # --- a VALIDAÇÃO do `std_standing` novo, SEM ENV (spec §3.1) ---
 # ⚠ Esta tabela valida SÓ as 15 de perna+cintura, contra os limiares de origem:
@@ -1345,7 +1451,15 @@ try:
         _env15.reset()
         _env15.step(_t3.zeros(4, _env15.action_manager.total_action_dim))
         _idx15 = list(_cfg15.rewards).index("pose")
-        _termo15 = _env15.reward_manager._term_cfgs[_idx15].func
+        # ⚠ tabela-por-estado §3: o instanciado é o `PesoPorEstado`, e o
+        # `PosturaPorElo` mora DENTRO dele (`_f`). O item 15 mede o `PosturaPorElo`
+        # CRU — a coluna da tabela é assunto dos checks da tabela, não deste.
+        _wrap15 = _env15.reward_manager._term_cfgs[_idx15].func
+        check("15. o `pose` instanciado é um `PesoPorEstado` que embrulha um "
+              "`PosturaPorElo` — instanciado PELO wrapper, sem fallback",
+              isinstance(_wrap15, RC_.PesoPorEstado)
+              and isinstance(_wrap15._f, RC_.PosturaPorElo), str(type(_wrap15)))
+        _termo15 = _wrap15._f
         _robo15 = _env15.scene["robot"]
         _params15 = dict(_cfg15.rewards["pose"].params)
 
@@ -1612,22 +1726,23 @@ check("só UM elo zera o VALIDA no `_aplica_elo`, e é o ANDAR",
       and _src_elo.count("VALIDA] = 1.0") == len(CMD.ELOS) - 1,
       f"zeram {_src_elo.count('VALIDA] = 0.0')}, ligam "
       f"{_src_elo.count('VALIDA] = 1.0')}, elos {len(CMD.ELOS)}")
-# ⚠ v2.1 (spec P4): A JANELA DEIXOU DE CONTAR COMO "ELO QUE ANDA" no rastreio. O
-# publicado ainda vira ANDAR (a OBSERVAÇÃO o lê), mas o gate do rastreio agora é
-# `env.limpo_twist_zerado`, publicado do elo INTERNO — e o interno NÃO muda durante a
-# janela. Como toda cadeia abre num elo PARADO (check abaixo), a espera passa a pagar
-# ZERO no rastreio, e não mais o cheio que "elo que anda" pagava. Ver o item 11 da
-# seção "v2.1: gradientes" para a prova numérica.
-# ⚠ POR ASSINATURA, e não por substring do fonte: o PRÓPRIO docstring de
-# `rastreio_por_elo` cita `elos_que_andam` para explicar o que saiu — uma busca de
-# substring no fonte acharia essa citação e falharia com o código certo.
-_sig_rast = inspect.signature(RC_.rastreio_por_elo).parameters
-check("o publicado vira ANDAR na janela, mas o rastreio lê o elo INTERNO — gate novo",
+# ⚠ v2.1 (spec P4) -> tabela por estado: A JANELA DEIXOU DE CONTAR COMO "ELO QUE
+# ANDA" no rastreio. O publicado ainda vira ANDAR (a OBSERVAÇÃO o lê), mas o gate do
+# rastreio agora é a coluna de `env.limpo_estado` — na janela ANTES da primeira pega
+# o estado é `ESPERA_SEM`, e as linhas de rastreio valem 0 ali. A espera paga ZERO no
+# rastreio, e não mais o cheio que "elo que anda" pagava. Ver o item 11 da seção
+# "v2.1: gradientes" para a prova numérica.
+# ⚠ POR ASSINATURA, e não por substring do fonte: o docstring do `PesoPorEstado` cita
+# o mecanismo antigo para explicar o que saiu — uma busca de substring no fonte
+# acharia essa citação e falharia com o código certo.
+_sig_rast = inspect.signature(RC_.PesoPorEstado.__call__).parameters
+check("o publicado vira ANDAR na janela, mas o rastreio lê o ESTADO — e a coluna "
+      "`ESPERA_SEM` das linhas de rastreio é 0",
       "publica_andar" in inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
-      and "limpo_twist_zerado" in inspect.getsource(RC_.rastreio_por_elo)
+      and k.peso_por_estado.track_linear_velocity[CMD.ESTADO_ESPERA_SEM] == 0.0
+      and k.peso_por_estado.track_angular_velocity[CMD.ESTADO_ESPERA_SEM] == 0.0
       and "elos_que_andam" not in _sig_rast and "canal_do_elo" not in _sig_rast,
-      "a espera de um elo PARADO agora paga zero no rastreio (era o cheio, pelo "
-      "publicado)")
+      "a espera de um elo PARADO paga zero no rastreio (era o cheio, pelo publicado)")
 # ⚠⚠ E O INVARIANTE QUE SUSTENTA ISSO: a janela só ocorre em elo PARADO, portanto o
 # twist é ZERO nela e o rastreio paga por MANTER velocidade zero. Se uma cadeia nova
 # abrisse em `CARREGAR` — o único elo de manipulação que anda — a janela passaria a
@@ -3146,8 +3261,10 @@ check("7. o publicado é recalculado do INTERNO e das duas esperas, com `pegou`"
 check("20. o `_pegou` só arma com o objetivo ATIVO",
       "self._espera <= 0.0" in inspect.getsource(CMD.AlvoCaixaCmd._publica_pegou),
       "um toque por exploração na espera inicial armaria `escapou` e mataria o episódio")
-check("o `rastreio_por_elo` não lê mais `limpo_aguardando` — o publicado já é ANDAR",
-      "limpo_aguardando" not in inspect.getsource(RC_.rastreio_por_elo))
+check("o gate do rastreio (`PesoPorEstado`) não lê `limpo_aguardando` — só "
+      "`limpo_estado`, que o comando já calcula da espera",
+      "limpo_aguardando" not in RC_.PesoPorEstado.__call__.__code__.co_names
+      and "limpo_estado" in RC_.PesoPorEstado.__call__.__code__.co_names)
 
 try:
     import torch as _t23
@@ -3691,11 +3808,12 @@ try:
           f"fechou {int(_t26c.fechou.sum())}/8, soltou {int(_t26c._soltou.sum())}/8")
     _rF, _dF = _renda(passos=4, alvo_dz=_DZ_APOIA)
     # ⚠ `largou` SAIU (spec §2.7): a cauda é ANDAR com twist, e sair andando já tira
-    # as mãos. Mas `load` É `(1 − descarga) × perto × _valida` (spec §2.7, tabela) —
-    # `_valida` é ZERO na espera final (`aguardando`), e `load` some COM ELE, como
-    # `staged`/`precise_pos`/`squeeze`/`unload`/`postura_ereta`. É `renda_congelada`
-    # quem carrega o valor congelado adiante, não `load` ao vivo.
-    check("18. na espera final, `load` ZERA (o gate `_valida` desliga com `aguardando`)",
+    # as mãos. Mas `load` é `(1 − descarga) × perto` vezes a coluna da TABELA por
+    # estado — e as colunas de espera e CAUDA dos sete são ZERO: `load` some com a
+    # tabela, como `staged`/`precise_pos`/`squeeze`/`unload`/`postura_ereta`. É
+    # `renda_congelada` quem carrega o valor congelado adiante, não `load` ao vivo.
+    check("18. na espera final, `load` ZERA (a tabela por estado desliga os sete nas "
+          "esperas e na CAUDA)",
           abs(_dF["load"]) < 1e-6, f"{_dF['load']:.3f}")
     # ⚠ REGRA 1 (spec §2.2, item 8/9 da seção "v3.1: dois bits"): a renda TOTAL não
     # é mais estritamente crescente através da fronteira do fecho terminal — o
@@ -4052,11 +4170,11 @@ except Exception as _e34x:      # noqa: BLE001
     _falhas.append(f"o check 10 (REORIENTAR inerte) não pôde ser medido: "
                    f"{type(_e34x).__name__}: {_e34x}")
 
-# --- 11. `rastreio_por_elo` só zera onde `limpo_twist_zerado == 1` ---
+# --- 11. o rastreio só zera onde a coluna de `limpo_estado` é 0 (tabela por estado) ---
 try:
     import torch as _t35
 
-    # A: PEGAR, durante a espera inicial (SEM `_passa_janela`)
+    # A: PEGAR, durante a espera inicial (SEM `_passa_janela`) -> estado ESPERA_SEM
     _c35a = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
     _c35a.scene.num_envs = 16
     _e35a = ManagerBasedRlEnv(cfg=_c35a, device="cpu")
@@ -4065,14 +4183,18 @@ try:
     _e35a.step(_t35.zeros(_e35a.num_envs, _n35a))
     check("11. no PEGAR, durante a espera inicial, `limpo_twist_zerado == 1`",
           bool((_e35a.limpo_twist_zerado == 1.0).all()))
+    check("11. e `limpo_estado == ESPERA_SEM` em todos os envs (tabela-por-estado §1)",
+          bool((_e35a.limpo_estado == CMD.ESTADO_ESPERA_SEM).all()),
+          str(_e35a.limpo_estado.tolist()[:6]))
     _idx_tl35a = list(_c35a.rewards).index("track_linear_velocity")
     check("11. e `track_linear_velocity == 0` nessa espera",
           float(_e35a.reward_manager._step_reward[:, _idx_tl35a].abs().max()) == 0.0)
-    _params35a = dict(cfg.rewards["track_linear_velocity"].params)
-    _molde35a = _params35a.pop("func")
-    check("11. `rastreio_por_elo == 0` quando `limpo_twist_zerado == 1`",
-          float(RC_.rastreio_por_elo(_e35a, func=_molde35a, **_params35a)
-                .abs().max()) == 0.0)
+    # ⚠ o wrapper INSTANCIADO pelo RewardManager, com a tabela já em tensor
+    _wrap35a = _e35a.reward_manager._term_cfgs[_idx_tl35a].func
+    check("11. `PesoPorEstado(...) == 0` quando a coluna do estado é 0 (ESPERA_SEM)",
+          isinstance(_wrap35a, RC_.PesoPorEstado)
+          and float(_wrap35a(_e35a, **_c35a.rewards["track_linear_velocity"].params)
+                    .abs().max()) == 0.0)
     del _e35a
 
     # ⚠ B: "CARREGAR de segurar-parado (cadeia 3)" SAIU (spec dois-bits §2.1/§2.4):
@@ -4080,7 +4202,7 @@ try:
     # FICA ATIVO nele — `elos_parados` não o lista — testado no item 12, abaixo
     # (`o twist FIXO no CARREGAR-andando`).
 
-    # C: ANDAR — nada zera o twist
+    # C: ANDAR — nada zera o twist; estado ANDAR, coluna 1 -> igual ao molde
     _c35c = make_env_cfg(k, elo=CMD.ANDAR)
     _c35c.scene.num_envs = 16
     _e35c = ManagerBasedRlEnv(cfg=_c35c, device="cpu")
@@ -4089,16 +4211,18 @@ try:
     _e35c.step(_t35.zeros(_e35c.num_envs, _n35c))
     check("11. no ANDAR, `limpo_twist_zerado == 0`",
           bool((_e35c.limpo_twist_zerado == 0.0).all()))
-    _params35c = dict(cfg.rewards["track_linear_velocity"].params)
+    check("11. e `limpo_estado == ANDAR` em todos os envs",
+          bool((_e35c.limpo_estado == CMD.ESTADO_ANDAR).all()),
+          str(_e35c.limpo_estado.tolist()[:6]))
+    # ⚠ o MOLDE cru não aceita `func` nem `tabela`: os dois saem antes da chamada.
+    _params35c = dict(_c35c.rewards["track_linear_velocity"].params)
     _molde35c = _params35c.pop("func")
-    # ⚠ G1 (spec `g1-limpo-lento-e-estavel.md` §2): `nome_do_comando` voltou aos
-    # params do termo — o gate precisa dele. Mas o MOLDE cru não o aceita: só o
-    # `func=` puro entra em `_params35c_molde`, sem esse param.
-    _params35c_molde = dict(_params35c)
-    _params35c_molde.pop("nome_do_comando", None)
-    _valor_molde35c = _molde35c(_e35c, **_params35c_molde)
-    _valor_gate35c = RC_.rastreio_por_elo(_e35c, func=_molde35c, **_params35c)
-    check("11. `rastreio_por_elo` == o termo do molde quando `limpo_twist_zerado == 0`",
+    _params35c.pop("tabela")
+    _valor_molde35c = _molde35c(_e35c, **_params35c)
+    _idx_tl35c = list(_c35c.rewards).index("track_linear_velocity")
+    _wrap35c = _e35c.reward_manager._term_cfgs[_idx_tl35c].func
+    _valor_gate35c = _wrap35c(_e35c, **_c35c.rewards["track_linear_velocity"].params)
+    check("11. `PesoPorEstado` == o termo do molde quando a coluna é 1 (ANDAR)",
           bool(_t35.allclose(_valor_gate35c, _valor_molde35c, atol=1e-6)))
     del _e35c
 except Exception as _e35x:      # noqa: BLE001
@@ -4335,13 +4459,17 @@ try:
           bool((_pegou_b == 0).all()) and bool((_trk_b == 0).all()),
           f"pegou {_pegou_b.tolist()[:3]}, track {_trk_b.tolist()[:3]}")
 
-    # 1c: escrevendo `limpo_pegou = 1` à mão — simula engajamento real
-    # ⚠ spec dois-bits §2.7 (revisão do PM item 2): `engajado = limpo_pegou`, SEM
-    # `× VALIDA` — paga cheio mesmo aguardando, desde que já tenha pegado.
-    _eg1.limpo_pegou[:] = 1.0
+    # 1c: escrevendo o ESTADO à mão — simula engajamento real
+    # ⚠ tabela-por-estado §2: o gate do rastreio é a coluna de `env.limpo_estado`;
+    # `PEGAR_COM` vale 1 (segurar parado É a tarefa) e `PEGAR_SEM` vale 0. O buffer
+    # é escrito IN-PLACE pelo comando DEPOIS da recompensa, no mesmo passo — portanto
+    # o valor escrito à mão aqui é o que a recompensa DESTE passo lê. (Antes o check
+    # escrevia `limpo_pegou`, que o `rastreio_por_elo` lia; a tabela lê o `_pegou`
+    # INTERNO via `limpo_estado`, e escrever `limpo_pegou` já não a alcança.)
+    _eg1.limpo_estado[:] = CMD.ESTADO_PEGAR_COM
     _eg1.step(_tg1.zeros(_eg1.num_envs, _nag1))
     _trk_c = _eg1.reward_manager._step_reward[:, _idx_tlg1]
-    check("1c. escrevendo `env.limpo_pegou[:] = 1,0` à mão e dando um passo, "
+    check("1c. escrevendo `env.limpo_estado[:] = PEGAR_COM` à mão e dando um passo, "
           "`track_linear_velocity > 0` — segurar JÁ engajado paga cheio",
           bool((_trk_c > 0.0).all()), f"{_trk_c.tolist()[:3]}")
     del _eg1
@@ -4356,30 +4484,36 @@ try:
     _zerado_d = _eg2.limpo_twist_zerado
     _params_d = dict(_eg2.reward_manager.cfg["track_linear_velocity"].params)
     _molde_d = _params_d.pop("func")
-    # ⚠ `nome_do_comando` SAIU de `rastreio_por_elo` (spec §2.7): `engajado` não lê
-    # mais VALIDA, e era a única razão do parâmetro.
-    _params_d.pop("nome_do_comando", None)
-    _valor_gate_d = RC_.rastreio_por_elo(_eg2, func=_molde_d, **_params_d)
+    _params_d.pop("tabela")
+    # ⚠ o wrapper INSTANCIADO: `PesoPorEstado` multiplica pela coluna de
+    # `limpo_estado`, que no ANDAR é 1 para os dois rastreios (tabela-por-estado §2).
+    _idx_tl_d = list(_cg2.rewards).index("track_linear_velocity")
+    _wrap_d = _eg2.reward_manager._term_cfgs[_idx_tl_d].func
+    _valor_gate_d = _wrap_d(_eg2, **_eg2.reward_manager.cfg["track_linear_velocity"].params)
     _valor_molde_d = _molde_d(_eg2, **_params_d)
-    check("1d. no `ANDAR`, `limpo_twist_zerado == 0` e o rastreio == o termo do molde",
+    check("1d. no `ANDAR`, `limpo_twist_zerado == 0`, `limpo_estado == ANDAR` e o "
+          "rastreio == o termo do molde",
           bool((_zerado_d == 0).all())
+          and bool((_eg2.limpo_estado == CMD.ESTADO_ANDAR).all())
           and bool(_tg1.allclose(_valor_gate_d, _valor_molde_d, atol=1e-6)))
     del _eg2
 except Exception as _egx:      # noqa: BLE001
     _falhas.append(f"a auditoria de renda grátis (G1) não pôde ser "
                    f"medida: {type(_egx).__name__}: {_egx}")
 
-# --- 3: `velocidade_por_regime` — G2 (spec dois-bits §3.3, mudança v3→v3.1) ---
-# ⚠ FÓRMULA NOVA: `clamp(média(v²/vmax²), max=4,0)`. A `1 − exp(...)` SAIU: ela tinha
-# derivada ZERO no teto — esta é quadrática até 2× o limite (onde já vale 4,0) e
-# clampeia dali em diante.
+# --- 3: `velocidade_por_regime` — a DOBRADIÇA (spec tabela-por-estado §4) ---
+# ⚠ FÓRMULA NOVA: `média(relu(|v|/vmax − 1)²)`, SEM clamp. O `clamp(..., max=4)` da
+# v3.1 SAIU: 2,26% dos passos da pega estavam no teto com derivada ZERO — correr mais
+# era grátis. Abaixo do limite o custo é ZERO; acima, o quadrado do EXCESSO cresce sem
+# teto (2× -> 1; 3× -> 4; 5× -> 16). `vel_max` é FRONTEIRA, não escala.
 #
 # ⚠⚠ INSTANCIADO DE VERDADE (revisão independente, item B1): a versão anterior só
 # fazia `min(max((0.0)**2,0),4.0)` em Python puro — NUNCA chamava
 # `velocidade_por_regime`. Isto passaria por construção mesmo se o `__call__` lesse
-# `joint_vel` errado, ou se `vmax` resolvesse do regime errado. Agora PINA
-# `joint_vel` em 0, `vmax`, e 3×`vmax` de verdade, com o robô em PEGAR (twist
-# zerado, regime `standing` garantido, sem depender do sorteio do twist).
+# `joint_vel` errado, ou se `vmax` resolvesse do regime errado. PINA `joint_vel` em
+# 0, 1×, 2×, 3× e 5× `vmax` de verdade — `vmax` POR JUNTA, lido do tensor que o termo
+# resolveu no `__init__` (o `standing` é por FAMÍLIA agora) — com o robô em PEGAR
+# (twist zerado, regime `standing` garantido, sem depender do sorteio do twist).
 try:
     import torch as _tg3
 
@@ -4392,33 +4526,39 @@ try:
     _idx_vpr3 = list(_cg3.rewards).index("velocidade_por_regime")
     _termo_vpr3 = _eg3.reward_manager._term_cfgs[_idx_vpr3].func
     _robo3g = _eg3.scene["robot"]
-    _asset_cfg3g = _cg3.rewards["velocidade_por_regime"].params["asset_cfg"]
-    _vmax3g = float(tr.vel_max_standing[".*"])
+    _vmax3g = _termo_vpr3.vel_max_standing          # (29,) por junta, resolvido
+    check("3. `vel_max_standing` resolveu para as 29 juntas: 1,5 em 23 e 1,0 nos 6 punhos",
+          _vmax3g.numel() == 29 and int((_vmax3g == 1.0).sum()) == 6
+          and int((_vmax3g == 1.5).sum()) == 23, str(_vmax3g.tolist()))
 
     def _custo_vel(mult: float) -> float:
         # ⚠ `write_joint_velocity_to_sim`, e NÃO `.data.joint_vel[:] = ...`: a
         # atribuição direta não gruda — o buffer é sobrescrito antes da leitura.
-        jv = _tg3.full_like(_robo3g.data.joint_vel, mult * _vmax3g)
+        jv = (mult * _vmax3g).unsqueeze(0).expand_as(_robo3g.data.joint_vel).clone()
         _robo3g.write_joint_velocity_to_sim(jv)
         params = dict(_cg3.rewards["velocidade_por_regime"].params)
         params.pop("func", None)
         return float(_termo_vpr3(_eg3, **params).mean())
 
-    _v_parado, _v_limite, _v_2x, _v_3x = (
-        _custo_vel(0.0), _custo_vel(1.0), _custo_vel(2.0), _custo_vel(3.0))
-    check("3. `velocidade_por_regime` de verdade: v=0 -> 0,0; v=vmax -> 1,0; "
-          "v=2·vmax -> 4,0 (o teto); v=3·vmax -> ainda 4,0 (clampeado)",
-          abs(_v_parado - 0.0) < 1e-6 and abs(_v_limite - 1.0) < 1e-3
-          and abs(_v_2x - 4.0) < 1e-3 and abs(_v_3x - 4.0) < 1e-6,
-          f"{_v_parado:.4f} / {_v_limite:.4f} / {_v_2x:.4f} / {_v_3x:.4f}")
+    _v_parado, _v_limite, _v_2x, _v_3x, _v_5x = (
+        _custo_vel(0.0), _custo_vel(1.0), _custo_vel(2.0), _custo_vel(3.0),
+        _custo_vel(5.0))
+    check("3. a dobradiça de verdade: v=0 -> 0; v=vmax -> 0; v=2·vmax -> 1,0; "
+          "v=3·vmax -> 4,0; v=5·vmax -> 16,0 — sem teto",
+          abs(_v_parado) < 1e-6 and abs(_v_limite) < 1e-3
+          and abs(_v_2x - 1.0) < 1e-3 and abs(_v_3x - 4.0) < 1e-3
+          and abs(_v_5x - 16.0) < 1e-2,
+          f"{_v_parado:.4f} / {_v_limite:.4f} / {_v_2x:.4f} / {_v_3x:.4f} / "
+          f"{_v_5x:.4f}")
     del _eg3
 except Exception as _eg3x:      # noqa: BLE001
     _falhas.append(f"3. G2 instanciado não pôde ser medido: "
                    f"{type(_eg3x).__name__}: {_eg3x}")
-check("3. `velocidade_por_regime` do módulo bate com a fórmula do clamp",
-      "torch.clamp(torch.mean((v / vmax) ** 2, dim=1), max=4.0)"
-      in inspect.getsource(RC_.velocidade_por_regime),
-      "a forma `1 − exp(...)` tinha derivada zero no teto (revisão, item 13)")
+check("3. `velocidade_por_regime` do módulo bate com a fórmula da DOBRADIÇA, sem clamp",
+      "torch.mean(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)"
+      in inspect.getsource(RC_.velocidade_por_regime)
+      and "max=4.0" not in inspect.getsource(RC_.velocidade_por_regime),
+      "o clamp em 4,0 dava derivada ZERO acima de 2× o limite — correr mais era grátis")
 check("3. o peso de `velocidade_por_regime` em `knobs.Tarefa` é NEGATIVO — a "
       "penalidade da correção 1",
       k.tarefa.velocidade_por_regime < 0.0, str(k.tarefa.velocidade_por_regime))
