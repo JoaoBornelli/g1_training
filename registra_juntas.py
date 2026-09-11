@@ -137,6 +137,8 @@ def main() -> None:
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
                     help="metros em +x para onde laje e caixa vão na marcha")
+    ap.add_argument("--tempo", type=float, default=1.0,
+                    help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
     args = ap.parse_args()
 
@@ -161,7 +163,10 @@ def main() -> None:
     twist = np.zeros(3)
     linhas: list[dict] = []
 
-    print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  dt={dt*1000:.0f} ms")
+    if args.tempo <= 0:
+        raise SystemExit("--tempo tem de ser > 0")
+    print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
+          f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}")
     print(f"[registra] roteiro: " + "  ".join(
         f"{f.rotulo}({ELOS[f.elo]},{f.segundos:g}s"
         + (f",vx={f.vx:g}" if f.vx else "") + ")" for f in fases)
@@ -173,6 +178,7 @@ def main() -> None:
         viewer = mj_viewer.launch_passive(m, d, key_callback=lambda k: None)
 
     passo = 0
+    relogio0 = time.perf_counter()
     try:
         for volta in range(args.voltas):
             for fase in fases:
@@ -206,11 +212,17 @@ def main() -> None:
 
                     if viewer is not None:
                         viewer.sync()
-                        atraso = dt - (time.perf_counter() - t0)
+                        atraso = dt / args.tempo - (time.perf_counter() - t0)
                         if atraso > 0:
                             time.sleep(atraso)
-                    if passo % 200 == 0:
-                        print(f"\r  passo {passo}  fase {fase.rotulo:<8s}", end="", flush=True)
+                    # ⚠ O FATOR MEDIDO, e não o pedido. `sleep` só atrasa: se ele
+                    # aparecer acima do `--tempo`, a CPU não está dando conta e a
+                    # cena corre mais que o pedido — o número diz qual dos dois é.
+                    if passo % 50 == 0:
+                        parede = time.perf_counter() - relogio0
+                        medido = (passo * dt) / parede if parede > 0 else 0.0
+                        print(f"\r  passo {passo:<6d} fase {fase.rotulo:<8s} "
+                              f"tempo medido x{medido:.2f}", end="", flush=True)
     except KeyboardInterrupt:
         print("\n[registra] interrompido — gravando o que já rodou")
     finally:
