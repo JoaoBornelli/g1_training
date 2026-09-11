@@ -122,6 +122,40 @@ def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c, afasta: float,
     mujoco.mj_forward(m, d)
 
 
+def _topo_da_laje(m: mujoco.MjModel, d: mujoco.MjData, c) -> float:
+    """A altura do TAMPO agora, lida da cena. `nan` se a laje não for mocap."""
+    id_mocap = int(m.body_mocapid[int(c.id_laje)])
+    if id_mocap < 0:
+        return float("nan")
+    return float(d.mocap_pos[id_mocap, 2]) + float(c.prateleira_meia_z)
+
+
+def poe_a_laje(m: mujoco.MjModel, d: mujoco.MjData, c, topo: float) -> None:
+    """Põe o TOPO da laje na altura pedida e leva a caixa junto.
+
+    A cena exportada guarda o nível que o `posiciona_cena` sorteou no reset daquele
+    treino. Para ler a pose de uma altura específica — o nível 3 são 0,15 m — a laje
+    tem de ir para lá ANTES do primeiro passo.
+
+    ⚠ A CAIXA SOBE O MESMO DELTA. Ela está apoiada no tampo; mover só a laje faria a
+    caixa nascer flutuando ou dentro da pedra. O delta é o mesmo para as duas.
+
+    ⚠ `topo`, e não o z do corpo: o mocap fica no CENTRO da laje, meia espessura
+    abaixo do tampo. Quem pega a caixa encosta no tampo, então é ele que vale.
+    """
+    id_mocap = int(m.body_mocapid[int(c.id_laje)])
+    if id_mocap < 0:
+        print("⚠ a laje não é mocap; --topo não teve efeito")
+        return
+    z_novo = float(topo) - float(c.prateleira_meia_z)
+    delta = z_novo - float(d.mocap_pos[id_mocap, 2])
+    d.mocap_pos[id_mocap, 2] = z_novo
+    adr_q, adr_v = enderecos_da_caixa(m, int(c.id_caixa))
+    d.qpos[adr_q + 2] += delta
+    d.qvel[adr_v:adr_v + 6] = 0.0
+    mujoco.mj_forward(m, d)
+
+
 def regua_das_juntas(m: mujoco.MjModel, c) -> tuple[list[str], np.ndarray, np.ndarray]:
     """Nomes, faixa `(29, 2)` e default `(29,)`, na ordem do `nomes_juntas` da cena.
 
@@ -175,6 +209,9 @@ def main() -> None:
     # abaixo seguram a caixa para que os ÂNGULOS DE JUNTA fiquem legíveis. Quem usa
     # aceita que a cena deixou de ser a do treino: não tire conclusão de força de
     # contato, de escorrego nem de largada com estes valores fora do padrão.
+    ap.add_argument("--topo", type=float, default=0.0,
+                    help="altura do TOPO da laje em metros (0 = a da cena exportada). "
+                         "A caixa sobe junto. O nível 3 do currículo são 0,15")
     ap.add_argument("--atrito", type=float, default=1.0,
                     help="multiplica o atrito de escorrego da caixa e das palmas "
                          "(1,0 = o do modelo; tente 1,5)")
@@ -221,6 +258,8 @@ def main() -> None:
     dt = physics_dt * decimation
 
     restaura(m, d, c)
+    if args.topo:
+        poe_a_laje(m, d, c, args.topo)
     acao = np.zeros(ator.dim_saida)
     twist = np.zeros(3)
     linhas: list[dict] = []
@@ -230,6 +269,7 @@ def main() -> None:
     print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  "
           f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
+          f"topo {_topo_da_laje(m, d, c):.3f} m  "
           f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}"
           + ("   ⚠ CENA FORA DO PADRÃO DO TREINO"
              if args.atrito != 1.0 or args.impratio else ""))
