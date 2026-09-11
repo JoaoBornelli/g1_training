@@ -308,10 +308,10 @@ def make_env_cfg(
     cfg.rewards["pose"].func = RC.PosturaPorElo
     cfg.rewards["pose"].params["std_standing"] = k.recompensa.std_standing
 
-    # ⚠⚠ OS DOIS TERMOS DE RASTREIO VÃO A ZERO ONDE A TAREFA ZEROU O TWIST (31/08;
-    # v2.1 §4.2 P4 trocou o gate de um CONJUNTO DE ELOS para `env.limpo_twist_zerado`),
-    # e a razão é a medição mais decisiva do módulo até hoje. O `smoke` mede o piso da
-    # estátua por elo:
+    # ⚠⚠ OS DOIS RASTREIOS SÃO GATEADOS POR ESTADO — pela TABELA (`knobs.PesoPorEstado`,
+    # laço na 3i, abaixo), e não mais pelo `rastreio_por_elo` (spec tabela-por-estado
+    # §3). A medição que criou o gate continua sendo a mais decisiva do módulo até
+    # hoje. O `smoke` mede o piso da estátua por elo:
     #
     #     piso ANDAR = 3,863/s      piso PEGAR = 8,265/s
     #
@@ -320,22 +320,16 @@ def make_env_cfg(
     # elo de manipulação era o lugar mais confortável do ambiente, e a política estava
     # certa em ficar parada: 145 de retorno contra 102 de explorar, com 60% de morte na
     # mesa. O `play` do bloco 6 confirmou direto — na ação MÉDIA o robô fica imóvel na
-    # pose default e não tenta pegar.
+    # pose default e não tenta pegar. As colunas `ESPERA_SEM`, `REORIENTAR_SEM` e
+    # `PEGAR_SEM` = 0 das linhas de rastreio da tabela são esse gate, por extenso.
     #
-    # ⚠ O `func` original entra em `params`, e não numa subclasse: os dois termos do
-    # fabricante são FUNÇÕES, não classes, portanto não há o que herdar. O `PosturaPorElo`
-    # é classe porque `variable_posture` é classe.
-    #
-    # ⚠⚠ `nome_do_comando` SAIU dos params (spec dois-bits §2.7, revisão do PM item
-    # 2): `engajado` agora é só `limpo_pegou`, sem `× VALIDA` — e `VALIDA` era a
-    # única razão de `rastreio_por_elo` precisar do nome do comando.
     # ⚠⚠ O GIRO PERDE O GINGADO, E A ORDEM AQUI É CONTRATO. O termo do molde soma
     # `wx² + wy²` — roll e pitch da base, que NUNCA são comandados — ao erro de
     # guinada. MEDIDO na `bloco14` it 9847: o canal angular vale 6,5% do máximo
     # contra 59% do linear, e o erro² angular é 1,37 contra 0,132. O expoente é
     # dominado pelo que não se pede e a derivada da guinada quase some: o robô não
     # gira. O gingado continua punido uma vez, por `body_ang_vel` (peso −0,05).
-    # ⚠ A troca tem de vir ANTES do laço abaixo: ele guarda `_t.func` em
+    # ⚠ A troca tem de vir ANTES do laço da tabela (3i): ele guarda `_t.func` em
     # `params["func"]`, portanto trocar depois faria o wrapper chamar o termo velho.
     # ⚠⚠ E O σ DELE É PROPORCIONAL AO COMANDO, com piso. O `std` fixo de `sqrt(0.5)`
     # do molde SAI dos params (por `del`, e não `pop`: um rename no upgrade do mjlab
@@ -346,11 +340,6 @@ def make_env_cfg(
     del cfg.rewards["track_angular_velocity"].params["std"]
     cfg.rewards["track_angular_velocity"].params["sigma_fator"] = k.giro.sigma_fator
     cfg.rewards["track_angular_velocity"].params["sigma_min"] = k.giro.sigma_min
-
-    for _nome_rastreio in ("track_linear_velocity", "track_angular_velocity"):
-        _t = cfg.rewards[_nome_rastreio]
-        _t.params["func"] = _t.func
-        _t.func = RC.rastreio_por_elo
 
     aplica_pesos(cfg, k.recompensa)
 
@@ -633,9 +622,9 @@ def make_env_cfg(
     )
 
     # ------------------------------------------- 3g. os sete incentivos (F3)
-    # ⚠ TODOS positivos e contínuos (R3), e todos gateados por `VALIDA` — sem o gate
-    # um env de `ANDAR` pagaria o MÁXIMO, porque com os canais de caixa zerados
-    # `exp(0) = 1`.
+    # ⚠ TODOS positivos e contínuos (R3), e todos gateados por ESTADO pela TABELA
+    # (`knobs.PesoPorEstado`, laço na 3i) — nenhum lê `VALIDA`. Sem o gate um env de
+    # `ANDAR` pagaria o MÁXIMO, porque com os canais de caixa zerados `exp(0) = 1`.
     tr = k.tarefa
     _cmd = "alvo_caixa"
     cfg.rewards["staged"] = RewardTermCfg(
@@ -707,6 +696,29 @@ def make_env_cfg(
     cfg.rewards["load"] = RewardTermCfg(
         func=RC.load, weight=tr.load,
         params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO})
+
+    # ------------------------------ 3i. A TABELA POR ESTADO (spec tabela-por-estado §3)
+    # ⚠⚠ UM LAÇO SÓ, sobre os dez termos do `knobs.PesoPorEstado`, DEPOIS de todos
+    # existirem (o `load`, acima, é o último dos dez a nascer) e ANTES do
+    # `renda_congelada` — que lê os sete pelo NOME em `_step_reward`, JÁ multiplicados
+    # pela tabela. É intencional: é isso que faz o piso do BOTAR ×2 valer ~15,8.
+    # ⚠ A troca do angular para `giro_sem_gingado` (2b) TEM de vir antes deste laço:
+    # ele guarda `func` em `params["func"]`, e trocar depois faria o wrapper chamar o
+    # termo velho. O `assert` de nome é a trava contra um rename do molde.
+    # ⚠ Este laço SUBSTITUI o `× VALIDA` dentro dos sete e o antigo `rastreio_por_elo`
+    # nos dois rastreios: a tabela é o ÚNICO gate por estado. O `pose` (classe) é
+    # instanciado DENTRO do wrapper — o `variable_posture` lê só chaves nominais de
+    # `cfg.params`, e `func`/`tabela` a mais são inertes.
+    for _campo in dataclasses.fields(k.peso_por_estado):
+        _nome = _campo.name
+        assert _nome in cfg.rewards, (
+            f"a tabela por estado cita '{_nome}', que não existe em cfg.rewards; "
+            f"existentes: {sorted(cfg.rewards)}")
+        _t = cfg.rewards[_nome]
+        assert "func" not in _t.params and "tabela" not in _t.params, _nome
+        _t.params["func"] = _t.func
+        _t.params["tabela"] = getattr(k.peso_por_estado, _nome)
+        _t.func = RC.PesoPorEstado
 
     # ⚠⚠ O TERMO QUE CONGELA A RENDA DE TODO FECHO DE ELO (v2.1, spec P3). TEM DE SER
     # O ÚLTIMO em `cfg.rewards` — ele lê `_step_reward` dos termos JÁ computados neste

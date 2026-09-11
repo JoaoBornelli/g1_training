@@ -559,9 +559,9 @@ class AlvoCaixaCmd(CommandTerm):
         # Nasce `ANDAR` (0); a leitura real começa no primeiro `_update_command`.
         env.limpo_estado = torch.zeros(n, dtype=torch.long, device=d)
         # ⚠ A MÁSCARA "esta tarefa zerou o twist deste env", por env (v2.1, spec P4).
-        # Publicada por `_zera_twist_nos_parados`, e lida por
-        # `recompensas.rastreio_por_elo` — um gate só, em vez do conjunto de elos que
-        # o termo de recompensa lia antes.
+        # Publicada por `_zera_twist_nos_parados`. Desde a tabela por estado NENHUMA
+        # recompensa a lê (o gate do rastreio virou `limpo_estado`); quem lê é a
+        # âncora do alvo do CARREGAR em `_update_command`, e o `smoke`.
         env.limpo_twist_zerado = torch.zeros(n, device=d)
         # ⚠ A ESPERA FINAL (spec §6.6): depois do fecho do BOTAR, o publicado é ANDAR
         # até o fim do episódio; o interno segue BOTAR. `soltou` desarma o `escapou` da
@@ -1225,8 +1225,9 @@ class AlvoCaixaCmd(CommandTerm):
 
         ⚠⚠ `env.limpo_twist_zerado` É PUBLICADO ANTES do `return` cedo abaixo (v2.1,
         spec P4). Com o `return` antes da publicação, o buffer ficaria com o valor do
-        passo anterior no passo em que ninguém está parado — e
-        `recompensas.rastreio_por_elo`, que lê este buffer, mediria o gate errado.
+        passo anterior no passo em que ninguém está parado — e a âncora do alvo do
+        CARREGAR (`_update_command`), que lê este buffer, leria o gate errado. (O
+        rastreio já não o lê: o gate dele é `limpo_estado`, via tabela por estado.)
 
         ⚠ O CARREGAR-andando (spec dois-bits §1.1) NÃO tem twist filtrado: ele recebe
         o do fabricante SEM filtro — nem zerado, nem fixado. A v2.1 sorteava um twist

@@ -1013,6 +1013,82 @@ class Terminacao:
 
 
 @dataclass
+class PesoPorEstado:
+    """A TABELA POR ESTADO (spec `g1-limpo-tabela-por-estado.md` §2): o peso de cada
+    um dos dez termos em cada um dos dez estados de recompensa que o comando publica
+    em `env.limpo_estado`. `recompensas.PesoPorEstado` multiplica o termo pela coluna.
+
+    ⚠⚠ O PRINCÍPIO: o teto do que o robô ainda tem de fazer >= o piso do que ele já
+    fez (a `renda_congelada`). Medido em `model_10200` era o contrário — BOTAR 2:1,
+    cauda C 3:1, CARREGAR 7:1 — e as consequências: ele não anda com a caixa (97% dos
+    passos com os dois pés no chão), não levanta depois de botar (pelve p10 em
+    0,469 m) e corre na pega (fechar 1 s antes compra ~14 de renda). A
+    `renda_congelada` FICA, cumulativa: ela garante o arranque. A tabela é a outra
+    metade.
+
+    ⚠ A ORDEM DAS COLUNAS é `comando.ESTADOS`. Ele NÃO é importado aqui (`cena.py`
+    importa este módulo e `comando.py` importa `cena` — o ciclo fecharia); o `smoke`
+    amarra os dois pelo comprimento das tuplas. As colunas:
+
+        0 ANDAR   1 ESPERA_SEM   2 ESPERA_COM   3 REORIENTAR_SEM   4 REORIENTAR_COM
+        5 PEGAR_SEM   6 PEGAR_COM   7 CARREGAR   8 BOTAR   9 CAUDA
+
+    POR QUE CADA NÚMERO:
+
+    · Os sete de manipulação, colunas 0-6 e 8-9: são o `VALIDA` de ontem escrito por
+      extenso — 0 no ANDAR, nas duas esperas e na CAUDA; 1 no REORIENTAR e no PEGAR.
+    · BOTAR = 2. Ele fecha hoje a 7,92/s (p50, 135 fechos) contra um piso de 13,79.
+      ×2 leva o fecho a ~15,8 >= 13,79. Presente >= passado.
+    · CARREGAR: só `precise_pos` fica (= 1); os outros seis vão a 0. Eles pagam
+      13,20/s pela caixa estar no peito — atingido no instante da pega e satisfeito
+      PARADO. É o piso da estátua com a caixa na mão, e todo termo que paga por estar
+      parado tem de ser gateado na tarefa. `precise_pos` fica para a caixa não descer
+      do peito (18 cm de raio; teto 3,0). Medido: `unload ≡ 1`, `load ≡ 0` e
+      `postura_ereta` saturada ali — três dos seis são constantes, apagá-los custa
+      zero gradiente.
+    · Rastreio no CARREGAR = 3,5. Teto dos dois: 2,0 + 2,0 = 4,0; ×3,5 = 14 ≈ o piso
+      de 13,79. Parado = 13,79 + 3 = 16,8; andando bem = 30,8; ganho de andar +14 e
+      break-even de risco 45% (hoje +1,5 e 5%).
+    · Rastreio nas outras colunas reproduz o antigo `rastreio_por_elo` (`fator = 1 −
+      zerado × (1 − pegou)`), estado a estado: ANDAR 1 (twist vivo); ESPERA_SEM 0;
+      ESPERA_COM 1; REORIENTAR_SEM e PEGAR_SEM 0 (twist zerado, nunca tocou —
+      estátua); REORIENTAR_COM, PEGAR_COM, BOTAR e CAUDA 1 (já tocou — segurar/parar
+      É a tarefa).
+    · `postura_ereta` e `pose` na CAUDA = 8. Piso depois do BOTAR ×2: 13,79 + 15,8 =
+      29,6. Teto da cauda `2k + k + 4 + 1 = 3k + 5` -> k = 8. Só estes dois separam
+      "agachado com as mãos na caixa" de "de pé na pose default"; rastreio e `upright`
+      são satisfeitos agachado. Break-even de risco 24/(29,6 + 24) = 45%.
+    · `pose` em PEGAR_COM e ESPERA_COM = 4. Enquanto segura, ombro e cotovelo estão
+      FORA do `pose` (máscara do `PosturaPorElo`), portanto ×4 atinge punho, perna e
+      cintura — o punho torcido e a perna solta. Com std 1,00 o punho a 1,6 rad custa
+      0,52/s de um teto de 1,0, 4,5% da renda de 11,38 — ele não se importa; ×4 leva
+      a 2,1/s. NÃO em PEGAR_SEM (o braço ainda está na média e ×4 brigaria com o
+      alcance), NÃO em BOTAR (as pernas agacham para a laje a 0,30 m), NÃO em
+      CARREGAR (é marcha; `std_walking`).
+
+    ⚠ `squeeze` e `unload` (e a `rampa × descarga` do `postura_ereta`) continuam
+    zerados DENTRO do BOTAR por `_fora_do_botar`, que fica: o 2 dessas linhas em BOTAR
+    é o `VALIDA` por extenso, e ali multiplica zero.
+
+    ⚠ FORA DA TABELA, de propósito: `upright`, `terminacao`, `contato_*`, `joint_acc`,
+    `action_rate_l2`, `velocidade_por_regime` e `renda_congelada` (que lê os sete pelo
+    NOME, já multiplicados — é isso que faz o piso do BOTAR ×2 valer ~15,8).
+    """
+
+    #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
+    staged: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    precise_pos: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    1.0,    1.0,     2.0,  0.0)
+    precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    squeeze: tuple[float, ...] = (0.0, 0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    unload: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    postura_ereta: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  8.0)
+    load: tuple[float, ...] = (0.0,    0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    track_linear_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0,  0.0,    1.0,    3.5,     1.0,  1.0)
+    track_angular_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0,    1.0,    3.5,     1.0,  1.0)
+    pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    4.0,    1.0,     1.0,  8.0)
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -1023,6 +1099,7 @@ class Knobs:
     forma: Forma = field(default_factory=Forma)
     piso: Piso = field(default_factory=Piso)
     tarefa: Tarefa = field(default_factory=Tarefa)
+    peso_por_estado: PesoPorEstado = field(default_factory=PesoPorEstado)
     cadeia: Cadeia = field(default_factory=Cadeia)
     terminacao: Terminacao = field(default_factory=Terminacao)
     contato: Contato = field(default_factory=Contato)
