@@ -699,21 +699,33 @@ class Tarefa:
     # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): penaliza
     # velocidade de junta ACIMA do limite por regime de comando (standing/walking/
     # running) — o espelho do `variable_posture` do fabricante, com VELOCIDADE em vez
-    # de POSIÇÃO.
+    # de POSIÇÃO. Desde a dobradiça (spec tabela-por-estado §4) o limite é FRONTEIRA,
+    # não escala: abaixo dele o custo é ZERO.
     #
-    # ⚠⚠ O LIMITE DO `standing` É UMA ENTRADA SÓ, como o `std_standing = {".*": 0.05}`
-    # do fabricante: a ordem do dono é "o robô inteiro lento", pernas, braços e tronco.
+    # ⚠⚠ O LIMITE DO `standing` É POR FAMÍLIA DE JUNTA, com os MESMOS 14 padrões de
+    # `vel_max_walking` (padrões que não se sobrepõem — `resolve_matching_names_values`
+    # não aceita ambiguidade). Era uma entrada só, `{".*": 2,0}`, o p99 da locomoção
+    # parada: com o limite como ESCALA aquilo servia; como FRONTEIRA, a família manda.
     #
-    # ⚠ E o 2,0 NÃO é escolhido: é o p99 da LOCOMOÇÃO PARADA medido em 2026-09-08 (spec
-    # §0). A régua é "fique tão parado quanto você já fica sem a caixa". Medido no
-    # `model_4999`: com vmax 2,0 a mediana do comportamento de hoje cai em 0,474 — o
-    # meio da faixa, onde a derivada é máxima. Com 1,0 ela cai em 0,051 e o termo vira
-    # canal morto, que é o defeito medido no `PosturaPorElo`. Com 5,0 ela sobe a 0,887
-    # e o termo satura.
-    vel_max_standing: dict = field(default_factory=lambda: {".*": 2.0})
+    # ⚠ FONTE: `|qd|` na pega com a caixa, `model_10200`, n = 16 919 — p50 por família
+    # de 0,44 a 0,97, p90 de 2,0 a 4,1. O 1,5 deixa a MEDIANA livre e cobra do p90 para
+    # cima, onde a pressa mora. Punho a 1,0: é a família mais rápida (p90 4,10, p99
+    # 10,12), acima de qualquer perna, e não precisa girar para segurar uma caixa.
+    #
+    # ⚠ 1,0 nas pernas foi MEDIDO apertado demais com o limite como fronteira: custo
+    # 1,74 -> 3,13/s e 13,6% dos passos no antigo clamp. 1,5 é o valor que mantém a
+    # mediana livre.
+    vel_max_standing: dict = field(default_factory=lambda: {
+        r".*hip_pitch.*": 1.5,  r".*hip_roll.*": 1.5,   r".*hip_yaw.*": 1.5,
+        r".*knee.*": 1.5,       r".*ankle_pitch.*": 1.5, r".*ankle_roll.*": 1.5,
+        r".*waist_yaw.*": 1.5,  r".*waist_roll.*": 1.5, r".*waist_pitch.*": 1.5,
+        r".*shoulder_pitch.*": 1.5, r".*shoulder_roll.*": 1.5,
+        r".*shoulder_yaw.*": 1.5, r".*elbow.*": 1.5, r".*wrist.*": 1.0,
+    })
 
-    # ⚠ Os dois de baixo são o p99 MEDIDO de cada padrão naquele regime (spec §0). O
-    # termo paga 0,96 na marcha normal: ele não taxa a locomoção, ele morde o excesso.
+    # ⚠ Os dois de baixo são o p99 MEDIDO de cada padrão naquele regime (spec §0), e
+    # NÃO mudam com a dobradiça. Com ela a marcha normal custa ZERO (era `(v/vmax)²`,
+    # ~0,96 no p99): ele não taxa a locomoção, ele morde o excesso.
     # ⚠ E o `running` é `max(p99_running, p99_walking)` por padrão, e isso é decisão: o
     # p99 de `running` saiu MENOR que o de `walking` em cinco padrões, porque a
     # amostra veio do transiente do `velocity_stages` novo (lin_vel_x foi a 2,0 m/s na
@@ -735,33 +747,38 @@ class Tarefa:
     })
     # ⚠⚠ PESO NEGATIVO, e é correção medida na revisão de 2026-09-08. A forma
     # positiva `exp(−média(v²/vmax²))` pagaria 2,0/s a um robô PARADO, em TODO env —
-    # renda grátis que entra direto no piso da estátua (`recompensas.rastreio_por_elo`:
-    # medido 8,265/s no PEGAR contra 3,863/s no ANDAR, parado ganhando por 43%). A
-    # forma que roda paga ZERO parado: ela cobra o excesso de velocidade, não premia a
-    # ausência dele — o mesmo idioma do `contato_mesa` deste módulo (valor positivo; o
-    # peso negativo é quem faz dele penalidade).
+    # renda grátis que entra direto no piso da estátua (medido 8,265/s no PEGAR contra
+    # 3,863/s no ANDAR, parado ganhando por 43%). A forma que roda paga ZERO parado:
+    # ela cobra o excesso de velocidade, não premia a ausência dele — o mesmo idioma
+    # do `contato_mesa` deste módulo (valor positivo; o peso negativo é quem faz dele
+    # penalidade).
     #
-    # ⚠⚠ A FORMA REAL É `clamp(média(v²/vmax²), max=4,0)` — `recompensas.py:805`, e o
-    # `smoke.py` (seção G2, item 3) TRAVA essa forma de propósito, porque a
-    # `1 − exp(...)` tem derivada ZERO no teto. Este comentário documentou a
-    # `1 − exp(...)` até 2026-09-11 e ela NUNCA rodou: o código é o intencional, o
-    # comentário é que estava obsoleto. O dano era de LEITURA — toda medição feita
-    # pela fórmula do comentário saía ~2× baixa, e foi ela que produziu o "custo de
-    # 1,08/s da pressa" que virou decisão de desenho. O valor real daquela medição
-    # é 2,17/s.
+    # ⚠⚠ A FORMA REAL É A DOBRADIÇA `média(relu(|v|/vmax − 1)²)`, SEM clamp
+    # (`recompensas.velocidade_por_regime`, spec tabela-por-estado §4), e o `smoke.py`
+    # (seção G2, item 3) TRAVA essa forma de propósito. Ela substitui o
+    # `clamp(média((v/vmax)²), max=4)` da v3.1 — que por sua vez substituíra a
+    # `1 − exp(...)` de derivada ZERO no teto. Duas mudanças de uma vez, as duas
+    # medidas: (a) ABAIXO do limite o custo passa a ser ZERO — a `(v/vmax)²` cobrava
+    # de leve o tempo todo, e movimento lento agora é livre; (b) ACIMA, o quadrado do
+    # EXCESSO cresce sem teto — 2× o limite custa 1,0 (era 4,0), 5× custa 16,0 (era
+    # 4,0, no clamp).
     #
-    # ⚠ Confira à mão, com o peso −2,0: parado -> média = 0, custo ZERO. Tudo no
-    # limite -> média = 1,0, custo **2,0/s**. Tudo no DOBRO do limite -> média = 4,0,
-    # que já é o clamp, custo **8,0/s**.
+    # ⚠ Confira à mão, com o peso −2,0: parado -> 0, custo ZERO. Tudo no limite -> 0,
+    # custo ZERO. Tudo no DOBRO -> 1,0, custo **2,0/s**. No TRIPLO -> 4,0, custo
+    # **8,0/s**. A 5× -> 16,0, custo **32,0/s**.
     #
-    # ⚠ O PESO −2,0 FICA. Errado estava o comentário, não o peso: baixá-lo para casar
-    # com a aritmética velha (1,26/s no limite) andaria para trás — a pressa medida
-    # mostra que nem 8,0/s segura o robô contra um degrau de fecho de 18,55/s.
+    # ⚠ QUADRADO, e NÃO exponencial: o p99 da pega é 10 rad/s contra ~1,5 de limite, e
+    # `e^{5,7}` num único passo dominaria o lote. O quadrado já cresce sem teto.
     #
-    # ⚠ DÉBITO, não conserto: o clamp é uma LICENÇA ACIMA DO TETO. 2,71% dos passos do
-    # `PEGAR` com a caixa estão em `valor = 4,0`, e ali a derivada é ZERO — mover mais
-    # rápido é grátis. Fechar essa licença depende do `vel_max_standing` por FAMÍLIA de
-    # junta (hoje é uma entrada só, acima), que está em medição. Fica REGISTRADO.
+    # ⚠ O PESO −2,0 FICA: a pressa medida mostra que nem 8,0/s segurava o robô contra
+    # um degrau de fecho de 18,55/s — o que faltava era derivada ACIMA do clamp, não
+    # peso.
+    #
+    # ⚠ O DÉBITO "clamp é licença acima do teto" FECHA AQUI. 2,26% dos passos da pega
+    # com a caixa estavam em `valor = 4,0` com derivada ZERO — mover mais rápido era
+    # grátis. Com a dobradiça a derivada em 3× é `4/vmax` por rad/s e sobe com o
+    # excesso; e o `vel_max_standing` por FAMÍLIA (acima) é a fronteira que deixa a
+    # mediana livre e cobra a pressa.
     velocidade_por_regime: float = -2.0
 
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---

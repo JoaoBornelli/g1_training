@@ -685,30 +685,34 @@ class velocidade_por_regime:
     |cmd[2]|`, lido de `command_name` — o `twist`, e não o `alvo_caixa`. Em todo elo
     de manipulação `comando._zera_twist_nos_parados` escreve zero no `twist`, portanto
     `total = 0 < walking_threshold` SEMPRE, e o regime é `standing` — O REGIME JÁ É O
-    GATE DA TAREFA. Não acrescente gate por `limpo_twist_zerado` nem por `VALIDA`.
+    GATE DA TAREFA. Não acrescente gate por `limpo_twist_zerado`, por `VALIDA` nem
+    pela tabela por estado (`PesoPorEstado`) — este termo fica FORA dela.
 
     ⚠ `walking_threshold = 0,05` e `running_threshold = 1,5`, os MESMOS do molde
     (`variable_posture`, `mjlab/tasks/velocity/mdp/rewards.py:437-438`) — não viram
     knob: um segundo lugar com o mesmo número é como o `std_standing` do `pose`
     deriva em silêncio num upgrade.
 
-    ⚠⚠ RETORNA `clamp(média(v²/vmax²), max=4,0)` (spec `g1-limpo-dois-bits.md` §3.3,
-    mudança v3→v3.1). NÃO É `1 − exp(−média(v²/vmax²))`: aquela forma tem derivada
-    ZERO no teto (revisão, item 13) — acima de 2× o limite ela satura e para de
-    cobrar, exatamente onde o excesso é maior. Esta forma é quadrática: derivada 1
-    em v = vmax, dobrando até v = 2·vmax; ali ela JÁ vale 4,0 e o `clamp` trava —
-    acima disso o robô está caindo ou abrindo com violência, e −8,0/s por 5 passos
-    (−0,8) é menor que uma `terminacao` (−4,0). O que importa é a derivada em
-    x ∈ [0,5; 3], e ali ela é 1.
+    ⚠⚠ RETORNA `média(relu(|v|/vmax − 1)²)` — a DOBRADIÇA, SEM clamp (spec
+    `g1-limpo-tabela-por-estado.md` §4). Substitui `clamp(média((v/vmax)²), max=4)`
+    (v3.1), e a troca é medida: 2,26% dos passos da pega com a caixa estavam em
+    `valor = 4,0`, e acima do clamp a derivada é ZERO — correr mais era grátis. A
+    dobradiça cresce sem teto: 2× o limite custa 1,0; 5× custa 16,0. E abaixo do
+    limite ela é ZERO: movimento lento passa a ser livre, em vez de cobrado de leve o
+    tempo todo como fazia a `(v/vmax)²`. `vel_max` vira FRONTEIRA, não escala.
 
-    ⚠ Confira à mão: v=0 -> 0, custo 0; v=vmax -> 1,0, custo 2,0/s; v=2·vmax -> 4,0
-    (o teto), custo 8,0/s; v=3·vmax -> ainda 4,0 (clampeado), mesmos 8,0/s. A forma
-    NÃO paga renda grátis parado (v=0 -> 0), como a `1−exp` já garantia — ela só
-    troca ONDE a derivada morre: no teto físico, não no meio da faixa operável.
+    ⚠ QUADRADO do excesso, e NÃO exponencial: o p99 da pega é 10 rad/s contra um
+    limite de ~1,5, e `e^{5,7}` num único passo dominaria o lote. O quadrado já
+    cresce sem teto.
 
-    ⚠ Peso −2,0 FICA. Colateral aceito: `walking`/`running` passam a custar ~0,4/s
-    em vez de ~0,1/s — se `eficiencia_media` cair mais que isso, os `vel_max_*`
-    sobem 1,5×. Não mexer agora.
+    ⚠ Confira à mão, com o peso −2,0: v=0 -> 0; v=vmax -> 0; v=2·vmax -> 1,0, custo
+    2,0/s; v=3·vmax -> 4,0, custo 8,0/s; v=5·vmax -> 16,0, custo 32,0/s. A forma NÃO
+    paga renda grátis parado, e não perdoa correr.
+
+    ⚠ `vel_max_standing` é dict POR FAMÍLIA de junta (`knobs.Tarefa`), com os MESMOS
+    14 padrões de `vel_max_walking`. `walking`/`running` NÃO mudam — são o p99 da
+    marcha, e com a dobradiça a marcha normal passa a custar ZERO em vez de
+    `(v/vmax)²`: um pequeno ALÍVIO constante na locomoção, declarado. Peso −2,0 FICA.
 
     ⚠ MÉDIA sobre as juntas, e não produto: um produto de 29 gaussianas colapsa para
     qualquer vmax — o mesmo defeito medido no `PosturaPorElo` para posição.
@@ -758,7 +762,8 @@ class velocidade_por_regime:
                + self.vel_max_running * running_mask.unsqueeze(1))
 
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
-        return torch.clamp(torch.mean((v / vmax) ** 2, dim=1), max=4.0)
+        # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto
+        return torch.mean(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)
 
 
 class renda_congelada:
