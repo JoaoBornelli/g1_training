@@ -162,6 +162,14 @@ def main() -> None:
     ap.add_argument("--afasta", type=float, default=10.0,
                     help="metros em +x para onde a cena vai na marcha (ANDAR: laje e "
                          "caixa; CARREGAR: só a laje)")
+    # ⚠ A SAÍDA PARA TESTAR O SOLVER. O `.mjb` traz `iterations=10, ls_iterations=20`,
+    # que é o que o treino usa — mas o treino roda no MuJoCo WARP, outra implementação.
+    # Um agarre com atrito é o caso mais sensível a esforço de solver: se subir para
+    # 100/50 fizer a caixa parar de escorregar, a diferença é do solver e não da cena.
+    ap.add_argument("--iteracoes", type=int, default=0,
+                    help="sobrepõe opt.iterations do solver (0 = o do modelo)")
+    ap.add_argument("--ls-iteracoes", type=int, default=0,
+                    help="sobrepõe opt.ls_iterations (0 = o do modelo)")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -174,6 +182,11 @@ def main() -> None:
     if ator.dim_entrada != int(c.dim_obs):
         raise SystemExit(f"o checkpoint espera {ator.dim_entrada} canais e a cena monta "
                          f"{int(c.dim_obs)}. Checkpoint de outra fase?")
+
+    if args.iteracoes:
+        m.opt.iterations = args.iteracoes
+    if args.ls_iteracoes:
+        m.opt.ls_iterations = args.ls_iteracoes
 
     nomes, faixa, q_def = regua_das_juntas(m, c)
     ids_q = np.asarray(c.ids_junta_qpos, dtype=np.int64)
@@ -191,7 +204,8 @@ def main() -> None:
     if args.tempo <= 0:
         raise SystemExit("--tempo tem de ser > 0")
     print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
-          f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}")
+          f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  "
+          f"solver {m.opt.iterations}/{m.opt.ls_iterations}")
     print(f"[registra] roteiro: " + "  ".join(
         f"{f.rotulo}({ELOS[f.elo]},{f.segundos:g}s"
         + (f",vx={f.vx:g}" if f.vx else "") + ")" for f in fases)
