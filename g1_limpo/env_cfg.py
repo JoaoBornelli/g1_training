@@ -689,6 +689,20 @@ def make_env_cfg(
                 "walking_threshold": 0.05, "running_threshold": 1.5,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
+    # ⚠⚠ A FAIXA DE POSE POR FAMÍLIA E POR ESTADO. Irmã do `velocidade_por_regime`
+    # acima: as duas são dobradiças que cobram só o EXCESSO, e as duas ficam FORA da
+    # tabela por estado — aqui o estado já escolhe a COLUNA da tolerância, e embrulhar
+    # em `PesoPorEstado` contaria o estado duas vezes.
+    # ⚠ Também NÃO entra em `TERMOS_CONGELAVEIS`: é preço, não renda de manipulação.
+    # ⚠ O `dof_pos_limits` do fabricante NÃO SAI. Nas juntas de perna ele é o freio mais
+    # apertado dos dois (`ankle_roll` 0,236 rad do default até o limite mole contra 0,6
+    # desta tabela); ele protege o CURSO MECÂNICO e esta tabela molda a POSE.
+    cfg.rewards["faixa_de_pose"] = RewardTermCfg(
+        func=RC.FaixaDePose, weight=tr.faixa_de_pose,
+        params={"tabela": k.faixa_de_pose.por_padrao(),
+                "escala": k.faixa_de_pose.escala,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
+
     # ------------------------------------------- 3i. a renda do BOTAR (spec §2.7)
     # ⚠⚠ `load` VOLTA (mudança v3->v3.1). `largou` SAIU: a cauda é ANDAR com twist, e
     # sair andando já tira as mãos — `escapou` já desarma por `soltou`. Nada além do

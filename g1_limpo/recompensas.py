@@ -188,6 +188,71 @@ def contato_mesa(env, sensor_name: str, joelho_N: float,
     return ((forca - joelho_N) / max(saturacao_N - joelho_N, 1e-6)).clamp(0.0, 1.0)
 
 
+class FaixaDePose:
+    """Cobra exponencialmente o desvio do default ACIMA de uma faixa por família e por
+    estado (`knobs.FaixaDePose`, com o porquê de cada número).
+
+        excesso = relu(|q − q_default| − tol[família, estado])
+        custo   = Σ_j ( exp(excesso_j / escala) − 1 )
+
+    ⚠ SOMA POR JUNTA, e não média nem produto. É a diferença que motiva o termo: o
+    `pose` é `exp(−média)` sobre 21 juntas, então uma junta ruim derruba o valor do
+    termo e com ele o gradiente de TODAS as outras. Aqui cada junta tem o seu custo e o
+    seu gradiente, e uma junta no batente não anestesia as vizinhas.
+
+    ⚠ DENTRO DA FAIXA O GRADIENTE É ZERO. O termo não briga com a tarefa: ele não paga
+    por ficar no default, só cobra o que passa da folga. Por isso ele NÃO é renda de
+    estátua — engordar o `pose` seria, e foi por isso que o `pose` ficou como está.
+
+    ⚠ `tol == 0` DESLIGA a junta naquele estado, e não é tolerância zero. É o que tira
+    a perna da conta no ANDAR, no CARREGAR e no PEGAR.
+
+    ⚠ `torch.expm1` e não `exp(x) − 1`: em `x` pequeno a subtração perde os dígitos
+    justamente na borda da faixa, que é onde o gradiente tem de nascer limpo.
+
+    ⚠ NÃO EMBRULHA em `PesoPorEstado`. O estado já escolhe a COLUNA da tolerância;
+    multiplicar o termo por uma segunda tabela por estado contaria duas vezes.
+
+    ⚠ Devolve POSITIVO. Quem faz dele penalidade é o peso negativo, que é a convenção
+    do molde — o `action_rate_l2` e o `velocidade_por_regime` também devolvem positivo.
+    """
+
+    def __init__(self, cfg, env):
+        from g1_limpo.comando import ESTADOS
+
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        asset = env.scene[asset_cfg.name]
+        _, joint_names = asset.find_joints(asset_cfg.joint_names)
+
+        tabela: dict = cfg.params["tabela"]
+        for padrao, linha in tabela.items():
+            assert len(linha) == len(ESTADOS), (
+                f"a faixa de '{padrao}' tem {len(linha)} colunas para "
+                f"{len(ESTADOS)} estados")
+
+        linhas = []
+        for coluna in range(len(ESTADOS)):
+            dados = {p: float(v[coluna]) for p, v in tabela.items()}
+            _, _, tol = resolve_matching_names_values(
+                data=dados, list_of_strings=joint_names)
+            linhas.append(tol)
+        # (n_estados, n_juntas)
+        self._tol = torch.tensor(linhas, device=env.device, dtype=torch.float32)
+
+    def __call__(self, env, tabela, escala: float,
+                 asset_cfg: SceneEntityCfg) -> torch.Tensor:
+        del tabela  # resolvida no `__init__`
+
+        asset = env.scene[asset_cfg.name]
+        tol = self._tol[env.limpo_estado]                       # (n_envs, n_juntas)
+        q = asset.data.joint_pos[:, asset_cfg.joint_ids]
+        q0 = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+
+        excesso = torch.relu((q - q0).abs() - tol)
+        custo = torch.expm1(excesso / escala)
+        return torch.where(tol > 0.0, custo, torch.zeros_like(custo)).sum(dim=-1)
+
+
 class PesoPorEstado:
     """Multiplica um termo pelo peso da coluna `env.limpo_estado` numa tabela de dez
     (spec `g1-limpo-tabela-por-estado.md` §2-§3). É o ÚNICO gate por estado dos dez

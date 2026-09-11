@@ -781,6 +781,18 @@ class Tarefa:
     # mediana livre e cobra a pressa.
     velocidade_por_regime: float = -2.0
 
+    # ⚠ A FAIXA DE POSE (`knobs.FaixaDePose`, abaixo). Peso −0,5 e `escala` 1,5 saem de
+    # uma conta contra a pose MEDIDA em `model_11322` (`registra_juntas`, laje a 0,15 m):
+    # com o braço direito como está, o termo cobra ~4,5/s, na mesma ordem do
+    # `action_rate_l2` (−3,8/s) e do `velocidade_por_regime` (−2,6/s). Não é o maior
+    # preço do painel, e ele CAI PARA ZERO sozinho quando a pose entra na faixa.
+    #
+    # ⚠ O PERIGO QUE ESTE NÚMERO EVITA: com peso −1,0 e `escala` 1,0 a mesma pose custa
+    # 18/s contra uma renda total de ~11/s. Retorno negativo por passo torna CAIR a
+    # melhor jogada — o episódio acaba e a conta para. Peso e escala não são gosto:
+    # eles mantêm o retorno positivo enquanto o gradiente aponta para fora do batente.
+    faixa_de_pose: float = -0.5
+
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
     # ⚠ ESTE É O ITEM DE MAIOR RISCO DA F3, e ele é medido. A palma nasce a 0,339 m da
@@ -1106,6 +1118,102 @@ class PesoPorEstado:
 
 
 @dataclass
+class FaixaDePose:
+    """Quantos radianos cada família de junta pode sair do default, por estado.
+
+    ⚠⚠ POR QUE ELA EXISTE, e por que o `pose` não resolve. O `pose` é UM número para
+    21 juntas: `exp(−média(erro²))`. Uma junta ruim derruba o número inteiro, e o
+    gradiente de TODAS as outras cai junto, porque o gradiente de cada uma é
+    multiplicado pelo valor do termo. Medido: com os punhos a σ 0,30 o `pose` valeu
+    0,0272 e a PERNA parou de ser corrigida sem que ninguém tocasse na perna. A soma
+    por junta desta tabela não tem esse acoplamento — cada junta tem o seu custo e o
+    seu gradiente.
+
+    ⚠ A FORMA é `exp(excesso/escala) − 1`, com `excesso = relu(|q − q_default| − tol)`:
+
+        dentro da faixa   custo 0 e gradiente 0 -> NÃO briga com a tarefa
+        na borda          gradiente `peso/escala`, já morde no primeiro milímetro
+        fora              cresce sem teto
+
+    A quadrática foi REJEITADA aqui: ela tem gradiente ZERO na borda, então deixa a
+    junta escorregar livre justamente onde a faixa deveria começar a valer. É o
+    contrário do `velocidade_por_regime`, que usa quadrática de propósito — lá o p99 é
+    6,7× o limite e `e^5,7` dominaria o lote. Posição de junta tem TETO MECÂNICO: o
+    excesso nunca passa de ~3,3 rad, e `e^{3,3/1,5} = 9,0` é o pior caso possível.
+
+    ⚠ `0` DESLIGA a família naquele estado. Não é tolerância zero.
+
+    ⚠ ANDAR e CARREGAR zeram perna e cintura. A marcha é do `dof_pos_limits` do
+    fabricante, que NÃO SAI: nas juntas de perna ele é o freio mais apertado que esta
+    tabela (`ankle_roll` 0,236 rad do default até o limite mole, `hip_roll` 0,349,
+    `ankle_pitch` 0,440, `knee` 0,608). Os dois termos fazem coisas diferentes — ele
+    protege o CURSO MECÂNICO, esta tabela molda a POSE.
+
+    ⚠ PERNA DESLIGADA NO PEGAR. Medido em `model_11322` com a laje a 0,15 m: agachar
+    custa 2,03 rad de `hip_pitch` e 1,50 de `knee`. Uma folga que aceita 2,03 é
+    indistinguível de desligada, e uma menor cobraria a tarefa. Na ESPERA a folga 0,6
+    volta, e ali o joelho a 1,18 É o agachamento à toa — o "fica agachado com as mãos
+    na caixa" que nada mandava desfazer.
+
+    ⚠ O BRAÇO DIREITO É O CASO, e ele já está travado ANTES da pega. Na mesma medição,
+    em TODAS as fases — inclusive a espera inicial, sem ter tocado a caixa:
+
+        right_shoulder_yaw  2,63   (curso 2,62)
+        right_wrist_roll    2,11   (curso 1,97)
+        right_wrist_pitch   1,63   (curso 1,61)
+        right_wrist_yaw     1,62   (curso 1,61)
+
+    Não é a pega que torce o braço; a pose de repouso da política já nasce torcida.
+
+    ⚠ O BRAÇO ESQUERDO É A RÉGUA. Ele faz o mesmo trabalho sem saturar, e é dele que
+    saem os números: `wrist_roll` 0,82 contra 2,07 do direito, `shoulder_yaw` 1,25
+    contra 2,65, `shoulder_pitch` 1,38 contra 2,25. O que o esquerdo resolve com menos,
+    o direito gasta à toa.
+
+    ⚠ `punho_pitch` e `punho_yaw` apertados por DECISÃO DO DONO, não por medição: as
+    duas erram nos dois braços e não são necessárias para segurar nada. O `yaw` é o
+    mais apertado dos dois.
+
+    ⚠ ESTA TABELA NÃO ENTRA NO `PesoPorEstado`. O controle por estado já vive na
+    TOLERÂNCIA; multiplicar o termo por uma segunda tabela seria contar duas vezes.
+    """
+
+    # a escala da exponencial, em radianos. Ver o peso em `Tarefa.faixa_de_pose`.
+    escala: float = 1.5
+
+    #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
+    perna: tuple[float, ...] = (0.0,  0.6,    0.6,    0.8,     0.8,     0.0,    0.0,    0.0,     1.3,  0.5)
+    cintura: tuple[float, ...] = (0.0, 0.4,   0.4,    0.4,     0.4,     0.6,    0.6,    0.0,     0.6,  0.3)
+    braco_pos: tuple[float, ...] = (0.7, 0.9, 1.2,    1.5,     1.5,     1.5,    1.5,    1.2,     1.5,  0.6)
+    ombro_yaw: tuple[float, ...] = (0.5, 0.6, 0.8,    0.8,     0.8,     0.8,    0.8,    0.8,     0.8,  0.5)
+    punho_roll: tuple[float, ...] = (0.4, 0.6, 0.9,   0.9,     0.9,     0.9,    0.9,    0.9,     0.9,  0.4)
+    punho_pitch: tuple[float, ...] = (0.4, 0.5, 0.6,  0.6,     0.6,     0.6,    0.6,    0.6,     0.6,  0.4)
+    punho_yaw: tuple[float, ...] = (0.5, 0.5, 0.5,    0.5,     0.5,     0.5,    0.5,    0.5,     0.5,  0.5)
+
+    def por_padrao(self) -> dict[str, tuple[float, ...]]:
+        """As sete famílias abertas nos doze padrões que cobrem as 29 juntas.
+
+        ⚠ Os padrões NÃO PODEM SE SOBREPOR nem deixar junta de fora:
+        `resolve_matching_names_values` exige casamento exato de um para um. Por isso
+        `shoulder_pitch`/`shoulder_roll`/`shoulder_yaw` aparecem separados, e não um
+        `.*shoulder.*` que engoliria os três.
+        """
+        return {
+            r".*hip_yaw.*": self.perna, r".*hip_roll.*": self.perna,
+            r".*hip_pitch.*": self.perna, r".*knee.*": self.perna,
+            r".*ankle_pitch.*": self.perna, r".*ankle_roll.*": self.perna,
+            r".*waist.*": self.cintura,
+            r".*shoulder_pitch.*": self.braco_pos,
+            r".*shoulder_roll.*": self.braco_pos,
+            r".*elbow.*": self.braco_pos,
+            r".*shoulder_yaw.*": self.ombro_yaw,
+            r".*wrist_roll.*": self.punho_roll,
+            r".*wrist_pitch.*": self.punho_pitch,
+            r".*wrist_yaw.*": self.punho_yaw,
+        }
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -1117,6 +1225,7 @@ class Knobs:
     piso: Piso = field(default_factory=Piso)
     tarefa: Tarefa = field(default_factory=Tarefa)
     peso_por_estado: PesoPorEstado = field(default_factory=PesoPorEstado)
+    faixa_de_pose: FaixaDePose = field(default_factory=FaixaDePose)
     cadeia: Cadeia = field(default_factory=Cadeia)
     terminacao: Terminacao = field(default_factory=Terminacao)
     contato: Contato = field(default_factory=Contato)
