@@ -381,11 +381,30 @@ class Recompensa:
         r".*ankle_roll.*": 0.30,
         r".*waist.*": 0.30,
         r".*shoulder.*": 1.00, r".*elbow.*": 1.00,
-        # ⚠ v3.5: o MESMO 0,30 que o fabricante dá ao punho no `std_walking`
-        # (`mjlab/.../g1/env_cfgs.py`), e o mesmo das outras juntas de rotação que
-        # devem ficar neutras (hip_yaw, hip_roll, ankle_roll, waist). Com 1,00 um punho
-        # a 57° custava 3,4% do `pose`; com 0,30 custa 41% (divisor de 21 juntas).
-        r".*wrist.*": 0.30,
+        # ⚠ 1,00, o MESMO de `shoulder` e `elbow`, e é REVERSÃO MEDIDA do 0,30 da v3.5.
+        # O 0,30 se justificava assim: "com 1,00 um punho a 57° custa 3,4% do `pose`".
+        # A aritmética estava certa e a conclusão errada — o robô não opera a 57° com
+        # UM punho, opera a ~1,6 rad (92°) com SEIS. Com 0,30 os seis sozinhos somam
+        # 139 ao expoente; dividido pelo divisor de 21 dá 6,6, e `exp(−6,6) = 0,0014`.
+        #
+        # ⚠ MEDIDO em `model_10200`, na janela `pegou ∧ ¬soltou`: `pose` vale **0,0272**
+        # de um teto de 1,0 — 2,7% — com `|Δvalor|` por passo p50 de `3e−05`. CANAL
+        # MORTO, derivada zero: o termo que moldaria o gesto da pega não existia ali. E
+        # o `pose` é a média de TODAS as 21 juntas ativas — matá-lo soltava o punho E a
+        # perna. No mesmo checkpoint, `right_wrist_roll` a 2,034 rad contra o limite
+        # mole de 1,972, e os dois `wrist_yaw` a 1,621 contra 1,614: o punho ia ao
+        # batente mecânico, que é o oposto do que o 0,30 pretendia.
+        #
+        # ⚠ Com 1,00 e o MESMO erro de 1,6 rad, os seis somam 15,4; /21 = 0,73, e
+        # `pose = exp(−0,73) = 0,48`. VIVO, com derivada.
+        #
+        # ⚠ O que NÃO muda, de propósito: o punho SEGUE dentro da média do `pose` (a
+        # máscara do `PosturaPorElo` está certa — era o σ que estava errado), e o
+        # pedido do dono, "a mão sempre alinhada com o antebraço", segue atendido, e
+        # agora com gradiente para atendê-lo. `std_walking` também não muda: o regime
+        # da pega é o `standing` — o twist é forçado a zero no `PEGAR` —, então
+        # `std_standing` é o alvo exato.
+        r".*wrist.*": 1.00,
     })
 
     # ⚠ O ÚNICO termo POSITIVO de marcha, e o fabricante o entrega em ZERO. Fica em

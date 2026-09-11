@@ -1284,8 +1284,11 @@ check("`std_standing` tem uma entrada por padrão de junta — 10, não `.*` ún
       str(cfg.rewards["pose"].params["std_standing"]))
 
 # --- a VALIDAÇÃO do `std_standing` novo, SEM ENV (spec §3.1) ---
-# ⚠ Divisor REAL: 15 juntas de perna+cintura (as 14 de braço saem quando pegou ∧
-# ¬soltou). Confere `exp(−média) >= 0,8` a 0,1 rad uniforme e `<= 0,3` a 0,6 rad.
+# ⚠ Esta tabela valida SÓ as 15 de perna+cintura, contra os limiares de origem:
+# `exp(−média) >= 0,8` a 0,1 rad uniforme e `<= 0,3` a 0,6 rad. O divisor REAL do
+# termo em `pegou ∧ ¬soltou` é 21, e não 15 — desde a v3.5 a máscara tira só os 8 de
+# ombro+cotovelo, e os 6 punhos FICAM na média. Quem confere esse divisor é o item 15,
+# logo abaixo.
 import torch as _t9  # noqa: E402
 
 _std_pernas = _t9.tensor([
@@ -1333,7 +1336,8 @@ try:
     # `not any()` quando o sorteio, por azar, não põe NENHUM env em PEGAR — e
     # nunca testaria nada. Este bloco FORÇA `elo=PEGAR` num cfg próprio, chama o
     # termo COM e SEM `pegou`, e confere o expoente contra a previsão analítica
-    # do divisor 29 -> 15 (braço sai só com `pegou`), não só "valores iguais".
+    # do divisor 29 -> 21 (só ombro+cotovelo saem com `pegou`), não só "valores
+    # iguais".
     try:
         _cfg15 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
         _cfg15.scene.num_envs = 4
@@ -1356,19 +1360,23 @@ try:
         _env15.limpo_pegou[:] = 1.0
         _v_com15 = float(_termo15(_env15, **_params15).mean())
 
-        # previsto: soma(err²) das 15 pernas+cintura (`_std_pernas`, acima) mais as
-        # 14 do braço (std = 1,0 cada), divididos por 29 (sem pegou) ou 15 (com).
+        # previsto: soma(err²) das 15 de perna+cintura (`_std_pernas`, acima) mais os
+        # 6 punhos, que FICAM na média desde a v3.5 e cujo σ voltou a 1,00. Com
+        # `pegou` o divisor é 21 — a máscara tira só os 8 de ombro+cotovelo (σ = 1,00
+        # cada); sem `pegou` é 29, e esses 8 entram na soma.
         _soma_pernas15 = float(((_d15 / _std_pernas) ** 2).sum())
-        _soma_braco15 = 14 * (_d15 / 1.0) ** 2
-        _exp_com_prev15 = _soma_pernas15 / 15
-        _exp_sem_prev15 = (_soma_pernas15 + _soma_braco15) / 29
+        _soma_punhos15 = 6 * (_d15 / 1.00) ** 2
+        _soma_ombro_cotovelo15 = 8 * (_d15 / 1.00) ** 2
+        _exp_com_prev15 = (_soma_pernas15 + _soma_punhos15) / 21
+        _exp_sem_prev15 = (_soma_pernas15 + _soma_punhos15
+                           + _soma_ombro_cotovelo15) / 29
 
         check("15. PosturaPorElo(pegou=True): expoente bate com a previsão do "
-              "divisor 15 (braço fora)",
+              "divisor 21 (ombro e cotovelo fora, punho DENTRO)",
               abs(-math.log(_v_com15) - _exp_com_prev15) < 0.05,
               f"medido {-math.log(_v_com15):.4f}, previsto {_exp_com_prev15:.4f}")
         check("15. PosturaPorElo(pegou=False): expoente bate com a previsão do "
-              "divisor 29 (braço dentro)",
+              "divisor 29 (braço inteiro dentro)",
               abs(-math.log(_v_sem15) - _exp_sem_prev15) < 0.05,
               f"medido {-math.log(_v_sem15):.4f}, previsto {_exp_sem_prev15:.4f}")
         del _env15
