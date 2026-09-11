@@ -170,6 +170,17 @@ def main() -> None:
                     help="sobrepõe opt.iterations do solver (0 = o do modelo)")
     ap.add_argument("--ls-iteracoes", type=int, default=0,
                     help="sobrepõe opt.ls_iterations (0 = o do modelo)")
+    # ⚠ MULETAS DE DEBUG, NÃO CORREÇÕES. O MuJoCo clássico solta a caixa que o Warp
+    # segura, e sem a caixa na mão não há pose de manipulação para ler. Os dois botões
+    # abaixo seguram a caixa para que os ÂNGULOS DE JUNTA fiquem legíveis. Quem usa
+    # aceita que a cena deixou de ser a do treino: não tire conclusão de força de
+    # contato, de escorrego nem de largada com estes valores fora do padrão.
+    ap.add_argument("--atrito", type=float, default=1.0,
+                    help="multiplica o atrito de escorrego da caixa e das palmas "
+                         "(1,0 = o do modelo; tente 1,5)")
+    ap.add_argument("--impratio", type=float, default=0.0,
+                    help="sobrepõe opt.impratio, o peso do atrito contra o normal no "
+                         "solver (0 = o do modelo, que é 1,0; tente 10)")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -187,6 +198,19 @@ def main() -> None:
         m.opt.iterations = args.iteracoes
     if args.ls_iteracoes:
         m.opt.ls_iterations = args.ls_iteracoes
+    if args.impratio:
+        m.opt.impratio = args.impratio
+    if args.atrito != 1.0:
+        # ⚠ SÓ A COLUNA 0. `geom_friction` é (escorrego, torção, rolamento); mexer nas
+        # outras duas trava a caixa por torque e esconde o giro do punho, que é
+        # justamente o que se quer ler aqui.
+        alvos = [i for i in range(m.ngeom)
+                 if m.geom(i).name in ("box/box_geom", "robot/left_palm_pad",
+                                       "robot/right_palm_pad")]
+        if len(alvos) != 3:
+            raise SystemExit(f"--atrito achou {len(alvos)} geoms de 3. Cena de outra versão?")
+        for i in alvos:
+            m.geom_friction[i, 0] *= args.atrito
 
     nomes, faixa, q_def = regua_das_juntas(m, c)
     ids_q = np.asarray(c.ids_junta_qpos, dtype=np.int64)
@@ -205,7 +229,10 @@ def main() -> None:
         raise SystemExit("--tempo tem de ser > 0")
     print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  "
-          f"solver {m.opt.iterations}/{m.opt.ls_iterations}")
+          f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
+          f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}"
+          + ("   ⚠ CENA FORA DO PADRÃO DO TREINO"
+             if args.atrito != 1.0 or args.impratio else ""))
     print(f"[registra] roteiro: " + "  ".join(
         f"{f.rotulo}({ELOS[f.elo]},{f.segundos:g}s"
         + (f",vx={f.vx:g}" if f.vx else "") + ")" for f in fases)
