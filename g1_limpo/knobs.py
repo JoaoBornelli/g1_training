@@ -736,12 +736,31 @@ class Tarefa:
     # positiva `exp(−média(v²/vmax²))` pagaria 2,0/s a um robô PARADO, em TODO env —
     # renda grátis que entra direto no piso da estátua (`recompensas.rastreio_por_elo`:
     # medido 8,265/s no PEGAR contra 3,863/s no ANDAR, parado ganhando por 43%). A
-    # forma complementar `1 − exp(−média(v²/vmax²))` tem a MESMA derivada e paga ZERO
-    # parado: ela cobra o excesso de velocidade, não premia a ausência dele — o mesmo
-    # idioma do `contato_mesa` deste módulo (positivo em [0, 1]; o peso negativo é
-    # quem faz dela penalidade). Confira à mão: parado -> 1 − exp(0) = 0, custo zero.
-    # Tudo no limite -> 1 − exp(−1) = 0,632, custo 1,26/s. Tudo no dobro do limite ->
-    # 1 − exp(−4) = 0,982, custo 1,96/s.
+    # forma que roda paga ZERO parado: ela cobra o excesso de velocidade, não premia a
+    # ausência dele — o mesmo idioma do `contato_mesa` deste módulo (valor positivo; o
+    # peso negativo é quem faz dele penalidade).
+    #
+    # ⚠⚠ A FORMA REAL É `clamp(média(v²/vmax²), max=4,0)` — `recompensas.py:805`, e o
+    # `smoke.py` (seção G2, item 3) TRAVA essa forma de propósito, porque a
+    # `1 − exp(...)` tem derivada ZERO no teto. Este comentário documentou a
+    # `1 − exp(...)` até 2026-09-11 e ela NUNCA rodou: o código é o intencional, o
+    # comentário é que estava obsoleto. O dano era de LEITURA — toda medição feita
+    # pela fórmula do comentário saía ~2× baixa, e foi ela que produziu o "custo de
+    # 1,08/s da pressa" que virou decisão de desenho. O valor real daquela medição
+    # é 2,17/s.
+    #
+    # ⚠ Confira à mão, com o peso −2,0: parado -> média = 0, custo ZERO. Tudo no
+    # limite -> média = 1,0, custo **2,0/s**. Tudo no DOBRO do limite -> média = 4,0,
+    # que já é o clamp, custo **8,0/s**.
+    #
+    # ⚠ O PESO −2,0 FICA. Errado estava o comentário, não o peso: baixá-lo para casar
+    # com a aritmética velha (1,26/s no limite) andaria para trás — a pressa medida
+    # mostra que nem 8,0/s segura o robô contra um degrau de fecho de 18,55/s.
+    #
+    # ⚠ DÉBITO, não conserto: o clamp é uma LICENÇA ACIMA DO TETO. 2,71% dos passos do
+    # `PEGAR` com a caixa estão em `valor = 4,0`, e ali a derivada é ZERO — mover mais
+    # rápido é grátis. Fechar essa licença depende do `vel_max_standing` por FAMÍLIA de
+    # junta (hoje é uma entrada só, acima), que está em medição. Fica REGISTRADO.
     velocidade_por_regime: float = -2.0
 
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
@@ -785,6 +804,14 @@ class Tarefa:
     # palma sozinha empurra a caixa, não a segura. E o `tanh` é contínuo desde a
     # primeira décima de newton — um limiar booleano é platô, e o platô travou o
     # `pegar` do g1_poc por 22k iterações.
+    #
+    # ⚠ DÉBITO REGISTRADO, e NÃO consertado: o `squeeze` é CEGO AO ESMAGAMENTO. O
+    # `tanh` satura e nada cobra a força ACIMA do `F_ref` — medidos 68,9 N de aperto
+    # contra os 8,45 N de referência da medição (o `F_ref` deste módulo, com m = 1,0 kg
+    # e μ = 0,8, dá 6,13 N; a divergência está no número da medição, não na fórmula).
+    # Adiado DE PROPÓSITO: o `squeeze` é termo CONGELÁVEL, e mudar a forma dele mexe no
+    # valor do fecho às vésperas de um resume. E o simulador não pune esmagar — isto é
+    # dívida de sim-to-real, não defeito do treino de hoje.
     squeeze_mu: float = 0.8              # μ pessimista da faixa de atrito da caixa
 
     # --- postura ereta: a rampa dupla na pelve ---
