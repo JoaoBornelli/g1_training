@@ -316,10 +316,14 @@ check("existe a terminação `caixa_largada`",
 check("o `caiu` lê o TAMANHO da caixa: a folga do chão é menor que a laje mais baixa",
       0.0 < k.terminacao.caixa_folga_chao < k.cena.prateleira_topo_piso,
       f"folga {k.terminacao.caixa_folga_chao} vs piso da laje {k.cena.prateleira_topo_piso}")
-check("o `caixa_dist_max` é MAIOR que a distância de nascimento da palma",
-      k.terminacao.caixa_dist_max > 0.339,
-      "ela não dispara no reset porque é ARMADA pela primeira preensão, e não "
-      "porque o limiar seja apertado")
+# ⚠ O `caixa_dist_max` SAIU na v3.2 (spec `g1-limpo-soltar-termina.md` §2): distância
+# não pegava o arremesso curto. O que arma a `caixa_largada` agora é a velocidade
+# relativa caixa − base, `v_solta`. Este check afirma a substituição, no padrão do
+# `forca_ref` logo abaixo: o knob velho SAIU, o novo existe e é positivo.
+check("o `caixa_dist_max` SAIU do knobs — a `caixa_largada` lê `v_solta` (v3.2)",
+      not hasattr(k.terminacao, "caixa_dist_max") and k.terminacao.v_solta > 0,
+      "distância não pegava o arremesso curto; velocidade relativa pega — "
+      "spec `g1-limpo-soltar-termina.md` §2")
 
 # --------------------------- a força de referência do `squeeze` é DERIVADA (28/08)
 # ⚠ ERA UM KNOB FIXO DE 12,0 N, sem derivação. A conta física é `m·g/(2μ)`: com
@@ -460,9 +464,13 @@ check("nenhum fonte do pacote, FORA de `knobs.py`, contém `knee` (prova do "
       not any("knee" in p.read_text(encoding="utf-8") for p in _fontes),
       str([p.name for p in _fontes if "knee" in p.read_text(encoding='utf-8')]))
 _src_knobs9 = (_raiz / "knobs.py").read_text(encoding="utf-8")
-check("em `knobs.py`, `knee` aparece TRÊS vezes — `std_standing`, "
-      "`vel_max_walking`, `vel_max_running`; nenhuma exceção a mais vazou",
-      _src_knobs9.count("knee") == 3, f"{_src_knobs9.count('knee')} ocorrências")
+# ⚠ QUATRO desde a dobradiça (`954ed94`, spec `g1-limpo-tabela-por-estado.md` §4): o
+# `vel_max_standing` deixou de ser `{".*": 2,0}` e virou dict por família com os
+# MESMOS 14 padrões do `vel_max_walking` — a quarta ocorrência é a dele.
+check("em `knobs.py`, `knee` aparece QUATRO vezes — `std_standing`, "
+      "`vel_max_standing`, `vel_max_walking`, `vel_max_running`; nenhuma exceção a "
+      "mais vazou",
+      _src_knobs9.count("knee") == 4, f"{_src_knobs9.count('knee')} ocorrências")
 
 # ============ 9b. O ALGORITMO: vantagem normalizada POR ELO (01/09) ============
 secao("9b. a vantagem é normalizada por grupo de elo")
@@ -1508,7 +1516,12 @@ try:
     # ⚠ a INSTÂNCIA mora em `reward_manager._term_cfgs`, não em `_cfg3.rewards`: o
     # manager NÃO reescreve o `cfg` recebido, guarda a resolução à parte (o mesmo
     # caminho que o item 10, mais abaixo, já usa para `renda_congelada`).
+    # ⚠ tabela-por-estado §3 (`c64ee98`): o instanciado é o `PesoPorEstado`, e o
+    # `PosturaPorElo` mora DENTRO dele (`_f`) — o mesmo desembrulho do item 15. A
+    # máscara de braço é do termo CRU; a coluna da tabela é assunto de outros checks.
     _term_pose = _env3.reward_manager._term_cfgs[_pose_idx].func
+    if isinstance(_term_pose, RC_.PesoPorEstado):
+        _term_pose = _term_pose._f
     _robo3 = _env3.scene["robot"]
     if hasattr(_term_pose, "_mascara_braco"):
         _pegou_bak = _env3.limpo_pegou.clone()
@@ -1712,9 +1725,18 @@ check("a espera roda ANTES do avanço de elo",
 # ⚠ A BASE DO BIT VEM DO ELO, e não do próprio `VALIDA`. Ler o `VALIDA` para
 # recalculá-lo é DESTRUTIVO: no passo seguinte lê-se o zero já escrito, e o bit nunca
 # volta a 1. Medido: `piso PEGAR` caía para 2,000/s exatos.
+# ⚠ v3.5 (`aa02fd1`, spec `g1-limpo-cauda-parada-de-pe.md` §2.1): a base lê o ELO
+# PUBLICADO (`_command[:, ELO]`), e não mais o interno `_elo` — na cauda pós-BOTAR o
+# interno fica BOTAR, mas a tarefa acabou, e `VALIDA = 1` ali pagava `precise_pos` e
+# `load` ao vivo por cima da renda congelada. NÃO é o defeito destrutivo: o canal ELO
+# é reescrito inteiro a partir de `_elo` e `publica_andar` no MESMO método, todo
+# passo, ANTES de ser lido — e é essa ordem que o check confere.
 _src_esp = inspect.getsource(CMD.AlvoCaixaCmd._aplica_espera)
-check("a base do bit é recalculada do ELO, e não lida do próprio VALIDA",
-      "self._elo != ANDAR" in _src_esp,
+check("a base do bit é recalculada do ELO publicado, reescrito de `_elo` no mesmo "
+      "passo — e não lida do próprio VALIDA (v3.5)",
+      "self._command[:, ELO] != ANDAR" in _src_esp
+      and _src_esp.index("self._command[:, ELO] = ")
+      < _src_esp.index("self._command[:, ELO] != ANDAR"),
       "ler o VALIDA para reescrevê-lo zera o bit para sempre")
 # ⚠ As duas fontes do bit têm de concordar: o `_aplica_elo` escreve `VALIDA = 0` só no
 # `ANDAR`, e o `_aplica_espera` recalcula a base como `elo != ANDAR`. Um elo novo com
@@ -3327,20 +3349,41 @@ try:
           and not bool(_t23d._soltou.any()),
           f"elo interno {_t23d._elo.tolist()[:4]}")
     # ⚠ A CAIXA VAI PARA LONGE DAS PALMAS **ANTES** DO FECHO, e com um passo para os
-    # buffers de `.data` recomputarem — senão o `escapou` lê pose obsoleta e o teste
-    # abaixo passaria por omissão. Aqui ele TEM de estar armado.
+    # buffers de `.data` recomputarem — senão a terminação lê pose obsoleta.
+    # ⚠⚠ v3.2 (`88fe9b5`, spec `g1-limpo-soltar-termina.md` §2): a cláusula `escapou`
+    # por DISTÂNCIA das palmas SAIU — ela não pegava o arremesso curto. O detector é
+    # CINEMÁTICO: `soltou_fora = (v_rel > v_solta) & ~no_alvo`. Uma caixa longe mas
+    # PARADA relativa à base não arma nada; a MESMA caixa RÁPIDA arma. Os dois checks
+    # abaixo medem os dois lados, e o segundo é o controle do primeiro.
     _t23d._pegou[:] = True
     _cx23p = _e23b.scene["box"]
+    _q23p = _cx23p.data.root_link_quat_w.clone()
     _pp23 = _cx23p.data.root_link_pos_w.clone()
     _pp23[:, 0] += 1.0
-    _cx23p.write_root_link_pose_to_sim(
-        _t23.cat([_pp23, _cx23p.data.root_link_quat_w], -1))
+    _cx23p.write_root_link_pose_to_sim(_t23.cat([_pp23, _q23p], -1))
     _cx23p.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
     _par23 = dict(cfg.terminations["caixa_largada"].params)
-    check("12. ANTES do fecho, a caixa longe das palmas TERMINA (`escapou` armado)",
-          bool(TE_.caixa_largada(_e23b, **_par23).all()),
-          "sem isto o check seguinte passaria por omissão")
+    _parada23 = TE_.caixa_largada(_e23b, **_par23)
+    check("12. ANTES do fecho, a caixa longe das palmas mas PARADA não termina — "
+          "o detector é cinemático, não de distância (v3.2)",
+          not bool(_parada23.any()), str(_parada23.tolist()))
+    _v23 = _t23.zeros(_e23b.num_envs, 6)
+    _v23[:, 0] = 3.0 * _par23["v_solta"]           # bem acima de `v_solta`, fora do alvo
+    _cx23p.write_root_link_velocity_to_sim(_v23)
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
+    _rapida23 = TE_.caixa_largada(_e23b, **_par23)
+    check("12. ... e a MESMA caixa, fora do alvo e RÁPIDA (v_rel > `v_solta`), TERMINA "
+          "— o arremesso (v3.2)",
+          bool(_rapida23.all()), str(_rapida23.tolist()))
+    # ⚠ v3.5 (`41002df`, spec `g1-limpo-cauda-parada-de-pe.md` §2.2): DEPOIS do fecho
+    # estar fora do alvo BASTA para terminar. Para o passo do sucesso não matar, a
+    # caixa tem de estar NO ALVO — é o `~no_alvo` que protege o fecho legítimo, não um
+    # desarme por `soltou`. Por isso ela volta ao alvo, parada, antes do fecho.
+    _alvo23 = _t23d.command[:, CMD.ALVO].clone()
+    _cx23p.write_root_link_pose_to_sim(_t23.cat([_alvo23, _q23p], -1))
+    _cx23p.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
     _t23d.forca_avanco(_ids23)                         # arma o fecho do BOTAR
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))       # avança -> cauda (soltou)
     check("12. no MESMO passo do fecho o publicado vira ANDAR, sem atraso",
@@ -3349,9 +3392,15 @@ try:
           bool((_t23d._elo == CMD.BOTAR).all()) and bool(_t23d.fechou.all())
           and bool(_t23d._soltou.all())
           and float(_t23d.metrics["sucesso"].min()) == 1.0)
-    check("3. e o VALIDA é UM na espera final — ela NÃO zera os incentivos",
-          float(_t23d.command[:, CMD.VALIDA].min()) == 1.0,
-          "spec §6.0: o VALIDA deriva do interno; é isso que fecha o buraco da renda")
+    # ⚠ v3.5 (`aa02fd1`, spec `g1-limpo-cauda-parada-de-pe.md` §0.1/§2.1): a espera
+    # final ZERA o VALIDA. A regra anterior ("deriva do interno; não zera os
+    # incentivos") valia enquanto a cauda mandava a caixa a +5 m; a v3.4 tirou o
+    # teleporte, e `precise_pos` (3,0) e `load` (2,0) passaram a pagar ao vivo POR CIMA
+    # da renda congelada no fecho. Quem paga "apoiada" na cauda é o `renda_congelada`.
+    check("3. e o VALIDA é ZERO na espera final — a tarefa acabou, e só a renda "
+          "congelada paga a cauda (v3.5)",
+          float(_t23d.command[:, CMD.VALIDA].max()) == 0.0,
+          f"medido {_t23d.command[:, CMD.VALIDA].tolist()[:4]}")
     # ⚠⚠ O ATRIBUTO TEM DE ESTAR PUBLICADO NO MESMO INSTANTE, e não na passada seguinte.
     # A ordem do mjlab é terminação e recompensa ANTES do comando, portanto um atraso de
     # uma passada deixa o `caixa_largada` ler `soltou = 0` no passo do fecho — o guarda
@@ -3360,9 +3409,13 @@ try:
     check("12. `limpo_soltou` é publicado NO MESMO passo do fecho, sem esperar a passada",
           float(_e23b.limpo_soltou.min()) == 1.0,
           f"medido {[round(float(x), 1) for x in _e23b.limpo_soltou[:4]]}")
-    check("12. e o `escapou` DESARMA no mesmo instante — o passo do sucesso não mata",
-          not bool(TE_.caixa_largada(_e23b, **_par23).any()),
-          "é a regressão do atraso de uma passada: a terminação roda ANTES do comando")
+    # ⚠ v3.5: não há mais desarme por `soltou` — o que protege o passo do sucesso é a
+    # caixa estar NO ALVO (`~no_alvo`), onde ela foi pinada antes do fecho. A regressão
+    # do atraso de uma passada no `limpo_soltou` é o check anterior quem pega.
+    _fecho23 = TE_.caixa_largada(_e23b, **_par23)
+    check("12. o passo do sucesso não mata — a caixa está NO ALVO, e é o `~no_alvo` "
+          "que protege o fecho, não um desarme (v3.5)",
+          not bool(_fecho23.any()), str(_fecho23.tolist()))
     _o23b = _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))[0]
     _hotf = _o23b["actor"][:, OB_.fatia_do_elo(_o23b["actor"].shape[-1])].argmax(-1)
     check("12. a observação mostra ANDAR na espera final",
@@ -3374,7 +3427,11 @@ try:
           and float(MT_.fracao_esperando(_e23b).min()) == 1.0,
           "sem isto a espera final não aparece no painel")
 
-    # --- a terminação: `escapou` DESARMADO na espera final, `caiu` ARMADO ---
+    # --- a terminação na espera final: fora do alvo TERMINA (v3.5), `caiu` ARMADO ---
+    # ⚠ v3.5 (`41002df`, spec `g1-limpo-cauda-parada-de-pe.md` §0.2/§2.2): "se o robô
+    # bater e tirar do alvo/derrubar a caixa ele termina". O desarme antigo
+    # (`& soltou < 0.5`) deixava arrastar a caixa 30 cm sobre a laje de graça. Depois
+    # do fecho, fora do alvo BASTA — mesmo parada, mesmo sem cair.
     _t23d._pegou[:] = True
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))          # publica limpo_pegou = 1
     _cx23 = _e23b.scene["box"]
@@ -3386,8 +3443,9 @@ try:
     # ⚠ do cfg de TREINO: o modo inspeção apaga as terminações (`terminations = {}`)
     _par = dict(cfg.terminations["caixa_largada"].params)
     _longe = TE_.caixa_largada(_e23b, **_par)
-    check("12. afastar a caixa das palmas na espera final NÃO termina (escapou desarmado)",
-          not bool(_longe.any()), str(_longe.tolist()))
+    check("12. DEPOIS do fecho, tirar a caixa do alvo TERMINA, mesmo parada — o "
+          "limiar muda de lado no fecho (v3.5)",
+          bool(_longe.all()), str(_longe.tolist()))
     _pt2 = _cx23.data.root_link_pos_w.clone()
     _pt2[:, 2] = _e23b.scene.env_origins[:, 2] + 0.02            # no chão
     _cx23.write_root_link_pose_to_sim(_t23.cat([_pt2, _cx23.data.root_link_quat_w], -1))
@@ -3396,12 +3454,18 @@ try:
     _caiu = TE_.caixa_largada(_e23b, **_par)
     check("12. derrubar a caixa na espera final TERMINA (caiu armado)",
           bool(_caiu.all()), str(_caiu.tolist()))
+    # ⚠ A MESMA caixa parada fora do alvo, com `soltou` desligado à mão: ANTES do fecho
+    # sair do alvo exige VELOCIDADE (o arremesso, v3.2) — parada, não termina. É o
+    # outro lado do check acima, e o que prova que o limiar muda no fecho. (`_soltou`
+    # só vira True no ARM, `_avanca_elo_force`; o bloco da cauda só o lê.)
     _t23d._soltou[:] = False                                    # antes do fecho...
     _cx23.write_root_link_pose_to_sim(_t23.cat([_pt, _cx23.data.root_link_quat_w], -1))
     _cx23.write_root_link_velocity_to_sim(_t23.zeros(_e23b.num_envs, 6))
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))
-    check("12. ... e ANTES do fecho afastar as palmas continua terminando (escapou armado)",
-          bool(TE_.caixa_largada(_e23b, **_par).all()))
+    _antes23 = TE_.caixa_largada(_e23b, **_par)
+    check("12. ... e ANTES do fecho a MESMA caixa parada fora do alvo NÃO termina — "
+          "só o arremesso arma (v3.2/v3.5)",
+          not bool(_antes23.any()), str(_antes23.tolist()))
     del _e23b
 except Exception as _e23x:      # noqa: BLE001
     _falhas.append(f"as duas esperas não puderam ser medidas: "
@@ -3648,9 +3712,16 @@ check("17. `squeeze` e `unload` são MASCARADOS no BOTAR (o precedente do g1_poc
       "_fora_do_botar" in inspect.getsource(RC_.squeeze)
       and "_fora_do_botar" in inspect.getsource(RC_.unload)
       and "!= BOTAR" in inspect.getsource(RC_._fora_do_botar))
-check("17. `alcança ≡ 1` no BOTAR ou em `soltou`",
-      "== BOTAR" in inspect.getsource(RC_._alcancar)
-      and "limpo_soltou" in inspect.getsource(RC_._alcancar))
+# ⚠ v3.3 (`206070b`, spec `g1-limpo-mao-no-alcancar.md` §1): o `≡ 1` no BOTAR SAIU.
+# Com ele, segurar a caixa perto do alvo rendia 3,99/s sem exigir a mão, e o fecho
+# ganhava ~zero (bloco12 it 7499: `time_out` 66,4%, `load` 0,0001). `staged` e
+# `precise_ori` voltam a medir a mão DENTRO do BOTAR; a cauda (`soltou`) continua em
+# ZERO (v3.2). O corpo é lido SEM a docstring, que narra a versão antiga.
+_src_alc = inspect.getsource(RC_._alcancar).replace(RC_._alcancar.__doc__ or "", "")
+check("17. `alcança` é o kernel da mão também no BOTAR (sem ramo `== BOTAR`, v3.3) e "
+      "ZERO em `soltou`",
+      "== BOTAR" not in _src_alc and "limpo_soltou" in _src_alc
+      and "soltou > 0.5" in _src_alc)
 try:
     import torch as _t26
 
@@ -3689,7 +3760,7 @@ try:
                            "postura_ereta", "track_linear_velocity",
                            "pose", "renda_congelada")})
 
-    # 17. alcança no PEGAR com a caixa longe é ~0; no BOTAR é 1
+    # 17. alcança no PEGAR com a caixa longe é ~0; no BOTAR é o kernel da mão (v3.3)
     _pl = _cx26.data.root_link_pos_w.clone()
     _pl[:, 0] += 1.0
     for _ in range(3):
@@ -3702,8 +3773,14 @@ try:
     _t26c.forca_avanco(_ids26)            # arma o fecho do PEGAR
     _e26.step(_t26.zeros(8, _n26))         # avança -> BOTAR (laje nova; alvo lateral)
     _alc_botar = float(RC_._alcancar(_e26, "alvo_caixa").min())
-    check("17. `alcança` < 0,1 no PEGAR com a caixa a 1 m, e == 1 no BOTAR na mesma pose",
-          _alc_pegar < 0.1 and _alc_botar == 1.0, f"pegar {_alc_pegar:.3f}, botar {_alc_botar:.3f}")
+    # ⚠ v3.3 (`206070b`): no BOTAR o `alcança` é o kernel da mão, e não mais `≡ 1`. No
+    # passo em que o VALIDA acende ele vale `exp(−1) = 0,368` por construção — σ = d₀,
+    # a distância medida NAQUELE passo (F1) — e é isso que `forca_avanco` + 1 step
+    # produz aqui: a caixa a 1 m nos dois elos, mas no BOTAR o σ nasceu com ela lá.
+    check("17. `alcança` < 0,1 no PEGAR com a caixa a 1 m, e = exp(−1) no BOTAR na "
+          "mesma pose (σ = d₀ no passo em que o VALIDA acende; v3.3)",
+          _alc_pegar < 0.1 and abs(_alc_botar - math.exp(-1)) < 0.02,
+          f"pegar {_alc_pegar:.3f}, botar {_alc_botar:.3f}")
     # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
     _orig = RC_._forca_das_palmas
     RC_._forca_das_palmas = lambda env, sensores, asset_cfg: _t26.full((env.num_envs,), 20.0)
@@ -4925,8 +5002,12 @@ check("11. `curriculo.nivel` lê `concluiu`, não `fechou` sozinho",
       and "cmd.fechou[env_ids]" not in inspect.getsource(CU3.nivel))
 
 # --- 12. G2 (já medido na seção G1/G2, acima) ---
-check("12. G2 já medido na seção G1/G2 (v=0->0, v=vmax->1,0, v=3vmax->4,0)",
-      abs(_v_parado) < 1e-9 and abs(_v_limite - 1.0) < 1e-9 and abs(_v_3x - 4.0) < 1e-9)
+# ⚠ Dobradiça (`954ed94`, spec `g1-limpo-tabela-por-estado.md` §4): `média(relu(|v|/vmax
+# − 1)²)`, sem clamp — no limite custa ZERO (era 1,0), 3× custa 4,0 (igual), 5× custa
+# 16 (era o clamp em 4). O lote `4219d1e` migrou a medição da seção G1/G2 e esqueceu
+# este resumo.
+check("12. G2 já medido na seção G1/G2 (dobradiça: v=0->0, v=vmax->0, v=3vmax->4,0)",
+      abs(_v_parado) < 1e-6 and abs(_v_limite) < 1e-3 and abs(_v_3x - 4.0) < 1e-3)
 
 # --- 13. de_pe: default -> True; joelho a +0,8 rad -> False; pelve baixa, pernas
 #          default -> True (de_pe não lê mais pelve) ---
@@ -5053,7 +5134,11 @@ check("15. `PosturaPorElo` já medido na seção F2 (braço mascarado, sem "
 check("16. `load` já medido na seção 26 (pairando ~0, apoiada alta, fora do BOTAR 0)",
       "load" in cfg.rewards and cfg.rewards["load"].weight == 2.0)
 
-# --- 17. cauda pós-BOTAR: elo interno BOTAR, twist_zerado==0, publicado ANDAR ---
+# --- 17. cauda pós-BOTAR: elo interno BOTAR, twist_zerado==1 (v3.4), publicado ANDAR ---
+# ⚠ v3.4 (`0234e7b`, spec `g1-limpo-botar-fecha-e-para.md` §2.2): o `& ~soltou` SAIU do
+# `parados`. Depois do BOTAR o robô recebe o comando de ficar PARADO DE PÉ até o fim
+# do episódio — o interno fica BOTAR, BOTAR está em `elos_parados`, e o twist é zero.
+# O "twist liga na cauda" da v3.1 está revertido.
 try:
     import torch as _tv17
 
@@ -5070,11 +5155,11 @@ try:
     _tv17c._pegou[:] = True
     _ev17.limpo_pegou = _tv17c._pegou.float()
     _tv17c.forca_avanco(_idsv17)         # fecha o BOTAR: soltou=True no ARM
-    _ev17.step(_tv17.zeros(4, _nv17))    # cauda: fica em BOTAR, twist liga
-    check("17. cauda pós-BOTAR: `_elo == BOTAR`, `limpo_twist_zerado == 0`, "
-          "publicado ANDAR",
+    _ev17.step(_tv17.zeros(4, _nv17))    # cauda: fica em BOTAR, twist ZERO (v3.4)
+    check("17. cauda pós-BOTAR: `_elo == BOTAR`, `limpo_twist_zerado == 1` (parado de "
+          "pé, v3.4), publicado ANDAR",
           bool((_tv17c._elo == CMD.BOTAR).all())
-          and float(_ev17.limpo_twist_zerado.max()) == 0.0
+          and float(_ev17.limpo_twist_zerado.min()) == 1.0
           and bool((_tv17c.command[:, CMD.ELO] == CMD.ANDAR).all()),
           f"elo {_tv17c._elo.tolist()}, zerado {_ev17.limpo_twist_zerado.tolist()}, "
           f"publicado {_tv17c.command[:, CMD.ELO].tolist()}")
