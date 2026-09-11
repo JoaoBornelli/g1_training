@@ -563,8 +563,11 @@ _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "renda_congelada",
            # G2 (spec `g1-limpo-lento-e-estavel.md` §3): penaliza velocidade de junta
            # acima do limite por regime.
-           "velocidade_por_regime"}
-check("a tabela diverge do molde em exatamente CATORZE termos, e são estes",
+           "velocidade_por_regime",
+           # G3: a faixa de pose por família e por estado. Ela NÃO substitui o
+           # `dof_pos_limits` — nas juntas de perna o do fabricante é mais apertado.
+           "faixa_de_pose"}
+check("a tabela diverge do molde em exatamente QUINZE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS
       and not set(fab.rewards) - set(cfg.rewards),
       str(set(cfg.rewards) ^ set(fab.rewards)))
@@ -574,6 +577,39 @@ check("`air_time` está em 0,0 — os DOIS módulos de referência o tinham desl
       cfg.rewards["air_time"].weight == 0.0)
 check("`dof_pos_limits` é −1,0, o valor do fabricante",
       cfg.rewards["dof_pos_limits"].weight == -1.0)
+
+# ---- a faixa de pose (spec `g1-limpo-faixa-de-pose.md`)
+from g1_limpo import env_cfg as EC_           # noqa: E402
+from g1_limpo import recompensas as RC_       # noqa: E402
+from g1_limpo.comando import ESTADOS as _ESTADOS   # noqa: E402
+
+_fx = Knobs().faixa_de_pose
+_padroes = _fx.por_padrao()
+check("`faixa_de_pose` NÃO é embrulhada pela tabela por estado — o estado já escolhe "
+      "a COLUNA da tolerância, e embrulhar contaria o estado duas vezes",
+      cfg.rewards["faixa_de_pose"].func is RC_.FaixaDePose
+      and "func" not in cfg.rewards["faixa_de_pose"].params)
+check("`faixa_de_pose` NÃO está em TERMOS_CONGELAVEIS — é preço, não renda",
+      "faixa_de_pose" not in EC_.TERMOS_CONGELAVEIS)
+check("as sete famílias da faixa abrem em catorze padrões, e cada um tem DEZ colunas",
+      len(_padroes) == 14
+      and all(len(v) == len(_ESTADOS) for v in _padroes.values()),
+      str({p: len(v) for p, v in _padroes.items()}))
+check("a faixa zera PERNA e CINTURA no ANDAR e no CARREGAR — a marcha é do "
+      "`dof_pos_limits`, que é mais apertado que qualquer faixa nessas juntas",
+      _fx.perna[0] == 0.0 and _fx.perna[7] == 0.0
+      and _fx.cintura[0] == 0.0 and _fx.cintura[7] == 0.0)
+check("a faixa zera a PERNA no PEGAR — medido: agachar para 0,15 m custa 2,03 rad de "
+      "`hip_pitch`, e uma folga que aceita 2,03 é indistinguível de desligada",
+      _fx.perna[5] == 0.0 and _fx.perna[6] == 0.0)
+check("`punho_yaw` e `punho_pitch` são as faixas mais apertadas do braço em TODA "
+      "coluna de manipulação — elas não seguram nada",
+      all(_fx.punho_yaw[c] <= _fx.punho_roll[c] and _fx.punho_pitch[c] <= _fx.braco_pos[c]
+          for c in range(2, 9)))
+check("o peso da faixa é −0,5 e a escala 1,5 — contra a pose medida em `model_11322` "
+      "isso custa 2,4 a 3,7/s, na ordem do `action_rate_l2`, e NÃO torna cair a "
+      "melhor jogada",
+      cfg.rewards["faixa_de_pose"].weight == -0.5 and _fx.escala == 1.5)
 
 # ================================================ 12. currículo e comando
 secao("12. currículo, eventos e comando")
