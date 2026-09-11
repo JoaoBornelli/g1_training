@@ -26,6 +26,8 @@ import numpy as np
 
 from pilota import ELOS, Ator, carrega_cena, monta_observacao, restaura
 
+I_ANDAR, I_CARREGAR = ELOS.index("ANDAR"), ELOS.index("CARREGAR")
+
 # ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
 # Por isso o roteiro abre na espera e não numa aproximação.
 ROTEIRO_PADRAO = ("espera:ANDAR:1.0,"
@@ -43,9 +45,26 @@ class Fase:
         self.rotulo, self.elo, self.segundos, self.vx = rotulo, elo, segundos, vx
 
     @property
-    def anda(self) -> bool:
-        """Fase de marcha: elo ANDAR com velocidade pedida. É ela que limpa a cena."""
-        return self.elo == 0 and abs(self.vx) > 1e-6
+    def _marcha(self) -> bool:
+        return abs(self.vx) > 1e-6
+
+    @property
+    def limpa_laje(self) -> bool:
+        """A laje sai da frente sempre que ele vai andar — ela é obstáculo.
+
+        É o que o treino faz: a cauda de B e de R (`CARREGAR`) CONTINUA afastando a
+        laje, porque ali o robô sai andando com a caixa e a laje fica no caminho.
+        """
+        return self._marcha and self.elo in (I_ANDAR, I_CARREGAR)
+
+    @property
+    def limpa_caixa(self) -> bool:
+        """⚠ A caixa só some no `ANDAR`. No `CARREGAR` ela está NA MÃO.
+
+        Confundir os dois apagava a caixa do meio da tarefa: `CARREGAR` É andar com
+        ela. Só o `ANDAR` é andar sem nada.
+        """
+        return self._marcha and self.elo == I_ANDAR
 
 
 def analisa_roteiro(texto: str) -> list[Fase]:
@@ -80,21 +99,26 @@ def enderecos_da_caixa(m: mujoco.MjModel, id_caixa: int) -> tuple[int, int]:
     return int(m.jnt_qposadr[jid]), int(m.jnt_dofadr[jid])
 
 
-def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c, afasta: float) -> None:
-    """Manda a laje E a caixa para longe, como o reset do ANDAR faz no treino.
+def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c, afasta: float,
+                 laje: bool, caixa: bool) -> None:
+    """Manda para longe o que o elo manda, como o treino faz.
 
-    ⚠ AS DUAS JUNTAS, e é o pedido do dono: tirar só a laje deixaria a caixa caindo
-    no caminho. No `ANDAR` os dez canais da caixa zeram no gate da observação, então
-    a pose delas não muda o que a política vê — só a física.
+    ⚠ NO `ANDAR` VÃO AS DUAS: tirar só a laje deixaria a caixa caindo no caminho.
+    ⚠ NO `CARREGAR` VAI SÓ A LAJE: a caixa está na mão, e andar com ela é a tarefa.
+
+    No `ANDAR` os dez canais da caixa zeram no gate da observação, então a pose dela
+    não muda o que a política vê — só a física.
     """
-    id_mocap = int(m.body_mocapid[int(c.id_laje)])
-    if id_mocap >= 0:
-        d.mocap_pos[id_mocap, 0] += afasta
-    else:
-        print("⚠ a laje não é mocap; ela ficou onde estava")
-    adr_q, adr_v = enderecos_da_caixa(m, int(c.id_caixa))
-    d.qpos[adr_q] += afasta
-    d.qvel[adr_v:adr_v + 6] = 0.0
+    if laje:
+        id_mocap = int(m.body_mocapid[int(c.id_laje)])
+        if id_mocap >= 0:
+            d.mocap_pos[id_mocap, 0] += afasta
+        else:
+            print("⚠ a laje não é mocap; ela ficou onde estava")
+    if caixa:
+        adr_q, adr_v = enderecos_da_caixa(m, int(c.id_caixa))
+        d.qpos[adr_q] += afasta
+        d.qvel[adr_v:adr_v + 6] = 0.0
     mujoco.mj_forward(m, d)
 
 
@@ -136,7 +160,8 @@ def main() -> None:
                     help="rotulo:ELO:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
-                    help="metros em +x para onde laje e caixa vão na marcha")
+                    help="metros em +x para onde a cena vai na marcha (ANDAR: laje e "
+                         "caixa; CARREGAR: só a laje)")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -183,8 +208,9 @@ def main() -> None:
         for volta in range(args.voltas):
             for fase in fases:
                 twist[:] = (fase.vx, 0.0, 0.0)
-                if fase.anda:
-                    limpa_a_cena(m, d, c, args.afasta)
+                if fase.limpa_laje or fase.limpa_caixa:
+                    limpa_a_cena(m, d, c, args.afasta,
+                                 laje=fase.limpa_laje, caixa=fase.limpa_caixa)
                 n = max(1, int(round(fase.segundos / dt)))
                 for _ in range(n):
                     if viewer is not None and not viewer.is_running():
