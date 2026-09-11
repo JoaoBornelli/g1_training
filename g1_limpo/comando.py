@@ -69,6 +69,11 @@ __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
+           "ESTADOS", "estado_de_recompensa",
+           "ESTADO_ANDAR", "ESTADO_ESPERA_SEM", "ESTADO_ESPERA_COM",
+           "ESTADO_REORIENTAR_SEM", "ESTADO_REORIENTAR_COM",
+           "ESTADO_PEGAR_SEM", "ESTADO_PEGAR_COM",
+           "ESTADO_CARREGAR", "ESTADO_BOTAR", "ESTADO_CAUDA",
            "TwistComRazaoDeMarcha", "TwistComRazaoDeMarchaCfg"]
 
 # --- o layout, por nome. Nenhum índice solto no resto do pacote. ---
@@ -86,6 +91,54 @@ DIM = 12
 # --- os elos. Mesma numeração dos slots do one-hot. ---
 ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
 ELOS = ("andar", "reorientar", "pegar", "carregar", "botar")
+
+# --- os DEZ estados de recompensa (spec `g1-limpo-tabela-por-estado.md` §1). ---
+# A enumeração COMPLETA do que ocorre num env, publicada em `env.limpo_estado` por
+# `_aplica_espera` e lida por `recompensas.PesoPorEstado`, que indexa com ela a tabela
+# do `knobs.PesoPorEstado`. A ORDEM aqui é o contrato das colunas daquela tabela.
+#
+# ⚠ A divisão `_SEM/_COM` (por `pegou`) existe porque o rastreio e o `pose` dependem
+# de já ter tocado a caixa — ela reproduz, estado a estado, o `engajado` que o
+# `rastreio_por_elo` lia antes da tabela.
+#
+# ⚠ `knobs.py` NÃO importa isto: `cena.py` importa `knobs`, e este módulo importa
+# `cena` — o import de volta fecharia o ciclo. O `knobs` rotula as colunas num
+# comentário, e o `smoke` amarra os dois pelo comprimento das tuplas.
+(ESTADO_ANDAR, ESTADO_ESPERA_SEM, ESTADO_ESPERA_COM,
+ ESTADO_REORIENTAR_SEM, ESTADO_REORIENTAR_COM,
+ ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM,
+ ESTADO_CARREGAR, ESTADO_BOTAR, ESTADO_CAUDA) = range(10)
+ESTADOS = ("ANDAR", "ESPERA_SEM", "ESPERA_COM",
+           "REORIENTAR_SEM", "REORIENTAR_COM",
+           "PEGAR_SEM", "PEGAR_COM",
+           "CARREGAR", "BOTAR", "CAUDA")
+
+
+def estado_de_recompensa(elo: torch.Tensor, aguardando: torch.Tensor,
+                         pegou: torch.Tensor, soltou: torch.Tensor) -> torch.Tensor:
+    """O estado de recompensa por env (spec tabela-por-estado §1), como `long`.
+
+    Precedência: `soltou` primeiro (-> CAUDA); depois `aguardando` (-> ESPERA_SEM ou
+    ESPERA_COM, por `pegou`); depois por `elo`:
+
+        ANDAR      -> ANDAR
+        REORIENTAR -> REORIENTAR_SEM + pegou
+        PEGAR      -> PEGAR_SEM + pegou
+        CARREGAR   -> CARREGAR
+        BOTAR      -> BOTAR
+
+    ⚠ Função PURA, e de propósito: `_aplica_espera` a chama com os buffers frescos,
+    e o `smoke` a chama com tensores sintéticos para provar a precedência e a faixa
+    `range(10)` sem montar um env.
+    """
+    com = pegou.long()
+    por_elo = torch.full_like(elo, ESTADO_ANDAR)
+    por_elo = torch.where(elo == REORIENTAR, ESTADO_REORIENTAR_SEM + com, por_elo)
+    por_elo = torch.where(elo == PEGAR, ESTADO_PEGAR_SEM + com, por_elo)
+    por_elo = torch.where(elo == CARREGAR, torch.full_like(elo, ESTADO_CARREGAR), por_elo)
+    por_elo = torch.where(elo == BOTAR, torch.full_like(elo, ESTADO_BOTAR), por_elo)
+    estado = torch.where(aguardando, ESTADO_ESPERA_SEM + com, por_elo)
+    return torch.where(soltou, torch.full_like(elo, ESTADO_CAUDA), estado)
 
 # --- as cadeias de elo (spec dois-bits §2.1). O teto é DERIVADO (`_TETO_ELOS`),
 # nunca redigitado. `CARREGAR` SAIU de dentro das tuplas: ele é o estado de CAUDA de
@@ -500,6 +553,11 @@ class AlvoCaixaCmd(CommandTerm):
         # `knobs.Alvo.espera_s` para o porquê e para a origem no `g1_poc`.
         self._espera = torch.zeros(n, device=d)
         env.limpo_aguardando = torch.zeros(n, device=d)
+        # ⚠ O ESTADO DE RECOMPENSA (spec tabela-por-estado §1): um inteiro em
+        # `range(10)` por env, escrito IN-PLACE por `_aplica_espera` do MESMO
+        # `aguardando` que escreve o `VALIDA`, e lido por `recompensas.PesoPorEstado`.
+        # Nasce `ANDAR` (0); a leitura real começa no primeiro `_update_command`.
+        env.limpo_estado = torch.zeros(n, dtype=torch.long, device=d)
         # ⚠ A MÁSCARA "esta tarefa zerou o twist deste env", por env (v2.1, spec P4).
         # Publicada por `_zera_twist_nos_parados`, e lida por
         # `recompensas.rastreio_por_elo` — um gate só, em vez do conjunto de elos que
@@ -691,6 +749,16 @@ class AlvoCaixaCmd(CommandTerm):
         # cauda POR CIMA da renda congelada (spec v3.5 §0.1).
         base = (self._command[:, ELO] != ANDAR).float()
         self._command[:, VALIDA] = base * (~aguardando).float()
+        # ⚠⚠ O ESTADO DE RECOMPENSA, do MESMO `aguardando` que acabou de escrever o
+        # `VALIDA` (spec tabela-por-estado §1) — a MESMA fase temporal que os termos
+        # liam no `VALIDA`. `_pegou` e `_soltou` estão frescos (`_publica_pegou` roda
+        # antes); `_elo` é o de depois do avanço acima, como o `VALIDA`. ⚠ NÃO mover
+        # para o fim de `_update_command`: ali `_avanca_elo` já correu, a espera
+        # apareceria um passo mais cedo que o `VALIDA`, e o `renda_congelada` — que
+        # congela pela SUBIDA de `_fechos` com a soma do passo ANTERIOR — leria a
+        # soma errada. IN-PLACE, como `limpo_aguardando` e `limpo_soltou`.
+        self._env.limpo_estado.copy_(estado_de_recompensa(
+            self._elo, aguardando, self._pegou, self._soltou))
 
         # ⚠ O σ da TAREFA, no instante em que ela liga. `_sigma_pendente` é verdadeiro
         # do resample até aqui; no `ANDAR` puro `VALIDA` nunca acende, e ele fica
