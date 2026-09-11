@@ -385,7 +385,8 @@ class Recompensa:
         # O 0,30 se justificava assim: "com 1,00 um punho a 57° custa 3,4% do `pose`".
         # A aritmética estava certa e a conclusão errada — o robô não opera a 57° com
         # UM punho, opera a ~1,6 rad (92°) com SEIS. Com 0,30 os seis sozinhos somam
-        # 139 ao expoente; dividido pelo divisor de 21 dá 6,6, e `exp(−6,6) = 0,0014`.
+        # `6 × (1,6/0,30)² = 170,7` ao expoente; dividido pelo divisor de 21 dá 8,13, e
+        # `exp(−8,13) = 0,0003`.
         #
         # ⚠ MEDIDO em `model_10200`, na janela `pegou ∧ ¬soltou`: `pose` vale **0,0272**
         # de um teto de 1,0 — 2,7% — com `|Δvalor|` por passo p50 de `3e−05`. CANAL
