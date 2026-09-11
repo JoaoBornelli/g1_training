@@ -10,14 +10,9 @@ segundos, e cada passo vira uma linha do CSV.
 depende do `mjlab`: o MuJoCo clássico roda ~40× tempo real nesta CPU, contra 96× mais
 LENTO por substep no Warp.
 
-O que sai:
-  <saida>.csv       uma linha por passo: fase, elo, one-hot, q, frac e desvio das 29
-  <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV grande
-  e um RESUMO na tela, por fase, com as juntas que mais encostaram no batente.
-
-A coluna que responde "quem está no limite" é a `frac`: 0,0 é o batente de baixo,
-1,0 o de cima, 0,5 o meio da faixa. Fora de [0, 1] a junta PASSOU do batente — o
-limite do MuJoCo é complacente, e é isso que o `dof_pos_limits` cobra no treino.
+O que sai, e nada mais:
+  <saida>.csv           passo, t, fase, elo, one-hot, e o ÂNGULO CRU das 29 juntas
+  <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 """
 from __future__ import annotations
 
@@ -132,39 +127,6 @@ def regua_das_juntas(m: mujoco.MjModel, c) -> tuple[list[str], np.ndarray, np.nd
     return nomes, faixa, np.asarray(c.q_default, dtype=np.float64)
 
 
-def resumo(linhas: list[dict], nomes: list[str], faixa: np.ndarray, topo: int) -> None:
-    """Por fase, as juntas que mais encostaram no batente."""
-    por_fase: dict[str, list[dict]] = {}
-    for ln in linhas:
-        por_fase.setdefault(ln["fase"], []).append(ln)
-
-    print("\n" + "=" * 78)
-    print("RESUMO — proximidade do batente por fase.")
-    print("frac: 0 = batente inferior, 1 = superior, 0,5 = meio da faixa.")
-    print("folga mín: distância ao batente mais próximo no PIOR passo da fase.")
-    print("⚠ NEGATIVA = a junta passou do batente. O limite do MuJoCo é complacente "
-          "(`solimp`),\n   então contato e torque empurram para além da faixa — "
-          "é aí que o `dof_pos_limits` cobra.")
-    print("=" * 78)
-    for fase, grupo in por_fase.items():
-        fr = np.array([[g[f"frac_{n}"] for n in nomes] for g in grupo], dtype=np.float64)
-        with np.errstate(invalid="ignore"):
-            # distância ao batente MAIS PRÓXIMO, no pior passo da fase
-            dist = np.minimum(fr, 1.0 - fr)
-            perto = np.where(np.all(np.isnan(dist), axis=0), np.nan,
-                             np.nanmin(np.where(np.isnan(dist), np.inf, dist), axis=0))
-        ordem = np.argsort(np.where(np.isnan(perto), np.inf, perto))[:topo]
-        print(f"\n[{fase}]  {len(grupo)} passos")
-        print(f"  {'junta':<28s} {'folga mín':>10s} {'frac p50':>9s} {'q p50':>8s}")
-        for i in ordem:
-            if np.isnan(perto[i]):
-                continue
-            q = np.array([g[f"q_{nomes[i]}"] for g in grupo])
-            marca = "  <-- BATENTE" if perto[i] < 0.02 else ""
-            print(f"  {nomes[i]:<28s} {perto[i]:10.3f} "
-                  f"{np.nanmedian(fr[:, i]):9.3f} {np.median(q):8.3f}{marca}")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cena", required=True, help="pasta com cena.mjb e cena.npz")
@@ -175,7 +137,6 @@ def main() -> None:
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
                     help="metros em +x para onde laje e caixa vão na marcha")
-    ap.add_argument("--topo", type=int, default=8, help="juntas por fase no resumo")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
     args = ap.parse_args()
 
@@ -233,20 +194,13 @@ def main() -> None:
                     # um subpasso, e é depois dele que a observação e o log são lidos.
                     mujoco.mj_forward(m, d)
 
-                    q = d.qpos[ids_q].copy()
-                    with np.errstate(invalid="ignore"):
-                        frac = (q - faixa[:, 0]) / (faixa[:, 1] - faixa[:, 0])
+                    q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
-                          "volta": volta, "fase": fase.rotulo,
-                          "elo": ELOS[fase.elo], "elo_idx": fase.elo,
-                          "cmd_vx": fase.vx,
-                          "pelve_z": round(float(d.xpos[int(c.id_base)][2]), 5)}
+                          "fase": fase.rotulo, "elo": ELOS[fase.elo]}
                     for k in range(len(ELOS)):
                         ln[f"oh_{ELOS[k].lower()}"] = int(k == fase.elo)
                     for i, nome in enumerate(nomes):
-                        ln[f"q_{nome}"] = round(float(q[i]), 5)
-                        ln[f"frac_{nome}"] = round(float(frac[i]), 4)
-                        ln[f"dev_{nome}"] = round(float(q[i] - q_def[i]), 5)
+                        ln[f"q_{nome}"] = float(q[i])
                     linhas.append(ln)
                     passo += 1
 
@@ -282,7 +236,6 @@ def main() -> None:
 
     print(f"\n[registra] {len(linhas)} linhas × {len(linhas[0])} colunas -> {csv_grande}")
     print(f"[registra] régua das juntas -> {csv_regua}")
-    resumo(linhas, nomes, faixa, args.topo)
 
 
 if __name__ == "__main__":
