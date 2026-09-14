@@ -1044,7 +1044,7 @@ class Terminacao:
 @dataclass
 class PesoPorEstado:
     """A TABELA POR ESTADO (spec `g1-limpo-tabela-por-estado.md` §2): o peso de cada
-    um dos dez termos em cada um dos dez estados de recompensa que o comando publica
+    um dos doze termos em cada um dos dez estados de recompensa que o comando publica
     em `env.limpo_estado`. `recompensas.PesoPorEstado` multiplica o termo pela coluna.
 
     ⚠⚠ O PRINCÍPIO: o teto do que o robô ainda tem de fazer >= o piso do que ele já
@@ -1099,9 +1099,11 @@ class PesoPorEstado:
     zerados DENTRO do BOTAR por `_fora_do_botar`, que fica: o 2 dessas linhas em BOTAR
     é o `VALIDA` por extenso, e ali multiplica zero.
 
-    ⚠ FORA DA TABELA, de propósito: `upright`, `terminacao`, `contato_*`, `joint_acc`,
-    `action_rate_l2`, `velocidade_por_regime` e `renda_congelada` (que lê os sete pelo
-    NOME, já multiplicados — é isso que faz o piso do BOTAR ×2 valer ~15,8).
+    ⚠ FORA DA TABELA, de propósito: `terminacao`, `contato_*`, `joint_acc`,
+    `action_rate_l2` e `velocidade_por_regime`. A `renda_congelada` lê os sete termos
+    pelo NOME, já multiplicados — é isso que faz o piso do BOTAR ×2 valer ~15,8.
+    `upright` e `faixa_de_pose` ENTRARAM na tabela: o preço tem de escalar com o
+    pagamento do BOTAR (colunas que multiplicam por 2).
     """
 
     #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
@@ -1115,6 +1117,20 @@ class PesoPorEstado:
     track_linear_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0,  0.0,    1.0,    3.5,     1.0,  1.0)
     track_angular_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0,    1.0,    3.5,     1.0,  1.0)
     pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    4.0,    1.0,     1.0,  8.0)
+    # ⚠ O `upright` DO MOLDE MEDE INCLINAÇÃO DO `torso_link` COM `exp(−sin²(inclinação)/0,2)` E PESO 1,0.
+    # MEDIDO NO `model_14000`: no BOTAR o robô deita tronco e cabeça em cima da caixa. A coluna 4 paga por
+    # ficar ereto ali, e é recompensa positiva, não multa. A coluna CAUDA fica em 1 DE PROPÓSITO: ela já
+    # paga `postura_ereta` x8 e `pose` x8 — subir a cauda aumentaria o ganho de fechar cedo, que é o que
+    # a corrida já explora. `upright` ali é redundante.
+    #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
+    upright: tuple[float, ...] = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 4.0, 1.0)
+    # ⚠ A COLUNA BOTAR MULTIPLICA OS SETE DE MANIPULAÇÃO POR 2 E O PREÇO FICAVA EM 1. MEDIDO: na cadeia do
+    # carregar o `right_shoulder_yaw` fica em 0,28 (faixa 0,8), mas na cadeia do botar ele trava em 2,63,
+    # com o curso em 2,62 — a faixa funciona onde o pagamento é x1 e falha onde ele é x2. O 2 aqui é o
+    # preço acompanhando o pagamento. EXIGE a coluna BOTAR de `FaixaDePose.perna` em 0: sem ela, isto dobra
+    # também o imposto sobre o agachamento e o robô fica numa pinça.
+    #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
+    faixa_de_pose: tuple[float, ...] = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0)
 
 
 @dataclass
@@ -1181,8 +1197,22 @@ class FaixaDePose:
     # a escala da exponencial, em radianos. Ver o peso em `Tarefa.faixa_de_pose`.
     escala: float = 1.5
 
+    # ⚠ AGACHAR ATÉ A LAJE: `hip_pitch` 2,03 e `knee` 1,50 medidos; faixa de 1,3 era mais
+    # apertada que a geometria, portanto cobrava o movimento que a tarefa exige.
+    #
+    # ⚠ COM TOL = 1,3: morde em três juntas só (`hip_pitch`, `hip_yaw`, `knee`). As outras
+    # nove da perna não alcançam 1,3 nem no batente (`ankle_roll` 0,262, `ankle_pitch`
+    # 0,887, `hip_roll` 0,524 para baixo, `knee` 0,756 para baixo). Cobrava o agachamento,
+    # quase nada mais.
+    #
+    # ⚠ SEM GUARDA NÃO: o `dof_pos_limits` do fabricante continua (peso −1,0), e é
+    # ASSIMÉTRICO — `knee` tem 0,756 para baixo, 2,211 para cima. Esta faixa é simétrica
+    # e não consegue expressar isso.
+    #
+    # ⚠ PRÉ-REQUISITO DE PESO: as linhas novas de `PesoPorEstado` multiplicam a faixa por 2
+    # no BOTAR, e sem isto o imposto sobre o agachamento dobraria junto.
     #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
-    perna: tuple[float, ...] = (0.0,  0.6,    0.6,    0.8,     0.8,     0.0,    0.0,    0.0,     1.3,  0.5)
+    perna: tuple[float, ...] = (0.0,  0.6,    0.6,    0.8,     0.8,     0.0,    0.0,    0.0,     0.0,  0.5)
     cintura: tuple[float, ...] = (0.0, 0.4,   0.4,    0.4,     0.4,     0.6,    0.6,    0.0,     0.6,  0.3)
     braco_pos: tuple[float, ...] = (0.7, 0.9, 1.2,    1.5,     1.5,     1.5,    1.5,    1.2,     1.5,  0.6)
     ombro_yaw: tuple[float, ...] = (0.5, 0.6, 0.8,    0.8,     0.8,     0.8,    0.8,    0.8,     0.8,  0.5)

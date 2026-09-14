@@ -210,8 +210,19 @@ class FaixaDePose:
     ⚠ `torch.expm1` e não `exp(x) − 1`: em `x` pequeno a subtração perde os dígitos
     justamente na borda da faixa, que é onde o gradiente tem de nascer limpo.
 
-    ⚠ NÃO EMBRULHA em `PesoPorEstado`. O estado já escolhe a COLUNA da tolerância;
-    multiplicar o termo por uma segunda tabela por estado contaria duas vezes.
+    ⚠ O parâmetro ANTES CHAMAVA `tabela`, agora é `tolerancias`. Razão: o termo vai
+    passar a ser embrulhado por `PesoPorEstado`, que usa `params["tabela"]` para a
+    coluna de peso por estado. Dois significados na mesma chave colidem — o `assert` do
+    laço em `env_cfg.py` explode. A tabela de tolerância passa a ter chave própria.
+
+    ⚠⚠ ELE EMBRULHA EM `PesoPorEstado`, e isto INVERTE o que este bloco dizia até
+    14/09. As duas tabelas medem coisas diferentes e não se contam duas vezes: a de
+    tolerância diz ONDE a dobradiça começa, a de estado diz QUANTO o excesso custa.
+
+    MEDIDO no `model_14000`: na cadeia do carregar o `right_shoulder_yaw` fica em
+    0,28 contra uma faixa de 0,8; na cadeia do botar ele TRAVA em 2,63, com o curso
+    em 2,62. A faixa funciona onde o pagamento é ×1 e falha onde ele é ×2 — a coluna
+    BOTAR multiplica os sete de manipulação por 2 e o preço ficava em 1.
 
     ⚠ Devolve POSITIVO. Quem faz dele penalidade é o peso negativo, que é a convenção
     do molde — o `action_rate_l2` e o `velocidade_por_regime` também devolvem positivo.
@@ -224,7 +235,7 @@ class FaixaDePose:
         asset = env.scene[asset_cfg.name]
         _, joint_names = asset.find_joints(asset_cfg.joint_names)
 
-        tabela: dict = cfg.params["tabela"]
+        tabela: dict = cfg.params["tolerancias"]
         for padrao, linha in tabela.items():
             assert len(linha) == len(ESTADOS), (
                 f"a faixa de '{padrao}' tem {len(linha)} colunas para "
@@ -239,9 +250,9 @@ class FaixaDePose:
         # (n_estados, n_juntas)
         self._tol = torch.tensor(linhas, device=env.device, dtype=torch.float32)
 
-    def __call__(self, env, tabela, escala: float,
+    def __call__(self, env, tolerancias, escala: float,
                  asset_cfg: SceneEntityCfg) -> torch.Tensor:
-        del tabela  # resolvida no `__init__`
+        del tolerancias  # resolvida no `__init__`
 
         asset = env.scene[asset_cfg.name]
         tol = self._tol[env.limpo_estado]                       # (n_envs, n_juntas)
