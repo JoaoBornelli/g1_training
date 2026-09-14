@@ -779,8 +779,20 @@ class velocidade_por_regime:
     marcha, e com a dobradiça a marcha normal passa a custar ZERO em vez de
     `(v/vmax)²`: um pequeno ALÍVIO constante na locomoção, declarado. Peso −2,0 FICA.
 
-    ⚠ MÉDIA sobre as juntas, e não produto: um produto de 29 gaussianas colapsa para
-    qualquer vmax — o mesmo defeito medido no `PosturaPorElo` para posição.
+    ⚠ É `amax` sobre as juntas, e não média. A média sobre 29 juntas divide o sinal das
+    poucas que correm: medido no `juntas14k.csv`, p50 de 1 junta acima do `vmax` por
+    passo e p90 de 3, de 29.
+
+    ⚠ Na mesma gravação a troca multiplica o custo por 15,5x na manipulação (0,11/s para
+    1,78/s). A gravação é mais calma que o treino (p50 de 0,10 rad/s contra RMS 2,873 do
+    painel), portanto a razão real fica menor — estimada em 3x a 8x.
+
+    ⚠ O que muda é a FORMA, e não a magnitude: com média, tornar UMA junta 29x mais
+    rápida custa o mesmo que tornar as 29 um pouco rápidas. A magnitude é o peso, que
+    continua -2,0 e será calibrado pelo painel.
+
+    ⚠ NÃO é produto: um produto de 29 gaussianas colapsa para qualquer vmax — o mesmo
+    defeito medido no `PosturaPorElo` para posição.
     """
 
     def __init__(self, cfg, env):
@@ -828,7 +840,7 @@ class velocidade_por_regime:
 
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
         # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto
-        return torch.mean(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)
+        return torch.amax(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)
 
 
 class renda_congelada:
