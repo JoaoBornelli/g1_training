@@ -790,17 +790,35 @@ class velocidade_por_regime:
     marcha, e com a dobradiça a marcha normal passa a custar ZERO em vez de
     `(v/vmax)²`: um pequeno ALÍVIO constante na locomoção, declarado. Peso −2,0 FICA.
 
-    ⚠ É `amax` sobre as juntas, e não média. A média sobre 29 juntas divide o sinal das
-    poucas que correm: medido no `juntas14k.csv`, p50 de 1 junta acima do `vmax` por
-    passo e p90 de 3, de 29.
+    ⚠⚠ A REDUÇÃO MUDA COM O REGIME, e isto é medido, não estético:
 
-    ⚠ Na mesma gravação a troca multiplica o custo por 15,5x na manipulação (0,11/s para
-    1,78/s). A gravação é mais calma que o treino (p50 de 0,10 rad/s contra RMS 2,873 do
-    painel), portanto a razão real fica menor — estimada em 3x a 8x.
+        standing            `amax`   — o teto é de IMOBILIDADE
+        walking / running   `mean`   — o teto é o p99 POR JUNTA
 
-    ⚠ O que muda é a FORMA, e não a magnitude: com média, tornar UMA junta 29x mais
-    rápida custa o mesmo que tornar as 29 um pouco rápidas. A magnitude é o peso, que
-    continua -2,0 e será calibrado pelo painel.
+    POR QUE `amax` PARADO. A média sobre 29 juntas divide o sinal das poucas que
+    correm: medido no `juntas14k.csv`, p50 de UMA junta acima do `vmax` por passo, p90
+    de três, de 29. Parado, `vel_max_standing` é 1,5 (1,0 no punho) e NENHUMA junta
+    deveria passar disso — o máximo é a leitura certa, e a média só esconde.
+
+    ⚠⚠ POR QUE `mean` ANDANDO, E O QUE CUSTOU DESCOBRIR. A `bloco19` rodou com `amax`
+    nos TRÊS regimes e COLAPSOU em 472 iterações: episódio médio de 136 passos contra
+    1000, `fell_over` 37 contra `time_out` 2,1, `razao_marcha` 0,055 contra o portão de
+    0,50, `sucesso` zerado. Viver rendia −0,5/s e morrer custava −3,78 uma vez — cair
+    virou a jogada ótima.
+
+    A causa é aritmética. Os `vel_max_walking` são o p99 POR JUNTA da marcha. Com 29
+    juntas, a chance de PELO MENOS UMA passar do próprio p99 é `1 − 0,99²⁹ = 25%`:
+    um quarto dos passos de marcha NORMAL passou a pagar. Com a média isso era
+    dividido por 29 e ficava no ruído de fundo.
+
+    **Trocar a redução sem recalibrar o limiar muda o que o número significa.** O
+    limiar de imobilidade e o p99 de marcha não admitem a mesma redução.
+
+    ⚠ E O REGIME JÁ É O GATE DA TAREFA: em toda manipulação o
+    `comando._zera_twist_nos_parados` escreve zero no twist, portanto `standing` é
+    exatamente onde o robô deveria estar quieto. Não acrescente gate por estado.
+
+    ⚠ O que muda é a FORMA, e não a magnitude. A magnitude é o peso.
 
     ⚠ NÃO é produto: um produto de 29 gaussianas colapsa para qualquer vmax — o mesmo
     defeito medido no `PosturaPorElo` para posição.
@@ -851,7 +869,13 @@ class velocidade_por_regime:
 
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
         # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto
-        return torch.amax(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)
+        excesso = torch.relu(v.abs() / vmax - 1.0) ** 2
+        # ⚠⚠ A REDUÇÃO MUDA COM O REGIME. Ver o docstring: `amax` parado (onde o
+        # `vmax` é um teto de imobilidade e nenhuma junta deveria passar dele), média
+        # andando (onde o `vmax` é o p99 POR JUNTA e o máximo sobre 29 o ultrapassa em
+        # 25% dos passos de marcha NORMAL).
+        return torch.where(standing_mask > 0.5,
+                           excesso.amax(dim=1), excesso.mean(dim=1))
 
 
 class renda_congelada:
