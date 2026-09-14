@@ -542,10 +542,12 @@ def make_env_cfg(
     cfg.commands["alvo_caixa"] = CMD.AlvoCaixaCmdCfg(
         peito_b=k.alvo.peito_b,
         altura_carregar=k.alvo.altura_carregar,
+        altura_carregar_faixa=k.alvo.altura_carregar_faixa,
         botar_delta_topo=k.alvo.botar_delta_topo,
         botar_delta_xy=k.alvo.botar_delta_xy,
         botar_recuo_borda=k.alvo.botar_recuo_borda,
         botar_folga_laje=k.alvo.botar_folga_laje,
+        folga_apoiada_N=k.alvo.folga_apoiada_N,
         afasta_z=c.afasta_z,
         prateleira_xy=c.prateleira_xy,
         prateleira_meia_z=c.prateleira_meia_z,

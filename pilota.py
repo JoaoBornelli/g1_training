@@ -123,7 +123,7 @@ def alvo_do_elo(m: mujoco.MjModel, d: mujoco.MjData, c: Cena, elo: int) -> np.nd
         BOTAR       sobre a laje, recuado para a borda perto do robô.
 
     ⚠ O z DO PEGAR É ABSOLUTO, e isto contradiz a tabela da spec §4. O
-    `comando._alvo_ancorado_na_base` sobrescreve `a[:, 2] = altura_carregar` (1,02 m)
+    `comando._alvo_ancorado_na_base` sobrescreve `a[:, 2] = altura_carregar` (0,85 m)
     depois de somar o `peito_b`. Com z relativo o robô satisfaria o alvo ANDANDO
     AGACHADO — o alvo desceria com a pelve e a caixa nunca subiria. A spec §2.1 pede o
     knob `altura_carregar` no `.npz`, portanto ela já conta com ele.

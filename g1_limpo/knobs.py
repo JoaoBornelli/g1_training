@@ -168,14 +168,18 @@ class Alvo:
     # ~0,05 m em toda faixa (a caixa segura fica mais à frente que isso). O valor
     # atual (0,25) já bate com o medido — mantido, sem ajuste.
     #
-    # ⚠ ADENDO — `caixa_b.z` MUNDIAL (revisão do coordenador): mesma sonda, geral
-    # (n=44988), `root_link_pos_w[:,2] − env_origin_z` no HOLD: p10 0,913, p50
-    # 1,025, p90 1,076. `caixa_b.y`: p10 −0,046, p50 −0,020, p90 0,054 — centrado,
-    # sem desvio. O desvio de ~10 cm medido antes (relógio) era em Z, não em x/y:
-    # o alvo a `altura_carregar = 0,95` ficava 7,5 cm ABAIXO de onde a caixa
-    # repousa de verdade no peito. `peito_b.z` sobe de 0,15 para 0,222 (ver
-    # `altura_carregar`, abaixo, para a derivação).
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
+    # ⚠ O z NÃO É MEDIDO DO ROBÔ, e a versão 0,222 era. Ver `altura_carregar` abaixo:
+    # medir onde a caixa repousa e mover o alvo para lá é circular — o robô segurava
+    # na altura do ombro, e o knob subiu para onde ele já segurava. O z é DERIVADO do
+    # alvo: `altura_carregar − 0,798` (a pelve do keyframe).
+    #
+    # ⚠ `peito_b.z` só é lido em dois lugares. No alvo ele é SOBRESCRITO por
+    # `altura_carregar` (`comando._alvo_ancorado_na_base`) e só sobra o efeito de
+    # segunda ordem em x,y quando a base inclina. Quem o usa de verdade é o
+    # `eventos.segura_caixa`, que põe a caixa em `POSE_TRAVADA.z + peito_b.z` para a
+    # inspeção — e ali ele TEM de acompanhar o alvo, senão a inspeção mostra a caixa
+    # numa altura que o treino não pede.
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.052)
 
     # ⚠ A ALTURA DE TRABALHO, ABSOLUTA EM MUNDO. Ela é o z do alvo nos DOIS elos que
     # seguram a caixa, e o referencial é dividido POR EIXO:
@@ -187,17 +191,64 @@ class Alvo:
     # desce junto com a pelve e a caixa nunca precisa subir. Foi a inconsistência que
     # o dono apontou em 25/08, e ela é a mesma classe do defeito do `pegar`.
     #
-    # DERIVAÇÃO (revisão do coordenador, MEDIDO 2026-09-08): a pelve do keyframe
-    # joelhos-flexionados fica em z = 0,798, e `peito_b.z = 0,222` (medido, ver
-    # acima). Logo `0,798 + 0,222 = 1,020`. O `smoke` confere esta soma contra a
-    # pose default do robô, para o número não derivar em silêncio.
+    # ⚠⚠ POR QUE DESCEU de 1,02 para 0,85 (14/09). O 1,02 vinha de uma MEDIDA DO
+    # PRÓPRIO ROBÔ — `caixa_b.z` no HOLD do `model_6999`, p50 1,025 — e mover o alvo
+    # para onde a caixa já estava é circular: o robô segurava alto, e o alvo subiu
+    # atrás dele. O ombro do G1 fica em z = 1,074 e a base da cabeça em 1,196, logo
+    # 1,02 é a ALTURA DO OMBRO, com o topo da caixa maior a 5 cm do queixo.
     #
-    # ⚠ POR QUE SUBIU de 0,95: `caixa_b.z` medido no HOLD (sonda `sonda_peito_bx.
-    # py`, n=44988) dá p10 0,913, p50 1,025, p90 1,076 — o alvo antigo (0,95)
-    # ficava 7,5 cm ABAIXO de onde a caixa de fato repousa no peito. Esse desvio
-    # em z (não em x/y, que estão centrados) era o que fazia `perto` oscilar no
-    # limiar do fecho.
-    altura_carregar: float = 1.02
+    # CUSTO MEDIDO (cinemática direta, palma em (0,25; −0,10; z), sem física),
+    # em Σ|q − default| de ombro_pitch, ombro_roll e cotovelo:
+    #
+    #     alvo z     0,70   0,85   1,02
+    #     Σ|q−def|   0,40   0,80   1,30
+    #
+    # O 0,85 corta 38% do desvio de braço que a pose de trabalho exige.
+    #
+    # ⚠⚠ E 0,85 É O MENOR VALOR SEGURO — o piso vem do FECHO, não da anatomia. A laje
+    # sobe a `prateleira_topo_teto + prateleira_jitter_z = 0,57`, e a caixa maior
+    # apoiada nela tem CENTRO em `0,57 + 0,13 = 0,70`. O `_perto` do fecho usa
+    # `tol_pos = 0,10`. Um alvo em 0,70 fica EXATAMENTE onde a caixa já repousa: o
+    # robô chega perto, fica de pé, e o `PEGAR` fecha sem tocar na caixa. O piso é
+    # `0,70 + tol_pos = 0,80`, e 0,85 deixa 5 cm de folga. O `smoke` confere.
+    #
+    # Para descer abaixo de 0,80, o fecho do `PEGAR` teria de exigir a caixa FORA da
+    # laje (`& ~apoiada`, já calculado em `_fecha_elo_corrente`). Não foi feito.
+    #
+    # DERIVAÇÃO da soma: a pelve do keyframe joelhos-flexionados fica em z = 0,798, e
+    # `peito_b.z` sai daí: `0,798 + 0,052 = 0,850`. O `smoke` confere a soma contra a
+    # pose default do robô, para o número não derivar em silêncio.
+    altura_carregar: float = 0.85
+
+    # ⚠ A FAIXA DE SORTEIO DA ALTURA DE TRABALHO, por episódio. O robô tem de
+    # generalizar entre alturas de pega, e não decorar uma. O `alvo_b` já é
+    # observável (bloco 9 da observação), portanto a randomização é aprendível e não
+    # vira ruído.
+    #
+    # ⚠ O PISO DE 0,75 SÓ VALE COM `& ~apoiada` NO FECHO DO PEGAR. A laje sobe a
+    # `prateleira_topo_teto + prateleira_jitter_z = 0,57` e a caixa maior apoiada nela
+    # tem CENTRO em 0,70; com `tol_pos = 0,10` um alvo em 0,75 é satisfeito com a
+    # caixa AINDA NA LAJE. Sem o `~apoiada` o piso seguro seria 0,80.
+    #
+    # `altura_carregar`, acima, continua sendo o valor usado quando o sorteio não
+    # roda (inspeção, paridade, cena exportada).
+    altura_carregar_faixa: tuple[float, float] = (0.75, 1.0)
+
+    # ⚠⚠ O TETO DO `apoiada`, em NEWTON ABSOLUTO. MEDIDO: o limiar de baixo são 4,9 N
+    # com a caixa de 1 kg (`fracao_do_peso_apoiada = 0,5`) e o robô pesa ~343 N —
+    # apoiar 1,5% do peso do corpo dispara `apoiada` e FECHA o BOTAR. Escorar na caixa
+    # comprava a entrada na CAUDA, que paga ~58/s contra ~35/s do BOTAR: fechar 1 s
+    # antes vale ~23, e escorar custava ~1/s de `upright`.
+    #
+    # ⚠ ABSOLUTO, e não múltiplo do peso. A caixa vai de 1 a 5 kg e a capacidade do
+    # robô de empurrar não muda com ela. Um teto de `2 × m·g` daria 9,8 N de folga na
+    # caixa de 1 kg e 49,1 N na de 5 kg, e o pior caso cairia no NÍVEL 0, onde
+    # `carga_max[0] == massa_base` e a caixa é sempre 1 kg exata.
+    #
+    # ⚠ APERTADO DEMAIS MATA O BOTAR: abaixo do que um pouso normal produz, o elo
+    # nunca fecha e a cadeia morre. 30 N é generoso de propósito. O
+    # `impacto_da_caixa` (métrica, `reduce="max"`) dá o pico por episódio para apertar.
+    folga_apoiada_N: float = 30.0
 
     # ⚠ NÃO EXISTE JITTER NO ALVO, e é decisão do dono em 25/08: o alvo do `pegar` e o
     # do `carregar` são **exatamente iguais**. Um jitter em y de ±0,05 sobre x = 0,25

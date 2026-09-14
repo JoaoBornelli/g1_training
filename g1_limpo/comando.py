@@ -286,12 +286,13 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # A ÂNCORA DO PEITO, no frame da BASE. Alvo dos DOIS elos que seguram a caixa; a
     # diferença é só o REFERENCIAL — `carregar` relativo ao robô, `pegar` congelado
     # em mundo.
-    # ⚠ MEDIDO (revisão do coordenador): `caixa_b.z` no hold, p50 1,025 — ver
-    # `knobs.Alvo.peito_b`, fonte única do valor real.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
+    # ⚠ DERIVADO do alvo, e não medido do robô — ver `knobs.Alvo.peito_b`, fonte
+    # única do valor real.
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.052)
     # ⚠ o z do alvo é ABSOLUTO nos dois elos que seguram: agachar não baixa o alvo.
-    # `0,798 + peito_b.z (0,222) = 1,02` — ver `knobs.Alvo.altura_carregar`.
-    altura_carregar: float = 1.02
+    # `0,798 + peito_b.z (0,052) = 0,85` — ver `knobs.Alvo.altura_carregar`, que traz
+    # o porquê de o piso ser 0,80 e não a anatomia.
+    altura_carregar: float = 0.85
     # os elos que exigem o robô PARADO. O twist deles é forçado a ZERO, e é isso —
     # e não a forma do alvo — que impede o robô de andar com a caixa.
     elos_parados: tuple[int, ...] = (1, 2, 4)      # REORIENTAR, PEGAR, BOTAR
@@ -305,6 +306,24 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # 2 N significaria "apoiada" com carga de 1 kg (9,8 N) e "no ar" com 5 kg mal
     # encostada. A caixa está apoiada quando a laje carrega metade do peso dela.
     fracao_do_peso_apoiada: float = 0.5
+    # ⚠ O TETO DO `apoiada`, em NEWTON ABSOLUTO e não fração do peso. MEDIDO: o
+    # limiar de baixo são 4,9 N com a caixa de 1 kg, e o robô pesa ~343 N — apoiar
+    # 1,5% do peso do corpo já dispara `apoiada` e FECHA o BOTAR. Escorar na caixa
+    # comprava a entrada na CAUDA, que paga ~58/s contra ~35/s do BOTAR: fechar 1 s
+    # antes vale ~23, e escorar custava ~1/s de `upright`.
+    #
+    # ⚠ ABSOLUTO, e não múltiplo do peso: a caixa vai de 1 a 5 kg e a capacidade do
+    # robô de empurrar não muda com ela. Um teto de `2 x m·g` daria 9,8 N de folga na
+    # caixa de 1 kg e 49,1 N na de 5 kg, e o pior caso cairia no nível 0, onde a caixa
+    # é sempre 1 kg exata.
+    #
+    # ⚠ APERTADO DEMAIS MATA O BOTAR: se o teto ficar abaixo do que um pouso normal
+    # produz, o elo nunca fecha e a cadeia morre. Começa generoso; o
+    # `impacto_da_caixa` (métrica, `reduce="max"`) dá o pico por episódio para apertar.
+    folga_apoiada_N: float = 30.0
+    # ⚠ A faixa de sorteio da altura de trabalho, por episódio. Ver
+    # `knobs.Alvo.altura_carregar_faixa`, fonte única do valor real.
+    altura_carregar_faixa: tuple[float, float] = (0.75, 1.0)
     # a tolerância que conta como "na condição de fechamento", em metros e radianos
     tol_pos: float = 0.10
     tol_ang_deg: float = 25.0
@@ -581,6 +600,10 @@ class AlvoCaixaCmd(CommandTerm):
         # congelava com a caixa fora de posição. Lido como `perto | _forcado`, e
         # limpo assim que o avanço acontece.
         self._forcado = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ A altura de trabalho é POR ENV e sorteada no reset (`_resample_command`).
+        # Nasce no valor fixo do cfg para o caso de alguém ler o alvo antes do
+        # primeiro reset — inspeção e paridade rodam assim.
+        self._altura_alvo = torch.full((n,), float(cfg.altura_carregar), device=d)
         # ⚠ Publica ZEROS aqui, e não o resultado de `_publica_pegou`: no `__init__` os
         # buffers de sensor ainda não foram preenchidos. A leitura real começa no
         # primeiro `_update_command`.
@@ -1128,6 +1151,12 @@ class AlvoCaixaCmd(CommandTerm):
         # o σ fica pendente até a TAREFA começar, e não até a pose ficar fresca — a
         # janela de espera ainda não correu aqui (ver `_sigma_pendente`)
         self._sigma_pendente[env_ids] = True
+        # ⚠ SORTEIO POR EPISÓDIO, uniforme na faixa. O robô tem de generalizar entre
+        # alturas de pega em vez de decorar uma. O alvo já é observável (`alvo_b`),
+        # portanto isto é aprendível e não vira ruído.
+        lo, hi = self.cfg.altura_carregar_faixa
+        self._altura_alvo[env_ids] = lo + (hi - lo) * torch.rand(
+            len(env_ids), device=d)
 
     def _update_command(self) -> None:
         todos = torch.arange(self.num_envs, device=self.device)
@@ -1247,7 +1276,7 @@ class AlvoCaixaCmd(CommandTerm):
 
         Condição de fechamento POR ELO (spec `g1-limpo-dois-bits.md` §2.4):
             REORIENTAR: perto & alinhado
-            PEGAR:      perto & alinhado & de pé
+            PEGAR:      perto & alinhado & de pé & NÃO apoiada
             BOTAR:      perto & alinhado & apoiada
 
         ⚠ O "de pé" SAIU DO BOTAR (v3.4, spec `g1-limpo-botar-fecha-e-para.md` §2.1).
@@ -1299,7 +1328,12 @@ class AlvoCaixaCmd(CommandTerm):
         # sem uma linha de erro. Se o sensor não existir, ISTO TEM DE EXPLODIR.
         forca = forca_de_apoio(self._env, c.nome_sensor_apoio)[ids]
         peso = self._env.limpo_massa[ids] * 9.81
-        apoiada = forca >= c.fracao_do_peso_apoiada * peso
+        # ⚠ FAIXA, e não piso. Ver `AlvoCaixaCmdCfg.folga_apoiada_N`: empurrar a caixa
+        # para baixo passava do piso e FECHAVA o BOTAR, portanto escorar comprava o
+        # fecho. Com teto, escorar deixa de fechar — o atalho para de funcionar, em vez
+        # de ser multado.
+        apoiada = ((forca >= c.fracao_do_peso_apoiada * peso)
+                   & (forca <= peso + c.folga_apoiada_N))
 
         # Condições por elo
         elo_corrente = self._elo[ids]
@@ -1316,7 +1350,11 @@ class AlvoCaixaCmd(CommandTerm):
                 # PEGAR. Ver o knob para a medição que exigiu isto.
                 fecha[m] = perto[m] & (alinhado[m] | bool(c.reorientar_inerte))
             elif elo_tipo == PEGAR:
-                fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
+                # ⚠ `~apoiada` ENTRA: pegar é a caixa SAIR da laje. Sem isto, com o
+                # alvo sorteado a partir de 0,75, a caixa maior apoiada na laje mais
+                # alta (centro em 0,70) já satisfaz o `perto` — o robô chega perto,
+                # fica de pé, e o elo fecha sem tocar nela.
+                fecha[m] = (perto[m] & alinhado[m] & de_pe[m] & ~apoiada[m])
             elif elo_tipo == BOTAR:
                 fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 
@@ -1663,11 +1701,13 @@ class AlvoCaixaCmd(CommandTerm):
 
             x, y   RELATIVOS ao robô, reescritos a cada passo — a caixa está nas mãos
                    e tem de acompanhá-lo horizontalmente.
-            z      ABSOLUTO, a `altura_carregar`.
+            z      ABSOLUTO, vem de `self._altura_alvo`, sorteado por episódio em
+                   `altura_carregar_faixa`. Continuar absoluto é o que impede o robô
+                   de satisfazer o alvo andando agachado.
 
         ⚠ O z NÃO pode ser relativo. Se fosse, o robô satisfaria o alvo ANDANDO
         AGACHADO: o alvo desceria junto com a pelve e a caixa nunca precisaria subir.
-        Com o z fixo, carregar exige manter a caixa na altura de trabalho — que é o
+        Com o z absoluto, carregar exige manter a caixa na altura de trabalho — que é o
         comportamento pedido.
         """
         if len(ids) == 0:
@@ -1677,7 +1717,7 @@ class AlvoCaixaCmd(CommandTerm):
         base_p = self.robot.data.root_link_pos_w[ids]
         base_q = self.robot.data.root_link_quat_w[ids]
         a = base_p + quat_apply(base_q, p)
-        a[:, 2] = self.cfg.altura_carregar
+        a[:, 2] = self._altura_alvo[ids]
         self._command[ids, ALVO] = a
 
     def _meia(self, ids: torch.Tensor) -> torch.Tensor:
