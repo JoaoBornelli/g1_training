@@ -1,6 +1,7 @@
-"""Roda a cadeia do BOTAR no MuJoCo clássico e grava as 29 juntas num CSV.
+"""Roda uma cadeia no MuJoCo clássico e grava as 29 juntas num CSV.
 
     python registra_juntas.py --cena ~/g1_pilota/ --checkpoint ~/Downloads/model_10500.pt
+    python registra_juntas.py ... --roteiro carregar --saida carrega
 
 Irmão do `pilota.py`: mesma cena, mesma observação de 114 canais, mesmo ator. A
 diferença é que aqui NÃO tem teclado — um roteiro troca o elo sozinho a cada N
@@ -29,13 +30,23 @@ from pilota import ELOS, Ator, carrega_cena, monta_observacao, restaura
 I_ANDAR, I_CARREGAR = ELOS.index("ANDAR"), ELOS.index("CARREGAR")
 
 # ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
-# Por isso o roteiro abre na espera e não numa aproximação.
-ROTEIRO_PADRAO = ("espera:ANDAR:1.0,"
-                  "pegar:PEGAR:7.0,"
-                  "espera:BOTAR:1.0,"
-                  "botar:BOTAR:9.0,"
-                  "espera:ANDAR:1.0,"
-                  "andar:ANDAR:6.0:0.8")
+# Por isso todo roteiro abre na espera e não numa aproximação.
+#
+# As duas cadeias que o treino fecha depois do PEGAR, uma em cada entrada:
+#   botar     PEGAR -> BOTAR -> ANDAR. A caixa vai para a laje e o robô sai sem ela.
+#   carregar  PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
+ROTEIROS = {
+    "botar": ("espera:ANDAR:1.0,"
+              "pegar:PEGAR:7.0,"
+              "espera:BOTAR:1.0,"
+              "botar:BOTAR:9.0,"
+              "espera:ANDAR:1.0,"
+              "andar:ANDAR:6.0:0.8"),
+    "carregar": ("espera:ANDAR:1.0,"
+                 "pegar:PEGAR:7.0,"
+                 "espera:CARREGAR:1.0,"
+                 "carregar:CARREGAR:10.0:0.5"),
+}
 
 
 class Fase:
@@ -49,15 +60,6 @@ class Fase:
         return abs(self.vx) > 1e-6
 
     @property
-    def limpa_laje(self) -> bool:
-        """A laje sai da frente sempre que ele vai andar — ela é obstáculo.
-
-        É o que o treino faz: a cauda de B e de R (`CARREGAR`) CONTINUA afastando a
-        laje, porque ali o robô sai andando com a caixa e a laje fica no caminho.
-        """
-        return self._marcha and self.elo in (I_ANDAR, I_CARREGAR)
-
-    @property
     def limpa_caixa(self) -> bool:
         """⚠ A caixa só some no `ANDAR`. No `CARREGAR` ela está NA MÃO.
 
@@ -66,13 +68,26 @@ class Fase:
         """
         return self._marcha and self.elo == I_ANDAR
 
+    @property
+    def limpa_laje(self) -> bool:
+        """A laje sai no `CARREGAR` sempre, e no `ANDAR` quando ele marcha.
+
+        ⚠ NO `CARREGAR` A MARCHA NÃO ENTRA NA CONTA. O treino manda a laje para longe
+        na CAUDA de quem fechou o PEGAR, uma vez só e antes de qualquer passo
+        (`comando.py:1546`). Parado ou andando, quem está em `CARREGAR` já não tem
+        laje na frente. Amarrar isso à marcha deixava a laje no caminho durante a
+        espera do `CARREGAR`, e o robô lia uma cena que o treino nunca mostra.
+        """
+        return self.elo == I_CARREGAR or self.limpa_caixa
+
 
 def analisa_roteiro(texto: str) -> list[Fase]:
-    """`"rotulo:ELO:segundos[:vx], ..."` -> lista de `Fase`.
+    """`"rotulo:ELO:segundos[:vx], ..."` -> lista de `Fase`. Um nome de `ROTEIROS` serve.
 
     ⚠ O elo é o NOME (`PEGAR`), e não o índice: um índice trocado é um erro silencioso
     que só aparece como "o robô não faz nada".
     """
+    texto = ROTEIROS.get(texto.strip(), texto)
     fases: list[Fase] = []
     for pedaco in texto.split(","):
         pedaco = pedaco.strip()
@@ -80,7 +95,8 @@ def analisa_roteiro(texto: str) -> list[Fase]:
             continue
         campos = pedaco.split(":")
         if len(campos) not in (3, 4):
-            raise SystemExit(f"fase malformada: {pedaco!r} — use rotulo:ELO:segundos[:vx]")
+            raise SystemExit(f"fase malformada: {pedaco!r} — use rotulo:ELO:segundos[:vx] "
+                             f"ou um nome pronto: {', '.join(ROTEIROS)}")
         rotulo, nome, seg = campos[0], campos[1].upper(), campos[2]
         if nome not in ELOS:
             raise SystemExit(f"elo {nome!r} não existe; use um de {', '.join(ELOS)}")
@@ -190,8 +206,9 @@ def main() -> None:
     ap.add_argument("--cena", required=True, help="pasta com cena.mjb e cena.npz")
     ap.add_argument("--checkpoint", required=True, help="o model_*.pt")
     ap.add_argument("--saida", default="juntas", help="prefixo dos arquivos de saída")
-    ap.add_argument("--roteiro", default=ROTEIRO_PADRAO,
-                    help="rotulo:ELO:segundos[:vx] separados por vírgula")
+    ap.add_argument("--roteiro", default="botar",
+                    help=f"um nome pronto ({', '.join(ROTEIROS)}) ou "
+                         "rotulo:ELO:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
                     help="metros em +x para onde a cena vai na marcha (ANDAR: laje e "
