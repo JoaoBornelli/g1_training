@@ -585,10 +585,22 @@ from g1_limpo.comando import ESTADOS as _ESTADOS   # noqa: E402
 
 _fx = Knobs().faixa_de_pose
 _padroes = _fx.por_padrao()
-check("`faixa_de_pose` NÃO é embrulhada pela tabela por estado — o estado já escolhe "
-      "a COLUNA da tolerância, e embrulhar contaria o estado duas vezes",
-      cfg.rewards["faixa_de_pose"].func is RC_.FaixaDePose
-      and "func" not in cfg.rewards["faixa_de_pose"].params)
+check("`faixa_de_pose` É embrulhada pela tabela por estado, e o termo interno fica em "
+      "`params['func']` — a tolerância diz ONDE a dobradiça começa, a tabela diz "
+      "QUANTO o excesso custa; são duas coisas, e não contagem dupla",
+      cfg.rewards["faixa_de_pose"].func is RC_.PesoPorEstado
+      and cfg.rewards["faixa_de_pose"].params["func"] is RC_.FaixaDePose)
+check("a tolerância da faixa vive em `params['tolerancias']`, e NÃO em "
+      "`params['tabela']` — o embrulho usa `tabela` para a coluna por estado, e duas "
+      "chaves com o mesmo nome fazem o laço do `env_cfg` explodir",
+      "tolerancias" in cfg.rewards["faixa_de_pose"].params
+      and cfg.rewards["faixa_de_pose"].params["tabela"]
+      is Knobs().peso_por_estado.faixa_de_pose,
+      str(sorted(cfg.rewards["faixa_de_pose"].params)))
+check("a coluna BOTAR da faixa é 2 — a mesma dos sete de manipulação. MEDIDO: com o "
+      "preço em 1 o `right_shoulder_yaw` trava em 2,63 no botar (curso 2,62) e fica "
+      "em 0,28 no carregar, onde o pagamento é ×1",
+      Knobs().peso_por_estado.faixa_de_pose[8] == 2.0)
 check("`faixa_de_pose` NÃO está em TERMOS_CONGELAVEIS — é preço, não renda",
       "faixa_de_pose" not in EC_.TERMOS_CONGELAVEIS)
 check("as sete famílias da faixa abrem em catorze padrões, e cada um tem DEZ colunas",
@@ -602,6 +614,13 @@ check("a faixa zera PERNA e CINTURA no ANDAR e no CARREGAR — a marcha é do "
 check("a faixa zera a PERNA no PEGAR — medido: agachar para 0,15 m custa 2,03 rad de "
       "`hip_pitch`, e uma folga que aceita 2,03 é indistinguível de desligada",
       _fx.perna[5] == 0.0 and _fx.perna[6] == 0.0)
+check("a faixa zera a PERNA no BOTAR também, e é PRÉ-REQUISITO da coluna BOTAR = 2 "
+      "dela: com faixa de perna ligada, o ×2 dobraria o imposto sobre o agachamento "
+      "e o robô ficaria numa pinça — um termo proíbe dobrar a perna, `upright` "
+      "proíbe deitar o tronco, e a laje continua baixa",
+      _fx.perna[8] == 0.0 or Knobs().peso_por_estado.faixa_de_pose[8] <= 1.0,
+      f"perna[BOTAR]={_fx.perna[8]}, "
+      f"faixa_de_pose[BOTAR]={Knobs().peso_por_estado.faixa_de_pose[8]}")
 check("`punho_yaw` e `punho_pitch` são as faixas mais apertadas do braço em TODA "
       "coluna de manipulação — elas não seguram nada",
       all(_fx.punho_yaw[c] <= _fx.punho_roll[c] and _fx.punho_pitch[c] <= _fx.braco_pos[c]
@@ -672,6 +691,19 @@ check("a altura de trabalho bate com a pelve nominal + peito_b.z",
       abs(k.alvo.altura_carregar - (0.798 + k.alvo.peito_b[2])) < 0.005,
       f"0,798 (pelve do keyframe, MEDIDA) + {k.alvo.peito_b[2]} = "
       f"{0.798 + k.alvo.peito_b[2]:.3f} vs knob {k.alvo.altura_carregar}")
+# ⚠ O PISO DA ALTURA DE TRABALHO, e ele vem do FECHO e não da anatomia. A caixa
+# MAIOR apoiada na laje MAIS ALTA tem centro em `topo_teto + jitter_z + meia_max`.
+# Se o alvo chegar a menos de `tol_pos` disso, o `_perto` do fecho é satisfeito com
+# a caixa ainda NA LAJE: o robô chega perto, fica de pé, e o `PEGAR` fecha sem
+# tocar nela. Descer abaixo deste piso exige antes pôr `& ~apoiada` no ramo do
+# PEGAR de `_fecha_elo_corrente` — o `apoiada` já está calculado lá, para o BOTAR.
+_caixa_na_laje = (k.cena.prateleira_topo_teto + k.cena.prateleira_jitter_z
+                  + k.cena.caixa_meia_aresta_faixa[1])
+check("o alvo do `pegar` fica acima da caixa na laje mais alta, com folga > tol_pos",
+      k.alvo.altura_carregar - _caixa_na_laje > cfg.commands["alvo_caixa"].tol_pos,
+      f"caixa maior na laje mais alta: centro em {_caixa_na_laje:.3f}; alvo "
+      f"{k.alvo.altura_carregar}; folga {k.alvo.altura_carregar - _caixa_na_laje:.3f} "
+      f"contra tol_pos {cfg.commands['alvo_caixa'].tol_pos}")
 check("o comando NÃO resampleia dentro do episódio",
       cfg.commands["alvo_caixa"].resampling_time_range[0] > 1e6,
       "com (20,20) o resample rodava UM passo antes do fim e zerava o sucesso")
@@ -1339,20 +1371,32 @@ check("`std_standing` tem uma entrada por padrão de junta — 10, não `.*` ún
 
 # --- A TABELA POR ESTADO, SEM ENV (spec `g1-limpo-tabela-por-estado.md` §2, §7) ---
 _TABELA = k.peso_por_estado
-_DEZ = [f.name for f in dataclasses.fields(_TABELA)]
-check("a tabela tem os dez termos: os SETE, os dois rastreios e o `pose`",
-      set(_DEZ) == {"staged", "precise_pos", "precise_ori", "squeeze", "unload",
+_DOZE = [f.name for f in dataclasses.fields(_TABELA)]
+check("a tabela tem doze termos: os SETE, os dois rastreios, o `pose` e — desde "
+      "14/09 — os dois PREÇOS, `upright` e `faixa_de_pose`",
+      set(_DOZE) == {"staged", "precise_pos", "precise_ori", "squeeze", "unload",
                     "postura_ereta", "load", "track_linear_velocity",
-                    "track_angular_velocity", "pose"}, str(_DEZ))
+                    "track_angular_velocity", "pose",
+                    "upright", "faixa_de_pose"}, str(_DOZE))
+check("os dois preços entraram porque a coluna BOTAR multiplica o PAGAMENTO por 2 e "
+      "o preço ficava em 1 — `upright` em 4 no BOTAR e 1 na CAUDA, `faixa_de_pose` "
+      "em 2 no BOTAR",
+      _TABELA.upright[8] == 4.0 and _TABELA.faixa_de_pose[8] == 2.0,
+      f"upright[BOTAR]={_TABELA.upright[8]}, "
+      f"faixa_de_pose[BOTAR]={_TABELA.faixa_de_pose[8]}")
+check("a coluna CAUDA do `upright` fica em 1 — a cauda já paga `postura_ereta`×8 e "
+      "`pose`×8 por estar de pé na pose default, e subir ali aumentaria o ganho de "
+      "fechar cedo, que é a corrida que o `velocidade_por_regime` tenta conter",
+      _TABELA.upright[9] == 1.0, str(_TABELA.upright))
 check("cada linha tem uma coluna por estado de `comando.ESTADOS` — o `knobs` NÃO "
       "importa o `comando` (cena -> knobs -> comando fecharia o ciclo); este check é o nó",
-      all(len(getattr(_TABELA, n)) == len(CMD.ESTADOS) == 10 for n in _DEZ),
-      str({n: len(getattr(_TABELA, n)) for n in _DEZ}))
-check("os dez passam pelo `PesoPorEstado`, e a tabela de cada um é a do knob, por "
+      all(len(getattr(_TABELA, n)) == len(CMD.ESTADOS) == 10 for n in _DOZE),
+      str({n: len(getattr(_TABELA, n)) for n in _DOZE}))
+check("os doze passam pelo `PesoPorEstado`, e a tabela de cada um é a do knob, por "
       "IDENTIDADE",
       all(cfg.rewards[n].func is RC_.PesoPorEstado
-          and cfg.rewards[n].params["tabela"] is getattr(_TABELA, n) for n in _DEZ),
-      str({n: cfg.rewards[n].func for n in _DEZ}))
+          and cfg.rewards[n].params["tabela"] is getattr(_TABELA, n) for n in _DOZE),
+      str({n: cfg.rewards[n].func for n in _DOZE}))
 _SETE_T = ("staged", "precise_pos", "precise_ori", "squeeze", "unload",
            "postura_ereta", "load")
 check("a invariante do `VALIDA` de ontem, explícita: nos SETE a coluna ANDAR é 0 e a "
