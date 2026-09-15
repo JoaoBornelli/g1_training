@@ -94,6 +94,12 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
             params={**pes, "asset_cfg": SceneEntityCfg(
                 "robot", site_names=SITIOS_DOS_PES)}),
         "forca_de_pouso": MetricsTermCfg(func=forca_de_pouso, params=dict(pes)),
+        # ⚠ O PICO, e não a média: `reduce="max"` guarda o pior passo do episódio. A
+        # pergunta é "alguma junta saiu do curso?", e a média sobre 1000 passos
+        # responde não a qualquer excursão curta.
+        "fracao_do_curso": MetricsTermCfg(
+            func=fracao_do_curso, reduce="max",
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])}),
         # ⚠ AS DUAS MEDIÇÕES QUE FALTAVAM PARA LER A PEGA. Nenhuma tem peso: elas
         # existem para que um estado e outro deixem de ler igual no painel.
         #
@@ -367,6 +373,31 @@ def velocidade_de_junta(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     robo: Entity = env.scene[asset_cfg.name]
     v = robo.data.joint_vel[:, asset_cfg.joint_ids]
     return torch.sqrt((v ** 2).mean(dim=-1))
+
+
+def fracao_do_curso(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """O MAIOR `|frac|` sobre as 29 juntas, por env. 1,0 é o batente do MJCF.
+
+        frac = (q − centro do curso) / meio curso
+
+    ⚠ ELA NÃO DUPLICA o `Episode_Reward/limite_de_junta`. Aquele é o CUSTO, e o custo
+    satura no teto da rampa: duas poses igualmente proibidas leem igual. Esta lê a
+    POSIÇÃO, e continua subindo depois do teto — é ela que diz se a junta está saindo
+    do batente ou se afundando nele.
+
+    ⚠ Use com `reduce="max"`: a média sobre o episódio esconde o pico, e o pico é o
+    que decide se o modelo serve para o robô físico.
+
+    ⚠ O centro do curso é recalculado a cada passo, e isso é barato: são 29 juntas. Um
+    cache aqui obrigaria esta função a virar classe, e classe por 29 subtrações é
+    complexidade sem retorno.
+    """
+    robo: Entity = env.scene[asset_cfg.name]
+    lim = robo.data.joint_pos_limits[0, asset_cfg.joint_ids]              # (n, 2)
+    centro = lim.mean(dim=-1)
+    meio = (lim[:, 1] - lim[:, 0]) / 2.0
+    q = robo.data.joint_pos[:, asset_cfg.joint_ids]
+    return (((q - centro) / meio).abs()).amax(dim=-1)
 
 
 def forca_de_pouso(env, sensor_name: str = PES_NO_CHAO) -> torch.Tensor:

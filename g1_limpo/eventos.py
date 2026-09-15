@@ -17,7 +17,8 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.envs.mdp.events import reset_root_state_uniform
-from mjlab.managers.event_manager import requires_model_fields
+from mjlab.managers.event_manager import (RecomputeLevel,
+                                          requires_model_fields)
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
@@ -270,9 +271,9 @@ def tamanho_caixa(
     sorteia cada eixo de forma independente; aqui a caixa é CUBO, portanto a escrita é
     própria e as duas fórmulas do box são repetidas (`rbound = a·√3`, `aabb_half = a`).
 
-    ⚠ `body_mass` e `body_inertia` NÃO são tocados: a independência do peso vem daí, e a
-    inércia fica a da caixa de 0,10 m — inconsistência declarada, do mesmo tipo da que
-    `carga_caixa` já aceita.
+    ⚠ `body_mass` e `body_inertia` NÃO são tocados AQUI: quem os escreve é o
+    `carga_caixa`, no reset, e ele deriva a inércia da meia-aresta publicada abaixo.
+    Escrever massa no startup e de novo no reset faria o segundo apagar o primeiro.
 
     Publica `env.limpo_meia_aresta` (n, 3). Todo consumidor do tamanho lê dali:
     `comando._meia`, `posiciona_cena`, `afasta_cena`, `terminacoes.caixa_largada`,
@@ -300,6 +301,8 @@ def tamanho_caixa(
     env.limpo_meia_aresta[env_ids.long()] = a.unsqueeze(-1).expand(n, 3)
 
 
+@requires_model_fields("body_mass", "body_inertia",
+                       recompute=RecomputeLevel.set_const)
 def carga_caixa(
     env: "ManagerBasedRlEnv",
     env_ids: torch.Tensor,
@@ -307,25 +310,40 @@ def carga_caixa(
     carga_max: tuple[float, ...],
     massa_base: float,
 ) -> None:
-    """Sorteia a carga da caixa e a aplica como FORÇA EXTERNA vertical.
+    """Sorteia a carga da caixa e a escreve como MASSA E INÉRCIA de verdade.
 
-    ⚠ NUNCA `dr.body_mass` nem `dr.pseudo_inertia`: os dois corrompem a heap
-    (CUDA illegal memory access). Está MEDIDO no repositório, e é o mesmo tipo de
-    defeito do `base_com`.
+    ⚠⚠ ISTO MUDOU. Até 14/09 a carga entrava como FORÇA EXTERNA vertical, e a caixa
+    de 5 kg pesava 5 kg mas girava como 1 kg: a randomização endurecia a ESTÁTICA e
+    não a dinâmica. O motivo declarado era que `dr.body_mass` e `dr.pseudo_inertia`
+    corrompiam a heap (`corrupted size vs prev_size` no CPU, `CUDA illegal memory
+    access` na GPU).
 
-    ⚠ CONSEQUÊNCIA DECLARADA: a caixa de 5 kg fica com a INÉRCIA de 1 kg. A
-    randomização endurece a ESTÁTICA, e não a dinâmica. É o preço de não poder tocar
-    a massa de verdade.
+    ⚠ MEDIDO 2026-09-14 no mjlab 1.5.3 / mujoco_warp 3.10.0.3, CPU, A/B com 8 envs e
+    três voltas de reset: `dr.pseudo_inertia` em modo reset NÃO corrompe mais. A
+    massa sai por env, a inércia acompanha na proporção exata, e o teardown fecha com
+    código 0. O conserto está no próprio mjlab, que trocou `torch.linalg.cholesky` e
+    `torch.linalg.eigh` por versões próprias (`_cholesky_4x4`, `_eigh_3x3_jacobi`)
+    justamente para não carregar o cuSOLVER.
+
+    ⚠ E A ESCRITA É PRÓPRIA, e não `dr.pseudo_inertia`: o `alpha_range` daquele termo
+    é ESTÁTICO, fixado na montagem do cfg, e o teto da carga aqui vem da célula do
+    NÍVEL, que o currículo move durante o treino. Usar o termo do fabricante custaria
+    o acoplamento com o currículo.
+
+    ⚠ A INÉRCIA DERIVA DO TAMANHO SORTEADO, e não da caixa nominal de 0,10 m. A caixa
+    é um cubo homogêneo: `I = (2/3)·m·a²`, com `a` a meia-aresta que o `tamanho_caixa`
+    sorteou por mundo. Isto fecha a inconsistência que aquele evento declarava.
 
     Publica `env.limpo_massa` em **kg**, e não o peso em newtons. A massa é a
     grandeza primitiva: o `unload` deriva `m·g` dela, e o `squeeze` deriva
     `F_ref = m·g/(2µ)`. Publicar newtons obrigaria um dos dois a desfazer a conta, e
     é assim que se erra um fator 9,81 em silêncio.
     """
-    n = len(env_ids)
     dev = env.device
+    env_ids = env_ids.to(dev, dtype=torch.int)
+    n = len(env_ids)
     caixa: Entity = env.scene["box"]
-    nivel = garante_nivel(env)[env_ids]
+    nivel = garante_nivel(env)[env_ids.long()]
 
     # o TETO vem da célula do nível; o PISO é sempre a massa do geom
     teto = torch.tensor(carga_max, device=dev)[nivel]
@@ -333,13 +351,22 @@ def carga_caixa(
 
     if not hasattr(env, "limpo_massa"):
         env.limpo_massa = torch.full((env.num_envs,), massa_base, device=dev)
-    env.limpo_massa[env_ids] = kg
+    env.limpo_massa[env_ids.long()] = kg
 
-    # ⚠ `forces` tem shape (N, num_bodies, 3). A caixa tem 1 body.
-    forcas = torch.zeros(n, 1, 3, device=dev)
-    forcas[:, 0, 2] = -(kg - massa_base) * 9.81   # o resto já vem da massa do geom
-    caixa.write_external_wrench_to_sim(
-        forces=forcas, torques=torch.zeros_like(forcas), env_ids=env_ids)
+    # ⚠ A meia-aresta é POR MUNDO (`tamanho_caixa`, startup). Sem ela a inércia sairia
+    # da caixa nominal, e a caixa grande giraria como a pequena.
+    if hasattr(env, "limpo_meia_aresta"):
+        meia = env.limpo_meia_aresta[env_ids.long(), 0]                      # (n,)
+    else:
+        meia = torch.full((n,), 0.10, device=dev)
+
+    bid = caixa.indexing.body_ids                                            # (1,)
+    env_grid, body_grid = torch.meshgrid(env_ids, bid, indexing="ij")
+    env.sim.model.body_mass[env_grid, body_grid] = kg.unsqueeze(-1)
+    # cubo homogêneo, os três eixos principais iguais
+    inercia = (2.0 / 3.0) * kg * meia * meia                                 # (n,)
+    env.sim.model.body_inertia[env_grid, body_grid] = (
+        inercia.unsqueeze(-1).unsqueeze(-1).expand(n, len(bid), 3))
 
 
 # A pose em que o robô fica TRAVADO na inspeção, relativa à origem do env. Ela é

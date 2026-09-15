@@ -209,8 +209,13 @@ def _sanidade(m: dict, k: Knobs, elo: int) -> list[str]:
 
     if elo in (CMD.PEGAR, CMD.CARREGAR):
         # ⚠ Os dois pedem EXATAMENTE o mesmo alvo. O que difere é o twist.
-        if float((m["alvo"][:, 2] - a.altura_carregar).abs().max()) > 1e-6:
-            f.append(f"o z do alvo NÃO é absoluto em {a.altura_carregar}: "
+        # ⚠ O z é SORTEADO POR ENV em `altura_carregar_faixa`, portanto a checagem é
+        # de FAIXA e não de igualdade. Comparar contra o escalar `altura_carregar`
+        # acusaria defeito em todo env — o valor fixo é só o default pré-reset.
+        lo, hi = a.altura_carregar_faixa
+        if float(m["alvo"][:, 2].min()) < lo - 1e-6 or \
+                float(m["alvo"][:, 2].max()) > hi + 1e-6:
+            f.append(f"o z do alvo saiu da faixa {lo:.2f}–{hi:.2f}: "
                      f"{float(m['alvo'][:, 2].min()):.4f}–"
                      f"{float(m['alvo'][:, 2].max()):.4f}")
         # o xy segue o robô: distância HORIZONTAL = ‖peito_b.xy‖, e ela é IGUAL em

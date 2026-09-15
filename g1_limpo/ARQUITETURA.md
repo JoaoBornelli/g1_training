@@ -2245,6 +2245,7 @@ Estas estão escritas no próprio código, e vale conhecê-las antes de diagnost
 | 8 | **A base reseta EM REPOUSO**, nos dois modos. Não existe "entrega do navegador" com velocidade residual | `knobs.Cena`, comentário do knob removido |
 | 9 | **A pose da caixa é verdade absoluta do simulador**, com ruído de ±0,01 m. Falta latência, viés e perda de rastreio | fora do escopo, spec §19 |
 | 10 | **`so_pose` não é lido pelo corpo de `_aplica_elo`** — a função refaz **tudo**. Hoje isso é correto e desejado, mas quem acrescentar ali um sorteio que deva sobreviver à passada do `_pendente` **tem** de passar a lê-lo | `comando._aplica_elo` |
+| 11 | **O limite de junta do MJCF é restrição MOLE, e o robô sai dele.** MEDIDO no MuJoCo clássico (`carrega085.csv`): o `ankle_roll` chega a 150% do curso e o `ankle_pitch` a 120%, empurrados pelo contato com o chão. O `solimp` é o default do MuJoCo (`[0.9, 0.95, 0.001]`), e impedância abaixo de 1,0 sempre cede na proporção da força. A política aprendeu a usar curso que o G1 real NÃO TEM — o robô físico tem batente mecânico. **Não confirmado no Warp.** Risco de sim-to-real direto. O `limite_de_junta` cobra o efeito; a causa (`solref`, `solimp`, `iterations`) fica para bloco próprio | `knobs.LimiteDeJunta` |
 
 ---
 

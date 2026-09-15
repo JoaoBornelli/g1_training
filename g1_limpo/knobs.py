@@ -168,14 +168,12 @@ class Alvo:
     # ~0,05 m em toda faixa (a caixa segura fica mais à frente que isso). O valor
     # atual (0,25) já bate com o medido — mantido, sem ajuste.
     #
-    # ⚠ ADENDO — `caixa_b.z` MUNDIAL (revisão do coordenador): mesma sonda, geral
-    # (n=44988), `root_link_pos_w[:,2] − env_origin_z` no HOLD: p10 0,913, p50
-    # 1,025, p90 1,076. `caixa_b.y`: p10 −0,046, p50 −0,020, p90 0,054 — centrado,
-    # sem desvio. O desvio de ~10 cm medido antes (relógio) era em Z, não em x/y:
-    # o alvo a `altura_carregar = 0,95` ficava 7,5 cm ABAIXO de onde a caixa
-    # repousa de verdade no peito. `peito_b.z` sobe de 0,15 para 0,222 (ver
-    # `altura_carregar`, abaixo, para a derivação).
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
+    # ⚠ O `peito_b.z` DERIVA DO ALVO, e nunca o contrário: ele é
+    # `altura_carregar − 0,798`, com 0,798 a pelve do keyframe. A versão 0,222 vinha
+    # da sonda do `model_6999` (`caixa_b.z` no HOLD, p50 1,025) e era CIRCULAR — o
+    # robô segurava a caixa na altura do ombro e o knob subia atrás dele. Ver
+    # `altura_carregar`, abaixo. O `smoke` confere a soma.
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.102)
 
     # ⚠ A ALTURA DE TRABALHO, ABSOLUTA EM MUNDO. Ela é o z do alvo nos DOIS elos que
     # seguram a caixa, e o referencial é dividido POR EIXO:
@@ -187,17 +185,38 @@ class Alvo:
     # desce junto com a pelve e a caixa nunca precisa subir. Foi a inconsistência que
     # o dono apontou em 25/08, e ela é a mesma classe do defeito do `pegar`.
     #
-    # DERIVAÇÃO (revisão do coordenador, MEDIDO 2026-09-08): a pelve do keyframe
-    # joelhos-flexionados fica em z = 0,798, e `peito_b.z = 0,222` (medido, ver
-    # acima). Logo `0,798 + 0,222 = 1,020`. O `smoke` confere esta soma contra a
-    # pose default do robô, para o número não derivar em silêncio.
+    # ⚠⚠ POR QUE DESCEU de 1,02 para 0,90. O 1,02 vinha de MEDIR ONDE A CAIXA JÁ
+    # ESTAVA (`caixa_b.z` no HOLD do `model_6999`, p50 1,025) e mover o alvo para lá.
+    # Isso é circular: o robô segurava na altura do OMBRO (1,074) e o knob subiu
+    # atrás dele, em vez de puxar o robô para uma pose de trabalho mais barata.
     #
-    # ⚠ POR QUE SUBIU de 0,95: `caixa_b.z` medido no HOLD (sonda `sonda_peito_bx.
-    # py`, n=44988) dá p10 0,913, p50 1,025, p90 1,076 — o alvo antigo (0,95)
-    # ficava 7,5 cm ABAIXO de onde a caixa de fato repousa no peito. Esse desvio
-    # em z (não em x/y, que estão centrados) era o que fazia `perto` oscilar no
-    # limiar do fecho.
-    altura_carregar: float = 1.02
+    # Custo de braço por cinemática direta, Σ|q − default| de ombro e cotovelo:
+    #
+    #     alvo z     0,70   0,85   0,90   1,02
+    #     custo      0,40   0,80   ~0,95  1,30
+    #
+    # ⚠⚠ E 0,80 É O PISO, e ele vem do FECHO e não da anatomia. A laje sobe a 0,57 e
+    # a caixa maior apoiada nela tem centro em 0,70; com `tol_pos = 0,10` um alvo em
+    # 0,70 é satisfeito com a caixa AINDA NA LAJE, e o PEGAR fecharia sem o robô
+    # tocar nela. O alvo e o `_perto` falam de CENTRO da caixa, os dois. O piso da
+    # faixa abaixo são 0,85, com 5 cm de folga sobre esse limite.
+    #
+    # DERIVAÇÃO: a pelve do keyframe joelhos-flexionados fica em z = 0,798, portanto
+    # `peito_b.z = 0,900 − 0,798 = 0,102`. O `smoke` confere esta soma contra a pose
+    # default do robô, para o número não derivar em silêncio.
+    #
+    # ⚠ ESTE VALOR É SÓ O DEFAULT PRÉ-RESET. A altura de verdade é sorteada por
+    # episódio em `altura_carregar_faixa`, abaixo; 0,90 é o centro daquela faixa.
+    altura_carregar: float = 0.90
+
+    # ⚠ A FAIXA DE SORTEIO DA ALTURA DE TRABALHO, uniforme e POR EPISÓDIO, por env.
+    # O robô tem de generalizar entre alturas de pega em vez de decorar uma. O alvo
+    # já é observável (`alvo_b`), portanto o sorteio é APRENDÍVEL e não vira ruído.
+    #
+    # ⚠ O PISO NÃO PODE DESCER ABAIXO DE 0,80 sem mudar o fecho do PEGAR. Ver a
+    # derivação do piso acima: abaixo disso a caixa apoiada na laje já satisfaz o
+    # `perto`, e o fecho passaria a exigir também `& ~apoiada`.
+    altura_carregar_faixa: tuple[float, float] = (0.85, 0.95)
 
     # ⚠ NÃO EXISTE JITTER NO ALVO, e é decisão do dono em 25/08: o alvo do `pegar` e o
     # do `carregar` são **exatamente iguais**. Um jitter em y de ±0,05 sobre x = 0,25
@@ -420,7 +439,11 @@ class Recompensa:
 
     # --- os freios do molde ---
     action_rate_l2: float = -0.1          # −0,10 destravou o andar num bloco medido
-    dof_pos_limits: float = -1.0
+    # ⚠ O `dof_pos_limits` do fabricante SAIU (14/09). Ele cobrava o excesso LINEAR
+    # acima de 90% do curso, e a reta não tem inclinação onde importa: o `waist_pitch`
+    # ficou no batente durante todo o BOTAR e pagou 0,055/s, que é 0,5% do teto de
+    # tarefa. Quem faz o trabalho agora é o `tarefa.limite_de_junta`, com rampa
+    # exponencial. Os dois juntos seriam duas cobranças pelo mesmo excesso.
     foot_clearance: float = -2.0
     foot_swing_height: float = -0.25
     foot_slip: float = -0.1
@@ -793,6 +816,13 @@ class Tarefa:
     # eles mantêm o retorno positivo enquanto o gradiente aponta para fora do batente.
     faixa_de_pose: float = -0.5
 
+    # ⚠ SUBSTITUI o `dof_pos_limits` do fabricante, que saiu da `Recompensa` no mesmo
+    # commit. Mesmo peso, forma diferente: a reta dele cobrava 0,055/s no batente, e a
+    # rampa exponencial deste cobra 0,96 a 19,1, conforme a família (ver
+    # `LimiteDeJunta`). MEDIDO no `carrega085`: `andar` 3,78/s, `pegar` 22,31/s,
+    # `botar` 47,10/s, e ZERO na pose default.
+    limite_de_junta: float = -1.0
+
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
     # ⚠ ESTE É O ITEM DE MAIOR RISCO DA F3, e ele é medido. A palma nasce a 0,339 m da
@@ -1117,6 +1147,31 @@ class PesoPorEstado:
     pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    4.0,    1.0,     1.0,  8.0)
 
 
+# ⚠⚠ AS 14 FAMÍLIAS QUE COBREM AS 29 JUNTAS, e a fonte é ÚNICA. A `FaixaDePose` e a
+# `LimiteDeJunta` precisam da mesma cobertura, e duas listas escritas à mão saem de
+# sincronia no dia em que uma junta mudar de nome.
+#
+# ⚠ Os padrões NÃO PODEM SE SOBREPOR nem deixar junta de fora: o
+# `resolve_matching_names_values` exige casamento de um para um. Por isso
+# `shoulder_pitch`, `shoulder_roll` e `shoulder_yaw` aparecem separados, e não um
+# `.*shoulder.*` que engoliria os três.
+FAMILIAS = ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle_pitch", "ankle_roll",
+            "waist", "shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow",
+            "wrist_roll", "wrist_pitch", "wrist_yaw")
+
+
+def por_familia(valores: dict) -> dict:
+    """`{r".*<família>.*": valor}` para as 14 famílias. Uma família sem valor EXPLODE.
+
+    ⚠ O erro é na montagem, de propósito. Uma família faltando faria o
+    `resolve_matching_names_values` reclamar de junta sem casamento lá adiante, com
+    uma mensagem que não diz qual knob esqueceu o valor.
+    """
+    faltando = [f for f in FAMILIAS if f not in valores]
+    assert not faltando, f"famílias sem valor: {faltando}"
+    return {rf".*{f}.*": valores[f] for f in FAMILIAS}
+
+
 @dataclass
 class FaixaDePose:
     """Quantos radianos cada família de junta pode sair do default, por estado.
@@ -1143,11 +1198,11 @@ class FaixaDePose:
 
     ⚠ `0` DESLIGA a família naquele estado. Não é tolerância zero.
 
-    ⚠ ANDAR e CARREGAR zeram perna e cintura. A marcha é do `dof_pos_limits` do
-    fabricante, que NÃO SAI: nas juntas de perna ele é o freio mais apertado que esta
-    tabela (`ankle_roll` 0,236 rad do default até o limite mole, `hip_roll` 0,349,
-    `ankle_pitch` 0,440, `knee` 0,608). Os dois termos fazem coisas diferentes — ele
-    protege o CURSO MECÂNICO, esta tabela molda a POSE.
+    ⚠ ANDAR e CARREGAR zeram perna e cintura. A marcha é do `limite_de_junta`, que
+    substituiu o `dof_pos_limits` do fabricante em 14/09: nas juntas de perna ele é o
+    freio mais apertado que esta tabela. Os dois termos fazem coisas diferentes — ele
+    mede posição no CURSO e protege o batente, esta tabela mede desvio do DEFAULT e
+    molda a POSE.
 
     ⚠ PERNA DESLIGADA NO PEGAR. Medido em `model_11322` com a laje a 0,15 m: agachar
     custa 2,03 rad de `hip_pitch` e 1,50 de `knee`. Uma folga que aceita 2,03 é
@@ -1191,26 +1246,80 @@ class FaixaDePose:
     punho_yaw: tuple[float, ...] = (0.5, 0.5, 0.5,    0.5,     0.5,     0.5,    0.5,    0.5,     0.5,  0.5)
 
     def por_padrao(self) -> dict[str, tuple[float, ...]]:
-        """As sete famílias abertas nos doze padrões que cobrem as 29 juntas.
+        """As sete famílias abertas nos 14 padrões de `FAMILIAS`."""
+        return por_familia({
+            "hip_yaw": self.perna, "hip_roll": self.perna,
+            "hip_pitch": self.perna, "knee": self.perna,
+            "ankle_pitch": self.perna, "ankle_roll": self.perna,
+            "waist": self.cintura,
+            "shoulder_pitch": self.braco_pos, "shoulder_roll": self.braco_pos,
+            "elbow": self.braco_pos, "shoulder_yaw": self.ombro_yaw,
+            "wrist_roll": self.punho_roll, "wrist_pitch": self.punho_pitch,
+            "wrist_yaw": self.punho_yaw,
+        })
 
-        ⚠ Os padrões NÃO PODEM SE SOBREPOR nem deixar junta de fora:
-        `resolve_matching_names_values` exige casamento exato de um para um. Por isso
-        `shoulder_pitch`/`shoulder_roll`/`shoulder_yaw` aparecem separados, e não um
-        `.*shoulder.*` que engoliria os três.
-        """
-        return {
-            r".*hip_yaw.*": self.perna, r".*hip_roll.*": self.perna,
-            r".*hip_pitch.*": self.perna, r".*knee.*": self.perna,
-            r".*ankle_pitch.*": self.perna, r".*ankle_roll.*": self.perna,
-            r".*waist.*": self.cintura,
-            r".*shoulder_pitch.*": self.braco_pos,
-            r".*shoulder_roll.*": self.braco_pos,
-            r".*elbow.*": self.braco_pos,
-            r".*shoulder_yaw.*": self.ombro_yaw,
-            r".*wrist_roll.*": self.punho_roll,
-            r".*wrist_pitch.*": self.punho_pitch,
-            r".*wrist_yaw.*": self.punho_yaw,
-        }
+
+@dataclass
+class LimiteDeJunta:
+    """Onde a rampa do `limite_de_junta` começa e onde ela trava, POR FAMÍLIA.
+
+    O termo mede a posição da junta DENTRO DO CURSO MECÂNICO, e não o desvio da pose:
+
+        frac    = (q − centro do curso) / meio curso      −1 no mín, +1 no máx
+        excesso = min( relu(|frac| − limiar), teto )
+        custo   = Σ_j ( exp(k_j · excesso_j) − 1 )
+
+    ⚠ O LIMIAR É ÚNICO e o resto é POR FAMÍLIA. O `waist_pitch` tem curso de 1,04 rad
+    e o `hip_yaw` 5,52: um limiar em RADIANOS não vale para os dois, e um em FRAÇÃO
+    vale para as 29.
+
+    ⚠⚠ O TETO TEM DE FICAR ALÉM DE ONDE A JUNTA VIVE HOJE, e isto é MEDIDO, não
+    estético. Uma junta que opera NO TETO tem derivada ZERO: o termo cobra a multa e
+    não diz para onde ir, portanto o robô paga e continua torto. Duas configurações
+    reprovaram por isso (`carrega085.csv`, 1250 passos, checkpoint de 14k):
+
+        k 20 / teto 0,15   `left_ankle_roll`   95,7% dos passos NO TETO
+        k 12 / teto 0,25   `right_wrist_roll`  59,1% NO TETO
+
+    ⚠ O `k` DESCE quando o teto sobe, e é de propósito: assim o custo no teto fica em
+    ~20 nas três famílias, e o teto muda a LARGURA da rampa em vez da magnitude da
+    multa. MEDIDO, com esta tabela, zero por cento dos passos no teto em toda junta
+    que encosta:
+
+        família          |frac| máx   rampa cobre    batente   teto
+        tornozelo        1,50        0,85 a 1,55    0,96      22,3
+        punho, cintura   1,08        0,85 a 1,10    5,05      19,1
+        resto            0,95        0,85 a 1,00    19,1      19,1
+
+    ⚠⚠ CONSEQUÊNCIA DECLARADA, e ela é o preço desta tabela: no tornozelo o BATENTE
+    custa 0,96, e não 19. A cobrança forte fica em 140% do curso. O termo diz "volte
+    para dentro do curso", e não "não encoste no batente". É o que o dado exige — o
+    tornozelo já vive além do batente, empurrado pelo contato com o chão, e uma rampa
+    que acaba em 100% o deixaria no teto, sem gradiente. Ver a limitação 11.
+
+    ⚠⚠ NO TREINO DO ZERO A RAMPA É 0,85 a 1,00 EM TODAS AS FAMÍLIAS, com `k = 20` e
+    teto 0,15. Esta tabela larga existe para CONSERTAR uma política que já aprendeu a
+    usar curso inexistente, e ela aceita o batente como preço de trazer a junta de
+    volta. Uma política que nasce do zero tem de aprender a NÃO CHEGAR ao batente, e
+    para isso a rampa acaba nele: `tornozelo = punho_cintura = resto = (20.0, 0.15)`.
+    """
+
+    limiar: float = 0.85                          # fração do curso onde a rampa começa
+    #                                 k     teto no excesso
+    tornozelo: tuple[float, float] = (4.5, 0.70)
+    punho_cintura: tuple[float, float] = (12.0, 0.25)
+    resto: tuple[float, float] = (20.0, 0.15)
+
+    def por_padrao(self) -> dict[str, tuple[float, float]]:
+        """As três famílias abertas nos 14 padrões de `FAMILIAS`."""
+        t, p, r = self.tornozelo, self.punho_cintura, self.resto
+        return por_familia({
+            "hip_yaw": r, "hip_roll": r, "hip_pitch": r, "knee": r,
+            "ankle_pitch": t, "ankle_roll": t,
+            "waist": p,
+            "shoulder_pitch": r, "shoulder_roll": r, "shoulder_yaw": r, "elbow": r,
+            "wrist_roll": p, "wrist_pitch": p, "wrist_yaw": p,
+        })
 
 
 @dataclass
@@ -1226,6 +1335,7 @@ class Knobs:
     tarefa: Tarefa = field(default_factory=Tarefa)
     peso_por_estado: PesoPorEstado = field(default_factory=PesoPorEstado)
     faixa_de_pose: FaixaDePose = field(default_factory=FaixaDePose)
+    limite_de_junta: LimiteDeJunta = field(default_factory=LimiteDeJunta)
     cadeia: Cadeia = field(default_factory=Cadeia)
     terminacao: Terminacao = field(default_factory=Terminacao)
     contato: Contato = field(default_factory=Contato)

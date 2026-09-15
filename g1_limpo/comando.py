@@ -286,12 +286,17 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # A ÂNCORA DO PEITO, no frame da BASE. Alvo dos DOIS elos que seguram a caixa; a
     # diferença é só o REFERENCIAL — `carregar` relativo ao robô, `pegar` congelado
     # em mundo.
-    # ⚠ MEDIDO (revisão do coordenador): `caixa_b.z` no hold, p50 1,025 — ver
-    # `knobs.Alvo.peito_b`, fonte única do valor real.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.222)
+    # ⚠ DERIVADO do alvo, e não medido do robô — ver `knobs.Alvo.peito_b`, fonte
+    # única do valor real.
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.102)
     # ⚠ o z do alvo é ABSOLUTO nos dois elos que seguram: agachar não baixa o alvo.
-    # `0,798 + peito_b.z (0,222) = 1,02` — ver `knobs.Alvo.altura_carregar`.
-    altura_carregar: float = 1.02
+    # `0,798 + peito_b.z (0,102) = 0,90` — ver `knobs.Alvo.altura_carregar`, que traz
+    # o porquê de o piso ser 0,80 e não a anatomia. É só o default PRÉ-RESET: a
+    # altura de verdade é sorteada em `altura_carregar_faixa`.
+    altura_carregar: float = 0.90
+    # ⚠ A faixa de sorteio da altura de trabalho, por episódio. Ver
+    # `knobs.Alvo.altura_carregar_faixa`, fonte única do valor real.
+    altura_carregar_faixa: tuple[float, float] = (0.85, 0.95)
     # os elos que exigem o robô PARADO. O twist deles é forçado a ZERO, e é isso —
     # e não a forma do alvo — que impede o robô de andar com a caixa.
     elos_parados: tuple[int, ...] = (1, 2, 4)      # REORIENTAR, PEGAR, BOTAR
@@ -581,6 +586,10 @@ class AlvoCaixaCmd(CommandTerm):
         # congelava com a caixa fora de posição. Lido como `perto | _forcado`, e
         # limpo assim que o avanço acontece.
         self._forcado = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ A altura de trabalho é POR ENV e sorteada no reset (`_resample_command`).
+        # Nasce no valor fixo do cfg para o caso de alguém ler o alvo antes do
+        # primeiro reset — inspeção e paridade rodam assim.
+        self._altura_alvo = torch.full((n,), float(cfg.altura_carregar), device=d)
         # ⚠ Publica ZEROS aqui, e não o resultado de `_publica_pegou`: no `__init__` os
         # buffers de sensor ainda não foram preenchidos. A leitura real começa no
         # primeiro `_update_command`.
@@ -1128,6 +1137,11 @@ class AlvoCaixaCmd(CommandTerm):
         # o σ fica pendente até a TAREFA começar, e não até a pose ficar fresca — a
         # janela de espera ainda não correu aqui (ver `_sigma_pendente`)
         self._sigma_pendente[env_ids] = True
+        # ⚠ SORTEIO POR EPISÓDIO, uniforme na faixa. O robô tem de generalizar entre
+        # alturas de pega em vez de decorar uma. O alvo já é observável (`alvo_b`),
+        # portanto isto é aprendível e não vira ruído.
+        lo, hi = self.cfg.altura_carregar_faixa
+        self._altura_alvo[env_ids] = lo + (hi - lo) * torch.rand(n, device=d)
 
     def _update_command(self) -> None:
         todos = torch.arange(self.num_envs, device=self.device)
@@ -1663,12 +1677,14 @@ class AlvoCaixaCmd(CommandTerm):
 
             x, y   RELATIVOS ao robô, reescritos a cada passo — a caixa está nas mãos
                    e tem de acompanhá-lo horizontalmente.
-            z      ABSOLUTO, a `altura_carregar`.
+            z      ABSOLUTO, vem de `self._altura_alvo`, sorteado por episódio em
+                   `altura_carregar_faixa`. Continuar absoluto é o que impede o robô
+                   de satisfazer o alvo andando agachado.
 
         ⚠ O z NÃO pode ser relativo. Se fosse, o robô satisfaria o alvo ANDANDO
         AGACHADO: o alvo desceria junto com a pelve e a caixa nunca precisaria subir.
-        Com o z fixo, carregar exige manter a caixa na altura de trabalho — que é o
-        comportamento pedido.
+        Com o z absoluto, carregar exige manter a caixa na altura de trabalho — que é
+        o comportamento pedido.
         """
         if len(ids) == 0:
             return
@@ -1677,7 +1693,7 @@ class AlvoCaixaCmd(CommandTerm):
         base_p = self.robot.data.root_link_pos_w[ids]
         base_q = self.robot.data.root_link_quat_w[ids]
         a = base_p + quat_apply(base_q, p)
-        a[:, 2] = self.cfg.altura_carregar
+        a[:, 2] = self._altura_alvo[ids]
         self._command[ids, ALVO] = a
 
     def _meia(self, ids: torch.Tensor) -> torch.Tensor:

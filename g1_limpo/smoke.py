@@ -32,7 +32,7 @@ from mjlab.tasks.velocity.config.g1.env_cfgs import (
 
 from g1_limpo import cena as C
 from g1_limpo.env_cfg import colhe_sigmas_de_postura, make_env_cfg
-from g1_limpo.knobs import Knobs
+from g1_limpo.knobs import FAMILIAS as _FAMILIAS, Knobs, por_familia as _por_familia
 from g1_limpo import metricas as MT_
 
 import torch
@@ -464,13 +464,24 @@ check("nenhum fonte do pacote, FORA de `knobs.py`, contém `knee` (prova do "
       not any("knee" in p.read_text(encoding="utf-8") for p in _fontes),
       str([p.name for p in _fontes if "knee" in p.read_text(encoding='utf-8')]))
 _src_knobs9 = (_raiz / "knobs.py").read_text(encoding="utf-8")
-# ⚠ QUATRO desde a dobradiça (`954ed94`, spec `g1-limpo-tabela-por-estado.md` §4): o
-# `vel_max_standing` deixou de ser `{".*": 2,0}` e virou dict por família com os
-# MESMOS 14 padrões do `vel_max_walking` — a quarta ocorrência é a dele.
-check("em `knobs.py`, `knee` aparece QUATRO vezes — `std_standing`, "
-      "`vel_max_standing`, `vel_max_walking`, `vel_max_running`; nenhuma exceção a "
+# ⚠ CONTA O PADRÃO, E NÃO A PALAVRA (consertado 14/09). A versão anterior fazia
+# `count("knee") == 4` sobre o arquivo INTEIRO, portanto uma MENÇÃO EM DOCSTRING
+# contava. O `faixa_de_pose` (`c9578ae`, na tag `estavel-bloco17`) trouxe uma tabela
+# nova com `knee` mais duas menções no docstring dela: o contador foi de 4 para 7 e o
+# portão ficou vermelho na tag, sem defeito nenhum de código.
+#
+# ⚠ QUATRO, e não cinco: a `FaixaDePose` e a `LimiteDeJunta` deixaram de escrever o
+# padrão à mão em 14/09. As duas chamam `por_familia`, que o MONTA a partir de
+# `FAMILIAS` — portanto o padrão delas não existe como texto no arquivo. Sobram as
+# QUATRO tabelas que ainda escrevem os 14 padrões literais.
+_pat_knee9 = _src_knobs9.count(r'.*knee.*')
+check("em `knobs.py`, o padrão `.*knee.*` aparece QUATRO vezes — `std_standing`, "
+      "`vel_max_standing`, `vel_max_walking` e `vel_max_running`; nenhuma exceção a "
       "mais vazou",
-      _src_knobs9.count("knee") == 4, f"{_src_knobs9.count('knee')} ocorrências")
+      _pat_knee9 == 4, f"{_pat_knee9} ocorrências do padrão")
+check("a família `knee` está UMA vez em `FAMILIAS`, a fonte que as outras duas usam",
+      _FAMILIAS.count("knee") == 1 and len(set(_FAMILIAS)) == len(_FAMILIAS) == 14,
+      str(_FAMILIAS))
 
 # ============ 9b. O ALGORITMO: vantagem normalizada POR ELO (01/09) ============
 secao("9b. a vantagem é normalizada por grupo de elo")
@@ -547,7 +558,7 @@ check("nenhum import de código do projeto (fora de paridade.py)",
       not _viola, "; ".join(_viola))
 
 # ------------------------------------------------------- 11. recompensa da F1
-secao("11. recompensa (a tabela do molde, mais DOIS termos)")
+secao("11. recompensa (a tabela do molde, menos um termo e mais dezesseis)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
@@ -565,18 +576,27 @@ _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            # acima do limite por regime.
            "velocidade_por_regime",
            # G3: a faixa de pose por família e por estado. Ela NÃO substitui o
-           # `dof_pos_limits` — nas juntas de perna o do fabricante é mais apertado.
-           "faixa_de_pose"}
-check("a tabela diverge do molde em exatamente QUINZE termos, e são estes",
-      set(cfg.rewards) - set(fab.rewards) == _NOSSOS
-      and not set(fab.rewards) - set(cfg.rewards),
-      str(set(cfg.rewards) ^ set(fab.rewards)))
-check("nenhum termo do MOLDE foi removido",
-      set(fab.rewards) <= set(cfg.rewards))
+           # `limite_de_junta`: uma mede desvio do DEFAULT, a outra mede posição no
+           # CURSO. Uma junta pode estar longe do default e dentro do curso.
+           "faixa_de_pose",
+           # G4 (14/09): a rampa exponencial sobre a fração do curso. Ela SUBSTITUI o
+           # `dof_pos_limits` do fabricante, que sai logo abaixo.
+           "limite_de_junta"}
+# ⚠⚠ UM TERMO DO MOLDE SAI, e é o único até hoje. O `dof_pos_limits` e o
+# `limite_de_junta` cobram o MESMO excesso de curso, e mantê-los juntos seria
+# cobrança dupla. Declarar a remoção pelo NOME é o ponto: um `<=` solto deixaria de
+# pegar o dia em que um upgrade do mjlab apagar outro termo em silêncio.
+_REMOVIDOS = {"dof_pos_limits"}
+check("a tabela diverge do molde em exatamente DEZESSEIS termos, e são estes",
+      set(cfg.rewards) - set(fab.rewards) == _NOSSOS,
+      str(set(cfg.rewards) - set(fab.rewards) ^ _NOSSOS))
+check("do molde sai UM termo só, e é o `dof_pos_limits`",
+      set(fab.rewards) - set(cfg.rewards) == _REMOVIDOS,
+      str(set(fab.rewards) - set(cfg.rewards)))
 check("`air_time` está em 0,0 — os DOIS módulos de referência o tinham desligado",
       cfg.rewards["air_time"].weight == 0.0)
-check("`dof_pos_limits` é −1,0, o valor do fabricante",
-      cfg.rewards["dof_pos_limits"].weight == -1.0)
+check("`limite_de_junta` é −1,0, o mesmo peso do `dof_pos_limits` que ele substitui",
+      cfg.rewards["limite_de_junta"].weight == -1.0)
 
 # ---- a faixa de pose (spec `g1-limpo-faixa-de-pose.md`)
 from g1_limpo import env_cfg as EC_           # noqa: E402
@@ -591,12 +611,45 @@ check("`faixa_de_pose` NÃO é embrulhada pela tabela por estado — o estado j�
       and "func" not in cfg.rewards["faixa_de_pose"].params)
 check("`faixa_de_pose` NÃO está em TERMOS_CONGELAVEIS — é preço, não renda",
       "faixa_de_pose" not in EC_.TERMOS_CONGELAVEIS)
+
+# ---------------------------------------------- o LIMITE DE JUNTA (14/09)
+_lj = Knobs().limite_de_junta
+_pl = _lj.por_padrao()
+# ⚠ O KNOB TEM DE SAIR JUNTO com o termo. O `aplica_pesos` itera os campos de
+# `Recompensa` e afirma que cada nome existe em `cfg.rewards` — um knob órfão explode
+# ali, que é exatamente o que aquele assert existe para fazer. A saída do TERMO já
+# está checada no bloco 11 (`_REMOVIDOS`); aqui é só o knob.
+check("o knob `Recompensa.dof_pos_limits` saiu junto com o termo",
+      not hasattr(Knobs().recompensa, "dof_pos_limits"))
+check("`limite_de_junta` está registrado e NÃO é embrulhado pela tabela por estado",
+      cfg.rewards["limite_de_junta"].func is RC_.LimiteDeJunta
+      and "func" not in cfg.rewards["limite_de_junta"].params
+      and "limite_de_junta" not in EC_.TERMOS_CONGELAVEIS)
+check("as duas tabelas por família usam os MESMOS 14 padrões",
+      sorted(_pl) == sorted(_padroes) == sorted(_por_familia({f: 0.0 for f in _FAMILIAS})),
+      "uma lista de padrões escrita duas vezes sai de sincronia; a fonte é `FAMILIAS`")
+# ⚠⚠ O TETO TEM DE FICAR ALÉM DE ONDE A JUNTA VIVE, senão a derivada é ZERO ali e o
+# termo vira imposto fixo. MEDIDO no `carrega085.csv`: o tornozelo chega a |frac| 1,50
+# e o punho a 1,08. Este check trava a REGRA, e não o número: a rampa de cada família
+# tem de cobrir o pior caso MEDIDO dela, com margem.
+_PIOR = {"tornozelo": 1.50, "punho_cintura": 1.08, "resto": 0.95}
+for _nome, _pior in _PIOR.items():
+    _k, _teto = getattr(_lj, _nome)
+    check(f"a rampa de `{_nome}` cobre o pior |frac| medido ({_pior})",
+          _lj.limiar + _teto >= _pior - 1e-9,
+          f"rampa vai até {_lj.limiar + _teto:.2f} e a junta chega a {_pior}")
+check("o custo no teto fica em ~20 nas três famílias — o teto muda a LARGURA da "
+      "rampa, e não a magnitude da multa",
+      all(18.0 <= math.expm1(getattr(_lj, n)[0] * getattr(_lj, n)[1]) <= 24.0
+          for n in _PIOR),
+      str({n: round(math.expm1(getattr(_lj, n)[0] * getattr(_lj, n)[1]), 1)
+           for n in _PIOR}))
 check("as sete famílias da faixa abrem em catorze padrões, e cada um tem DEZ colunas",
       len(_padroes) == 14
       and all(len(v) == len(_ESTADOS) for v in _padroes.values()),
       str({p: len(v) for p, v in _padroes.items()}))
 check("a faixa zera PERNA e CINTURA no ANDAR e no CARREGAR — a marcha é do "
-      "`dof_pos_limits`, que é mais apertado que qualquer faixa nessas juntas",
+      "`limite_de_junta`, que é mais apertado que qualquer faixa nessas juntas",
       _fx.perna[0] == 0.0 and _fx.perna[7] == 0.0
       and _fx.cintura[0] == 0.0 and _fx.cintura[7] == 0.0)
 check("a faixa zera a PERNA no PEGAR — medido: agachar para 0,15 m custa 2,03 rad de "
@@ -672,6 +725,20 @@ check("a altura de trabalho bate com a pelve nominal + peito_b.z",
       abs(k.alvo.altura_carregar - (0.798 + k.alvo.peito_b[2])) < 0.005,
       f"0,798 (pelve do keyframe, MEDIDA) + {k.alvo.peito_b[2]} = "
       f"{0.798 + k.alvo.peito_b[2]:.3f} vs knob {k.alvo.altura_carregar}")
+check("a faixa de sorteio da altura chega ao comando",
+      (tuple(cfg.commands["alvo_caixa"].altura_carregar_faixa)
+       == tuple(k.alvo.altura_carregar_faixa)),
+      "sem o repasse no env_cfg o comando sorteia na faixa DEFAULT dele")
+check("o piso da faixa da altura não desce abaixo de 0,80",
+      k.alvo.altura_carregar_faixa[0] >= 0.80,
+      "a laje sobe a 0,57 e a caixa maior em cima tem centro em 0,70; com "
+      "`tol_pos` 0,10 um alvo abaixo de 0,80 fecha o PEGAR com a caixa AINDA NA "
+      "LAJE. Descer mais exige `& ~apoiada` no fecho do PEGAR")
+check("o default da altura fica DENTRO da faixa sorteada",
+      (k.alvo.altura_carregar_faixa[0] <= k.alvo.altura_carregar
+       <= k.alvo.altura_carregar_faixa[1]),
+      "o default é o que o `exporta_cena` grava e o `pilota` usa; fora da faixa "
+      "o viewer clássico inspecionaria uma altura que o treino nunca pede")
 check("o comando NÃO resampleia dentro do episódio",
       cfg.commands["alvo_caixa"].resampling_time_range[0] > 1e6,
       "com (20,20) o resample rodava UM passo antes do fim e zerava o sucesso")
@@ -681,9 +748,10 @@ check("o currículo do nível existe e roda ANTES dos eventos",
       and list(cfg.curriculum).index("nivel") >= 0)
 check("o evento de cena existe, e é UM só",
       sum(1 for e in cfg.events if e in ("posiciona_cena",)) == 1)
-check("a carga entra por evento (nunca por dr.body_mass)",
+check("a carga entra pelo evento `carga_caixa`",
       "carga_caixa" in cfg.events,
-      "dr.body_mass e dr.pseudo_inertia corrompem a heap — medido")
+      "o teto da carga vem da célula do NÍVEL, que o currículo move durante o "
+      "treino; o `alpha_range` de `dr.pseudo_inertia` é estático e perderia isso")
 
 insp = make_env_cfg(k, inspecao=True)
 check("no modo inspeção o robô TRAVA", "trava_robo" in insp.events)
@@ -3544,9 +3612,21 @@ try:
           float((_e24.sim.model.geom_aabb[:, _g, 1] - _size).abs().max()) < 1e-7)
     _bm = _e24.sim.model.body_mass
     _bid = int(_cx.indexing.body_ids[0])
-    check("13. `body_mass` da caixa NÃO mudou — independência do peso",
-          float((_bm[..., _bid] - float(k.cena.caixa_massa)).abs().max()) < 1e-6,
-          f"{_bm[..., _bid].flatten()[:4].tolist()}")
+    # ⚠ INVERTIDO em 14/09. Antes a massa TINHA de ficar em 1 kg, porque a carga
+    # entrava como força externa. Agora o `carga_caixa` escreve massa e inércia de
+    # verdade, e o que se confere é a FAIXA e a PROPORÇÃO.
+    _m24 = _bm[..., _bid]
+    check("13. `body_mass` da caixa fica na faixa do currículo",
+          (float(_m24.min()) >= float(k.cena.caixa_massa) - 1e-6
+           and float(_m24.max()) <= max(k.nivel.carga_max) + 1e-6),
+          f"{float(_m24.min()):.3f}–{float(_m24.max()):.3f} kg contra teto "
+          f"{max(k.nivel.carga_max)}")
+    _i24 = _e24.sim.model.body_inertia[..., _bid, 0]
+    _i_esp = (2.0 / 3.0) * _m24 * _a * _a
+    check("13. `body_inertia` é a do CUBO sorteado: (2/3)·m·a²",
+          float((_i24 - _i_esp).abs().max()) < 1e-9,
+          "a inércia tem de seguir a massa E o tamanho; seguir só um dos dois deixa "
+          "a caixa grande girando como a pequena")
     check("13. `limpo_meia_aresta` bate com `geom_size` env a env",
           float((_e24.limpo_meia_aresta - _size).abs().max()) < 1e-7)
     # o colisor LÊ o tamanho: a caixa repousa com o centro a `a` acima do topo
@@ -4504,12 +4584,12 @@ try:
           float((_alcancar_no_acender38 - math.exp(-1)).abs().max()) < 0.01,
           f"{_alcancar_no_acender38.tolist()[:5]}")
 
-    # ⚠ TOLERÂNCIA MEDIDA, e maior que a spec original (0,05 rad). A caixa carrega
-    # (evento `carga_caixa`, reset) uma força vertical que compensa a massa sorteada
-    # contra a massa real — aplicada num ponto que não é o centro de massa, ela impõe
-    # um TORQUE constante, e a caixa assenta numa inclinação de equilíbrio própria de
-    # cada env (mais massa a compensar, mais inclinação). Isso é PRÉ-EXISTENTE e
-    # ortogonal a este contrato — mede-se em ~40 trials de 16 envs, sem `push_robot`,
+    # ⚠ TOLERÂNCIA MEDIDA, e maior que a spec original (0,05 rad). A causa era o
+    # `carga_caixa` antigo: ele compensava a massa por FORÇA EXTERNA, aplicada num
+    # ponto que não é o centro de massa, e o torque constante fazia a caixa assentar
+    # inclinada. Desde 14/09 o evento escreve massa e inércia de verdade e esse torque
+    # NÃO EXISTE MAIS — a tolerância larga fica como teto, e só deve sobrar folga.
+    # Isso é ortogonal a este contrato — mede-se em ~40 trials de 16 envs, sem `push_robot`,
     # sem teleporte algum: pior valor 0,105 rad, 1 em 5 execuções passa de 0,05 rad.
     # 0,15 rad cobre o pior caso medido com folga de 43% e seguem a mais de 1,7× do
     # regime de direção VIVA (0,26 rad no nível 0, spec `28/08`) — suficiente para
@@ -5230,9 +5310,13 @@ except Exception as _ev19x:      # noqa: BLE001
     _falhas.append(f"item 19 (cadeia.ativa=False) não pôde ser medido: "
                    f"{type(_ev19x).__name__}: {_ev19x}")
 
-# --- 20. contagem: 28 termos, 3 terminações ---
-check("20. 28 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
-      len(cfg.rewards) == 28 and set(cfg.terminations)
+# --- 20. contagem: 29 termos, 3 terminações ---
+# ⚠ 28 -> 29 em 14/09, e o termo novo é o `faixa_de_pose` (`c9578ae`). Ele entrou na
+# tag `estavel-bloco17` sem que este contador subisse, e o portão da tag já nascia
+# vermelho por isso. O contador é a trava contra termo que entra em silêncio: ele sobe
+# junto com o termo, e nunca depois.
+check("20. 29 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
+      len(cfg.rewards) == 29 and set(cfg.terminations)
       == {"time_out", "fell_over", "caixa_largada"},
       f"{len(cfg.rewards)} termos; terminações {sorted(cfg.terminations)}")
 

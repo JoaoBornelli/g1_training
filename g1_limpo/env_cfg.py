@@ -542,6 +542,7 @@ def make_env_cfg(
     cfg.commands["alvo_caixa"] = CMD.AlvoCaixaCmdCfg(
         peito_b=k.alvo.peito_b,
         altura_carregar=k.alvo.altura_carregar,
+        altura_carregar_faixa=k.alvo.altura_carregar_faixa,
         botar_delta_topo=k.alvo.botar_delta_topo,
         botar_delta_xy=k.alvo.botar_delta_xy,
         botar_recuo_borda=k.alvo.botar_recuo_borda,
@@ -694,13 +695,26 @@ def make_env_cfg(
     # tabela por estado — aqui o estado já escolhe a COLUNA da tolerância, e embrulhar
     # em `PesoPorEstado` contaria o estado duas vezes.
     # ⚠ Também NÃO entra em `TERMOS_CONGELAVEIS`: é preço, não renda de manipulação.
-    # ⚠ O `dof_pos_limits` do fabricante NÃO SAI. Nas juntas de perna ele é o freio mais
-    # apertado dos dois (`ankle_roll` 0,236 rad do default até o limite mole contra 0,6
-    # desta tabela); ele protege o CURSO MECÂNICO e esta tabela molda a POSE.
+    # ⚠ O `dof_pos_limits` do fabricante SAIU (14/09), e quem protege o CURSO MECÂNICO
+    # agora é o `limite_de_junta`. A divisão de trabalho não muda: ele mede posição no
+    # CURSO e protege o batente; esta tabela mede desvio do DEFAULT e molda a POSE.
     cfg.rewards["faixa_de_pose"] = RewardTermCfg(
         func=RC.FaixaDePose, weight=tr.faixa_de_pose,
         params={"tabela": k.faixa_de_pose.por_padrao(),
                 "escala": k.faixa_de_pose.escala,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
+
+    # ⚠⚠ O `dof_pos_limits` DO FABRICANTE SAI, e o `limite_de_junta` entra no lugar.
+    # Os dois cobram o MESMO excesso — mantê-los juntos seria cobrança dupla.
+    # ⚠ `pop` e NÃO peso zero: o `reward_manager` pula termo com peso zero e apaga a
+    # métrica dele em silêncio, e um termo mudo é indistinguível de um termo esquecido.
+    # O knob `Recompensa.dof_pos_limits` saiu junto, senão o `aplica_pesos` explodiria
+    # no `assert` — que é exatamente o que ele existe para fazer.
+    cfg.rewards.pop("dof_pos_limits")
+    cfg.rewards["limite_de_junta"] = RewardTermCfg(
+        func=RC.LimiteDeJunta, weight=tr.limite_de_junta,
+        params={"tabela": k.limite_de_junta.por_padrao(),
+                "limiar": k.limite_de_junta.limiar,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
     # ------------------------------------------- 3i. a renda do BOTAR (spec §2.7)

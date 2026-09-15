@@ -94,7 +94,7 @@ class PosturaPorElo(variable_posture):
 
     ⚠ Os braços, quando saem da conta, seguem contidos por outros cinco termos que
     não dependem de elo: `action_rate_l2`, `joint_acc`, `angular_momentum`,
-    `body_ang_vel`, `dof_pos_limits` e `self_collisions`. Não é terra sem lei.
+    `body_ang_vel`, `limite_de_junta` e `self_collisions`. Não é terra sem lei.
     """
 
     def __init__(self, cfg, env):
@@ -251,6 +251,62 @@ class FaixaDePose:
         excesso = torch.relu((q - q0).abs() - tol)
         custo = torch.expm1(excesso / escala)
         return torch.where(tol > 0.0, custo, torch.zeros_like(custo)).sum(dim=-1)
+
+
+class LimiteDeJunta:
+    """Cobra a junta que chega ao BATENTE MECÂNICO, em fração do curso.
+
+        frac    = (q − centro) / meio_curso            −1 no mín, +1 no máx
+        excesso = min( relu(|frac| − limiar), teto )
+        custo   = Σ_j ( exp(k_j · excesso_j) − 1 )
+
+    Os `k` e os `teto` são POR FAMÍLIA (`knobs.LimiteDeJunta`, com a medição que
+    justifica cada par). SUBSTITUI o `dof_pos_limits` do fabricante, que saiu no mesmo
+    commit: a reta dele cobrava 0,055/s com o `waist_pitch` no batente durante todo o
+    BOTAR, e reta não tem inclinação onde importa.
+
+    ⚠ IRMÃ DA `FaixaDePose`, e as duas medem coisas DIFERENTES. A `FaixaDePose` mede
+    desvio do DEFAULT em radianos, e molda a POSE. Esta mede posição no CURSO, e
+    protege o BATENTE. Uma junta pode estar longe do default e dentro do curso, e o
+    contrário também.
+
+    ⚠⚠ CENTRO DO CURSO, e NÃO a pose default. O `hip_roll` esquerdo vai de −0,524 a
+    +2,967: o centro é 1,22 e o default é 0, portanto o default já fica a 70% do curso.
+    Ancorar no default acusaria batente onde não há.
+
+    ⚠ LIMITES DUROS (`joint_pos_limits`), e não os moles (`soft_joint_pos_limits`). O
+    fator 0,9 do fabricante NÃO entra: o limiar de 0,85 já é a margem, e os dois juntos
+    dariam 0,765 sem ninguém escrever esse número.
+
+    ⚠ SOMA POR JUNTA, e não média. Saturar UMA junta já é o defeito; dividir por 29
+    dilui exatamente o sinal que se quer. Mesmo motivo da `FaixaDePose`.
+
+    ⚠ `torch.expm1` e não `exp(x) − 1`: em `x` pequeno a subtração perde os dígitos na
+    borda da rampa, que é onde o gradiente tem de nascer limpo.
+
+    ⚠ Devolve POSITIVO. Quem faz dele penalidade é o peso negativo.
+    """
+
+    def __init__(self, cfg, env):
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        asset = env.scene[asset_cfg.name]
+        _, joint_names = asset.find_joints(asset_cfg.joint_names)
+        _, _, pares = resolve_matching_names_values(
+            data=cfg.params["tabela"], list_of_strings=joint_names)
+        d = env.device
+        self.k = torch.tensor([p[0] for p in pares], device=d, dtype=torch.float32)
+        self.teto = torch.tensor([p[1] for p in pares], device=d, dtype=torch.float32)
+        # ⚠ O limite é IGUAL em todos os envs (vem do MJCF), portanto o env 0 basta.
+        lim = asset.data.joint_pos_limits[0, asset_cfg.joint_ids]        # (n, 2)
+        self.centro = lim.mean(dim=-1)
+        self.meio = (lim[:, 1] - lim[:, 0]) / 2.0
+
+    def __call__(self, env, tabela, limiar: float,
+                 asset_cfg: SceneEntityCfg) -> torch.Tensor:
+        del tabela                                    # resolvida no `__init__`
+        q = env.scene[asset_cfg.name].data.joint_pos[:, asset_cfg.joint_ids]
+        excesso = (((q - self.centro) / self.meio).abs() - limiar).clamp(min=0.0)
+        return torch.expm1(self.k * torch.minimum(excesso, self.teto)).sum(dim=1)
 
 
 class PesoPorEstado:
