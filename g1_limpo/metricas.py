@@ -37,6 +37,7 @@ from mjlab.entity import Entity
 from mjlab.managers.metrics_manager import MetricsTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
+from mjlab.utils.lab_api.math import quat_apply
 
 __all__ = [
     "termos",
@@ -82,6 +83,9 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
     em vez dos dois pés. O erro só apareceu por sorte de forma (6 contra 2); com um
     robô de dois sítios ele passaria e mediria a coisa errada em silêncio.
     """
+    # ⚠ import tardio: `comando` importa `cena`, e o ciclo fecharia no topo do módulo
+    from g1_limpo.comando import (ESTADO_BOTAR, ESTADO_CARREGAR, ESTADO_PEGAR_COM,
+                                  ESTADO_PEGAR_SEM)
     pes = {"sensor_name": PES_NO_CHAO}
     return {
         "momento_angular": MetricsTermCfg(
@@ -153,7 +157,15 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         # ⚠ `reduce="last"`, e NÃO `"mean"` — ver o DESVIO DECLARADO no docstring da
         # classe. O termo já devolve a MÉDIA CORRENTE sobre os passos de CARREGAR; o
         # `"mean"` do manager dividiria essa média por TODOS os passos do episódio.
-        "altura_da_pelve": MetricsTermCfg(func=altura_da_pelve, reduce="last"),
+        "altura_da_pelve": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "pelve_z", "estados": (ESTADO_CARREGAR,)}),
+        # ⚠ A RÉGUA DO `FormaPostural` (16/09): o tronco em graus nas idas da pega e do
+        # pouso. O termo é média de quatro rampas e não diz qual grandeza mexeu.
+        "tronco_na_pega": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "tronco_incl",
+                    "estados": (ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
     }
 
 
@@ -408,34 +420,34 @@ def fracao_do_curso(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     return (((q - centro) / meio).abs()).amax(dim=-1)
 
 
-class altura_da_pelve:
-    """A altura MÉDIA da pelve nos passos de CARREGAR, por env, em metros.
+class media_por_estado:
+    """A MÉDIA de uma grandeza do corpo nos passos de um conjunto de estados, por env.
 
-    ⚠⚠ ELA É OBRIGATÓRIA, e nasce junto com o `recompensas.limite_de_pelve` (plano
-    `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md` §9). Sem ela o teste é CEGO:
-    o `Episode_Reward/limite_de_pelve` é o CUSTO, e custo satura em informação — ele não
-    diz a ALTURA. É a mesma razão pela qual `fracao_do_curso` (abaixo) teve de nascer ao
-    lado do `limite_de_junta`. O teste do plano (§11) se lê AQUI: a pelve no CARREGAR tem
-    de passar de 0,70, contra 0,564 medidos hoje.
+    Duas réguas saem dela, e nenhuma tem peso:
 
-    ⚠ GATEADA NO CARREGAR, e o gate é o ponto. Sem ele a métrica captura o agachamento
-    LEGÍTIMO do BOTAR — pelve a 0,181 m na laje de 0,05 — e as duas coisas passam a ler
-    igual.
+      `altura_da_pelve`   pelve em metros, só no CARREGAR. OBRIGATÓRIA, nasce junto com
+          o `recompensas.limite_de_pelve` (plano
+          `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md` §9): o custo satura em
+          informação e não diz a ALTURA. O teste do plano (§11) se lê AQUI: a pelve no
+          CARREGAR tem de passar de 0,70, contra 0,564 medidos. GATEADA no CARREGAR
+          porque sem o gate ela captura o agachamento LEGÍTIMO do BOTAR (0,181 m na
+          laje de 0,05), e as duas coisas leem igual.
+      `tronco_na_pega`    inclinação do `torso_link` em graus, nas idas da pega e do
+          pouso (PEGAR_SEM, PEGAR_COM, BOTAR). É a régua do `recompensas.FormaPostural`
+          (16/09): MEDIDO 84° a 99° no BOTAR contra 22° a 57° de referência. O termo
+          devolve a média de quatro rampas e não diz QUAL grandeza mexeu; esta diz.
 
-    ⚠⚠ DESVIO DECLARADO CONTRA O PLANO, e ele é da API. O plano pede
-    `reduce="mean"` gateado, e o `MetricsManager` não expressa isso: o `"mean"` dele é
-    `soma / step_count`, com `step_count` contando TODOS os passos do episódio
+    ⚠⚠ DESVIO DECLARADO CONTRA O PLANO, e ele é da API. O plano pede `reduce="mean"`
+    gateado, e o `MetricsManager` não expressa isso: o `"mean"` dele é `soma /
+    step_count`, com `step_count` contando TODOS os passos do episódio
     (`metrics_manager.py:113-126`) — um valor gateado por fora sairia diluído pela fração
-    de passos em CARREGAR, e não pela altura. A rota que a API oferece é esta: o termo
-    ACUMULA por dentro (soma e contagem, só nos passos de CARREGAR), devolve a média
-    corrente, e o manager lê o passo final com `reduce="last"`. O mesmo idioma de
-    acumulador com `reset` do `impacto_da_caixa`. (`reduce="min"`, discutido no plano,
-    não existe no `MetricsTermCfg`: os três valores são `mean`, `last` e `max`.)
+    de passos no estado. A rota que a API oferece é esta: o termo ACUMULA por dentro
+    (soma e contagem, só nos passos do estado), devolve a média corrente, e o manager lê
+    o passo final com `reduce="last"`. Mesmo idioma do `impacto_da_caixa`.
 
     ⚠ LEIA JUNTO COM A FATIA. O manager tira a média sobre os ENVS, e um env que nunca
-    entrou no CARREGAR entra nela com ZERO — não existe máscara por env na API. Duas runs
-    só se comparam com a MESMA fatia de elo; o que o número mede é a postura, mas a
-    escala dele é a fatia.
+    entrou no estado entra nela com ZERO — não existe máscara por env na API. Duas runs
+    só se comparam com a MESMA fatia de elo.
 
     ⚠ E ela TEM `reset`: sem ele os passos de um episódio entram no seguinte
     (`metrics_manager.py:131` só chama `reset` em termo de classe que o tenha).
@@ -444,18 +456,29 @@ class altura_da_pelve:
     def __init__(self, cfg, env):
         self.soma = torch.zeros(env.num_envs, device=env.device)
         self.passos = torch.zeros(env.num_envs, device=env.device)
+        self.estados = torch.tensor(cfg.params["estados"], dtype=torch.long, device=env.device)
+        self.id_torso = env.scene["robot"].find_bodies(["torso_link"])[0][0]
+        self.ez = torch.tensor([0.0, 0.0, 1.0], device=env.device)
 
-    def __call__(self, env) -> torch.Tensor:
-        from g1_limpo.comando import ESTADO_CARREGAR
-        # ⚠ A MESMA leitura de `recompensas.limite_de_pelve` e `postura_ereta`: uma
-        # segunda conta para a mesma altura é como um deslocamento de origem entra em
-        # silêncio.
-        z = (env.scene["robot"].data.root_link_pos_w[:, 2]
-             - env.scene.env_origins[:, 2])
-        no_carregar = (env.limpo_estado == ESTADO_CARREGAR).float()
-        self.soma += z * no_carregar
-        self.passos += no_carregar
-        # ⚠ `clamp(min=1)` no denominador, e não `+1e−6`: sem nenhum passo de CARREGAR o
+    def __call__(self, env, grandeza: str, estados) -> torch.Tensor:
+        del estados                                   # resolvido no `__init__`
+        robot = env.scene["robot"].data
+        if grandeza == "pelve_z":
+            # ⚠ A MESMA leitura de `recompensas.limite_de_pelve` e `postura_ereta`: uma
+            # segunda conta para a mesma altura é como um deslocamento de origem entra
+            # em silêncio.
+            x = robot.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
+        elif grandeza == "tronco_incl":
+            # ⚠ A MESMA conta do `recompensas.FormaPostural`, em GRAUS para o painel.
+            z = quat_apply(robot.body_link_quat_w[:, self.id_torso],
+                           self.ez.expand(env.num_envs, 3))
+            x = torch.rad2deg(torch.acos(z[:, 2].clamp(-1.0, 1.0)))
+        else:
+            raise ValueError(f"grandeza desconhecida: {grandeza}")
+        no_estado = torch.isin(env.limpo_estado, self.estados).float()
+        self.soma += x * no_estado
+        self.passos += no_estado
+        # ⚠ `clamp(min=1)` no denominador, e não `+1e−6`: sem nenhum passo no estado o
         # numerador é 0 exato, portanto o resultado é 0 — e não NaN nem número enorme.
         return self.soma / self.passos.clamp(min=1.0)
 

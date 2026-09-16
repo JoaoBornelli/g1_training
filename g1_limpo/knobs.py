@@ -931,6 +931,17 @@ class Tarefa:
     pelve_limiar: float = 0.74
     pelve_ref: float = 0.10
 
+    # ⚠ O INCENTIVO DE FORMA (16/09, `recompensas.FormaPostural`): média de quatro rampas
+    # em [0, 1], gateado pela `PesoPorEstado` nas idas da pega e do pouso. O peso é o
+    # TETO da renda por segundo: 2,0 contra ~11,5/s de teto dos sete no PEGAR (17%), e
+    # ×2 no BOTAR pela mesma coluna dos sete. Fica ABAIXO do que fechar rende (~13,8/s
+    # congelados). A proteção contra o piso da estátua é o `× alcancar` dentro do termo:
+    # parado na pose default, longe da caixa, ele pagava ~1,0/s e o smoke (seção 17)
+    # reprovou; com o kernel a forma só vale à medida que a mão chega. PONTO DE PARTIDA: o `Episode_Reward/forma_postural`
+    # dividido pelo peso lê a média de `r` direto, e a métrica `tronco_na_pega` lê o
+    # ângulo. Os dois dizem se o canal puxa.
+    forma_postural: float = 2.0
+
     # --- tolerâncias de fechamento ---
     # a tolerância que conta como "na condição", em metros e radianos
     tol_pos: float = 0.10
@@ -1185,6 +1196,11 @@ class PesoPorEstado:
     track_linear_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0,  0.0,    1.0,    3.5,     1.0,  1.0)
     track_angular_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0,    1.0,    3.5,     1.0,  1.0)
     pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    4.0,    1.0,     1.0,  8.0)
+    # ⚠ A DÉCIMA PRIMEIRA LINHA (16/09): o incentivo de forma só nas IDAS — PEGAR_SEM,
+    # PEGAR_COM e BOTAR (×2, a mesma coluna dos sete). Zero no ANDAR e no CARREGAR (a
+    # referência é de agachar para a caixa), zero nas esperas e no REORIENTAR (o robô
+    # ainda gira para a caixa) e zero na CAUDA (a forma de sair é a `postura_ereta`).
+    forma_postural: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0,   0.0,     1.0,    1.0,    0.0,     2.0,  0.0)
 
 
 # ⚠⚠ AS 14 FAMÍLIAS QUE COBREM AS 29 JUNTAS, e a fonte é ÚNICA. A `FaixaDePose` e a
@@ -1363,6 +1379,30 @@ class LimiteDeJunta:
 
 
 @dataclass
+class FormaPostural:
+    """As ESCALAS das quatro rampas do `recompensas.FormaPostural` e a referência.
+
+    ⚠⚠ CADA ESCALA FICA ALÉM DO ERRO DE HOJE, pela mesma regra do teto do
+    `LimiteDeJunta`: onde o robô vive a rampa tem de ter derivada. MEDIDO
+    (`botar_15999_*.csv` contra `ref_botar.npz`): tronco a 84°–99° contra 22°–57° de
+    referência — erro de até ~60°; pelve 0,18–0,50 contra 0,52–0,73 — até ~0,30 m.
+    Uma escala MENOR que o erro põe o robô no zero da rampa, com derivada zero.
+
+    ⚠ A referência é RELATIVA ao pacote: o Kaggle clona o repo, e o arquivo viaja com
+    ele. Ela nasce de `python -m g1_limpo.ik.gera_botar --pernas-de ... --saida
+    g1_limpo/ik/ref_botar.npz`, e o `hash_mjcf` dentro dela é o do `cena.mjb` do
+    `pilota` — o termo NÃO o confere contra a cena do treino (o modelo do warp não
+    expõe o mesmo hash); quem garante que é a mesma cena é o `exporta_cena`.
+    """
+
+    escala_pelve: float = 0.30          # m
+    escala_tronco_deg: float = 60.0
+    escala_pes: float = 0.20            # m
+    escala_pad_deg: float = 90.0
+    referencia: str = "ik/ref_botar.npz"   # relativo a `g1_limpo/`
+
+
+@dataclass
 class Knobs:
     cena: Cena = field(default_factory=Cena)
     alvo: Alvo = field(default_factory=Alvo)
@@ -1376,6 +1416,7 @@ class Knobs:
     peso_por_estado: PesoPorEstado = field(default_factory=PesoPorEstado)
     faixa_de_pose: FaixaDePose = field(default_factory=FaixaDePose)
     limite_de_junta: LimiteDeJunta = field(default_factory=LimiteDeJunta)
+    forma_postural: FormaPostural = field(default_factory=FormaPostural)
     cadeia: Cadeia = field(default_factory=Cadeia)
     terminacao: Terminacao = field(default_factory=Terminacao)
     contato: Contato = field(default_factory=Contato)

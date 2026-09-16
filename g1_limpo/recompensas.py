@@ -11,19 +11,21 @@ Os sete incentivos de manipulação entram na F3.
 from __future__ import annotations
 
 import inspect
+import math
 
+import numpy as np
 import torch
 
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.mdp import feet_swing_height, variable_posture
-from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse
 from mjlab.utils.lab_api.string import resolve_matching_names_values
 
 __all__ = ["AlturaDeBalanco", "PosturaPorElo", "PesoPorEstado",
            "giro_sem_gingado",
            "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "load", "limite_de_pelve",
+           "postura_ereta", "load", "limite_de_pelve", "FormaPostural",
            "renda_congelada"]
 
 
@@ -780,6 +782,131 @@ def load(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
     perto = t._perto(ids).float()
     dentro_do_botar = 1.0 - _fora_do_botar(env, nome_do_comando)
     return (1.0 - descarga) * perto * dentro_do_botar
+
+
+class FormaPostural:
+    """Paga por se APROXIMAR da forma de referência que a IK gerou, nas idas da pega e
+    do pouso (plano do dono, 16/09: "rastreio de forma postural por elo").
+
+        r_i = 1 − min( |x_i − ref_i(h)| / escala_i , 1 )     i = pelve, tronco, pés, pad
+        r   = ( r_pelve + r_tronco + r_pes + r_pad ) / 4  ×  alcancar
+
+    A referência é o `ref_botar.npz` do `g1_limpo/ik/gera_botar.py`: 15 poses sem peça
+    dentro de peça, pelve abaixo de 60°, sem rotação interna do joelho, aprovadas uma a
+    uma no viewer. A MESMA tabela serve ao PEGAR e ao BOTAR: a mão vai ao mesmo lugar
+    nos dois, e a forma do corpo também.
+
+    ⚠⚠ INCENTIVO, e NÃO preço. Do zero, uma penalidade só ensina a congelar na forma
+    sem nunca pegar; o incentivo dá direção antes de a pega existir. Devolve em [0, 1].
+    O gate é a `PesoPorEstado` (linha `forma_postural`): peso só nas colunas de ida —
+    PEGAR_SEM, PEGAR_COM e BOTAR — e zero no andar, no carregar e na cauda.
+
+    ⚠⚠ QUATRO GRANDEZAS, e todas INVARIANTES ao sorteio de xy e de rumo da caixa:
+      · altura da pelve            muda com a altura da caixa, não com o xy dela
+      · inclinação do tronco       o defeito medido: 84° a 99° onde a referência dá 22° a 57°
+      · separação lateral dos pés  a "pose de pernas" aprovada, no frame da pelve
+      · ângulo do pad à face       nenhum termo olhava para onde o pad aponta ANTES do
+                                   contato; o punho ia ao batente para o pad tocar
+    FORA, de propósito: juntas do braço (dependem do xy e do rumo; a pega já as guia),
+    juntas da perna (o recuo da pelve muda com o x da caixa), CoM sobre os pés (a
+    sobrevivência já cobra) e inclinação da pelve (a terminação de 70° já cobra).
+
+    ⚠⚠ RAMPA LINEAR, e não gaussiana: com o tronco 35° fora, a gaussiana tem derivada
+    zero e o canal nasce morto. A escala fica ALÉM do erro de hoje (mesma regra do
+    teto do `LimiteDeJunta`): tronco 60°, pelve 0,30 m, pés 0,20 m, pad 90°.
+
+    ⚠ MÉDIA das quatro, e não produto: o produto repete o defeito do `pose` — uma
+    grandeza ruim zera o termo e apaga o gradiente das outras.
+
+    ⚠ SEM faixa de tolerância: ela criaria um platô de derivada zero em volta da
+    referência, e a referência é aproximada. A rampa já paga mais por estar mais perto
+    e nunca exige igualar.
+
+    ⚠ A CHAVE da interpolação é a altura do ALVO do comando (`command[ALVO].z`), que é
+    o centro da caixa no PEGAR e `topo + meia` no BOTAR (`comando.py:1620`): é para
+    onde a mão vai nos dois. Interpolação LINEAR entre as 15 alturas, clamp fora.
+
+    ⚠ NÃO entra em `TERMOS_CONGELAVEIS`, decisão declarada: o que se perde no fecho é
+    no máximo o peso (2/s) contra ~13,8/s de renda congelada dos sete — fechar continua
+    vencendo de longe, e o piso da CAUDA fica intacto.
+
+    ⚠⚠ × `alcancar`, o kernel de aproximação da mão — e ele entrou por MEDIÇÃO, não
+    por gosto. Sem ele o smoke (seção 17, o piso da estátua) reprovou: o robô TRAVADO
+    na pose default, em PEGAR, colhia 5,275/s contra 4,481/s do que anda — o termo
+    pagava ~1,0/s por uma forma parecida com a referência sem que a mão fosse à caixa
+    (pelve 0,78 contra 0,70 de referência, tronco 0° contra 25°: metade da rampa de
+    graça). É o mecanismo exato que travou a pega uma vez (`piso da estátua`): todo
+    termo que paga por estar parado tem de ser gateado na tarefa. Com o kernel, a
+    forma só vale à medida que a mão chega — e é onde a referência faz sentido: ela é
+    a forma DE PEGAR, não a de esperar. No `VALIDA` o kernel nasce em 0,368 por
+    construção e vai a 1,0 com a palma na face; o gradiente da forma fica escalado
+    por ele, nunca zerado.
+
+    ⚠ A NORMAL DO PAD é a MESMA conta de `_forca_das_palmas`: esquerda `−y` local,
+    direita `+y` local, pela geometria de `cena.add_pads_de_palma`. A face é a de
+    `alvos_das_palmas` — esquerda `+y` da caixa, direita `−y` —, e a normal do pad tem
+    de apontar PARA DENTRO: de `alvo` para o centro da caixa.
+
+    ⚠ A cápsula do punho (r 35 mm) passa 12 mm da face do pad: pad plano e punho fora
+    da caixa não coexistem no MJCF de hoje. A referência foi gerada com o punho
+    encostado e o pad plano a 12 mm — este termo pede o pad plano; a geometria puxa
+    para torto. Consertar é na cena (`_PALM_DZ`), e é decisão separada.
+    """
+
+    def __init__(self, cfg, env):
+        p = cfg.params
+        ref = np.load(p["referencia"])
+        h = np.asarray(ref["topo"], dtype=float) + np.asarray(ref["meia"], dtype=float)
+        ordem = np.argsort(h)
+        d = env.device
+        self.h = torch.tensor(h[ordem], device=d, dtype=torch.float32)
+        tab = np.stack([ref["pelve_z"], np.radians(ref["tronco_incl"]), ref["pes_larg"]],
+                       axis=1)[ordem]
+        self.tab = torch.tensor(tab, device=d, dtype=torch.float32)         # (15, 3)
+        self.escala = torch.tensor(
+            [p["escala_pelve"], math.radians(p["escala_tronco_deg"]),
+             p["escala_pes"], math.radians(p["escala_pad_deg"])], device=d)
+        robot = env.scene["robot"]
+        self.id_torso = robot.find_bodies(["torso_link"])[0]
+        self.ids_pe = robot.find_sites(list(p["sitios_pe"]))[0]
+        self.ids_palma = robot.find_sites(list(p["sitios_palma"]))[0]
+        self.normais_locais = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], device=d)
+        self.ez = torch.tensor([0.0, 0.0, 1.0], device=d)
+
+    def referencia(self, h: torch.Tensor) -> torch.Tensor:
+        """(n, 3): pelve_z, tronco (rad) e separação dos pés interpolados na altura `h`."""
+        h = h.clamp(self.h[0], self.h[-1])
+        i = torch.searchsorted(self.h, h).clamp(1, len(self.h) - 1)
+        h0, h1 = self.h[i - 1], self.h[i]
+        w = ((h - h0) / (h1 - h0).clamp(min=1e-6)).unsqueeze(-1)
+        return self.tab[i - 1] + w * (self.tab[i] - self.tab[i - 1])
+
+    def __call__(self, env, nome_do_comando: str, referencia, escala_pelve, escala_tronco_deg,
+                 escala_pes, escala_pad_deg, sitios_pe, sitios_palma) -> torch.Tensor:
+        del referencia, escala_pelve, escala_tronco_deg, escala_pes, escala_pad_deg
+        del sitios_pe, sitios_palma                           # resolvidos no `__init__`
+        robot = env.scene["robot"].data
+        n = env.num_envs
+        origem_z = env.scene.env_origins[:, 2]
+        ref = self.referencia(_alvo(env, nome_do_comando)[:, 2] - origem_z)
+        # ⚠ a MESMA leitura da pelve do `postura_ereta` e do `limite_de_pelve`
+        pelve_z = robot.root_link_pos_w[:, 2] - origem_z
+        z_torso = quat_apply(robot.body_link_quat_w[:, self.id_torso[0]], self.ez.expand(n, 3))
+        tronco = torch.acos(z_torso[:, 2].clamp(-1.0, 1.0))
+        pes = robot.site_pos_w[:, self.ids_pe]                              # (n, 2, 3)
+        larg = quat_apply_inverse(robot.root_link_quat_w, pes[:, 0] - pes[:, 1])[:, 1].abs()
+        t = _t(env, nome_do_comando)
+        alvos = t.alvos_das_palmas(torch.arange(n, device=env.device))      # (n, 2, 3)
+        caixa = env.scene["box"].data.root_link_pos_w.unsqueeze(1)
+        para_dentro = torch.nn.functional.normalize(caixa - alvos, dim=-1)
+        normais = quat_apply(robot.site_quat_w[:, self.ids_palma],
+                             self.normais_locais.expand(n, 2, 3))
+        ang = torch.acos((normais * para_dentro).sum(dim=-1).clamp(-1.0, 1.0))   # (n, 2)
+        erro = torch.stack([(pelve_z - ref[:, 0]).abs(), (tronco - ref[:, 1]).abs(),
+                            (larg - ref[:, 2]).abs()], dim=1)
+        r_corpo = 1.0 - (erro / self.escala[:3]).clamp(max=1.0)                # (n, 3)
+        r_pad = (1.0 - (ang / self.escala[3]).clamp(max=1.0)).mean(dim=1, keepdim=True)
+        return torch.cat([r_corpo, r_pad], dim=1).mean(dim=1) * _alcancar(env, nome_do_comando)
 
 
 def limite_de_pelve(env, h_lim: float, d_ref: float) -> torch.Tensor:

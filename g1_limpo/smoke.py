@@ -584,13 +584,16 @@ _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "limite_de_junta",
            # 15/09: a dobradiça quadrada na PELVE, só no CARREGAR. Preço, como os dois
            # acima — ver o bloco de sete checks no fim desta seção.
-           "limite_de_pelve"}
+           "limite_de_pelve",
+           # 16/09: o INCENTIVO de forma contra a referência da IK, média de quatro
+           # rampas, gateado pela tabela por estado nas idas da pega e do pouso.
+           "forma_postural"}
 # ⚠⚠ UM TERMO DO MOLDE SAI, e é o único até hoje. O `dof_pos_limits` e o
 # `limite_de_junta` cobram o MESMO excesso de curso, e mantê-los juntos seria
 # cobrança dupla. Declarar a remoção pelo NOME é o ponto: um `<=` solto deixaria de
 # pegar o dia em que um upgrade do mjlab apagar outro termo em silêncio.
 _REMOVIDOS = {"dof_pos_limits"}
-check("a tabela diverge do molde em exatamente DEZESSETE termos, e são estes",
+check("a tabela diverge do molde em exatamente DEZOITO termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS,
       str(set(cfg.rewards) - set(fab.rewards) ^ _NOSSOS))
 check("do molde sai UM termo só, e é o `dof_pos_limits`",
@@ -725,9 +728,10 @@ check("6. `limite_de_pelve` NÃO é o último de `cfg.rewards` — o `renda_cong
       and _ordem_pelve.index("limite_de_pelve") < _ordem_pelve.index("renda_congelada"),
       str(_ordem_pelve[-3:]))
 _campos_pelve = [f.name for f in dataclasses.fields(k.peso_por_estado)]
+# ⚠ 10 -> 11 em 16/09: o `forma_postural` é RENDA, e renda entra na tabela.
 check("7. `limite_de_pelve` NÃO é campo de `PesoPorEstado` — o gate é por dentro, e a "
-      "tabela continua com DEZ termos",
-      "limite_de_pelve" not in _campos_pelve and len(_campos_pelve) == 10,
+      "tabela tem ONZE termos (os dez mais o `forma_postural`)",
+      "limite_de_pelve" not in _campos_pelve and len(_campos_pelve) == 11,
       str(_campos_pelve))
 
 # ================================================ 12. currículo e comando
@@ -1474,8 +1478,10 @@ check("`std_standing` tem uma entrada por padrão de junta — 10, não `.*` ún
 # --- A TABELA POR ESTADO, SEM ENV (spec `g1-limpo-tabela-por-estado.md` §2, §7) ---
 _TABELA = k.peso_por_estado
 _DEZ = [f.name for f in dataclasses.fields(_TABELA)]
-check("a tabela tem os dez termos: os SETE, os dois rastreios e o `pose`",
+check("a tabela tem os onze termos: os SETE, os dois rastreios, o `pose` e o "
+      "`forma_postural` (16/09)",
       set(_DEZ) == {"staged", "precise_pos", "precise_ori", "squeeze", "unload",
+                    "forma_postural",
                     "postura_ereta", "load", "track_linear_velocity",
                     "track_angular_velocity", "pose"}, str(_DEZ))
 check("cada linha tem uma coluna por estado de `comando.ESTADOS` — o `knobs` NÃO "
@@ -5383,8 +5389,9 @@ except Exception as _ev19x:      # noqa: BLE001
 # junto com o termo, e nunca depois.
 # ⚠ 29 -> 30 em 15/09: o `limite_de_pelve` (o `limite_de_junta` do mesmo bloco NÃO
 # mexeu no total — ele entrou no lugar do `dof_pos_limits`, que saiu no mesmo commit).
-check("20. 30 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
-      len(cfg.rewards) == 30 and set(cfg.terminations)
+# ⚠ 30 -> 31 em 16/09: o `forma_postural`, o incentivo contra a referência da IK.
+check("20. 31 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
+      len(cfg.rewards) == 31 and set(cfg.terminations)
       == {"time_out", "fell_over", "caixa_largada"},
       f"{len(cfg.rewards)} termos; terminações {sorted(cfg.terminations)}")
 

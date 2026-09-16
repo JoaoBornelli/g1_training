@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from pathlib import Path
 
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -740,6 +741,25 @@ def make_env_cfg(
     cfg.rewards["load"] = RewardTermCfg(
         func=RC.load, weight=tr.load,
         params={"nome_do_comando": _cmd, "sensor_apoio": C.SENSOR_APOIO})
+
+    # ------------------------------------------ 3i-bis. o INCENTIVO DE FORMA (16/09)
+    # ⚠⚠ Média de quatro rampas lineares contra a referência gerada por IK
+    # (`g1_limpo/ik/ref_botar.npz`): altura da pelve, inclinação do tronco, separação
+    # lateral dos pés e ângulo do pad à face da caixa. É RENDA, e por isso entra na
+    # `PesoPorEstado` (a décima primeira linha, só nas idas da pega e do pouso) — ao
+    # contrário dos três preços acima, que ficam fora da tabela.
+    # ⚠ NÃO entra em `TERMOS_CONGELAVEIS`, decisão declarada no docstring da classe: o
+    # piso da CAUDA fica intacto, e o que se perde no fecho (≤ 2/s) é pequeno contra os
+    # ~13,8/s que o fecho congela.
+    # ⚠ ANTES do laço da tabela (ele exige que o termo exista) e do `renda_congelada`.
+    _fp = k.forma_postural
+    cfg.rewards["forma_postural"] = RewardTermCfg(
+        func=RC.FormaPostural, weight=tr.forma_postural,
+        params={"nome_do_comando": _cmd,
+                "referencia": str(Path(__file__).resolve().parent / _fp.referencia),
+                "escala_pelve": _fp.escala_pelve, "escala_tronco_deg": _fp.escala_tronco_deg,
+                "escala_pes": _fp.escala_pes, "escala_pad_deg": _fp.escala_pad_deg,
+                "sitios_pe": C.FOOT_SITES, "sitios_palma": C.PALM_SITES})
 
     # ------------------------------ 3i. A TABELA POR ESTADO (spec tabela-por-estado §3)
     # ⚠⚠ UM LAÇO SÓ, sobre os dez termos do `knobs.PesoPorEstado`, DEPOIS de todos

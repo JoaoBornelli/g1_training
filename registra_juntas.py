@@ -1,6 +1,7 @@
-"""Roda a cadeia do BOTAR no MuJoCo clássico e grava as 29 juntas num CSV.
+"""Roda uma cadeia no MuJoCo clássico e grava as 29 juntas num CSV.
 
     python registra_juntas.py --cena ~/g1_pilota/ --checkpoint ~/Downloads/model_10500.pt
+    python registra_juntas.py ... --roteiro carregar --saida carrega
 
 Irmão do `pilota.py`: mesma cena, mesma observação de 114 canais, mesmo ator. A
 diferença é que aqui NÃO tem teclado — um roteiro troca o elo sozinho a cada N
@@ -11,8 +12,14 @@ depende do `mjlab`: o MuJoCo clássico roda ~40× tempo real nesta CPU, contra 9
 LENTO por substep no Warp.
 
 O que sai, e nada mais:
-  <saida>.csv           passo, t, fase, elo, one-hot, e o ÂNGULO CRU das 29 juntas
+  <saida>.csv           passo, t, fase, elo, one-hot, o ÂNGULO CRU das 29 juntas, e a
+                        POSE DE MUNDO da raiz do robô e da caixa (7 números cada:
+                        x, y, z, qw, qx, qy, qz)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
+
+⚠ A RAIZ E A CAIXA entraram em 15/09. Sem elas, uma sonda que queira a altura da pelve
+no mundo, a inclinação do tronco, o CoM ou a palma no frame da caixa tem de SUPOR pelve
+vertical e pés planos. A suposição erra justamente quando o robô inclina a base.
 """
 from __future__ import annotations
 
@@ -29,13 +36,28 @@ from pilota import ELOS, Ator, carrega_cena, monta_observacao, restaura
 I_ANDAR, I_CARREGAR = ELOS.index("ANDAR"), ELOS.index("CARREGAR")
 
 # ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
-# Por isso o roteiro abre na espera e não numa aproximação.
-ROTEIRO_PADRAO = ("espera:ANDAR:1.0,"
-                  "pegar:PEGAR:7.0,"
-                  "espera:BOTAR:1.0,"
-                  "botar:BOTAR:9.0,"
-                  "espera:ANDAR:1.0,"
-                  "andar:ANDAR:6.0:0.8")
+# Por isso todo roteiro abre na espera e não numa aproximação.
+#
+# As duas cadeias que o treino fecha depois do PEGAR, uma em cada entrada:
+#   botar     PEGAR -> BOTAR -> ANDAR. A caixa vai para a laje e o robô sai sem ela.
+#   carregar  PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
+ROTEIROS = {
+    "botar": ("espera:ANDAR:1.0,"
+              "pegar:PEGAR:3.0,"
+              "espera:BOTAR:1.0,"
+              # ⚠ 2,0 s, e não 0,5. A sonda de forma lê os ÚLTIMOS 0,3 s da fase, que
+              # é a aproximação do instante de fecho que o log por cronômetro permite.
+              # Com 0,5 s a janela pegava 15 dos 25 passos — 60% da fase, e a pose
+              # ainda estava assentando. Com 2,0 s ela pega 15 de 100, depois de a pose
+              # parar de mudar.
+              "botar:BOTAR:2.0,"
+              "espera:ANDAR:1.0,"
+              "andar:ANDAR:6.0:0.8"),
+    "carregar": ("espera:ANDAR:1.0,"
+                 "pegar:PEGAR:7.0,"
+                 "espera:CARREGAR:1.0,"
+                 "carregar:CARREGAR:10.0:0.5"),
+}
 
 
 class Fase:
@@ -49,15 +71,6 @@ class Fase:
         return abs(self.vx) > 1e-6
 
     @property
-    def limpa_laje(self) -> bool:
-        """A laje sai da frente sempre que ele vai andar — ela é obstáculo.
-
-        É o que o treino faz: a cauda de B e de R (`CARREGAR`) CONTINUA afastando a
-        laje, porque ali o robô sai andando com a caixa e a laje fica no caminho.
-        """
-        return self._marcha and self.elo in (I_ANDAR, I_CARREGAR)
-
-    @property
     def limpa_caixa(self) -> bool:
         """⚠ A caixa só some no `ANDAR`. No `CARREGAR` ela está NA MÃO.
 
@@ -66,13 +79,26 @@ class Fase:
         """
         return self._marcha and self.elo == I_ANDAR
 
+    @property
+    def limpa_laje(self) -> bool:
+        """A laje sai no `CARREGAR` sempre, e no `ANDAR` quando ele marcha.
+
+        ⚠ NO `CARREGAR` A MARCHA NÃO ENTRA NA CONTA. O treino manda a laje para longe
+        na CAUDA de quem fechou o PEGAR, uma vez só e antes de qualquer passo
+        (`comando.py:1546`). Parado ou andando, quem está em `CARREGAR` já não tem
+        laje na frente. Amarrar isso à marcha deixava a laje no caminho durante a
+        espera do `CARREGAR`, e o robô lia uma cena que o treino nunca mostra.
+        """
+        return self.elo == I_CARREGAR or self.limpa_caixa
+
 
 def analisa_roteiro(texto: str) -> list[Fase]:
-    """`"rotulo:ELO:segundos[:vx], ..."` -> lista de `Fase`.
+    """`"rotulo:ELO:segundos[:vx], ..."` -> lista de `Fase`. Um nome de `ROTEIROS` serve.
 
     ⚠ O elo é o NOME (`PEGAR`), e não o índice: um índice trocado é um erro silencioso
     que só aparece como "o robô não faz nada".
     """
+    texto = ROTEIROS.get(texto.strip(), texto)
     fases: list[Fase] = []
     for pedaco in texto.split(","):
         pedaco = pedaco.strip()
@@ -80,7 +106,8 @@ def analisa_roteiro(texto: str) -> list[Fase]:
             continue
         campos = pedaco.split(":")
         if len(campos) not in (3, 4):
-            raise SystemExit(f"fase malformada: {pedaco!r} — use rotulo:ELO:segundos[:vx]")
+            raise SystemExit(f"fase malformada: {pedaco!r} — use rotulo:ELO:segundos[:vx] "
+                             f"ou um nome pronto: {', '.join(ROTEIROS)}")
         rotulo, nome, seg = campos[0], campos[1].upper(), campos[2]
         if nome not in ELOS:
             raise SystemExit(f"elo {nome!r} não existe; use um de {', '.join(ELOS)}")
@@ -190,8 +217,9 @@ def main() -> None:
     ap.add_argument("--cena", required=True, help="pasta com cena.mjb e cena.npz")
     ap.add_argument("--checkpoint", required=True, help="o model_*.pt")
     ap.add_argument("--saida", default="juntas", help="prefixo dos arquivos de saída")
-    ap.add_argument("--roteiro", default=ROTEIRO_PADRAO,
-                    help="rotulo:ELO:segundos[:vx] separados por vírgula")
+    ap.add_argument("--roteiro", default="botar",
+                    help=f"um nome pronto ({', '.join(ROTEIROS)}) ou "
+                         "rotulo:ELO:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
                     help="metros em +x para onde a cena vai na marcha (ANDAR: laje e "
@@ -218,6 +246,13 @@ def main() -> None:
     ap.add_argument("--impratio", type=float, default=0.0,
                     help="sobrepõe opt.impratio, o peso do atrito contra o normal no "
                          "solver (0 = o do modelo, que é 1,0; tente 10)")
+    # ⚠ O QUE O TREINO NÃO CONSEGUE FAZER. No mjlab a carga entra como FORÇA externa
+    # (`eventos.carga_caixa`), porque `dr.body_mass` corrompe a heap do Warp: a caixa de
+    # 5 kg pesa 5 kg e gira como 1 kg. Aqui é MuJoCo clássico, e `body_mass` é um array
+    # comum — a massa e a inércia mudam JUNTAS, e a dinâmica fica a de verdade.
+    ap.add_argument("--massa", type=float, default=0.0,
+                    help="massa da caixa em kg (0 = a do modelo, que é 1,0). A inércia "
+                         "acompanha. O teto do currículo é `carga_max`; tente 5")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -248,8 +283,25 @@ def main() -> None:
             raise SystemExit(f"--atrito achou {len(alvos)} geoms de 3. Cena de outra versão?")
         for i in alvos:
             m.geom_friction[i, 0] *= args.atrito
+    if args.massa:
+        # ⚠ MASSA E INÉRCIA JUNTAS. Escrever só `body_mass` reproduz o defeito do treino.
+        # A caixa é um CUBO homogêneo, portanto `I = (2/3)·m·a²` com `a` a meia-aresta.
+        # ⚠ O `mj_setConst` DEPOIS é obrigatório: ele refaz `body_invweight0` e
+        # `body_subtreemass`, e sem ele o solver segue com os pesos da caixa antiga.
+        # A placa `box/face_alvo` tem `density=0` e não entra na conta.
+        bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "box/box")
+        gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "box/box_geom")
+        if bid < 0 or gid < 0:
+            raise SystemExit("--massa não achou `box/box` na cena. Cena de outra versão?")
+        meia = float(m.geom_size[gid, 0])
+        m.body_mass[bid] = args.massa
+        m.body_inertia[bid] = (2.0 / 3.0) * args.massa * meia * meia
+        mujoco.mj_setConst(m, d)
 
     nomes, faixa, q_def = regua_das_juntas(m, c)
+    # ⚠ RESOLVIDO UMA VEZ, fora do laço: `enderecos_da_caixa` varre as juntas do
+    # modelo, e chamá-lo a 50 Hz é desperdício puro.
+    adr_caixa, _ = enderecos_da_caixa(m, int(c.id_caixa))
     ids_q = np.asarray(c.ids_junta_qpos, dtype=np.int64)
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
@@ -270,7 +322,8 @@ def main() -> None:
           f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  "
           f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
           f"topo {_topo_da_laje(m, d, c):.3f} m  "
-          f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}"
+          f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}  "
+          f"caixa {args.massa or 1.0:g} kg"
           + ("   ⚠ CENA FORA DO PADRÃO DO TREINO"
              if args.atrito != 1.0 or args.impratio else ""))
     print(f"[registra] roteiro: " + "  ".join(
@@ -314,6 +367,15 @@ def main() -> None:
                         ln[f"oh_{ELOS[k].lower()}"] = int(k == fase.elo)
                     for i, nome in enumerate(nomes):
                         ln[f"q_{nome}"] = float(q[i])
+                    # ⚠⚠ A RAIZ E A CAIXA, e sem elas metade das grandezas de forma é
+                    # incalculável. As 29 juntas dão a pose ARTICULAR; a altura da
+                    # pelve no mundo, a inclinação do tronco, o CoM e a palma no frame
+                    # da caixa são todas de MUNDO. Sem estas 14 colunas a sonda tem de
+                    # SUPOR pelve vertical e pés planos, e a suposição erra quando o
+                    # robô inclina a base — que é justamente a pose sob suspeita.
+                    for i, eixo in enumerate(("x", "y", "z", "qw", "qx", "qy", "qz")):
+                        ln[f"raiz_{eixo}"] = float(d.qpos[i])
+                        ln[f"caixa_{eixo}"] = float(d.qpos[adr_caixa + i])
                     linhas.append(ln)
                     passo += 1
 
