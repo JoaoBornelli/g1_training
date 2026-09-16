@@ -23,7 +23,7 @@ __all__ = ["AlturaDeBalanco", "PosturaPorElo", "PesoPorEstado",
            "giro_sem_gingado",
            "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "load",
+           "postura_ereta", "load", "limite_de_pelve",
            "renda_congelada"]
 
 
@@ -780,6 +780,82 @@ def load(env, nome_do_comando: str, sensor_apoio: str) -> torch.Tensor:
     perto = t._perto(ids).float()
     dentro_do_botar = 1.0 - _fora_do_botar(env, nome_do_comando)
     return (1.0 - descarga) * perto * dentro_do_botar
+
+
+def limite_de_pelve(env, h_lim: float, d_ref: float) -> torch.Tensor:
+    """O PREÇO de andar AGACHADO com a caixa. Dobradiça QUADRADA na pelve, só no CARREGAR.
+
+        excesso = relu(h_lim − z_pelve)
+        custo   = (excesso / d_ref)²
+
+    (Plano `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md`.)
+
+    ⚠⚠ O DEFEITO QUE ELE COBRA, MEDIDO (`model_15200` do `bloco19`,
+    `carregar_15200_055.csv`, 950 passos). Altura da pelve por fase:
+
+        espera 0,747 · pegar 0,748 · CARREGAR 0,564 · andar SEM caixa 0,726
+
+    Ele PEGA DE PÉ e cai 18 cm ao carregar. A marcha vazia tem o MESMO desvio (1,3 cm) da
+    agachada — andar em pé já está no repertório, e o agachamento não é exigência da
+    marcha. E o ALVO não explica o agachamento: a palma fica a 0,871 m contra
+    `altura_carregar` de 0,85, isto é, ele abaixa o CORPO e mantém a caixa erguendo o
+    braço. Andar também não sacode a caixa (desvio da palma p90 de 0,0161 m contra σ de
+    0,18 — 0,8% do `precise_pos`).
+
+    ⚠⚠ QUADRADO, e NÃO exponencial. A exponencial exige TETO, e teto cria ZONA MORTA: o
+    `limite_de_junta` já reprovou duas tabelas por isso — `left_ankle_roll` com 95,7% dos
+    passos NO TETO e `right_wrist_roll` com 59,1%, derivada ZERO nos dois, multa paga e
+    robô torto. Aqui o teto ficaria a ~2,6 cm de onde a pelve vive.
+
+    ⚠ SEM TETO, e é o mesmo argumento do `velocidade_por_regime` (abaixo): o quadrado já
+    cresce sem teto, e a pelve é FISICAMENTE limitada em [0,18; 0,78] — o excesso não
+    passa de ~0,56 e nenhum passo domina o lote.
+
+    ⚠ NEM LINEAR: a reta cobra igual em 1 cm e em 11 cm. Decisão do dono — um centímetro
+    abaixo da linha é irrelevante, cinco já comprometem a pose. Confira à mão, com o peso
+    −1,0 e `d_ref = 0,10`:
+
+        1 cm -> 0,01/s · 5 cm -> 0,25/s · 11 cm -> 1,21/s · 17,6 cm (hoje) -> 3,10/s
+
+    A 5 cm o custo empata com o que o tornozelo já paga hoje (0,5/s); a 17,6 cm é 6×.
+
+    ⚠⚠ `h_lim = 0,74` É AMBICIOSO DE PROPÓSITO, e isso é CONSEQUÊNCIA DECLARADA da forma:
+    a quadrática tem derivada ZERO NA LINHA, portanto o equilíbrio assenta ABAIXO dela. O
+    número é 1 cm acima da marcha VAZIA medida, 0,726 ± 0,013.
+
+    ⚠⚠ O GATE É SÓ O CARREGAR, e ele é MEDIDO, não estético. As outras fases PRECISAM
+    agachar: no BOTAR a pelve vai a 0,181 m na laje de 0,05 (0,259 na de 0,25 e 0,505 na
+    de 0,55), e o PEGAR fica em 0,748. Sem o gate o BOTAR pagaria `(0,559/0,10)² = 31/s` e
+    a tarefa morreria. A CAUDA não precisa dele — ela já tem `postura_ereta` = 8 na
+    coluna 9.
+
+    ⚠ O GATE É POR DENTRO, lendo `env.limpo_estado` — o mesmo idioma do `_fora_do_botar`.
+    Ele NÃO entra na `PesoPorEstado`: PREÇO FICA FORA DA TABELA, como o
+    `velocidade_por_regime`, a `FaixaDePose` e o `LimiteDeJunta`. Uma décima primeira
+    linha na tabela também quebraria o `smoke`, que compara os DEZ nomes por extenso.
+
+    ⚠ PREÇO, E NÃO RENDA, e é isso que ele compra: não entra em `TERMOS_CONGELAVEIS`,
+    portanto não sobe o piso da CAUDA; ficar de pé custa ZERO, portanto a renda da
+    ESTÁTUA continua 16,8/s e a tolerância a risco de andar continua 45%; e os rastreios
+    não precisam subir junto. Reativar o `postura_ereta` na coluna CARREGAR faria as três
+    coisas ao contrário — levantado e RECUSADO pelo dono (§13 do plano).
+
+    ⚠ A LEITURA DA PELVE É A MESMA do `postura_ereta` (acima): `root_link_pos_w[:, 2]`
+    menos a origem do env. Duas contas para a mesma altura é como um deslocamento de
+    origem entra em silêncio.
+
+    ⚠ Devolve POSITIVO. Quem faz dele penalidade é o peso negativo, como no
+    `action_rate_l2`, no `velocidade_por_regime` e no `limite_de_junta`.
+
+    ⚠ A MÉTRICA `metricas.altura_da_pelve` NASCE COM ELE, e é obrigatória: o custo satura
+    em informação e não diz a ALTURA. É o mesmo par que `fracao_do_curso` forma com o
+    `limite_de_junta`.
+    """
+    from g1_limpo.comando import ESTADO_CARREGAR
+    z = (env.scene["robot"].data.root_link_pos_w[:, 2]
+         - env.scene.env_origins[:, 2])
+    custo = (torch.relu(h_lim - z) / d_ref) ** 2
+    return custo * (env.limpo_estado == ESTADO_CARREGAR).float()
 
 
 class velocidade_por_regime:

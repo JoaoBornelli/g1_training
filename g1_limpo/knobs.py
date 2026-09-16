@@ -823,6 +823,23 @@ class Tarefa:
     # `botar` 47,10/s, e ZERO na pose default.
     limite_de_junta: float = -1.0
 
+    # ⚠ O PREÇO DA PELVE NO CARREGAR (15/09, plano
+    # `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md`). MEDIDO no `model_15200`
+    # do `bloco19`: o robô PEGA de pé (pelve 0,748) e ANDA AGACHADO com a caixa (0,564,
+    # desvio de 1,2 cm em 500 passos) — 18 cm abaixo. A marcha VAZIA fica em 0,726, com o
+    # mesmo desvio: andar em pé já está no repertório, e o agachamento não é exigência da
+    # marcha.
+    #
+    # ⚠ −1,0 é DERIVADO da medição: com `pelve_ref` de 0,10 a pelve de hoje custa 3,10/s,
+    # 18% da renda parada de 16,8/s e abaixo do maior incentivo do painel (rastreio,
+    # 14/s). É preço pagável, não penhasco.
+    #
+    # ⚠ PREÇO, e não renda: ficar de pé custa ZERO. Reativar o `postura_ereta` na coluna
+    # CARREGAR (hoje 0,0) enriqueceria a ESTÁTUA — a tolerância a risco de andar cairia de
+    # 45% para 38% —, entraria na `renda_congelada` e obrigaria a recalibrar a CAUDA e o
+    # rastreio. Levantado e RECUSADO pelo dono em 15/09 (§13 do plano).
+    limite_de_pelve: float = -1.0
+
     # --- σ: NÃO SÃO NÚMEROS, SÃO A DISTÂNCIA INICIAL ---
     #
     # ⚠ ESTE É O ITEM DE MAIOR RISCO DA F3, e ele é medido. A palma nasce a 0,339 m da
@@ -890,6 +907,29 @@ class Tarefa:
     # satura, onde a derivada seria zero. `de_pe` do fecho NÃO lê mais `pelve_alvo`
     # (spec dois-bits §2.4): ele virou pose de junta — ver `de_pe_tol_rad`, abaixo.
     pelve_margem: float = 0.03
+
+    # --- limite de pelve: a LINHA do CARREGAR (15/09) ---
+    # ⚠ Os dois knobs do `recompensas.limite_de_pelve`, que é
+    # `(relu(pelve_limiar − z)/pelve_ref)²` só no estado CARREGAR.
+    #
+    # ⚠ 0,74 É AMBICIOSO DE PROPÓSITO, e é consequência da FORMA: a quadrática tem
+    # derivada ZERO na linha, portanto o equilíbrio assenta ABAIXO dela. O número é 1 cm
+    # acima da marcha VAZIA medida (0,726 ± 0,013) — pedir a linha onde ele já anda sem
+    # caixa assentaria o equilíbrio abaixo disso.
+    #
+    # ⚠ `pelve_ref` se lê sozinho: 10 cm abaixo da linha custa o peso (1,0/s). 1 cm custa
+    # 0,01/s, 5 cm custa 0,25/s, e os 17,6 cm de hoje custam 3,10/s.
+    #
+    # ⚠ NÃO SÃO DATACLASS PRÓPRIA: o `LimiteDeJunta` é dataclass porque tem `k` e teto POR
+    # FAMÍLIA, em catorze padrões. Aqui são dois escalares, e escalar mora junto dos
+    # outros escalares de tarefa.
+    # ⚠ E NÃO EM `Recompensa`, embora o plano (§14) diga isso: o `aplica_pesos`
+    # (`env_cfg.py`) itera os campos daquela dataclass e AFIRMA que cada nome é um termo
+    # de `cfg.rewards` — um escalar ali explodiria no assert, que é exatamente o que ele
+    # existe para fazer. Mesmo desvio, mesma razão, do `raio_solta` (`env_cfg.py`, bloco
+    # da terminação `caixa_largada`).
+    pelve_limiar: float = 0.74
+    pelve_ref: float = 0.10
 
     # --- tolerâncias de fechamento ---
     # a tolerância que conta como "na condição", em metros e radianos

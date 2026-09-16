@@ -45,6 +45,7 @@ __all__ = [
     "pico_de_altura",
     "velocidade_de_escorrego",
     "velocidade_de_junta",
+    "altura_da_pelve",
     "forca_de_pouso",
     "pads_em_contato",
     "fracao_esperando",
@@ -146,6 +147,13 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         "velocidade_de_junta": MetricsTermCfg(
             func=velocidade_de_junta,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])}),
+        # ⚠ A RÉGUA DO `limite_de_pelve` (15/09). Ela é OBRIGATÓRIA: o custo daquele
+        # termo satura em informação e NÃO diz a altura. Mesmo par que `fracao_do_curso`
+        # forma com o `limite_de_junta`.
+        # ⚠ `reduce="last"`, e NÃO `"mean"` — ver o DESVIO DECLARADO no docstring da
+        # classe. O termo já devolve a MÉDIA CORRENTE sobre os passos de CARREGAR; o
+        # `"mean"` do manager dividiria essa média por TODOS os passos do episódio.
+        "altura_da_pelve": MetricsTermCfg(func=altura_da_pelve, reduce="last"),
     }
 
 
@@ -398,6 +406,64 @@ def fracao_do_curso(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     meio = (lim[:, 1] - lim[:, 0]) / 2.0
     q = robo.data.joint_pos[:, asset_cfg.joint_ids]
     return (((q - centro) / meio).abs()).amax(dim=-1)
+
+
+class altura_da_pelve:
+    """A altura MÉDIA da pelve nos passos de CARREGAR, por env, em metros.
+
+    ⚠⚠ ELA É OBRIGATÓRIA, e nasce junto com o `recompensas.limite_de_pelve` (plano
+    `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md` §9). Sem ela o teste é CEGO:
+    o `Episode_Reward/limite_de_pelve` é o CUSTO, e custo satura em informação — ele não
+    diz a ALTURA. É a mesma razão pela qual `fracao_do_curso` (abaixo) teve de nascer ao
+    lado do `limite_de_junta`. O teste do plano (§11) se lê AQUI: a pelve no CARREGAR tem
+    de passar de 0,70, contra 0,564 medidos hoje.
+
+    ⚠ GATEADA NO CARREGAR, e o gate é o ponto. Sem ele a métrica captura o agachamento
+    LEGÍTIMO do BOTAR — pelve a 0,181 m na laje de 0,05 — e as duas coisas passam a ler
+    igual.
+
+    ⚠⚠ DESVIO DECLARADO CONTRA O PLANO, e ele é da API. O plano pede
+    `reduce="mean"` gateado, e o `MetricsManager` não expressa isso: o `"mean"` dele é
+    `soma / step_count`, com `step_count` contando TODOS os passos do episódio
+    (`metrics_manager.py:113-126`) — um valor gateado por fora sairia diluído pela fração
+    de passos em CARREGAR, e não pela altura. A rota que a API oferece é esta: o termo
+    ACUMULA por dentro (soma e contagem, só nos passos de CARREGAR), devolve a média
+    corrente, e o manager lê o passo final com `reduce="last"`. O mesmo idioma de
+    acumulador com `reset` do `impacto_da_caixa`. (`reduce="min"`, discutido no plano,
+    não existe no `MetricsTermCfg`: os três valores são `mean`, `last` e `max`.)
+
+    ⚠ LEIA JUNTO COM A FATIA. O manager tira a média sobre os ENVS, e um env que nunca
+    entrou no CARREGAR entra nela com ZERO — não existe máscara por env na API. Duas runs
+    só se comparam com a MESMA fatia de elo; o que o número mede é a postura, mas a
+    escala dele é a fatia.
+
+    ⚠ E ela TEM `reset`: sem ele os passos de um episódio entram no seguinte
+    (`metrics_manager.py:131` só chama `reset` em termo de classe que o tenha).
+    """
+
+    def __init__(self, cfg, env):
+        self.soma = torch.zeros(env.num_envs, device=env.device)
+        self.passos = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env) -> torch.Tensor:
+        from g1_limpo.comando import ESTADO_CARREGAR
+        # ⚠ A MESMA leitura de `recompensas.limite_de_pelve` e `postura_ereta`: uma
+        # segunda conta para a mesma altura é como um deslocamento de origem entra em
+        # silêncio.
+        z = (env.scene["robot"].data.root_link_pos_w[:, 2]
+             - env.scene.env_origins[:, 2])
+        no_carregar = (env.limpo_estado == ESTADO_CARREGAR).float()
+        self.soma += z * no_carregar
+        self.passos += no_carregar
+        # ⚠ `clamp(min=1)` no denominador, e não `+1e−6`: sem nenhum passo de CARREGAR o
+        # numerador é 0 exato, portanto o resultado é 0 — e não NaN nem número enorme.
+        return self.soma / self.passos.clamp(min=1.0)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.soma[env_ids] = 0.0
+        self.passos[env_ids] = 0.0
 
 
 def forca_de_pouso(env, sensor_name: str = PES_NO_CHAO) -> torch.Tensor:

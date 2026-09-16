@@ -717,6 +717,22 @@ def make_env_cfg(
                 "limiar": k.limite_de_junta.limiar,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
+    # ⚠⚠ O LIMITE DE PELVE (15/09, plano
+    # `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md`): `(relu(0,74 − z)/0,10)²`,
+    # só no estado CARREGAR. MEDIDO: o robô pega de pé (0,748) e anda agachado com a
+    # caixa (0,564), 18 cm abaixo, enquanto a marcha VAZIA fica em 0,726.
+    # ⚠ IRMÃO dos dois acima: os três são PREÇO, e os três ficam FORA da tabela por
+    # estado. O gate deste é POR DENTRO (`env.limpo_estado`, como o `_fora_do_botar`), e
+    # não uma décima primeira linha na `PesoPorEstado` — que o `smoke` trava nos dez
+    # nomes por extenso.
+    # ⚠ NÃO entra em `TERMOS_CONGELAVEIS`: é preço, não renda de manipulação — o piso da
+    # CAUDA fica INTACTO, que é o ganho de usar preço em vez de reativar o
+    # `postura_ereta` na coluna CARREGAR (§13 do plano).
+    # ⚠ ANTES do `renda_congelada`, que TEM de continuar o último de `cfg.rewards`.
+    cfg.rewards["limite_de_pelve"] = RewardTermCfg(
+        func=RC.limite_de_pelve, weight=tr.limite_de_pelve,
+        params={"h_lim": tr.pelve_limiar, "d_ref": tr.pelve_ref})
+
     # ------------------------------------------- 3i. a renda do BOTAR (spec §2.7)
     # ⚠⚠ `load` VOLTA (mudança v3->v3.1). `largou` SAIU: a cauda é ANDAR com twist, e
     # sair andando já tira as mãos — `escapou` já desarma por `soltou`. Nada além do
