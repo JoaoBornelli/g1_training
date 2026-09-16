@@ -1384,9 +1384,17 @@ class FormaPostural:
 
     ⚠⚠ CADA ESCALA FICA ALÉM DO ERRO DE HOJE, pela mesma regra do teto do
     `LimiteDeJunta`: onde o robô vive a rampa tem de ter derivada. MEDIDO
-    (`botar_15999_*.csv` contra `ref_botar.npz`): tronco a 84°–99° contra 22°–57° de
-    referência — erro de até ~60°; pelve 0,18–0,50 contra 0,52–0,73 — até ~0,30 m.
-    Uma escala MENOR que o erro põe o robô no zero da rampa, com derivada zero.
+    (`botar_15999_*.csv` contra `ref_botar.npz`): tronco a 84°–99° contra 22°–25° de
+    referência na laje de 0,55 — erro de até 77°; pelve 0,18–0,50 contra 0,52–0,73 —
+    até ~0,30 m. Uma escala MENOR que o erro põe o robô no zero da rampa, com
+    derivada zero.
+
+    ⚠⚠ TRONCO 90°, e NÃO 60° (corrigido 16/09, no bloco 21). Com 60° a rampa cobria o
+    erro das lajes de 0,15 a 0,30 (30° a 50°) e estava SATURADA EM ZERO na laje de
+    0,55, onde o erro é 60° a 77° — exatamente onde a referência mais difere do robô.
+    O bloco 21 rodou 200 iterações assim, com `forma_postural ÷ staged` parado em
+    0,25. Eu estimei o erro em 35° e ele chega a 77°: o número saiu da conta errada,
+    não da medição. 90° cobre o pior caso com margem; a derivada por grau cai um terço.
 
     ⚠ A referência é RELATIVA ao pacote: o Kaggle clona o repo, e o arquivo viaja com
     ele. Ela nasce de `python -m g1_limpo.ik.gera_botar --pernas-de ... --saida
@@ -1396,7 +1404,7 @@ class FormaPostural:
     """
 
     escala_pelve: float = 0.30          # m
-    escala_tronco_deg: float = 60.0
+    escala_tronco_deg: float = 90.0
     escala_pes: float = 0.20            # m
     escala_pad_deg: float = 90.0
     referencia: str = "ik/ref_botar.npz"   # relativo a `g1_limpo/`

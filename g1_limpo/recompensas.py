@@ -813,7 +813,9 @@ class FormaPostural:
 
     ⚠⚠ RAMPA LINEAR, e não gaussiana: com o tronco 35° fora, a gaussiana tem derivada
     zero e o canal nasce morto. A escala fica ALÉM do erro de hoje (mesma regra do
-    teto do `LimiteDeJunta`): tronco 60°, pelve 0,30 m, pés 0,20 m, pad 90°.
+    teto do `LimiteDeJunta`): tronco 90°, pelve 0,30 m, pés 0,20 m, pad 90°. ⚠ O
+    tronco era 60° e SATURAVA na laje de 0,55, onde o erro chega a 77° — ver
+    `knobs.FormaPostural`.
 
     ⚠ MÉDIA das quatro, e não produto: o produto repete o defeito do `pose` — uma
     grandeza ruim zera o termo e apaga o gradiente das outras.
