@@ -445,9 +445,16 @@ class media_por_estado:
     (soma e contagem, só nos passos do estado), devolve a média corrente, e o manager lê
     o passo final com `reduce="last"`. Mesmo idioma do `impacto_da_caixa`.
 
-    ⚠ LEIA JUNTO COM A FATIA. O manager tira a média sobre os ENVS, e um env que nunca
-    entrou no estado entra nela com ZERO — não existe máscara por env na API. Duas runs
-    só se comparam com a MESMA fatia de elo.
+    ⚠⚠ OS ENVS SEM PASSO NO ESTADO RECEBEM A MÉDIA DOS OUTROS, e isto é o que torna o
+    número legível. O manager tira a média sobre TODOS os envs, sem máscara por env na
+    API, e um env que nunca entrou no estado entrava com ZERO. MEDIDO no bloco 21 (it
+    16090): `tronco_na_pega` lia 22,2° e `altura_da_pelve` lia 0,096 m — uma pelve a
+    9 cm do chão é impossível; era a fatia de envs fora do CARREGAR diluindo a média.
+    Preencher o env sem passo com a média dos que têm faz a média do manager ser a
+    média dos envs que ENTRARAM no estado. Sem nenhum env válido, sai zero.
+    ⚠ Ainda assim o número é uma média sobre LAJES: a referência do tronco vai de 22°
+    (laje 0,55) a 87° (laje 0,04). "Indo para a referência" se lê pela QUEDA do
+    `tronco_na_pega` a partir dos ~90° de hoje, e não por um alvo único.
 
     ⚠ E ela TEM `reset`: sem ele os passos de um episódio entram no seguinte
     (`metrics_manager.py:131` só chama `reset` em termo de classe que o tenha).
@@ -480,7 +487,11 @@ class media_por_estado:
         self.passos += no_estado
         # ⚠ `clamp(min=1)` no denominador, e não `+1e−6`: sem nenhum passo no estado o
         # numerador é 0 exato, portanto o resultado é 0 — e não NaN nem número enorme.
-        return self.soma / self.passos.clamp(min=1.0)
+        media = self.soma / self.passos.clamp(min=1.0)
+        valido = self.passos > 0
+        if valido.any():
+            media = torch.where(valido, media, media[valido].mean())
+        return media
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
