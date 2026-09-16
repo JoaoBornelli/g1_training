@@ -581,13 +581,16 @@ _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "faixa_de_pose",
            # G4 (14/09): a rampa exponencial sobre a fração do curso. Ela SUBSTITUI o
            # `dof_pos_limits` do fabricante, que sai logo abaixo.
-           "limite_de_junta"}
+           "limite_de_junta",
+           # 15/09: a dobradiça quadrada na PELVE, só no CARREGAR. Preço, como os dois
+           # acima — ver o bloco de sete checks no fim desta seção.
+           "limite_de_pelve"}
 # ⚠⚠ UM TERMO DO MOLDE SAI, e é o único até hoje. O `dof_pos_limits` e o
 # `limite_de_junta` cobram o MESMO excesso de curso, e mantê-los juntos seria
 # cobrança dupla. Declarar a remoção pelo NOME é o ponto: um `<=` solto deixaria de
 # pegar o dia em que um upgrade do mjlab apagar outro termo em silêncio.
 _REMOVIDOS = {"dof_pos_limits"}
-check("a tabela diverge do molde em exatamente DEZESSEIS termos, e são estes",
+check("a tabela diverge do molde em exatamente DEZESSETE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS,
       str(set(cfg.rewards) - set(fab.rewards) ^ _NOSSOS))
 check("do molde sai UM termo só, e é o `dof_pos_limits`",
@@ -663,6 +666,69 @@ check("o peso da faixa é −0,5 e a escala 1,5 — contra a pose medida em `mod
       "isso custa 2,4 a 3,7/s, na ordem do `action_rate_l2`, e NÃO torna cair a "
       "melhor jogada",
       cfg.rewards["faixa_de_pose"].weight == -0.5 and _fx.escala == 1.5)
+
+# ------------------------------------------- o LIMITE DE PELVE (15/09; os sete
+# checks da §10 do plano `docs/planos/2026-09-15-limite-de-pelve-no-carregar.md`)
+import types as _ty_pelve                                       # noqa: E402
+from g1_limpo.comando import ESTADO_CARREGAR as _EST_CARREGAR   # noqa: E402
+
+_tp = k.tarefa
+# MEDIDO no `model_15200` do `bloco19`: a marcha SEM caixa fica em 0,726 ± 0,013, e o
+# CARREGAR agachado em 0,564 ± 0,012.
+_MARCHA_VAZIA, _PELVE_HOJE = 0.726, 0.564
+
+
+class _CenaDePelve(dict):
+    """A cena mínima do termo: `scene["robot"].data` e `scene.env_origins`."""
+
+
+def _custo_de_pelve(z: float, estado: int = _EST_CARREGAR) -> float:
+    """O termo cru, num env de um só robô. Sem simulador: ele lê três tensores."""
+    _cena = _CenaDePelve(robot=_ty_pelve.SimpleNamespace(
+        data=_ty_pelve.SimpleNamespace(
+            root_link_pos_w=torch.tensor([[0.0, 0.0, float(z)]]))))
+    _cena.env_origins = torch.zeros(1, 3)
+    _env = _ty_pelve.SimpleNamespace(
+        num_envs=1, device="cpu", scene=_cena,
+        limpo_estado=torch.tensor([estado], dtype=torch.long))
+    return float(RC_.limite_de_pelve(_env, h_lim=_tp.pelve_limiar,
+                                     d_ref=_tp.pelve_ref))
+
+
+check("1. a linha da pelve fica ACIMA da marcha VAZIA medida — a quadrática tem "
+      "derivada ZERO na linha, portanto o equilíbrio assenta abaixo dela",
+      _tp.pelve_limiar > _MARCHA_VAZIA,
+      f"limiar {_tp.pelve_limiar} contra marcha vazia {_MARCHA_VAZIA}")
+_acesos = [i for i in range(len(_ESTADOS)) if _custo_de_pelve(_PELVE_HOJE, i) > 0.0]
+check("2. o gate zera fora do CARREGAR: dos dez estados, só a coluna 7 devolve valor",
+      _acesos == [_EST_CARREGAR] and _EST_CARREGAR == 7,
+      f"acesos em {[_ESTADOS[i] for i in _acesos]} — sem o gate o BOTAR na laje de "
+      "0,05 (pelve 0,181) pagaria 31/s e a tarefa morreria")
+check("3. o custo NA linha é ZERO exato, e a derivada ali também — é o preço declarado "
+      "da forma quadrática, e é o que uma rampa LINEAR não faria",
+      _custo_de_pelve(_tp.pelve_limiar) == 0.0
+      and _custo_de_pelve(_tp.pelve_limiar - 1e-3) < 1e-3,
+      f"{_custo_de_pelve(_tp.pelve_limiar):.6f} na linha e "
+      f"{_custo_de_pelve(_tp.pelve_limiar - 1e-3):.6f} a 1 mm abaixo (a reta daria 0,01)")
+_custo_hoje = _custo_de_pelve(_PELVE_HOJE)
+check("4. a pelve MEDIDA hoje no CARREGAR custa 3,10/s, contra a tabela da §6 do plano",
+      abs(_custo_hoje - 3.10) <= 0.031
+      and cfg.rewards["limite_de_pelve"].weight == -1.0,
+      f"{_custo_hoje:.3f}/s com peso {cfg.rewards['limite_de_pelve'].weight}")
+check("5. `limite_de_pelve` NÃO está em TERMOS_CONGELAVEIS — é preço, não renda, e é "
+      "por isso que o piso da CAUDA fica intacto",
+      "limite_de_pelve" not in EC_.TERMOS_CONGELAVEIS)
+_ordem_pelve = list(cfg.rewards)
+check("6. `limite_de_pelve` NÃO é o último de `cfg.rewards` — o `renda_congelada` "
+      "continua sendo, e ele lê os termos JÁ computados no passo",
+      _ordem_pelve[-1] == "renda_congelada"
+      and _ordem_pelve.index("limite_de_pelve") < _ordem_pelve.index("renda_congelada"),
+      str(_ordem_pelve[-3:]))
+_campos_pelve = [f.name for f in dataclasses.fields(k.peso_por_estado)]
+check("7. `limite_de_pelve` NÃO é campo de `PesoPorEstado` — o gate é por dentro, e a "
+      "tabela continua com DEZ termos",
+      "limite_de_pelve" not in _campos_pelve and len(_campos_pelve) == 10,
+      str(_campos_pelve))
 
 # ================================================ 12. currículo e comando
 secao("12. currículo, eventos e comando")
@@ -5310,13 +5376,15 @@ except Exception as _ev19x:      # noqa: BLE001
     _falhas.append(f"item 19 (cadeia.ativa=False) não pôde ser medido: "
                    f"{type(_ev19x).__name__}: {_ev19x}")
 
-# --- 20. contagem: 29 termos, 3 terminações ---
+# --- 20. contagem: 30 termos, 3 terminações ---
 # ⚠ 28 -> 29 em 14/09, e o termo novo é o `faixa_de_pose` (`c9578ae`). Ele entrou na
 # tag `estavel-bloco17` sem que este contador subisse, e o portão da tag já nascia
 # vermelho por isso. O contador é a trava contra termo que entra em silêncio: ele sobe
 # junto com o termo, e nunca depois.
-check("20. 29 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
-      len(cfg.rewards) == 29 and set(cfg.terminations)
+# ⚠ 29 -> 30 em 15/09: o `limite_de_pelve` (o `limite_de_junta` do mesmo bloco NÃO
+# mexeu no total — ele entrou no lugar do `dof_pos_limits`, que saiu no mesmo commit).
+check("20. 30 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
+      len(cfg.rewards) == 30 and set(cfg.terminations)
       == {"time_out", "fell_over", "caixa_largada"},
       f"{len(cfg.rewards)} termos; terminações {sorted(cfg.terminations)}")
 
