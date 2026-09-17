@@ -253,6 +253,10 @@ def main() -> None:
     ap.add_argument("--massa", type=float, default=0.0,
                     help="massa da caixa em kg (0 = a do modelo, que é 1,0). A inércia "
                          "acompanha. O teto do currículo é `carga_max`; tente 5")
+    ap.add_argument("--rumo-k", type=float, default=0.5,
+                    help="laço de rumo: wz = k x (rumo inicial - rumo), como o driver do "
+                         "robô real fecha com a IMU; 0 desliga (wz = 0 fixo, mostra a "
+                         "deriva crua). 0,5 é o heading_control_stiffness do mjlab")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -316,12 +320,17 @@ def main() -> None:
         poe_a_laje(m, d, c, args.topo)
     acao = np.zeros(ator.dim_saida)
     twist = np.zeros(3)
+    rumo0 = None          # rumo do 1º passo; o laço de rumo segura este valor
+
+    def rumo_da_raiz() -> float:
+        qw, qx, qy, qz = d.qpos[3:7]
+        return float(np.arctan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)))
     linhas: list[dict] = []
 
     if args.tempo <= 0:
         raise SystemExit("--tempo tem de ser > 0")
     print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
-          f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  "
+          f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  rumo_k={args.rumo_k:g}  "
           f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
           f"topo {_topo_da_laje(m, d, c):.3f} m  "
           f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}  "
@@ -353,6 +362,11 @@ def main() -> None:
                         raise KeyboardInterrupt
                     t0 = time.perf_counter()
 
+                    if args.rumo_k > 0:
+                        rumo = rumo_da_raiz()
+                        rumo0 = rumo if rumo0 is None else rumo0
+                        erro = (rumo0 - rumo + np.pi) % (2 * np.pi) - np.pi
+                        twist[2] = np.clip(args.rumo_k * erro, -1.6, 1.6)
                     obs, _ = monta_observacao(m, d, c, twist, fase.elo, acao)
                     acao = ator(obs)
                     d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao

@@ -56,7 +56,7 @@ from mjlab.tasks.velocity.mdp import (
     UniformVelocityCommand,
     UniformVelocityCommandCfg,
 )
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw, wrap_to_pi
 
 from g1_limpo.cena import JUNTAS_BRACO
 from g1_limpo.curriculo import garante_elo, garante_nivel, resolve_p_c
@@ -568,6 +568,9 @@ class AlvoCaixaCmd(CommandTerm):
         # recompensa a lê (o gate do rastreio virou `limpo_estado`); quem lê é a
         # âncora do alvo do CARREGAR em `_update_command`, e o `smoke`.
         env.limpo_twist_zerado = torch.zeros(n, device=d)
+        # ⚠ O RUMO A SEGURAR enquanto parado (17/09): o `heading_w` do passo em que o env
+        # PAROU. `_zera_twist_nos_parados` escreve wz = k × (rumo_ref − rumo) nele.
+        self._rumo_ref = torch.zeros(n, device=d)
         # ⚠ A ESPERA FINAL (spec §6.6): depois do fecho do BOTAR, o publicado é ANDAR
         # até o fim do episódio; o interno segue BOTAR. `soltou` desarma o `escapou` da
         # terminação e liga o `largou` da recompensa.
@@ -1032,6 +1035,9 @@ class AlvoCaixaCmd(CommandTerm):
             return
         d = self.device
         n = len(env_ids)
+        # ⚠ Zerado no reset para que o primeiro passo parado do episódio novo congele o
+        # `_rumo_ref` no rumo ATUAL — e não no do episódio que acabou parado no BOTAR.
+        self._env.limpo_twist_zerado[env_ids] = 0.0
 
         # ⚠ O BALANCEADOR B/C LÊ O EPISÓDIO QUE ACABOU (spec §2.5), antes de
         # `_cadeia`/`fechou`/`_passo` virarem os do episódio NOVO.
@@ -1203,8 +1209,17 @@ class AlvoCaixaCmd(CommandTerm):
         pass
 
     def _zera_twist_nos_parados(self) -> None:
-        """Força o comando de velocidade a ZERO nos elos que exigem o robô parado
-        (spec `g1-limpo-dois-bits.md` §1.1).
+        """Força vx e vy a ZERO nos elos que exigem o robô parado (spec
+        `g1-limpo-dois-bits.md` §1.1) e escreve em wz o laço de RUMO do fabricante.
+
+        ⚠⚠ O RUMO (17/09). Zerar wz não segura o rumo: o `model_19300` girava a −0,38
+        rad/s na pega com a caixa (89° em 7 s) e um kernel de velocidade não vê deriva
+        lenta — a política é um MLP sem memória e não observa o rumo. O molde já tem
+        o laço (`heading_command`, 30 % dos envs): wz = k × wrap(rumo_alvo − rumo), com
+        `k = heading_control_stiffness` e o clip em `ranges.ang_vel_z`. Aqui o alvo é o
+        rumo do passo em que o env PAROU (`_rumo_ref`), portanto a deriva vira comando
+        que a política vê, o rastreio paga e o portão da renda cobra. No robô real o
+        mesmo laço fecha com o yaw da IMU; a política nunca observa o rumo absoluto.
 
         ⚠ É ISTO que impede o robô de andar com a caixa no `pegar`, no `reorientar` e
         no `botar` — e não a forma do alvo. Decisão do dono em 25/08, e é o que o
@@ -1249,12 +1264,18 @@ class AlvoCaixaCmd(CommandTerm):
         """
         parados = torch.isin(self._elo, torch.tensor(
             self.cfg.elos_parados, device=self.device)) | (self._espera > 0.0)
+        novos = parados & (self._env.limpo_twist_zerado < 0.5)
         self._env.limpo_twist_zerado.copy_(parados.float())
 
         if not bool(parados.any()):
             return
         tw = self._env.command_manager.get_term(self.cfg.nome_do_twist)
+        rumo = tw.robot.data.heading_w
+        self._rumo_ref[novos] = rumo[novos]
+        lo, hi = tw.cfg.ranges.ang_vel_z
+        wz = (tw.cfg.heading_control_stiffness * wrap_to_pi(self._rumo_ref - rumo)).clamp(lo, hi)
         tw.vel_command_b[parados] = 0.0
+        tw.vel_command_b[parados, 2] = wz[parados]
 
     def _fecha_elo_corrente(self, ids: torch.Tensor) -> torch.Tensor:
         """Retorna BoolTensor indicando quais elos fecharam.

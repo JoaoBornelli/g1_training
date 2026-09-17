@@ -541,6 +541,13 @@ class Marcha:
     # rel_turning_envs × (1 − rel_standing_envs) ≈ 0,09.
     rel_turning_envs: float = 0.10
     turning_wz_min: float = 0.2
+    # ⚠ O LAÇO DE RUMO DO FABRICANTE em mais envs (17/09). Com 0,3 do molde, 70 % dos
+    # envs andam com wz FIXO, e wz = 0 fixo não vê deriva lenta: o `model_19300` fazia
+    # +4,4 °/s na marcha reta (25° em 6 s) e −20 °/s no CARREGAR (arco de 3,8 m para
+    # 1,9 m). Em env `heading` o wz é reescrito todo passo como 0,5 × erro de rumo, que
+    # a política vê — é o laço que o driver do robô real fecha com o yaw da IMU. O
+    # `turning` (acima) tem precedência e continua dando o envelope de ±1,6 rad/s.
+    rel_heading_envs: float = 0.8
 
 
 @dataclass
@@ -578,6 +585,10 @@ class Giro:
     # σ do `recompensas.giro_sem_gingado`: proporção do comando, e o piso.
     sigma_fator: float = 1.0
     sigma_min: float = math.sqrt(0.5)
+    # ⚠ 17/09: a renda da manipulação (`TERMOS_CONGELAVEIS` + `forma_postural`) é
+    # MULTIPLICADA por esse kernel. O `model_19300` girava a −0,38 rad/s na pega com
+    # comando zero e pagava 0,8/s somados contra ~8/s de fecho; multiplicado paga 2,0/s.
+    portao_da_renda: bool = True
 
 
 @dataclass
@@ -1412,8 +1423,10 @@ class FormaPostural:
     # ⚠ AS DUAS DE 17/09, medidas no `model_17999` (`botar_17999_*.csv`): a sola do pé
     # esquerdo a 46°–54° do chão no pouso, e o `hip_yaw` esquerdo a −1,0 a −1,5 rad
     # (para dentro) em 100 % dos passos do BOTAR. Escala além do erro nas duas.
+    # ⚠ 1,6 REJEITADO (17/09): o `model_19300` foi a −1,97 rad, além da rampa, derivada
+    # zero. 2,8 passa da faixa da junta (±2,76), então a rampa nunca satura.
     escala_sola_deg: float = 60.0
-    escala_quadril_rad: float = 1.6
+    escala_quadril_rad: float = 2.8
     referencia: str = "ik/ref_botar.npz"   # relativo a `g1_limpo/`
 
 

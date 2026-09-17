@@ -1020,8 +1020,12 @@ check("o `build` foi sobrescrito — o mjlab não usa `class_type`",
 # reescrito de propósito (ver o check logo abaixo). Todo o RESTO tem de bater.
 check("nenhum campo do twist do fabricante se perdeu na reconstrução",
       all(getattr(_tw, f.name) == getattr(fab.commands["twist"], f.name)
-          for f in dataclasses.fields(fab.commands["twist"]) if f.name != "ranges"),
+          for f in dataclasses.fields(fab.commands["twist"])
+          if f.name not in ("ranges", "rel_heading_envs")),
       "rel_standing_envs perdido mudaria 10% dos envs sem uma linha de log")
+check("`rel_heading_envs` vem do knobs, acima do 0,3 do molde (17/09: deriva de rumo)",
+      _tw.rel_heading_envs == k.marcha.rel_heading_envs > fab.commands["twist"].rel_heading_envs,
+      f"{_tw.rel_heading_envs} vs molde {fab.commands['twist'].rel_heading_envs}")
 check("fora do `ang_vel_z`, a faixa do twist é a do fabricante",
       _tw.ranges.lin_vel_x == fab.commands["twist"].ranges.lin_vel_x
       and _tw.ranges.lin_vel_y == fab.commands["twist"].ranges.lin_vel_y
@@ -1806,9 +1810,11 @@ try:
     _tw3 = _env3.command_manager.get_term("twist")
     _parados = _t3.isin(_elo3, _t3.tensor(
         _cfg3.commands["alvo_caixa"].elos_parados))
-    check("o twist é ZERO nos elos parados",
+    check("vx e vy são ZERO nos elos parados, e wz é o laço de rumo dentro do clip",
           not bool(_parados.any())
-          or float(_tw3.vel_command_b[_parados].abs().max()) == 0.0)
+          or (float(_tw3.vel_command_b[_parados, :2].abs().max()) == 0.0
+              and float(_tw3.vel_command_b[_parados, 2].abs().max())
+              <= _cfg3.commands["twist"].ranges.ang_vel_z[1] + 1e-6))
     check("e NÃO é zero nos que andam",
           float(_tw3.vel_command_b[~_parados].abs().max()) > 0.0)
     del _env3

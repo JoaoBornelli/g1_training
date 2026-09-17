@@ -352,6 +352,13 @@ class PesoPorEstado:
 
     ⚠ O `func` original FICA em `params["func"]`; o `smoke` e o notebook o leem ali.
 
+    ⚠ `rumo` (17/09): a renda da manipulação é MULTIPLICADA pelo kernel do giro
+    (`giro_sem_gingado`, o mesmo do `track_angular_velocity`). MEDIDO no `model_19300`:
+    girava a −0,38 rad/s na pega com comando zero e −0,34 no CARREGAR (arco de 3,8 m
+    para 1,9 m). O kernel somado cobrava 0,8/s contra ~8/s de fecho; multiplicado cobra
+    2,0/s de 8 e 3,8 de 15 — proporcional à renda. Parado (wz = 0) o kernel é 1: o piso
+    da estátua não muda. Só os `TERMOS_CONGELAVEIS` e o `forma_postural` levam `rumo`.
+
     ⚠ `renda_congelada` lê `_step_reward` dos sete pelo NOME, JÁ multiplicados pela
     tabela — INTENCIONAL: é isso que faz o piso do BOTAR ×2 valer ~15,8.
 
@@ -369,10 +376,12 @@ class PesoPorEstado:
         assert len(tabela) == len(ESTADOS), (
             f"tabela com {len(tabela)} colunas para {len(ESTADOS)} estados")
         self._t = torch.tensor(tabela, dtype=torch.float32, device=env.device)
+        self._rumo = cfg.params.get("rumo")   # kwargs do `giro_sem_gingado`, ou None
 
-    def __call__(self, env, func, tabela, **kw) -> torch.Tensor:
-        del func, tabela  # resolvidos no __init__
-        return self._f(env, **kw) * self._t[env.limpo_estado]
+    def __call__(self, env, func, tabela, rumo=None, **kw) -> torch.Tensor:
+        del func, tabela, rumo  # resolvidos no __init__
+        r = self._f(env, **kw) * self._t[env.limpo_estado]
+        return r * giro_sem_gingado(env, **self._rumo) if self._rumo else r
 
 
 # ⚠ O molde guarda o mesmo default num privado do módulo dele
@@ -812,10 +821,10 @@ class FormaPostural:
                                    17/09: o `model_17999` pousava com o pé ESQUERDO a 46°–54°
                                    do chão e 2–7 cm no ar, e o direito plano — a separação
                                    lateral sozinha é satisfeita com um pé no ar e girado
-      · rotação interna do quadril dobradiça em `hip_yaw` (esquerda < 0, direita > 0 é
-                                   para dentro; eixo (0,0,1) nos dois), zero em neutro ou
-                                   para fora. 17/09: −1,0 a −1,5 rad em 100 % dos passos do
-                                   BOTAR nas lajes de 0,25 e 0,55. É a MESMA regra da IK
+      · torção do quadril        `|hip_yaw|` dos dois lados, alvo 0 (eixo (0,0,1)). 17/09:
+                                   −1,0 a −1,5 rad no `model_17999`; −1,97 / −0,99 no
+                                   `model_19300`, mesmo sinal nos dois lados — a pelve
+                                   torcida sobre as pernas. A IK tem os dois perto de 0
     ⚠ As duas últimas não vêm da tabela: o alvo é FIXO (0° e "não para dentro"), e a
     referência as satisfaz por construção (`gera_botar`: pés planos, sem rotação interna).
     O robô do `model_17999` foi exatamente até onde as quatro primeiras pediam, e nem um
@@ -885,7 +894,7 @@ class FormaPostural:
         robot = env.scene["robot"]
         self.id_torso = robot.find_bodies(["torso_link"])[0]
         self.ids_pe = robot.find_sites(list(p["sitios_pe"]))[0]
-        # ⚠ (esquerda, direita), nesta ordem: o sinal da rotação interna depende do lado
+        # (esquerda, direita), nesta ordem, como os sítios dos pés
         self.ids_yaw = robot.find_joints(["left_hip_yaw_joint", "right_hip_yaw_joint"])[0]
         self.ids_palma = robot.find_sites(list(p["sitios_palma"]))[0]
         self.normais_locais = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], device=d)
@@ -929,10 +938,11 @@ class FormaPostural:
         z_pe = quat_apply(robot.site_quat_w[:, self.ids_pe], self.ez.expand(n, 2, 3))[..., 2]
         sola = torch.acos(z_pe.clamp(-1.0, 1.0))                                   # (n, 2)
         r_sola = (1.0 - (sola / self.escala[4]).clamp(max=1.0)).mean(dim=1, keepdim=True)
-        # rotação interna do quadril: esquerda para dentro é q < 0, direita é q > 0
-        q_yaw = robot.joint_pos[:, self.ids_yaw]                                   # (n, 2)
-        interno = torch.stack([(-q_yaw[:, 0]).clamp(min=0.0), q_yaw[:, 1].clamp(min=0.0)], dim=1)
-        r_quadril = (1.0 - (interno / self.escala[5]).clamp(max=1.0)).mean(dim=1, keepdim=True)
+        # torção do quadril: |hip_yaw| dos dois lados, alvo 0. Não só o lado interno —
+        # 17/09, `model_19300`: L −1,97 / R −0,99 rad, mesmo sinal, a pelve torcida sobre
+        # as pernas; o lado externo era grátis e o interno saturava (1,97 > 1,6).
+        torcao = robot.joint_pos[:, self.ids_yaw].abs()                            # (n, 2)
+        r_quadril = (1.0 - (torcao / self.escala[5]).clamp(max=1.0)).mean(dim=1, keepdim=True)
         r = torch.cat([r_corpo, r_pad, r_sola, r_quadril], dim=1).mean(dim=1)
         return r * _alcancar(env, nome_do_comando)
 

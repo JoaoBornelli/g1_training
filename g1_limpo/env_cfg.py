@@ -363,6 +363,7 @@ def make_env_cfg(
     antigo = cfg.commands["twist"]
     campos = {f.name: getattr(antigo, f.name)
               for f in dataclasses.fields(antigo)}
+    campos["rel_heading_envs"] = k.marcha.rel_heading_envs   # 0,3 do molde -> knobs
     cfg.commands["twist"] = CMD.TwistComRazaoDeMarchaCfg(
         **campos, limiar_comando=k.marcha.limiar_comando,
         pedido_min_segmento=k.marcha.pedido_min_segmento,
@@ -775,6 +776,9 @@ def make_env_cfg(
     # nos dois rastreios: a tabela é o ÚNICO gate por estado. O `pose` (classe) é
     # instanciado DENTRO do wrapper — o `variable_posture` lê só chaves nominais de
     # `cfg.params`, e `func`/`tabela` a mais são inertes.
+    # ⚠ Copiado ANTES do laço: o laço embrulha o próprio `track_angular_velocity`, e a
+    # cópia depois traria `func`/`tabela` para dentro do `giro_sem_gingado`.
+    _rumo = dict(cfg.rewards["track_angular_velocity"].params)
     for _campo in dataclasses.fields(k.peso_por_estado):
         _nome = _campo.name
         assert _nome in cfg.rewards, (
@@ -784,6 +788,8 @@ def make_env_cfg(
         assert "func" not in _t.params and "tabela" not in _t.params, _nome
         _t.params["func"] = _t.func
         _t.params["tabela"] = getattr(k.peso_por_estado, _nome)
+        if k.giro.portao_da_renda and _nome in TERMOS_CONGELAVEIS + ("forma_postural",):
+            _t.params["rumo"] = _rumo
         _t.func = RC.PesoPorEstado
 
     # ⚠⚠ O TERMO QUE CONGELA A RENDA DE TODO FECHO DE ELO (v2.1, spec P3). TEM DE SER
