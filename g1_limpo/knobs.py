@@ -1371,19 +1371,32 @@ class LimiteDeJunta:
     usar curso inexistente, e ela aceita o batente como preço de trazer a junta de
     volta. Uma política que nasce do zero tem de aprender a NÃO CHEGAR ao batente, e
     para isso a rampa acaba nele: `tornozelo = punho_cintura = resto = (20.0, 0.15)`.
+
+    ⚠⚠ O LIMIAR É POR FAMÍLIA DESDE 17/09, e o `hip_yaw` é a quarta família. Um limiar
+    em FRAÇÃO DO CURSO só é limite quando o curso é do tamanho do movimento. O `hip_yaw`
+    tem curso de ±158°: a rampa em 0,85 começava a ±134°, e a marcha usa ±6°, o
+    carregar ±10°, a referência da IK ±14° e o transiente da pega 36°. MEDIDO no
+    `model_20500`: quadril esquerdo a −144° em média no BOTAR (0,91 do curso), direito a
+    −63°, e piorando a cada bloco (−0,94 → −1,97 → −2,52 rad). Decisão do dono: a rampa
+    do `hip_yaw` começa a ±40° = 0,25 do curso, 4° acima do maior uso legítimo. O teto
+    de 0,75 fica além do pico medido (0,96), pela regra acima; `k = 4,0` mantém o custo
+    do teto em ~19. No ZERO o notebook põe `(20.0, 0.15, 0.25)`: rampa de 40° a 64°.
+    Mesma classe, ainda sem limiar próprio: `shoulder_yaw` e `waist_yaw` (300°),
+    `shoulder_roll` (220°), `wrist_roll` (226°). Ver
+    `docs/memoria/g1-limpo-limite-de-junta-curso-largo.md`.
     """
 
-    limiar: float = 0.85                          # fração do curso onde a rampa começa
-    #                                 k     teto no excesso
-    tornozelo: tuple[float, float] = (4.5, 0.70)
-    punho_cintura: tuple[float, float] = (12.0, 0.25)
-    resto: tuple[float, float] = (20.0, 0.15)
+    #                                        k     teto   limiar (fração do curso)
+    tornozelo: tuple[float, float, float] = (4.5, 0.70, 0.85)
+    punho_cintura: tuple[float, float, float] = (12.0, 0.25, 0.85)
+    resto: tuple[float, float, float] = (20.0, 0.15, 0.85)
+    hip_yaw: tuple[float, float, float] = (4.0, 0.75, 0.25)
 
-    def por_padrao(self) -> dict[str, tuple[float, float]]:
-        """As três famílias abertas nos 14 padrões de `FAMILIAS`."""
-        t, p, r = self.tornozelo, self.punho_cintura, self.resto
+    def por_padrao(self) -> dict[str, tuple[float, float, float]]:
+        """As quatro famílias abertas nos 14 padrões de `FAMILIAS`."""
+        t, p, r, y = self.tornozelo, self.punho_cintura, self.resto, self.hip_yaw
         return por_familia({
-            "hip_yaw": r, "hip_roll": r, "hip_pitch": r, "knee": r,
+            "hip_yaw": y, "hip_roll": r, "hip_pitch": r, "knee": r,
             "ankle_pitch": t, "ankle_roll": t,
             "waist": p,
             "shoulder_pitch": r, "shoulder_roll": r, "shoulder_yaw": r, "elbow": r,

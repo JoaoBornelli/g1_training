@@ -638,12 +638,20 @@ check("as duas tabelas por família usam os MESMOS 14 padrões",
 # termo vira imposto fixo. MEDIDO no `carrega085.csv`: o tornozelo chega a |frac| 1,50
 # e o punho a 1,08. Este check trava a REGRA, e não o número: a rampa de cada família
 # tem de cobrir o pior caso MEDIDO dela, com margem.
-_PIOR = {"tornozelo": 1.50, "punho_cintura": 1.08, "resto": 0.95}
+# ⚠ `hip_yaw` 0,96: o `model_20500` no BOTAR (17/09), com a rampa a começar em 0,25.
+_PIOR = {"tornozelo": 1.50, "punho_cintura": 1.08, "resto": 0.95, "hip_yaw": 0.96}
 for _nome, _pior in _PIOR.items():
-    _k, _teto = getattr(_lj, _nome)
+    _k, _teto, _limiar = getattr(_lj, _nome)
     check(f"a rampa de `{_nome}` cobre o pior |frac| medido ({_pior})",
-          _lj.limiar + _teto >= _pior - 1e-9,
-          f"rampa vai até {_lj.limiar + _teto:.2f} e a junta chega a {_pior}")
+          _limiar + _teto >= _pior - 1e-9,
+          f"rampa vai até {_limiar + _teto:.2f} e a junta chega a {_pior}")
+check("o limiar do `hip_yaw` é 0,25 do curso (±40°), acima do transiente da pega (36°) "
+      "e abaixo de onde o 20500 vivia (0,91); as outras três seguem em 0,85",
+      abs(_lj.hip_yaw[2] - 0.25) < 1e-9
+      and all(abs(getattr(_lj, n)[2] - 0.85) < 1e-9 for n in ("tornozelo", "punho_cintura", "resto")),
+      str({n: getattr(_lj, n) for n in _PIOR}))
+check("o `limiar` não é mais param solto do termo — ele vive na tripla da tabela",
+      "limiar" not in cfg.rewards["limite_de_junta"].params)
 check("o custo no teto fica em ~20 nas três famílias — o teto muda a LARGURA da "
       "rampa, e não a magnitude da multa",
       all(18.0 <= math.expm1(getattr(_lj, n)[0] * getattr(_lj, n)[1]) <= 24.0

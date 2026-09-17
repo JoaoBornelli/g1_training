@@ -262,8 +262,9 @@ class LimiteDeJunta:
         excesso = min( relu(|frac| − limiar), teto )
         custo   = Σ_j ( exp(k_j · excesso_j) − 1 )
 
-    Os `k` e os `teto` são POR FAMÍLIA (`knobs.LimiteDeJunta`, com a medição que
-    justifica cada par). SUBSTITUI o `dof_pos_limits` do fabricante, que saiu no mesmo
+    `k`, `teto` e `limiar` são POR FAMÍLIA (`knobs.LimiteDeJunta`, com a medição que
+    justifica cada tripla; o limiar deixou de ser único em 17/09, quando o `hip_yaw`
+    foi a 144° sem a rampa de 85% do curso de ±158° o alcançar). SUBSTITUI o `dof_pos_limits` do fabricante, que saiu no mesmo
     commit: a reta dele cobrava 0,055/s com o `waist_pitch` no batente durante todo o
     BOTAR, e reta não tem inclinação onde importa.
 
@@ -298,16 +299,16 @@ class LimiteDeJunta:
         d = env.device
         self.k = torch.tensor([p[0] for p in pares], device=d, dtype=torch.float32)
         self.teto = torch.tensor([p[1] for p in pares], device=d, dtype=torch.float32)
+        self.limiar = torch.tensor([p[2] for p in pares], device=d, dtype=torch.float32)
         # ⚠ O limite é IGUAL em todos os envs (vem do MJCF), portanto o env 0 basta.
         lim = asset.data.joint_pos_limits[0, asset_cfg.joint_ids]        # (n, 2)
         self.centro = lim.mean(dim=-1)
         self.meio = (lim[:, 1] - lim[:, 0]) / 2.0
 
-    def __call__(self, env, tabela, limiar: float,
-                 asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    def __call__(self, env, tabela, asset_cfg: SceneEntityCfg) -> torch.Tensor:
         del tabela                                    # resolvida no `__init__`
         q = env.scene[asset_cfg.name].data.joint_pos[:, asset_cfg.joint_ids]
-        excesso = (((q - self.centro) / self.meio).abs() - limiar).clamp(min=0.0)
+        excesso = (((q - self.centro) / self.meio).abs() - self.limiar).clamp(min=0.0)
         return torch.expm1(self.k * torch.minimum(excesso, self.teto)).sum(dim=1)
 
 

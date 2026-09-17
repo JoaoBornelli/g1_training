@@ -716,7 +716,6 @@ def make_env_cfg(
     cfg.rewards["limite_de_junta"] = RewardTermCfg(
         func=RC.LimiteDeJunta, weight=tr.limite_de_junta,
         params={"tabela": k.limite_de_junta.por_padrao(),
-                "limiar": k.limite_de_junta.limiar,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
     # ⚠⚠ O LIMITE DE PELVE (15/09, plano
