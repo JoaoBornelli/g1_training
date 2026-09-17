@@ -2140,7 +2140,7 @@ try:
                 float(_ttc._espera[0]),
                 float(_et.scene["box"].data.root_link_pos_w[0, 2]
                       - _et.scene.env_origins[0, 2]),
-                float(_tw.norm(dim=-1).max()))
+                float(_tw[:, :2].norm(dim=-1).max()))   # vx, vy: wz é o laço de rumo
 
     def _anda_ate(t_s):
         for _ in range(int(t_s / _et.step_dt)):
@@ -2182,9 +2182,11 @@ try:
           f"|yaw| max {float(_yw.max()):.2f} rad de um limite de ±0,2")
     # ⚠ O TWIST EM ZERO É O "comando de andar como 0". Sem ele o `ANDAR` sorteia
     # velocidade e o robô sai andando para dentro da mesa antes de a tarefa chegar.
-    check("e o comando de velocidade é ZERO em todos os envs",
+    # ⚠ vx e vy. O wz NÃO é zero desde 17/09: é o laço de rumo, 0,5 × (rumo_ref − rumo),
+    # e mede 1e-4 aqui porque o robô oscila de pé. Ele é o comando de ficar de frente.
+    check("e vx e vy são ZERO em todos os envs (wz é o laço de rumo)",
           _twA < 1e-9 and _twB < 1e-9,
-          f"|twist| = {_twA:.4f} / {_twB:.4f}")
+          f"|twist_xy| = {_twA:.4f} / {_twB:.4f}")
     # ⚠⚠ E ZERO **NA OBSERVAÇÃO DO RESET**, que é o check que faltava. A primeira
     # versão zerava o twist no evento de INTERVALO, e o `reset()` chama
     # `command_manager.compute(dt=0.0)` SEM rodar evento de intervalo: a primeira
@@ -2280,6 +2282,13 @@ try:
             for n in ("track_linear_velocity", "track_angular_velocity",
                       "pose", "upright")}
         _piso[_nome4]["TOTAL"] = float(_sr.mean(0).sum())
+        # ⚠ A COMPOSIÇÃO, para o veredito não depender de adivinhar quem paga a
+        # estátua: todo termo com |média| >= 0,01/s, do maior para o menor.
+        _comp = sorted(((float(_sr[:, i].mean()), n) for i, n in enumerate(_nm)
+                        if abs(float(_sr[:, i].mean())) >= 0.01),
+                       key=lambda x: -abs(x[0]))
+        print(f"  piso {_nome4:6s} {_piso[_nome4]['TOTAL']:6.3f}/s = "
+              + "  ".join(f"{n} {v:+.2f}" for v, n in _comp))
         del _e4
 
     _tk = (_piso["parado"]["track_linear_velocity"]
