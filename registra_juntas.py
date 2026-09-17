@@ -302,6 +302,8 @@ def main() -> None:
     # ⚠ RESOLVIDO UMA VEZ, fora do laço: `enderecos_da_caixa` varre as juntas do
     # modelo, e chamá-lo a 50 Hz é desperdício puro.
     adr_caixa, _ = enderecos_da_caixa(m, int(c.id_caixa))
+    id_mocap_laje = int(m.body_mocapid[int(c.id_laje)])
+    assert id_mocap_laje >= 0, "a laje não é mocap nesta cena; o CSV precisa da pose dela"
     ids_q = np.asarray(c.ids_junta_qpos, dtype=np.int64)
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
@@ -376,6 +378,11 @@ def main() -> None:
                     for i, eixo in enumerate(("x", "y", "z", "qw", "qx", "qy", "qz")):
                         ln[f"raiz_{eixo}"] = float(d.qpos[i])
                         ln[f"caixa_{eixo}"] = float(d.qpos[adr_caixa + i])
+                        # ⚠ A LAJE TAMBÉM (17/09): sem a pose dela a sonda não mede
+                        # perna, tronco ou pé encostado no tampo — o dono viu isso no
+                        # viewer e o CSV não tinha como confirmar.
+                        ln[f"laje_{eixo}"] = float(d.mocap_pos[id_mocap_laje, i] if i < 3
+                                                   else d.mocap_quat[id_mocap_laje, i - 3])
                     linhas.append(ln)
                     passo += 1
 

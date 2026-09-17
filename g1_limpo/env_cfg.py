@@ -759,6 +759,8 @@ def make_env_cfg(
                 "referencia": str(Path(__file__).resolve().parent / _fp.referencia),
                 "escala_pelve": _fp.escala_pelve, "escala_tronco_deg": _fp.escala_tronco_deg,
                 "escala_pes": _fp.escala_pes, "escala_pad_deg": _fp.escala_pad_deg,
+                "escala_sola_deg": _fp.escala_sola_deg,
+                "escala_quadril_rad": _fp.escala_quadril_rad,
                 "sitios_pe": C.FOOT_SITES, "sitios_palma": C.PALM_SITES})
 
     # ------------------------------ 3i. A TABELA POR ESTADO (spec tabela-por-estado §3)

@@ -107,6 +107,8 @@ class Cena:
         self.bid_torso = n(mujoco.mjtObj.mjOBJ_BODY, "robot/torso_link")
         self.bid_caixa = n(mujoco.mjtObj.mjOBJ_BODY, "box/box")
         self.bid_laje = n(mujoco.mjtObj.mjOBJ_BODY, "table/table")
+        self.id_mocap = int(self.m.body_mocapid[n(mujoco.mjtObj.mjOBJ_BODY, "table/mocap_base")])
+        assert self.id_mocap >= 0, "a laje não é mocap nesta cena"
         self.gid_caixa = n(mujoco.mjtObj.mjOBJ_GEOM, "box/box_geom")
         self.sid = {s: n(mujoco.mjtObj.mjOBJ_SITE, f"robot/{s}")
                     for s in ("left_foot", "right_foot", "left_palm", "right_palm")}
@@ -186,12 +188,14 @@ class Cena:
     def cenario(self, topo: float, a: float) -> None:
         """Põe o TOPO da laje em `topo` e redimensiona o cubo.
 
-        ⚠ A laje do `cena.mjb` NÃO é mocap (`body_mocapid` = −1): ela é um corpo estático
-        em z = 0,53. Antes desta função o gerador e o viewer a deixavam FIXA, com o topo
-        em 0,55 m para TODAS as alturas — e a folga contra ela não media nada. Corpo
-        estático se move por `body_pos`, que a cinemática lê a cada chamada.
+        ⚠⚠ A LAJE É FILHA DE UM MOCAP (`table/mocap_base`, `body_mocapid` 0), e o
+        `table/table` que tem o geom NÃO é mocap. A primeira versão desta função lia o
+        −1 do filho, concluía "corpo estático" e escrevia `body_pos` do filho — que é
+        RELATIVO ao pai: a laje ia para `mocap + (0,5, 0, topo)`, flutuando longe. O
+        `registra_juntas` move o mocap (`poe_a_laje`), e aqui é a mesma coisa. A pose
+        das 15 referências não dependeu disto: a laje ficou fora dos pares de folga.
         As duas fórmulas do box são as de `eventos.tamanho_caixa`."""
-        self.m.body_pos[self.bid_laje] = (AVANCO_LAJE, 0.0, topo - self.meia_laje)
+        self.d.mocap_pos[self.id_mocap] = (AVANCO_LAJE, 0.0, topo - self.meia_laje)
         self.m.geom_size[self.gid_caixa] = (a, a, a)
         self.m.geom_rbound[self.gid_caixa] = a * np.sqrt(3.0)
         # ⚠ No MuJoCo CLÁSSICO o `geom_aabb` é `(ngeom, 6)`: centro e meia-extensão

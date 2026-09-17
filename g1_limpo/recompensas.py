@@ -788,8 +788,9 @@ class FormaPostural:
     """Paga por se APROXIMAR da forma de referência que a IK gerou, nas idas da pega e
     do pouso (plano do dono, 16/09: "rastreio de forma postural por elo").
 
-        r_i = 1 − min( |x_i − ref_i(h)| / escala_i , 1 )     i = pelve, tronco, pés, pad
-        r   = ( r_pelve + r_tronco + r_pes + r_pad ) / 4  ×  alcancar
+        r_i = 1 − min( |x_i − ref_i(h)| / escala_i , 1 )     i = pelve, tronco, pés, pad,
+                                                             sola, quadril
+        r   = média das seis  ×  alcancar
 
     A referência é o `ref_botar.npz` do `g1_limpo/ik/gera_botar.py`: 15 poses sem peça
     dentro de peça, pelve abaixo de 60°, sem rotação interna do joelho, aprovadas uma a
@@ -801,12 +802,24 @@ class FormaPostural:
     O gate é a `PesoPorEstado` (linha `forma_postural`): peso só nas colunas de ida —
     PEGAR_SEM, PEGAR_COM e BOTAR — e zero no andar, no carregar e na cauda.
 
-    ⚠⚠ QUATRO GRANDEZAS, e todas INVARIANTES ao sorteio de xy e de rumo da caixa:
+    ⚠⚠ SEIS GRANDEZAS, e todas INVARIANTES ao sorteio de xy e de rumo da caixa:
       · altura da pelve            muda com a altura da caixa, não com o xy dela
       · inclinação do tronco       o defeito medido: 84° a 99° onde a referência dá 22° a 57°
       · separação lateral dos pés  a "pose de pernas" aprovada, no frame da pelve
       · ângulo do pad à face       nenhum termo olhava para onde o pad aponta ANTES do
                                    contato; o punho ia ao batente para o pad tocar
+      · sola contra o chão         eixo z de cada pé contra a vertical, alvo 0°. Entrou em
+                                   17/09: o `model_17999` pousava com o pé ESQUERDO a 46°–54°
+                                   do chão e 2–7 cm no ar, e o direito plano — a separação
+                                   lateral sozinha é satisfeita com um pé no ar e girado
+      · rotação interna do quadril dobradiça em `hip_yaw` (esquerda < 0, direita > 0 é
+                                   para dentro; eixo (0,0,1) nos dois), zero em neutro ou
+                                   para fora. 17/09: −1,0 a −1,5 rad em 100 % dos passos do
+                                   BOTAR nas lajes de 0,25 e 0,55. É a MESMA regra da IK
+    ⚠ As duas últimas não vêm da tabela: o alvo é FIXO (0° e "não para dentro"), e a
+    referência as satisfaz por construção (`gera_botar`: pés planos, sem rotação interna).
+    O robô do `model_17999` foi exatamente até onde as quatro primeiras pediam, e nem um
+    passo além — o que o termo não lê, ele não corrige.
     FORA, de propósito: juntas do braço (dependem do xy e do rumo; a pega já as guia),
     juntas da perna (o recuo da pelve muda com o x da caixa), CoM sobre os pés (a
     sobrevivência já cobra) e inclinação da pelve (a terminação de 70° já cobra).
@@ -867,10 +880,13 @@ class FormaPostural:
         self.tab = torch.tensor(tab, device=d, dtype=torch.float32)         # (15, 3)
         self.escala = torch.tensor(
             [p["escala_pelve"], math.radians(p["escala_tronco_deg"]),
-             p["escala_pes"], math.radians(p["escala_pad_deg"])], device=d)
+             p["escala_pes"], math.radians(p["escala_pad_deg"]),
+             math.radians(p["escala_sola_deg"]), p["escala_quadril_rad"]], device=d)
         robot = env.scene["robot"]
         self.id_torso = robot.find_bodies(["torso_link"])[0]
         self.ids_pe = robot.find_sites(list(p["sitios_pe"]))[0]
+        # ⚠ (esquerda, direita), nesta ordem: o sinal da rotação interna depende do lado
+        self.ids_yaw = robot.find_joints(["left_hip_yaw_joint", "right_hip_yaw_joint"])[0]
         self.ids_palma = robot.find_sites(list(p["sitios_palma"]))[0]
         self.normais_locais = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], device=d)
         self.ez = torch.tensor([0.0, 0.0, 1.0], device=d)
@@ -884,9 +900,10 @@ class FormaPostural:
         return self.tab[i - 1] + w * (self.tab[i] - self.tab[i - 1])
 
     def __call__(self, env, nome_do_comando: str, referencia, escala_pelve, escala_tronco_deg,
-                 escala_pes, escala_pad_deg, sitios_pe, sitios_palma) -> torch.Tensor:
+                 escala_pes, escala_pad_deg, escala_sola_deg, escala_quadril_rad,
+                 sitios_pe, sitios_palma) -> torch.Tensor:
         del referencia, escala_pelve, escala_tronco_deg, escala_pes, escala_pad_deg
-        del sitios_pe, sitios_palma                           # resolvidos no `__init__`
+        del escala_sola_deg, escala_quadril_rad, sitios_pe, sitios_palma   # no `__init__`
         robot = env.scene["robot"].data
         n = env.num_envs
         origem_z = env.scene.env_origins[:, 2]
@@ -908,7 +925,16 @@ class FormaPostural:
                             (larg - ref[:, 2]).abs()], dim=1)
         r_corpo = 1.0 - (erro / self.escala[:3]).clamp(max=1.0)                # (n, 3)
         r_pad = (1.0 - (ang / self.escala[3]).clamp(max=1.0)).mean(dim=1, keepdim=True)
-        return torch.cat([r_corpo, r_pad], dim=1).mean(dim=1) * _alcancar(env, nome_do_comando)
+        # sola contra o chão: eixo z do site de cada pé contra a vertical, alvo 0°
+        z_pe = quat_apply(robot.site_quat_w[:, self.ids_pe], self.ez.expand(n, 2, 3))[..., 2]
+        sola = torch.acos(z_pe.clamp(-1.0, 1.0))                                   # (n, 2)
+        r_sola = (1.0 - (sola / self.escala[4]).clamp(max=1.0)).mean(dim=1, keepdim=True)
+        # rotação interna do quadril: esquerda para dentro é q < 0, direita é q > 0
+        q_yaw = robot.joint_pos[:, self.ids_yaw]                                   # (n, 2)
+        interno = torch.stack([(-q_yaw[:, 0]).clamp(min=0.0), q_yaw[:, 1].clamp(min=0.0)], dim=1)
+        r_quadril = (1.0 - (interno / self.escala[5]).clamp(max=1.0)).mean(dim=1, keepdim=True)
+        r = torch.cat([r_corpo, r_pad, r_sola, r_quadril], dim=1).mean(dim=1)
+        return r * _alcancar(env, nome_do_comando)
 
 
 def limite_de_pelve(env, h_lim: float, d_ref: float) -> torch.Tensor:

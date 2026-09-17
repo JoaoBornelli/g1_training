@@ -940,7 +940,9 @@ class Tarefa:
     # reprovou; com o kernel a forma só vale à medida que a mão chega. PONTO DE PARTIDA: o `Episode_Reward/forma_postural`
     # dividido pelo peso lê a média de `r` direto, e a métrica `tronco_na_pega` lê o
     # ângulo. Os dois dizem se o canal puxa.
-    forma_postural: float = 2.0
+    # ⚠ 2,0 -> 3,0 em 17/09, quando o termo foi de quatro para SEIS grandezas na média:
+    # com 3,0 cada grandeza mantém o gradiente que tinha (3/6 = 2/4 = 0,5 por grandeza).
+    forma_postural: float = 3.0
 
     # --- tolerâncias de fechamento ---
     # a tolerância que conta como "na condição", em metros e radianos
@@ -1407,6 +1409,11 @@ class FormaPostural:
     escala_tronco_deg: float = 90.0
     escala_pes: float = 0.20            # m
     escala_pad_deg: float = 90.0
+    # ⚠ AS DUAS DE 17/09, medidas no `model_17999` (`botar_17999_*.csv`): a sola do pé
+    # esquerdo a 46°–54° do chão no pouso, e o `hip_yaw` esquerdo a −1,0 a −1,5 rad
+    # (para dentro) em 100 % dos passos do BOTAR. Escala além do erro nas duas.
+    escala_sola_deg: float = 60.0
+    escala_quadril_rad: float = 1.6
     referencia: str = "ik/ref_botar.npz"   # relativo a `g1_limpo/`
 
 
