@@ -116,12 +116,6 @@ def coleta_cena(env, meia_nominal: float) -> dict[str, np.ndarray]:
     # `q_default` da ordem de observação. Se as duas ordens divergirem um dia, o pilota
     # continua certo porque grava as duas.
     q_default_acao = _np(termo._offset)[0].astype(np.float64)
-    # ⚠ O CLIP DO ALVO (18/09), `(n_alvo, 2)` em radianos, ±inf onde não há corte. O
-    # pilota e o registrador aplicam-no DEPOIS de escala e offset, como a mjlab
-    # (`actions.py:158`). Sem ele no `cena.npz`, o robô real obedeceria um alvo de 2,5
-    # rad no `hip_yaw` que o treino nunca deixou passar de 0,7.
-    clip_acao = (_np(termo._clip)[0].astype(np.float64) if termo.cfg.clip is not None
-                 else np.tile([-np.inf, np.inf], (len(alvo_ids), 1)).astype(np.float64))
 
     ctrl_ids = _np(robo.indexing.ctrl_ids).astype(np.int64)
     ids_atuador = _mapa_atuador(m, ctrl_ids, _np(robo.indexing.joint_ids), alvo_ids)
@@ -158,7 +152,6 @@ def coleta_cena(env, meia_nominal: float) -> dict[str, np.ndarray]:
         "qd_default": qd_default,
         "q_default_acao": q_default_acao,
         "escala_acao": escala_acao,
-        "clip_acao": clip_acao,
         "ids_atuador": ids_atuador,
         "adr_lin_vel": np.int64(adr_lin),
         "adr_ang_vel": np.int64(adr_ang),
@@ -391,10 +384,8 @@ def paridade(pasta: Path | None, tol: float = 1e-5, passos: int = 80,
             if not reiniciou:
                 ctrl_mjlab = _np(env.sim.data.ctrl)[0].astype(np.float64)
                 ids = np.asarray(c.ids_atuador, dtype=np.int64)
-                _cl = np.asarray(c.clip_acao, dtype=np.float64)
-                esperado = np.clip(np.asarray(c.q_default_acao, dtype=np.float64)
-                                   + np.asarray(c.escala_acao, dtype=np.float64) * anterior,
-                                   _cl[:, 0], _cl[:, 1])
+                esperado = (np.asarray(c.q_default_acao, dtype=np.float64)
+                            + np.asarray(c.escala_acao, dtype=np.float64) * anterior)
                 erro = float(np.abs(ctrl_mjlab[ids] - esperado).max())
                 if erro >= tol and erro > locais["ctrl"]:
                     pior = int(np.abs(ctrl_mjlab[ids] - esperado).argmax())

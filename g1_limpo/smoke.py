@@ -394,21 +394,6 @@ check("todos os padrões sobrevivem à multiplicação",
 check("a escala é o fabricante × escala_acao_mult",
       all(abs(acao.scale[p] - v * c.escala_acao_mult) < 1e-12
           for p, v in G1_ACTION_SCALE.items()))
-# ⚠ O CLIP DO ALVO (18/09): restrição de COMANDO, não recompensa. MEDIDO no
-# `registra_juntas` (20500/21800): `hip_yaw` usa ±6° na marcha, ±10° no carregar, ±14° na
-# IK e 36° no transiente da pega; o BOTAR ia a −144°. O corte fica ACIMA de todo uso
-# legítimo e ABAIXO do hábito, senão ou quebra a marcha ou não impede nada.
-_USO_LEGITIMO_HIP_YAW = 0.62     # rad, o transiente da pega (36°), o maior medido
-_HABITO_HIP_YAW = 1.7            # rad, o menor pouso torto medido (21800, laje 0,53)
-check("o alvo do `hip_yaw` é cortado, e SÓ ele — o clip vem do knob `Cena.clip_acao`",
-      acao.clip is not None and set(acao.clip) == set(c.clip_acao) == {r".*hip_yaw.*"},
-      str(acao.clip))
-_cl = acao.clip[r".*hip_yaw.*"]
-check("o corte é simétrico, acima do maior uso legítimo e abaixo do hábito do BOTAR",
-      _cl[0] == -_cl[1] and _USO_LEGITIMO_HIP_YAW < _cl[1] < _HABITO_HIP_YAW,
-      f"clip {_cl} contra uso {_USO_LEGITIMO_HIP_YAW} e hábito {_HABITO_HIP_YAW}")
-check("o corte cabe no curso mecânico do `hip_yaw` (±2,7576 rad) com folga",
-      _cl[1] < 0.5 * 2.7576, f"{_cl[1]} contra meio-curso 2,7576")
 
 # ------------------------------------------------------------------ 7. eventos
 secao("7. eventos e remoções")

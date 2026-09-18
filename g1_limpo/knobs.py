@@ -97,26 +97,6 @@ class Cena:
     # mover, para 0,8. Não mexer em mais nada no mesmo bloco.
     escala_acao_mult: float = 1.0
 
-    # ⚠⚠ O CLIP DO ALVO DA JUNTA (18/09), por padrão regex, em radianos. Ele corta o
-    # alvo DEPOIS de escala e offset e ANTES do PD (`JointPositionActionCfg.clip`,
-    # `mjlab/envs/mdp/actions/actions.py:158`). Não é recompensa nem multa: o motor
-    # nunca recebe ordem além do corte, portanto a política não aprende a pose.
-    #
-    # ⚠ POR QUE O `hip_yaw`. O curso dele é ±158°, e a marcha usa ±6°, o carregar ±10°,
-    # a referência da IK ±14° e o transiente da pega 36° (`registra_juntas`, 20500). O
-    # BOTAR do resume foi a −144° na laje de 0,25 e a −96°/−48° na laje ALTA de 0,53,
-    # onde a IK quer ±9° — a torção é hábito, não alcance. A rampa do `limite_de_junta`
-    # a partir de 40° (`a37300c`) foi PAGA como preço por 900 iterações sem mover a
-    # pose: recompensa encarece, não impede. ±0,7 rad = ±40° fica 4° acima do maior
-    # uso legítimo medido.
-    #
-    # ⚠ O MESMO CORTE TEM DE IR AO ROBÔ REAL. `exporta_cena` grava `clip_acao` no
-    # `cena.npz`, e `pilota.py` e `registra_juntas.py` o aplicam. Um pilota sem o corte
-    # veria a política pedir 2,5 rad e o motor obedecer — exatamente o que o treino não
-    # viu. Candidatos com o mesmo curso largo, SEM medida que os condene ainda:
-    # `waist_yaw` e `shoulder_yaw` (300°), `shoulder_roll` (220°), `wrist_roll` (226°).
-    clip_acao: dict = field(default_factory=lambda: {r".*hip_yaw.*": (-0.7, 0.7)})
-
     # --- física de manipulação ---
     # cicatriz de 15/07: `elliptic` com `impratio=10` divergiu para NaN no reset
     # parcial. `pyramidal` com 1,0 é o par que roda.
