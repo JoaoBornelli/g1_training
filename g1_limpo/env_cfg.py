@@ -214,6 +214,11 @@ def make_env_cfg(
     assert isinstance(acao, JointPositionActionCfg), type(acao)
     acao.scale = {padrao: v * c.escala_acao_mult
                   for padrao, v in G1_ACTION_SCALE.items()}
+    # ⚠ O CLIP DO ALVO (18/09): o `hip_yaw` não recebe alvo além de ±40°. Ver
+    # `knobs.Cena.clip_acao` — é restrição de COMANDO, não termo de recompensa, e por
+    # isso vale igual do zero e no resume. `None` quando o dict está vazio: o `clip`
+    # vazio faria a mjlab montar um tensor de ±inf à toa.
+    acao.clip = dict(c.clip_acao) or None
 
     # ------------------------------------------ 2b. a recompensa da locomoção (F1)
     # Os DOIS termos que o molde não tem, vindos do `g1_multitask` — o módulo que

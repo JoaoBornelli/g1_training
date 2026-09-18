@@ -65,6 +65,17 @@ class Cena:
         return f"<Cena {len(self._d)} campos, {int(self.dim_obs)} canais>"
 
 
+def clip_da_cena(c: Cena, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """`(lo, hi)` do alvo por atuador, em radianos. Uma cena exportada antes de 18/09
+    não traz `clip_acao`: o pilota avisa e roda sem corte, que é o que o treino dela fez."""
+    if not hasattr(c, "clip_acao"):
+        print("[cena] sem `clip_acao`: exportada antes de 18/09, alvo sem corte")
+        return np.full(n, -np.inf), np.full(n, np.inf)
+    cl = np.asarray(c.clip_acao, dtype=np.float64)
+    assert cl.shape == (n, 2), cl.shape
+    return cl[:, 0], cl[:, 1]
+
+
 def carrega_cena(pasta: str | Path) -> tuple[mujoco.MjModel, Cena]:
     """Lê `cena.mjb` e `cena.npz` da pasta que o `exporta_cena.py` gravou."""
     pasta = Path(pasta).expanduser()
@@ -592,6 +603,7 @@ def main() -> None:
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
     escala_acao = np.asarray(c.escala_acao, dtype=np.float64)
+    clip_lo, clip_hi = clip_da_cena(c, len(escala_acao))
     decimation = int(c.decimation)
     physics_dt = float(c.physics_dt)
     dt = physics_dt * decimation
@@ -621,10 +633,12 @@ def main() -> None:
             obs, _ = monta_observacao(m, d, c, piloto.twist, piloto.elo, acao)
             acao = ator(obs)
 
-            # ⚠ SEM CLAMP NOSSO. Os atuadores são servos de posição com `ctrlrange` no
-            # modelo, e o MuJoCo já satura. Um clamp a mais mudaria o comportamento em
-            # relação ao treino.
-            d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao
+            # ⚠ O ÚNICO CLAMP É O DO TREINO. Os atuadores são servos de posição com
+            # `ctrlrange` no modelo, e o MuJoCo já satura; um clamp NOSSO mudaria o
+            # comportamento. O `clip_acao` vem do `cena.npz` e é o mesmo corte que a
+            # mjlab aplicou no treino (`hip_yaw` em ±0,7 rad desde 18/09): sem ele o
+            # robô obedeceria um alvo que a política nunca viu passar.
+            d.ctrl[ids_atuador] = np.clip(q_default_acao + escala_acao * acao, clip_lo, clip_hi)
 
             for _ in range(decimation):
                 mujoco.mj_step(m, d)

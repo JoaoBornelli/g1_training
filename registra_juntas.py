@@ -31,7 +31,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from pilota import ELOS, Ator, carrega_cena, monta_observacao, restaura
+from pilota import ELOS, Ator, carrega_cena, clip_da_cena, monta_observacao, restaura
 
 I_ANDAR, I_CARREGAR = ELOS.index("ANDAR"), ELOS.index("CARREGAR")
 
@@ -312,6 +312,7 @@ def main() -> None:
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
     escala_acao = np.asarray(c.escala_acao, dtype=np.float64)
+    clip_lo, clip_hi = clip_da_cena(c, len(escala_acao))   # o corte do treino (18/09)
     decimation, physics_dt = int(c.decimation), float(c.physics_dt)
     dt = physics_dt * decimation
 
@@ -369,7 +370,8 @@ def main() -> None:
                         twist[2] = np.clip(args.rumo_k * erro, -1.6, 1.6)
                     obs, _ = monta_observacao(m, d, c, twist, fase.elo, acao)
                     acao = ator(obs)
-                    d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao
+                    d.ctrl[ids_atuador] = np.clip(q_default_acao + escala_acao * acao,
+                                                  clip_lo, clip_hi)
                     for _ in range(decimation):
                         mujoco.mj_step(m, d)
                     # ⚠ obrigatório: o `mj_step` deixa xpos/xquat/sensordata atrasados
