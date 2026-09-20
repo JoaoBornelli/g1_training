@@ -153,3 +153,44 @@ class Caiu:
         z_joelho = (robo.data.body_link_pose_w[:, self._ids_joelho, 2]
                    - env.scene.env_origins[:, 2:3])
         return tombou | (z_joelho.amin(dim=-1) < joelho_z_min)
+
+
+class NoBatente:
+    """Encerra o episódio quando uma junta VIGIADA chega ao batente mecânico.
+
+        frac = |q − centro do curso| / meio curso        1,0 é o batente
+
+    É a MESMA régua do `recompensas.LimiteDeJunta`, e as duas se dividem o trabalho:
+    a rampa ENSINA dentro do curso legal, esta corta o que passa dele.
+
+    ⚠⚠ POR QUE ELA EXISTE. A rampa é `expm1(k·excesso)`, e não dá para ser agressiva no
+    batente E ter derivada além dele: com a banda de 0,05 que a cintura pede, `k = 80`
+    custa 53,6 no batente e 2 980 a 5% dele. Terminar no batente resolve a contradição —
+    a rampa acaba exatamente em 1,00 e não existe "além" para ter derivada.
+
+    ⚠⚠ NÃO VALE PARA AS 29, e isto é MEDIDO, não estético. Sob a força do contato com o
+    chão o `ankle_roll` chega a `frac` 1,49 e o `ankle_pitch` a 1,23: ali o batente mole
+    é empurrado pela FÍSICA, e não escolhido pela política. Vigiar o tornozelo mataria
+    todo episódio. A lista `juntas` é explícita por isso — ela nomeia as juntas cujo
+    batente é DECISÃO DE POSE. Ver `docs/memoria/g1-limpo-batente-e-restricao-mole.md`.
+
+    ⚠ LIMITES DUROS (`joint_pos_limits`), os mesmos do termo de recompensa. O fator 0,9
+    do fabricante não entra aqui, pelo mesmo motivo que não entra lá.
+
+    ⚠ `frac_max` acima de 1,0 dá margem ao batente mole. Em 1,00 a terminação dispara no
+    batente nominal; em 1,02 ela só pega o que o simulador deixa passar dele.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRlEnv") -> None:
+        asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+        robo = env.scene[asset_cfg.name]
+        self._ids, _ = robo.find_joints(cfg.params["juntas"])
+        lim = robo.data.joint_pos_limits[0, self._ids]          # (n, 2)
+        self._centro = lim.mean(dim=-1)
+        self._meio = (lim[:, 1] - lim[:, 0]) / 2.0
+
+    def __call__(self, env: "ManagerBasedRlEnv", juntas: tuple[str, ...],
+                 frac_max: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+        del juntas                                    # resolvidas no `__init__`
+        q = env.scene[asset_cfg.name].data.joint_pos[:, self._ids]
+        return (((q - self._centro) / self._meio).abs() > frac_max).any(dim=1)

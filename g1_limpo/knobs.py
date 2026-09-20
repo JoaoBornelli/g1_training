@@ -1370,7 +1370,15 @@ class LimiteDeJunta:
     teto 0,15. Esta tabela larga existe para CONSERTAR uma política que já aprendeu a
     usar curso inexistente, e ela aceita o batente como preço de trazer a junta de
     volta. Uma política que nasce do zero tem de aprender a NÃO CHEGAR ao batente, e
-    para isso a rampa acaba nele: `tornozelo = punho_cintura = resto = (20.0, 0.15)`.
+    para isso a rampa acaba nele: `tornozelo = punho = resto = (20.0, 0.15)`.
+
+    ⚠⚠ A CINTURA SAIU DO GRUPO DO PUNHO EM 20/09, e a causa é MEDIDA: a rampa de 0,85
+    cobrava a PRÓPRIA REFERÊNCIA DA IK. O `waist_pitch` tem curso de só 60° (±29,8°) e
+    a `ref_botar.npz` o põe a 26,8° em 14 das 15 poses, ou `frac` 0,900 — 1,5° dentro
+    da rampa, custando 1,72 por passo. O `forma_postural` pagava para o robô chegar à
+    pose e este termo cobrava por ele estar nela. Os dois grupos tinham os MESMOS
+    números por acidente; separá-los deixa o limiar da cintura subir sem mexer no
+    punho, cujo pior `frac` medido é 1,08 (`wrist_roll`).
 
     ⚠⚠ O LIMIAR É POR FAMÍLIA DESDE 17/09, e o `hip_yaw` é a quarta família. Um limiar
     em FRAÇÃO DO CURSO só é limite quando o curso é do tamanho do movimento. O `hip_yaw`
@@ -1388,17 +1396,19 @@ class LimiteDeJunta:
 
     #                                        k     teto   limiar (fração do curso)
     tornozelo: tuple[float, float, float] = (4.5, 0.70, 0.85)
-    punho_cintura: tuple[float, float, float] = (12.0, 0.25, 0.85)
+    punho: tuple[float, float, float] = (12.0, 0.25, 0.85)
+    cintura: tuple[float, float, float] = (12.0, 0.25, 0.85)
     resto: tuple[float, float, float] = (20.0, 0.15, 0.85)
     hip_yaw: tuple[float, float, float] = (4.0, 0.75, 0.25)
 
     def por_padrao(self) -> dict[str, tuple[float, float, float]]:
-        """As quatro famílias abertas nos 14 padrões de `FAMILIAS`."""
-        t, p, r, y = self.tornozelo, self.punho_cintura, self.resto, self.hip_yaw
+        """As cinco famílias abertas nos 14 padrões de `FAMILIAS`."""
+        t, p, c = self.tornozelo, self.punho, self.cintura
+        r, y = self.resto, self.hip_yaw
         return por_familia({
             "hip_yaw": y, "hip_roll": r, "hip_pitch": r, "knee": r,
             "ankle_pitch": t, "ankle_roll": t,
-            "waist": p,
+            "waist": c,
             "shoulder_pitch": r, "shoulder_roll": r, "shoulder_yaw": r, "elbow": r,
             "wrist_roll": p, "wrist_pitch": p, "wrist_yaw": p,
         })
