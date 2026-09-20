@@ -1499,6 +1499,31 @@ check("`std_standing` tem uma entrada por padrão de junta — 10, não `.*` ún
       len(cfg.rewards["pose"].params["std_standing"]) == 10,
       str(cfg.rewards["pose"].params["std_standing"]))
 
+# --- A CHAVE DA REFERÊNCIA DE IK (20/09) ---
+# ⚠⚠ O DEFEITO QUE ESTE CHECK TRAVA: até 20/09 a chave era `command[ALVO].z` nos DOIS
+# elos. Fora do BOTAR esse alvo é a ÂNCORA DO PEITO, sorteada em (0,85; 0,95) m, e a
+# tabela acaba em 0,68 — o `clamp` devolvia SEMPRE a última linha, e o PEGAR media
+# contra a pose da laje de 0,55 em todo nível. A tabela existia e não era usada.
+_src_fp = inspect.getsource(RC_.FormaPostural.__call__)
+check("a chave da referência de IK é a CAIXA fora do BOTAR e o ALVO no BOTAR — sem "
+      "isso a tabela fica inerte no PEGAR",
+      "_fora_do_botar(env, nome_do_comando)" in _src_fp
+      and "torch.lerp(" in _src_fp
+      and 'caixa_w = env.scene["box"].data.root_link_pos_w' in _src_fp,
+      "o `__call__` do `FormaPostural` não monta a chave por elo")
+# ⚠ E A TABELA TEM DE COBRIR ONDE A CAIXA NASCE, senão o clamp volta por outro caminho.
+# A caixa nasce em `topo + meia_z` (`eventos.py:203`): `topo` entre o piso do nível e
+# `prateleira_topo_teto`, e `meia_z` na faixa do evento de tamanho.
+import numpy as _np                                              # noqa: E402
+_ref_np = _np.load(pathlib.Path(RC_.__file__).parent / "ik" / "ref_botar.npz")
+_h_tab = (_ref_np["topo"] + _ref_np["meia"])
+_h_lo = min(k.nivel.topo_min) + k.cena.caixa_meia_aresta_faixa[0]
+_h_hi = k.cena.prateleira_topo_teto + k.cena.caixa_meia_aresta_faixa[1]
+check("a tabela da IK cobre toda altura em que a caixa pode nascer "
+      f"({_h_lo:.2f} a {_h_hi:.2f} m)",
+      _h_tab.min() <= _h_lo + 1e-9 and _h_tab.max() >= _h_hi - 1e-9,
+      f"tabela {_h_tab.min():.3f}–{_h_tab.max():.3f} contra caixa {_h_lo:.2f}–{_h_hi:.2f}")
+
 # --- A TABELA POR ESTADO, SEM ENV (spec `g1-limpo-tabela-por-estado.md` §2, §7) ---
 _TABELA = k.peso_por_estado
 _DEZ = [f.name for f in dataclasses.fields(_TABELA)]

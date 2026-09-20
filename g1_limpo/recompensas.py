@@ -847,9 +847,14 @@ class FormaPostural:
     referência, e a referência é aproximada. A rampa já paga mais por estar mais perto
     e nunca exige igualar.
 
-    ⚠ A CHAVE da interpolação é a altura do ALVO do comando (`command[ALVO].z`), que é
-    o centro da caixa no PEGAR e `topo + meia` no BOTAR (`comando.py:1620`): é para
-    onde a mão vai nos dois. Interpolação LINEAR entre as 15 alturas, clamp fora.
+    ⚠ A CHAVE da interpolação é PARA ONDE A MÃO VAI, e ela muda de elo: a altura da
+    CAIXA fora do BOTAR, e a altura do ALVO (`topo + meia`, `comando.py:1620`) no
+    BOTAR. Interpolação LINEAR entre as 15 alturas, clamp fora.
+
+    ⚠⚠ ATÉ 20/09 A CHAVE ERA O ALVO NOS DOIS ELOS, e isso ANULAVA a tabela no PEGAR:
+    ali o alvo é a âncora do peito, sorteada em (0,85; 0,95) m, e o clamp devolvia
+    sempre a última linha. Todo env de PEGAR media contra a pose da laje de 0,55 m,
+    qualquer que fosse o nível. Ver o comentário no `__call__`.
 
     ⚠ NÃO entra em `TERMOS_CONGELAVEIS`, decisão declarada: o que se perde no fecho é
     no máximo o peso (2/s) contra ~13,8/s de renda congelada dos sete — fechar continua
@@ -917,7 +922,25 @@ class FormaPostural:
         robot = env.scene["robot"].data
         n = env.num_envs
         origem_z = env.scene.env_origins[:, 2]
-        ref = self.referencia(_alvo(env, nome_do_comando)[:, 2] - origem_z)
+        # ⚠⚠ A CHAVE É PARA ONDE A MÃO VAI, e ela MUDA DE ELO. Corrigido em 20/09; até
+        # ali a linha lia `_alvo(...)[:, 2]` nos dois elos, e isso ANULAVA a tabela no
+        # PEGAR. Fora do BOTAR o alvo do comando é a ÂNCORA DO PEITO, absoluta e
+        # sorteada em `altura_carregar_faixa` = (0,85; 0,95) (`comando.py:1696`), que é
+        # a altura de CARREGAR e não a altura que a mão tem de alcançar. A tabela acaba
+        # em h = 0,68, portanto o `clamp` de `referencia()` devolvia SEMPRE a última
+        # linha — a pose da laje de 0,55 — em todo env de PEGAR, em todo nível.
+        #
+        # A caixa nasce em `topo + meia_z`, com `topo` em [0,04; 0,55] e `meia_z` em
+        # [0,07; 0,13] (`eventos.py:203`, `knobs.py:30`): exatamente [0,11; 0,68], que é
+        # a faixa para a qual a tabela foi gerada. Ler a caixa faz o PEGAR usar a tabela
+        # inteira, e faz o PEGAR e o BOTAR virarem o MESMO movimento invertido.
+        #
+        # ⚠ Erguendo a caixa, a chave SOBE com ela e a referência fica mais ereta. É o
+        # gradiente certo: quem levanta a caixa levanta o corpo junto.
+        caixa_w = env.scene["box"].data.root_link_pos_w
+        fora = _fora_do_botar(env, nome_do_comando)          # 1 fora do BOTAR, 0 nele
+        chave = torch.lerp(_alvo(env, nome_do_comando)[:, 2], caixa_w[:, 2], fora)
+        ref = self.referencia(chave - origem_z)
         # ⚠ a MESMA leitura da pelve do `postura_ereta` e do `limite_de_pelve`
         pelve_z = robot.root_link_pos_w[:, 2] - origem_z
         z_torso = quat_apply(robot.body_link_quat_w[:, self.id_torso[0]], self.ez.expand(n, 3))
@@ -926,7 +949,7 @@ class FormaPostural:
         larg = quat_apply_inverse(robot.root_link_quat_w, pes[:, 0] - pes[:, 1])[:, 1].abs()
         t = _t(env, nome_do_comando)
         alvos = t.alvos_das_palmas(torch.arange(n, device=env.device))      # (n, 2, 3)
-        caixa = env.scene["box"].data.root_link_pos_w.unsqueeze(1)
+        caixa = caixa_w.unsqueeze(1)                       # já lido para a chave
         para_dentro = torch.nn.functional.normalize(caixa - alvos, dim=-1)
         normais = quat_apply(robot.site_quat_w[:, self.ids_palma],
                              self.normais_locais.expand(n, 2, 3))
