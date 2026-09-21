@@ -1067,12 +1067,27 @@ class velocidade_por_regime:
     locomoção e, sem este termo, nada cobrava o excesso de velocidade na manipulação
     parada.
 
-    ⚠ O REGIME VEM DO COMANDO, não da velocidade medida: `total = ‖cmd[:2]‖ +
-    |cmd[2]|`, lido de `command_name` — o `twist`, e não o `alvo_caixa`. Em todo elo
-    de manipulação `comando._zera_twist_nos_parados` escreve zero no `twist`, portanto
-    `total = 0 < walking_threshold` SEMPRE, e o regime é `standing` — O REGIME JÁ É O
-    GATE DA TAREFA. Não acrescente gate por `limpo_twist_zerado`, por `VALIDA` nem
-    pela tabela por estado (`PesoPorEstado`) — este termo fica FORA dela.
+    ⚠ O REGIME VEM DO COMANDO na locomoção: `total = ‖cmd[:2]‖ + |cmd[2]|`, lido de
+    `command_name` — o `twist`, e não o `alvo_caixa`. Na MANIPULAÇÃO ele vem do ESTADO,
+    por `env.limpo_twist_zerado`. Este termo continua FORA da tabela por estado
+    (`PesoPorEstado`): o gate aqui escolhe a TABELA DE LIMITE, e não multiplica o valor.
+
+    ⚠⚠ ATÉ 21/09 O GATE ERA SÓ O COMANDO, e a premissa que o justificava CAIU. Ela era:
+    "em todo elo de manipulação `_zera_twist_nos_parados` escreve zero no `twist`,
+    portanto `total = 0 < walking_threshold` SEMPRE". Desde 17/09 aquela função escreve
+    `wz = heading_control_stiffness · wrap(rumo_ref − rumo)` em vez de zero, para o robô
+    não derivar de rumo parado. Com `k = 0,5` e `walking_threshold = 0,05`, um erro de
+    rumo de 5,7° já põe o env no regime `walking`, e a tabela salta de 1,5 rad/s para
+    2,0 a 6,5 — 2,7× mais frouxa em média.
+
+    MEDIDO no `21700_botar_resume.csv`: 17,3% dos passos da espera, 31,3% dos da pega e
+    28,0% dos do pouso rodavam como `walking`. O termo cobrava 1,06 no episódio onde
+    deveria cobrar 2,52 — 58% do freio perdido, e 0,48 dos 0,58 na PEGA, que é
+    exatamente onde a pressa aparece no visualizador. O dono viu a pressa antes de a
+    medição existir.
+
+    A pergunta certa não é "o comando é pequeno", é "este env deve viajar". O segundo
+    sinal já existe e é publicado pela MESMA função que escreve a correção de rumo.
 
     ⚠ `walking_threshold = 0,05` e `running_threshold = 1,5`, os MESMOS do molde
     (`variable_posture`, `mjlab/tasks/velocity/mdp/rewards.py:437-438`) — não viram
@@ -1091,9 +1106,17 @@ class velocidade_por_regime:
     limite de ~1,5, e `e^{5,7}` num único passo dominaria o lote. O quadrado já
     cresce sem teto.
 
-    ⚠ Confira à mão, com o peso −2,0: v=0 -> 0; v=vmax -> 0; v=2·vmax -> 1,0, custo
-    2,0/s; v=3·vmax -> 4,0, custo 8,0/s; v=5·vmax -> 16,0, custo 32,0/s. A forma NÃO
-    paga renda grátis parado, e não perdoa correr.
+    ⚠ Confira à mão, com o peso −15,0 (21/09; era −2,0): v=0 -> 0; v=vmax -> 0;
+    v=2·vmax -> 1,0, custo 15,0/s; v=3·vmax -> 4,0, custo 60,0/s; v=5·vmax -> 16,0,
+    custo 240,0/s. A forma NÃO paga renda grátis parado, e não perdoa correr.
+
+    ⚠⚠ ATENÇÃO À DILUIÇÃO: os números acima são o custo de UMA junta se TODAS as 29
+    estiverem no mesmo excesso. A `torch.mean` divide por 29 SEMPRE, e a dobradiça dá
+    zero exato para junta dentro do limite — logo média é soma÷29, e uma única junta a
+    5·vmax custa 240/29 = 8,3/s, e não 240. Trocar a média por soma seria só multiplicar
+    o peso por 29; não é conserto de forma. O que se mede é o custo REAL: MEDIDO no
+    `model_24999`, a rajada da pega (0,62 s, mão a 2,58 m/s) custa 8,64 acumulados com
+    este peso, contra ~6,9 que fechar a pega meio segundo antes compra.
 
     ⚠ `vel_max_standing` é dict POR FAMÍLIA de junta (`knobs.Tarefa`), com os MESMOS
     14 padrões de `vel_max_walking`. `walking`/`running` NÃO mudam — são o p99 da
@@ -1138,10 +1161,21 @@ class velocidade_por_regime:
         angular_speed = torch.abs(command[:, 2])
         total_speed = linear_speed + angular_speed
 
-        standing_mask = (total_speed < walking_threshold).float()
-        walking_mask = ((total_speed >= walking_threshold)
-                       & (total_speed < running_threshold)).float()
-        running_mask = (total_speed >= running_threshold).float()
+        # ⚠⚠ NA MANIPULAÇÃO QUEM MANDA É O ESTADO, E NÃO O COMANDO (21/09). Sem estas
+        # linhas a correção de rumo troca a TABELA de limite: `_zera_twist_nos_parados`
+        # escreve `wz = 0,5 × erro de rumo` desde 17/09, e a partir de 5,7° de erro a
+        # soma cruza o `walking_threshold` de 0,05. MEDIDO no `21700`: 31,3% dos passos
+        # da pega rodavam com a tabela de ANDAR, 2,7× mais frouxa em média, e o termo
+        # cobrava 1,06 onde deveria cobrar 2,52 — 58% do freio perdido.
+        parado = getattr(env, "limpo_twist_zerado", None)
+        standing = total_speed < walking_threshold
+        if parado is not None:
+            standing = standing | (parado > 0.5)
+        standing_mask = standing.float()
+        # ⚠ As três seguem EXCLUSIVAS por construção: quem é `standing` não é `walking`
+        # nem `running`, mesmo com o comando acima do limiar.
+        walking_mask = (~standing & (total_speed < running_threshold)).float()
+        running_mask = (~standing & (total_speed >= running_threshold)).float()
 
         vmax = (self.vel_max_standing * standing_mask.unsqueeze(1)
                + self.vel_max_walking * walking_mask.unsqueeze(1)

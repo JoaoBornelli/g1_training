@@ -813,7 +813,39 @@ class Tarefa:
     # grátis. Com a dobradiça a derivada em 3× é `4/vmax` por rad/s e sobe com o
     # excesso; e o `vel_max_standing` por FAMÍLIA (acima) é a fronteira que deixa a
     # mediana livre e cobra a pressa.
-    velocidade_por_regime: float = -2.0
+    # ⚠⚠ −2,0 -> −15,0 EM 21/09, E A RAZÃO É SEGURANÇA DE PESSOAS, e não a tarefa. O
+    # dono: "o G1 não pode se mexer muito rapidamente por questões de segurança das
+    # pessoas ao redor; esse é o principal motivo de desacelerar o robô". O escopo é a
+    # MANIPULAÇÃO: "no andar tudo bem, o robô trabalha relativamente comedido, nas
+    # tarefas de manipulação ele tenta fazer o mais rápido possível". O andar não muda —
+    # ele usa `vel_max_walking`, intocada.
+    #
+    # ⚠ A GRANDEZA DE SEGURANÇA É A MÃO NO ESPAÇO, e não o ângulo por segundo. MEDIDO no
+    # `model_24999` por cinemática direta (`m24999_carregar.csv`, fase da pega): a mão
+    # chega a 2,58 m/s e o cotovelo a 2,08. A ISO/TS 15066 usa 0,25 m/s como velocidade
+    # reduzida. O ombro a 7,7 rad/s com braço de 0,35 m dá os 2,58.
+    #
+    # ⚠⚠ O LIMITE NÃO ERA O PROBLEMA; O PREÇO ERA. A 7,7 rad/s a junta já está a 5× o
+    # `vel_max_standing` de 1,5 — bem dentro da zona cobrada. MEDIDO: 318 dos 350 passos
+    # da pega custam ZERO, porque a mão fica abaixo de 0,25 m/s. A violação é um PULSO de
+    # 0,62 s. Baixar o limite cobraria os 91% que já são seguros e não tocaria o pulso.
+    #
+    # ⚠ O NÚMERO SAI DE UM BALANÇO, e não de gosto. Fechar a pega meio segundo antes
+    # compra ~6,9 de renda congelada (13,8/s × 0,5 s). Custo acumulado da rajada:
+    #
+    #     peso     −2      −8     −15
+    #     custo  1,15    4,61    8,64      contra 6,9 que a pressa compra
+    #
+    # Só em −15 a pressa deixa de ser um bom negócio. Em −8 ela ainda rende.
+    #
+    # ⚠ E ELE DEPENDE DA CORREÇÃO DO REGIME (`recompensas.velocidade_por_regime`, mesma
+    # data). Sem ela, 22,6% dos passos da rajada são medidos contra a tabela de ANDAR e a
+    # rajada custa 4,85 em vez de 8,64 — 44% a menos, e a pressa volta a valer. As duas
+    # multiplicam: o regime escolhe a TABELA, o peso escolhe o CUSTO.
+    #
+    # ⚠ O RISCO, DECLARADO: a pega fica lenta e a cadeia demora mais a fechar. Se o `s_B`
+    # cair e não voltar em ~1000 iterações, o peso está alto e o meio-termo é −8.
+    velocidade_por_regime: float = -15.0
 
     # ⚠ A FAIXA DE POSE (`knobs.FaixaDePose`, abaixo). Peso −0,5 e `escala` 1,5 saem de
     # uma conta contra a pose MEDIDA em `model_11322` (`registra_juntas`, laje a 0,15 m):
