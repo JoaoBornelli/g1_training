@@ -92,6 +92,17 @@ DIM = 12
 ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
 ELOS = ("andar", "reorientar", "pegar", "carregar", "botar")
 
+# --- o REGIME DA FACE, por elo. Ver `_atualiza_face`. ---
+# ⚠ Era um bool (`_face_viva`) com dois regimes até 21/09. O terceiro entrou porque o
+# congelamento NO BOTAR capturava a normal da caixa TOMBADA nas mãos e passava a exigir
+# que ela mantivesse o tombo — o giro que ele reprovava era o ENDIREITAMENTO. Medido no
+# `model_9100`: a caixa chega ao BOTAR tombada 29,7° (laje 0,55) e 52,2° (laje 0,35) e
+# termina a 0,0°, porque a laje a nivela. Ver
+# `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
+FACE_VIVA = 0       # REORIENTAR: a face marcada aponta para o robô, recalculado todo passo
+FACE_CONGELADA = 1  # ANDAR, PEGAR, CARREGAR: a face marcada contra a normal da abertura
+FACE_DE_PE = 2      # BOTAR: o eixo Z DA CAIXA contra a vertical do mundo
+
 # --- os DEZ estados de recompensa (spec `g1-limpo-tabela-por-estado.md` §1). ---
 # A enumeração COMPLETA do que ocorre num env, publicada em `env.limpo_estado` por
 # `_aplica_espera` e lida por `recompensas.PesoPorEstado`, que indexa com ela a tabela
@@ -420,11 +431,12 @@ class AlvoCaixaCmd(CommandTerm):
         self._face_b = torch.tensor(cfg.face_alvo_b, device=d)
         # --- A DIREÇÃO PEDIDA PARA A FACE MARCADA, e se ela é VIVA ou CONGELADA.
         #
-        # ⚠ DOIS PEDIDOS DIFERENTES, e confundi-los apagou o termo. No `REORIENTAR` a
-        # direção pedida é VIVA: "vire a face para o robô", recalculada todo passo. Em
-        # todos os outros elos ela é CONGELADA na normal ATUAL no instante em que o elo
-        # abre, e aí o termo pergunta "a caixa girou desde então?" — isto é, ele paga
-        # por ERGUER SEM TORCER.
+        # ⚠ TRÊS PEDIDOS DIFERENTES, e confundi-los apagou o termo. No `REORIENTAR` a
+        # direção pedida é VIVA: "vire a face para o robô", recalculada todo passo. No
+        # `PEGAR` e no `CARREGAR` ela é CONGELADA na normal ATUAL no instante em que o
+        # elo abre, e aí o termo pergunta "a caixa girou desde então?" — isto é, ele paga
+        # por ERGUER SEM TORCER. No `BOTAR` ela é a VERTICAL DO MUNDO, contra o eixo Z da
+        # própria caixa: "pouse a caixa DE PÉ". Ver `FACE_DE_PE` no topo do módulo.
         #
         # Até 28/08 a direção era viva em TODO elo, e o `precise_ori` (peso 1,0) ficava
         # inerte: no nível 0 a caixa nasce alinhada (`voltas_max = 0`, desalinho <= 15°)
@@ -435,7 +447,13 @@ class AlvoCaixaCmd(CommandTerm):
         # O `g1_poc` faz exatamente esta separação (`g1_poc/comando.py:246`) e declara
         # o motivo: o `precise_ori` congelado é o que substitui o `box_shake` de −0,15.
         self._face_alvo_w = torch.zeros(n, 3, device=d)
-        self._face_viva = torch.zeros(n, dtype=torch.bool, device=d)
+        self._regime_face = torch.full((n,), FACE_CONGELADA, dtype=torch.long, device=d)
+        # o eixo Z, no frame da CAIXA e no do MUNDO. Os dois são o mesmo vetor e mesmo
+        # assim ficam separados: um é "que eixo da caixa eu meço", o outro é "para onde
+        # ele tem de apontar", e juntá-los num só some com a distinção no dia em que o
+        # segundo estágio (a pose de destino) trocar só o segundo.
+        self._ez_b = torch.tensor([0.0, 0.0, 1.0], device=d)
+        self._ez_w = torch.tensor([0.0, 0.0, 1.0], device=d)
         self._elo = torch.full((n,), PEGAR, dtype=torch.long, device=d)
         # ⚠⚠ O `_pendente` existe por causa de uma armadilha MEDIDA em 25/08.
         #
@@ -1537,12 +1555,22 @@ class AlvoCaixaCmd(CommandTerm):
         self._command[ids, ELO] = self._elo[ids].float()
         origem = self._env.scene.env_origins[ids]
 
-        # ⚠ O REGIME DA FACE, e ele é por elo. Só o `REORIENTAR` pede uma direção
-        # VIVA; os outros congelam a normal do instante da abertura e passam a medir
-        # "a caixa girou desde então?". Escrito ANTES do laço porque o `_congela_face`
-        # precisa da normal fresca, e esta função roda na passada do `_pendente`.
-        self._face_viva[ids] = self._elo[ids] == REORIENTAR
-        self._congela_face(ids[self._elo[ids] != REORIENTAR])
+        # ⚠ O REGIME DA FACE, e ele é por elo. O `REORIENTAR` pede uma direção VIVA; o
+        # `BOTAR` pede a VERTICAL; os outros congelam a normal do instante da abertura e
+        # passam a medir "a caixa girou desde então?". Escrito ANTES do laço porque o
+        # `_congela_face` precisa da normal fresca, e esta função roda na passada do
+        # `_pendente`.
+        #
+        # ⚠⚠ O BOTAR SAI DO CONGELAMENTO (21/09), e esta é a linha que mata a referência
+        # tombada: `_congela_face` e `_recalcula_sigmas` rodam no MESMO passo no avanço de
+        # elo, portanto o erro inicial do BOTAR era zero POR CONSTRUÇÃO e o `sigma_ori`
+        # caía no piso de 0,20 rad sempre. Com a vertical, o erro na abertura é o tombo
+        # real (29,7° e 52,2° medidos) e o σ nasce vivo sem ninguém tocar nele.
+        elo_de = self._elo[ids]
+        self._regime_face[ids] = torch.where(
+            elo_de == REORIENTAR, FACE_VIVA,
+            torch.where(elo_de == BOTAR, FACE_DE_PE, FACE_CONGELADA))
+        self._congela_face(ids[self._regime_face[ids] == FACE_CONGELADA])
 
         for elo in (ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR):
             m = ids[self._elo[ids] == elo]
@@ -1804,6 +1832,13 @@ class AlvoCaixaCmd(CommandTerm):
         # ⚠ O σ de ORIENTAÇÃO é o ÂNGULO inicial, em radianos — outra unidade, outro
         # piso. Com σ fixo de 0,40 rad um pedido de 90° dá `exp(−(1,57/0,40)²)` =
         # 2,0e−7, isto é zero: era a "sorte de nível 3+" medida no `g1_poc`.
+        #
+        # ⚠⚠ ESTA LINHA SÓ FUNCIONA COM ALVO INDEPENDENTE DO ROBÔ, e é por isso que o
+        # `BOTAR` deixou de congelar a face em 21/09. Um alvo capturado da pose ATUAL
+        # nasce com erro zero por definição, logo `sigma_ori` cai no piso SEMPRE e o
+        # `precise_ori` vira canal morto — medido, 2e−4 de valor e 1e−4 por grau de
+        # derivada nos 33° reais. Com a vertical como referência o erro na abertura é o
+        # tombo de verdade (29,7° e 52,2° medidos) e o σ nasce vivo sozinho.
         self._atualiza_face(ids)
         self.sigma_ori[ids] = (self._command[ids, ANG] * c.sigma_fator).clamp(
             min=c.sigma_ori_min)
@@ -1811,9 +1846,15 @@ class AlvoCaixaCmd(CommandTerm):
     def _congela_face(self, ids: torch.Tensor) -> None:
         """Fixa a direção pedida na normal ATUAL da face marcada.
 
-        Chamado no instante em que um elo que NÃO é o `REORIENTAR` abre. A partir daí
+        Chamado no instante em que um elo de regime `FACE_CONGELADA` abre. A partir daí
         o `precise_ori` mede o giro acumulado desde a abertura do elo — ele paga por
         erguer sem torcer, e não por apontar a face a lugar nenhum.
+
+        ⚠⚠ O `BOTAR` NÃO PASSA MAIS POR AQUI (21/09). Ele e o `_recalcula_sigmas` rodavam
+        no MESMO passo no avanço de elo, então o erro inicial dele era zero POR
+        CONSTRUÇÃO e o `sigma_ori` caía no piso de 0,20 rad em todo episódio — canal
+        morto. E a normal capturada era a da caixa TOMBADA nas mãos, o que fazia o
+        `alinhado` exigir que ela mantivesse o tombo. O `BOTAR` usa `FACE_DE_PE`.
         """
         if len(ids) == 0:
             return
@@ -1822,27 +1863,42 @@ class AlvoCaixaCmd(CommandTerm):
             self.caixa.data.root_link_quat_w[ids], fb)
 
     def _atualiza_face(self, ids: torch.Tensor) -> None:
-        """Publica a DIREÇÃO DESEJADA e o ERRO angular da face marcada.
+        """Publica a DIREÇÃO DESEJADA e o ERRO angular do eixo medido da caixa.
 
-            FACE  a direção em que a face marcada DEVE apontar.
-            ANG   o erro angular ATUAL, em radianos, entre a normal da face marcada e
-                  essa direção. Zero = alinhada.
+            FACE  a direção em que o eixo medido DEVE apontar.
+            ANG   o erro angular ATUAL, em radianos, entre o eixo medido e essa
+                  direção. Zero = alinhado.
 
-        ⚠ A DIREÇÃO PEDIDA TEM DOIS REGIMES, e é isso que dá função ao termo em todo
-        elo. Ver o bloco de `_face_viva` no `__init__`:
+        ⚠ A DIREÇÃO PEDIDA TEM TRÊS REGIMES, e é isso que dá função ao termo em todo
+        elo. Ver `FACE_VIVA`/`FACE_CONGELADA`/`FACE_DE_PE` no topo do módulo:
 
-            REORIENTAR   VIVA — da caixa para o robô, na horizontal, todo passo.
-            os outros    CONGELADA na normal do instante em que o elo abriu.
+            REORIENTAR   VIVA — a face marcada, para o robô, na horizontal, todo passo.
+            PEGAR etc.   CONGELADA — a face marcada, contra a normal da abertura.
+            BOTAR        DE PÉ — o eixo Z DA CAIXA, contra a vertical do mundo.
+
+        ⚠⚠ O REGIME TROCA O VETOR MEDIDO, e não só a direção pedida. No `FACE_DE_PE` a
+        pergunta é "a caixa está de pé?", e a face marcada é LATERAL (`face_alvo_b` =
+        −x): pedir que ELA aponte para cima seria pedir a caixa deitada. Quem responde
+        "de pé" é o eixo Z da caixa contra o Z do mundo.
 
         ⚠ O erro é o ângulo entre dois vetores 3D, e não uma rotação em torno de Z. É
         de propósito: se a caixa estiver TOMBADA, a normal da face marcada aponta para
         cima, e o erro tem de acusar isso — 90°, e não 0.
+
+        ⚠ A GUINADA fica LIVRE no `FACE_DE_PE`, e é decisão do dono (21/09): a caixa
+        assentada com o lado de cima para cima já é o resultado bom. O requisito de
+        orientação pré-determinada entra quando o REORIENTAR sair de inerte, e entra
+        por este MESMO campo — ver `docs/planos/2026-09-21-botar-referencia-de-pe.md`.
         """
         if len(ids) == 0:
             return
         k = len(ids)
-        fb = self._face_b.expand(k, 3)
-        normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], fb)
+        r = self._regime_face[ids].unsqueeze(-1)
+        de_pe = r == FACE_DE_PE
+
+        # o eixo da CAIXA que este elo mede, e a direção em que ele tem de apontar
+        eixo_b = torch.where(de_pe, self._ez_b.expand(k, 3), self._face_b.expand(k, 3))
+        normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], eixo_b)
 
         para_o_robo = (self.robot.data.root_link_pos_w[ids]
                        - self.caixa.data.root_link_pos_w[ids])
@@ -1850,10 +1906,11 @@ class AlvoCaixaCmd(CommandTerm):
         para_o_robo[:, 2] = 0.0        # a direção pedida é HORIZONTAL
         viva = para_o_robo / para_o_robo.norm(dim=-1, keepdim=True).clamp(min=1e-6)
 
-        # ⚠ `where` e não indexação por máscara: os dois ramos são densos e do mesmo
+        # ⚠ `where` e não indexação por máscara: os ramos são densos e do mesmo
         # tamanho, e assim não há um segundo caminho de escrita para manter em dia.
         desejada = torch.where(
-            self._face_viva[ids].unsqueeze(-1), viva, self._face_alvo_w[ids])
+            r == FACE_VIVA, viva,
+            torch.where(de_pe, self._ez_w.expand(k, 3), self._face_alvo_w[ids]))
 
         self._command[ids, FACE] = desejada
         cos = (normal_w * desejada).sum(-1).clamp(-1.0, 1.0)
@@ -1910,9 +1967,14 @@ class AlvoCaixaCmd(CommandTerm):
                                       label="sem alvo de caixa (valida=0)")
                 continue
 
-            # A NORMAL ATUAL da face MARCADA (o que ela É) e a DIREÇÃO DESEJADA
-            # (onde ela DEVE apontar). O erro é o ângulo entre as duas.
-            fb = self._face_b.unsqueeze(0)
+            # O EIXO MEDIDO da caixa (o que ele É) e a DIREÇÃO DESEJADA (onde ele DEVE
+            # apontar). O erro é o ângulo entre os dois.
+            # ⚠ O eixo SEGUE O REGIME (21/09): no BOTAR quem é medido é o Z da caixa, e
+            # não a face marcada. Desenhar a face aqui faria o visualizador mentir —
+            # a seta não casaria com o `ANG` impresso ao lado dela.
+            de_pe_i = bool(self._regime_face[i] == FACE_DE_PE)
+            fb = (self._ez_b if de_pe_i else self._face_b).unsqueeze(0)
+            nome_eixo = "eixo Z da CAIXA" if de_pe_i else "face MARCADA"
             n_at = quat_apply(self.caixa.data.root_link_quat_w[i:i + 1], fb)[0]
             n_at = n_at.cpu().numpy()
             erro = np.degrees(float(self._command[i, ANG]))
@@ -1921,7 +1983,7 @@ class AlvoCaixaCmd(CommandTerm):
                 if hasattr(self._env, "limpo_voltas") else 0
             visualizer.add_arrow(
                 start=caixa_p, end=caixa_p + n_at * 0.30, color=_VERDE, width=0.014,
-                label=f"face MARCADA aponta aqui")
+                label=f"{nome_eixo} aponta aqui")
             visualizer.add_arrow(
                 start=caixa_p, end=caixa_p + face * 0.30, color=_MAGENTA, width=0.012,
                 label=f"DEVE apontar aqui  ·  erro {erro:.0f}°  ·  "

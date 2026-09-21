@@ -166,6 +166,15 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
             func=media_por_estado, reduce="last",
             params={"grandeza": "tronco_incl",
                     "estados": (ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
+        # ⚠ A SENTINELA DO `FACE_DE_PE` (21/09): quantos graus a caixa está tombada
+        # enquanto o robô a segura e enquanto a pousa. O `precise_ori` devolve um kernel
+        # normalizado por σ e não diz o ângulo; esta diz. MEDIDO no `model_9100`, antes
+        # da troca de referência: 29,7° na laje 0,55 e 52,2° na 0,35 na abertura do
+        # BOTAR, e 0,0° no pouso. "Indo para a referência" se lê pela QUEDA dela.
+        "caixa_na_pega": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "caixa_incl",
+                    "estados": (ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
     }
 
 
@@ -478,6 +487,14 @@ class media_por_estado:
         elif grandeza == "tronco_incl":
             # ⚠ A MESMA conta do `recompensas.FormaPostural`, em GRAUS para o painel.
             z = quat_apply(robot.body_link_quat_w[:, self.id_torso],
+                           self.ez.expand(env.num_envs, 3))
+            x = torch.rad2deg(torch.acos(z[:, 2].clamp(-1.0, 1.0)))
+        elif grandeza == "caixa_incl":
+            # ⚠ O TOMBAMENTO DA CAIXA, em graus: o eixo Z dela contra a vertical. É a
+            # MESMA grandeza que o `BOTAR` passou a medir em `comando.FACE_DE_PE`, e
+            # esta é a sentinela dela — o `precise_ori` devolve um kernel e não diz
+            # quantos graus a caixa está tombada.
+            z = quat_apply(env.scene["box"].data.root_link_quat_w,
                            self.ez.expand(env.num_envs, 3))
             x = torch.rad2deg(torch.acos(z[:, 2].clamp(-1.0, 1.0)))
         else:

@@ -1027,27 +1027,52 @@ nenhum topo satisfaz as duas coisas. Aí a laje vai ao chão e o alvo fica acima
 caixa — geometricamente impossível de satisfazer, *"e é melhor declarar que violar em
 silêncio"*.
 
-### 8.5 A face e o erro angular — dois regimes
+### 8.5 A face e o erro angular — três regimes
 
 ```python
-self._face_viva[ids] = (self._elo[ids] == REORIENTAR)
-self._congela_face(ids[self._elo[ids] != REORIENTAR])
+elo_de = self._elo[ids]
+self._regime_face[ids] = where(elo_de == REORIENTAR, FACE_VIVA,
+                         where(elo_de == BOTAR,      FACE_DE_PE, FACE_CONGELADA))
+self._congela_face(ids[self._regime_face[ids] == FACE_CONGELADA])
 ```
 
-| elo | direção pedida | o termo pergunta |
-|---|---|---|
-| **REORIENTAR** | **VIVA** — da caixa para o robô, na horizontal, recalculada todo passo | "vire a face para mim" |
-| todos os outros | **CONGELADA** na normal do instante em que o elo abriu | "a caixa girou desde então?" |
+| elo | eixo medido | direção pedida | o termo pergunta |
+|---|---|---|---|
+| **REORIENTAR** | a face marcada | **VIVA** — da caixa para o robô, na horizontal, todo passo | "vire a face para mim" |
+| **BOTAR** | **o eixo Z da CAIXA** | **A VERTICAL do mundo** | "a caixa está de pé?" |
+| ANDAR, PEGAR, CARREGAR | a face marcada | **CONGELADA** na normal do instante em que o elo abriu | "a caixa girou desde então?" |
 
 ```python
 def _atualiza_face(self, ids):
-    normal_w   = quat_apply(caixa_quat, face_alvo_b)          # o que ela É
+    de_pe      = self._regime_face[ids] == FACE_DE_PE
+    eixo_b     = where(de_pe, ez_b, face_alvo_b)              # QUAL eixo se mede
+    normal_w   = quat_apply(caixa_quat, eixo_b)               # o que ele É
     para_robo  = (robo_pos − caixa_pos); para_robo.z = 0      # HORIZONTAL
     viva       = normalize(para_robo)
-    desejada   = where(self._face_viva, viva, self._face_alvo_w)
+    desejada   = where(regime == FACE_VIVA, viva,
+                 where(de_pe,               ez_w, self._face_alvo_w))
     self._command[ids, FACE] = desejada
     self._command[ids, ANG]  = acos(clamp(normal_w · desejada, −1, 1))
 ```
+
+> ⚠⚠ **O `FACE_DE_PE` entrou em 21/09, e o regime troca o EIXO MEDIDO, não só a direção.**
+> A face marcada é **lateral** (`face_alvo_b = −x`): pedir que ela aponte para cima seria
+> pedir a caixa deitada. Quem responde "de pé" é o eixo Z da caixa.
+>
+> O `BOTAR` congelava, e isso quebrava o termo por dois caminhos ao mesmo tempo.
+> **Primeiro**, `_congela_face` e `_recalcula_sigmas` rodam no **mesmo passo** no avanço de
+> elo (`comando.py:720-721`), logo o erro inicial do `BOTAR` era **zero por construção** e
+> o `sigma_ori` caía no piso de 0,20 rad em todo episódio — nos 33° reais o `precise_ori`
+> valia 2e−4 com derivada de 1e−4 por grau. **Segundo**, a normal capturada era a da caixa
+> **tombada nas mãos**: medido no `model_9100`, ela chega ao `BOTAR` a 29,7° (laje 0,55) e
+> 52,2° (laje 0,35) e termina a **0,0°**, porque a laje a nivela. O giro que o `alinhado`
+> reprovava era o **endireitamento**.
+>
+> A guinada fica **livre** no `FACE_DE_PE`, por decisão do dono: a caixa assentada com o
+> lado de cima para cima já é o resultado bom. O requisito de orientação pré-determinada
+> entra quando o `REORIENTAR` sair de inerte, e entra por este **mesmo campo**. Ver
+> `docs/planos/2026-09-21-botar-referencia-de-pe.md` e
+> `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
 
 > ⚠ Até 28/08 a direção era **viva em todo elo**, e o `precise_ori` (peso 1,0) ficava
 > **inerte**: no nível 0 a caixa nasce alinhada (`voltas_max = 0`, desalinho ≤ 15°) e

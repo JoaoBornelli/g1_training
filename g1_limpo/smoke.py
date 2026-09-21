@@ -2558,8 +2558,8 @@ try:
     # nível 0 (caixa nasce alinhada, `sigma_ori` com piso de 0,20 rad) E o alvo se
     # movia com o ROBÔ: andar em volta da caixa mudava o termo sem tocá-la.
     check("no `PEGAR` a direção pedida está CONGELADA",
-          not bool(_t5c._face_viva.any()),
-          "este env foi forçado no PEGAR — nenhuma face pode estar viva")
+          bool((_t5c._regime_face == CMD.FACE_CONGELADA).all()),
+          "este env foi forçado no PEGAR — o regime tem de ser FACE_CONGELADA")
     # ⚠ A TOLERÂNCIA COBRE O ASSENTAMENTO DA CAIXA, e não o desenho: a normal é
     # congelada na passada do `_pendente` e a caixa continua assentando na laje depois
     # disso. MEDIDO em execuções seguidas: até 0,024 rad. Com 2e−2 o check falhava
@@ -4029,6 +4029,36 @@ try:
           "mesma pose (σ = d₀ no passo em que o VALIDA acende; v3.3)",
           _alc_pegar < 0.1 and abs(_alc_botar - math.exp(-1)) < 0.02,
           f"pegar {_alc_pegar:.3f}, botar {_alc_botar:.3f}")
+    # 17. O BOTAR mede o eixo Z DA CAIXA contra a VERTICAL (21/09), e não a face
+    # congelada. Antes disto o `_congela_face` capturava a normal da caixa TOMBADA nas
+    # mãos e o `alinhado` passava a exigir que ela MANTIVESSE o tombo: o giro reprovado
+    # era o ENDIREITAMENTO. Medido no `model_9100`, a caixa chega ao BOTAR tombada 29,7°
+    # (laje 0,55) e 52,2° (laje 0,35) e termina a 0,0°, porque a laje a nivela. Ver
+    # `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
+    check("17. no BOTAR o regime da face é FACE_DE_PE, e não FACE_CONGELADA",
+          bool((_t26c._regime_face == CMD.FACE_DE_PE).all()),
+          f"regimes presentes: {sorted(set(_t26c._regime_face.tolist()))}")
+    _p26 = _cx26.data.root_link_pos_w.clone()
+
+    def _ang_com_quat(_q):
+        """O `ANG` publicado com a caixa nesta atitude. Não dá `step`: escreve a pose e
+        chama o `_atualiza_face`, que é justamente quem traduz atitude em `ANG`."""
+        _cx26.write_root_link_pose_to_sim(
+            _t26.cat([_p26, _t26.tensor([_q]).expand(8, 4).clone()], -1))
+        _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+        _t26c._atualiza_face(_ids26)
+        return float(_t26c.command[:, CMD.ANG].abs().max())
+
+    _ang_pe = _ang_com_quat([1.0, 0.0, 0.0, 0.0])                    # de pé
+    _ang_dt = _ang_com_quat([0.70710678, 0.70710678, 0.0, 0.0])      # deitada 90° em x
+    check("17. no BOTAR, caixa de pé dá `ANG` ~ 0 e deitada 90° dá `ANG` ~ pi/2 — "
+          "o eixo medido é o Z da CAIXA, e a face marcada é LATERAL",
+          _ang_pe < 0.05 and abs(_ang_dt - math.pi / 2) < 0.05,
+          f"de pé {_ang_pe:.4f} rad, deitada {_ang_dt:.4f} rad")
+    _cx26.write_root_link_pose_to_sim(_t26.cat([_p26, _q26], -1))
+    _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _t26c._atualiza_face(_ids26)
+
     # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
     _orig = RC_._forca_das_palmas
     RC_._forca_das_palmas = lambda env, sensores, asset_cfg: _t26.full((env.num_envs,), 20.0)
@@ -4891,6 +4921,26 @@ check("3. `renda_congelada` continua o ÚLTIMO termo de `cfg.rewards`",
       list(cfg.rewards)[-1] == "renda_congelada", str(list(cfg.rewards)[-3:]))
 check("3. `velocidade_por_regime` NÃO está em `TERMOS_CONGELAVEIS`",
       "velocidade_por_regime" not in TERMOS_CONGELAVEIS, str(TERMOS_CONGELAVEIS))
+
+# ⚠⚠ O DEFEITO QUE ESTE CHECK TRAVA (21/09): o regime saía SÓ do comando de velocidade,
+# e desde 17/09 o `_zera_twist_nos_parados` escreve `wz = 0,5 × erro de rumo` nos envs
+# parados em vez de zero. Com `walking_threshold = 0,05`, um erro de rumo de 5,7° punha
+# a manipulação no regime `walking` e a tabela de limite saltava de 1,5 rad/s para 2,0 a
+# 6,5. MEDIDO no `21700`: 31,3% dos passos da pega, e 58% do freio perdido no episódio.
+_src_vpr = inspect.getsource(RC_.velocidade_por_regime.__call__)
+check("3. na manipulação o regime vem do ESTADO, e não do comando — senão a correção "
+      "de rumo afrouxa a tabela de limite em 2,7×",
+      'getattr(env, "limpo_twist_zerado", None)' in _src_vpr
+      and "standing = standing | (parado > 0.5)" in _src_vpr,
+      "o `__call__` do `velocidade_por_regime` não lê o estado de twist zerado")
+# ⚠ E as três máscaras têm de continuar EXCLUSIVAS: com o `standing` forçado, um
+# `walking` derivado do comando sozinho somaria 2 e o `vmax` sairia somado.
+check("3. as três máscaras do regime são exclusivas — `walking` e `running` nascem de "
+      "`~standing`, e não do limiar sozinho",
+      "walking_mask = (~standing & (total_speed < running_threshold)).float()" in _src_vpr
+      and "running_mask = (~standing & (total_speed >= running_threshold)).float()"
+      in _src_vpr,
+      "máscaras não exclusivas somariam duas linhas de `vel_max`")
 
 secao("--- v3.1: dois bits ---")
 from g1_limpo import curriculo as CU3            # noqa: E402
