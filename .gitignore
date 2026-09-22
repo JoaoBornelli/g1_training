@@ -21,3 +21,12 @@ MUJOCO_LOG.TXT
 
 # renders/screenshots de debug
 *.png
+
+# índice do CodeGraph (ferramenta local)
+.codegraph/
+
+# saídas do registra_juntas e logs locais do g1_limpo
+g1_limpo/registros/
+
+# saída gerada pelo record_rl.py
+rl_rollout.npz
