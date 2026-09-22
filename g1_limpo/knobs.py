@@ -1412,6 +1412,18 @@ class LimiteDeJunta:
     números por acidente; separá-los deixa o limiar da cintura subir sem mexer no
     punho, cujo pior `frac` medido é 1,08 (`wrist_roll`).
 
+    ⚠⚠ NO ZERO A CINTURA É `(40.0, 0.10, 0.90)`, e NÃO `(80.0, 0.05, 0.95)`. Um limiar de
+    0,95 num meio-curso de 30° dá uma rampa de 1,5°, e fora dela o custo é ZERO. Com
+    `Mean action std = 0,51` o ruído atravessa 1,5° em um passo: não existe aviso antes do
+    batente. MEDIDO na `zero03`, iteração 451: `batente_da_cintura` em 46,63 contra
+    `time_out` 6,33 e `fell_over` 0,33 — terminador dominante, com os episódios de
+    manipulação em ~10 passos contra ~800 os de locomoção. O limiar de 0,90 dobra a rampa
+    para 3,0° e cai EXATAMENTE na referência da IK (frac 0,899), portanto ela continua de
+    graça. O pico não muda: `expm1(40 × 0,10) = expm1(80 × 0,05) = 53,6`. O teto continua
+    NO batente e a terminação `NoBatente` continua em `frac_max = 1,00`. Regra do dono: o
+    robô NÃO PODE chegar ao limite da junta, portanto a parede não afrouxa — quem muda é a
+    rampa que ensina a não chegar nela.
+
     ⚠⚠ O LIMIAR É POR FAMÍLIA DESDE 17/09, e o `hip_yaw` é a quarta família. Um limiar
     em FRAÇÃO DO CURSO só é limite quando o curso é do tamanho do movimento. O `hip_yaw`
     tem curso de ±158°: a rampa em 0,85 começava a ±134°, e a marcha usa ±6°, o
