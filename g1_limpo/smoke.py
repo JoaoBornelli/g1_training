@@ -2486,9 +2486,21 @@ try:
     check("a distância é até a FACE LATERAL, não o centro",
           float(_d5.max()) < 0.60,
           "ao centro o mínimo alcançável é 0,191 m e o kernel saturava em 0,674")
-    check("o σ de orientação tem piso, e ele é em RADIANOS",
-          float(_t5c.sigma_ori.min()) >= _c5.commands["alvo_caixa"].sigma_ori_min
-          - 1e-9)
+    # ⚠⚠ ESTE CHECK MUDOU EM 22/09, e o motivo é que ele tinha virado vácuo. Ele só
+    # afirmava o PISO, e no `PEGAR` o piso ERA o valor: a face congela com a caixa
+    # parada na mesa, ela não gira durante a espera, logo o erro nasce em zero e
+    # `σ = erro inicial` devolvia 0,20 rad em todo episódio. A partir de uns 20° de
+    # tombo o `precise_ori` valia zero exato, e NADA cobrava por erguer a caixa torta —
+    # MEDIDO na `zero02`, `caixa_na_pega` entre 53° e 59° contra os 25° que o fecho
+    # exige. O regime congelado passa a usar a TOLERÂNCIA DO FECHO como σ; o piso segue
+    # valendo para os outros dois regimes, e é conferido no bloco 17 (BOTAR).
+    _tol5 = math.radians(_c5.commands["alvo_caixa"].tol_ang_deg)
+    check("no `PEGAR` o σ de orientação é a TOLERÂNCIA DO FECHO, e não o piso",
+          abs(float(_t5c.sigma_ori.min()) - _tol5) < 1e-4
+          and abs(float(_t5c.sigma_ori.max()) - _tol5) < 1e-4,
+          f"σ_ori {float(_t5c.sigma_ori.min()):.4f}..{float(_t5c.sigma_ori.max()):.4f} "
+          f"rad, e `tol_ang_deg` = {_c5.commands['alvo_caixa'].tol_ang_deg}° "
+          f"= {_tol5:.4f} rad")
 
     # ------------------ o canal CAIXA -> ALVO também nasce com derivada viva
     # ⚠ QUEM É A RAMPA DE CAIXA->ALVO É O `trazer`, dentro do `staged`, e não o
@@ -2550,13 +2562,18 @@ try:
           "a média é o que acopla as mãos: uma mão atrasada derruba o termo, e com "
           "`min` a segunda mão não teria gradiente nenhum")
 
-    # ------------------------- a face pedida CONGELA fora do `REORIENTAR` (28/08)
-    # ⚠ Dois pedidos diferentes. No `REORIENTAR` a direção é VIVA ("vire a face
-    # para o robô"); nos outros elos ela congela na normal da abertura, e aí o
-    # termo pergunta "a caixa girou desde então?" — ele paga por erguer SEM
-    # torcer. Com a direção viva em todo elo, o `precise_ori` ficava inerte no
-    # nível 0 (caixa nasce alinhada, `sigma_ori` com piso de 0,20 rad) E o alvo se
-    # movia com o ROBÔ: andar em volta da caixa mudava o termo sem tocá-la.
+    # ------------------------- a face pedida CONGELA no `PEGAR` (28/08, revisto 22/09)
+    # ⚠ TRÊS pedidos diferentes. No `REORIENTAR` a direção é VIVA ("vire a face para o
+    # robô"); no `BOTAR` é a VERTICAL ("pouse a caixa de pé"); no `PEGAR` e no
+    # `CARREGAR` ela congela na normal da abertura, e aí o termo pergunta "a caixa girou
+    # desde então?" — ele paga por erguer SEM torcer. Com a direção viva em todo elo, o
+    # `precise_ori` ficava inerte no nível 0 (caixa nasce alinhada, `sigma_ori` com piso
+    # de 0,20 rad) E o alvo se movia com o ROBÔ: andar em volta da caixa mudava o termo
+    # sem tocá-la.
+    # ⚠⚠ MAS CONGELAR SOZINHO NÃO BASTAVA, e isso só apareceu em 22/09: o congelamento
+    # zera o erro inicial, logo `σ = erro inicial` devolvia o piso e o termo morria de
+    # novo, agora do outro lado. Os dois têm de andar juntos — o congelamento dá a
+    # pergunta certa, e o σ pela tolerância do fecho dá a escala. Ver o check do σ acima.
     check("no `PEGAR` a direção pedida está CONGELADA",
           bool((_t5c._regime_face == CMD.FACE_CONGELADA).all()),
           "este env foi forçado no PEGAR — o regime tem de ser FACE_CONGELADA")
@@ -4058,6 +4075,15 @@ try:
     _cx26.write_root_link_pose_to_sim(_t26.cat([_p26, _q26], -1))
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
     _t26c._atualiza_face(_ids26)
+    # 17. O PISO do σ de orientação segue valendo FORA do regime congelado, e é aqui que
+    # ele é conferido: no `BOTAR` a regra `σ = erro inicial` continua valendo, e um erro
+    # inicial pequeno não pode virar um σ perto de zero — o kernel viraria um pico
+    # impossível de sustentar. O check do `PEGAR` deixou de cobrir isto quando o regime
+    # congelado passou a usar a tolerância do fecho.
+    check("17. fora do regime congelado o σ de orientação ainda tem PISO",
+          float(_t26c.sigma_ori.min()) >= cfg.commands["alvo_caixa"].sigma_ori_min - 1e-9,
+          f"σ_ori mínimo {float(_t26c.sigma_ori.min()):.4f} rad contra piso "
+          f"{cfg.commands['alvo_caixa'].sigma_ori_min:.4f}")
 
     # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
     _orig = RC_._forca_das_palmas

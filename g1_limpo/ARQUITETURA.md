@@ -1098,10 +1098,41 @@ def _recalcula_sigmas(self, ids):
     self.sigma_alcance[ids] = (d_palma · sigma_fator).clamp(min=0.08)
     self.sigma_trazer[ids]  = (d_alvo  · sigma_fator).clamp(min=0.08)
     self._atualiza_face(ids)
-    self.sigma_ori[ids]     = (self._command[ids, ANG] · sigma_fator).clamp(min=0.20)
+    sig = (self._command[ids, ANG] · sigma_fator).clamp(min=0.20)
+    self.sigma_ori[ids] = where(regime == FACE_CONGELADA, deg2rad(tol_ang_deg), sig)
 ```
 
 **Os σ NÃO são knobs. Cada um é a distância inicial daquele env.**
+
+> ⚠⚠ **A exceção, e ela é a regra por trás (22/09): `σ = erro inicial` é incompatível com
+> `alvo = atitude atual`.** Um alvo capturado da pose corrente tem erro inicial **zero por
+> definição**, então o σ dele cai no piso sempre e o kernel morre a partir de uns 20°.
+>
+> Era o caso do `FACE_CONGELADA`. No `PEGAR` a face congela com a caixa **parada na
+> mesa**; ela não gira durante a espera, logo o erro no fim da espera é zero e o
+> `sigma_ori` valia 0,20 rad em todo episódio. Depois o robô erguia a caixa **tombada** e
+> `exp(−(0,93/0,20)²)` é zero exato: **nada nunca cobrou por tombar a caixa ao erguê-la.**
+> MEDIDO na `zero02`: `caixa_na_pega` entre 53° e 59°, contra os 25° que o fecho exige.
+>
+> O regime congelado passa a usar a **tolerância do fecho** como σ. Não é knob novo — é o
+> `tol_ang_deg` que o `_fecha_elo_corrente` já lê —, e com ele o limiar do fecho e a forma
+> da recompensa concordam sobre onde fica a régua:
+>
+> | tombo | `precise_ori` | derivada por grau |
+> |---|---|---|
+> | 10° | 0,852 | −0,027 |
+> | 25° | 0,368 | −0,030 |
+> | 53° | 0,011 | −0,002 |
+>
+> Ele cobra desde o primeiro grau, e é por isso que ele vale **do zero**: num robô já a
+> 53° a derivada é fraca demais para trazê-lo de volta.
+>
+> O `FACE_VIVA` fica fora: o alvo do `REORIENTAR` existe independente da caixa, o erro
+> inicial dele é um número de verdade (até 90°), e um σ fixo de 25° ali devolveria 2,4e−6
+> — a "sorte de nível 3+" do `g1_poc`. O `FACE_DE_PE` também fica fora, e é escolha
+> declarada: a vertical é alvo independente. O preço é que ele fica graduado na curva —
+> quem chega mais tombado ganha um σ mais largo —, e isso só se resolve quando a caixa
+> parar de chegar tombada, que é o que esta mudança ataca.
 
 Medição que justifica: a palma nasce a **0,339 m** da caixa (mín 0,211, máx 0,481). Com σ
 **fixo** de 0,10 m o kernel `exp(−d²/σ²)` vale **1e−05** ali, **e a derivada é ZERO** — o

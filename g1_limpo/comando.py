@@ -1809,6 +1809,10 @@ class AlvoCaixaCmd(CommandTerm):
     def _recalcula_sigmas(self, ids: torch.Tensor) -> None:
         """σ = distância inicial × fator, com piso. Ver o bloco do `__init__`.
 
+        ⚠ EXCEÇÃO, e ela é o ponto: o `sigma_ori` do regime `FACE_CONGELADA` NÃO segue
+        esta regra. Ver o bloco ⚠⚠ no corpo — um alvo que nasce da pose atual tem erro
+        inicial zero, e "σ = erro inicial" degenera nele.
+
         ⚠ O PISO não é estética: um env que nasce com a palma colada na caixa teria
         σ ≈ 0, e o kernel viraria um pico impossível de sustentar — a recompensa
         desabaria ao primeiro milímetro de tremor.
@@ -1833,15 +1837,33 @@ class AlvoCaixaCmd(CommandTerm):
         # piso. Com σ fixo de 0,40 rad um pedido de 90° dá `exp(−(1,57/0,40)²)` =
         # 2,0e−7, isto é zero: era a "sorte de nível 3+" medida no `g1_poc`.
         #
-        # ⚠⚠ ESTA LINHA SÓ FUNCIONA COM ALVO INDEPENDENTE DO ROBÔ, e é por isso que o
-        # `BOTAR` deixou de congelar a face em 21/09. Um alvo capturado da pose ATUAL
-        # nasce com erro zero por definição, logo `sigma_ori` cai no piso SEMPRE e o
-        # `precise_ori` vira canal morto — medido, 2e−4 de valor e 1e−4 por grau de
-        # derivada nos 33° reais. Com a vertical como referência o erro na abertura é o
-        # tombo de verdade (29,7° e 52,2° medidos) e o σ nasce vivo sozinho.
+        # ⚠⚠ "σ = ERRO INICIAL" É INCOMPATÍVEL COM "ALVO = ATITUDE ATUAL" (22/09). Um
+        # alvo capturado da pose corrente tem erro inicial ZERO POR DEFINIÇÃO, logo o σ
+        # dele cai no piso SEMPRE, e a partir de uns 20° de giro o `precise_ori` é zero
+        # exato. Era o caso do `FACE_CONGELADA` — no `PEGAR` a face congela com a caixa
+        # PARADA NA MESA, ela não gira durante a espera, e depois o robô a ergue TOMBADA
+        # sem que nada cobrasse por isso. MEDIDO na `zero02`: `caixa_na_pega` entre 53° e
+        # 59°, onde o fecho exige 25°.
+        #
+        # O regime congelado passa a usar a TOLERÂNCIA DO FECHO como σ. Não é knob novo:
+        # é o `tol_ang_deg` que o `_fecha_elo_corrente` já lê. Com ele o limiar do fecho
+        # e a forma da recompensa concordam sobre onde fica a régua, e em `tol_ang_deg`
+        # o kernel vale `e⁻¹` = 0,368 — a mesma convenção de σ do resto do módulo.
+        #
+        # O `FACE_VIVA` NÃO entra: o alvo do `REORIENTAR` existe independente da caixa,
+        # o erro inicial dele é um número de verdade (até 90°), e um σ fixo de 25° ali
+        # devolveria 2,4e−6 — exatamente a "sorte de nível 3+" do parágrafo acima.
+        #
+        # O `FACE_DE_PE` também não entra, e é escolha declarada: a vertical é alvo
+        # independente, então o erro na abertura é o tombo real e a regra do σ vale. O
+        # preço é que ele fica graduado na curva — quem chega mais tombado ganha um σ
+        # mais largo. Só se resolve quando a caixa parar de chegar tombada, que é o que
+        # esta mudança ataca.
         self._atualiza_face(ids)
-        self.sigma_ori[ids] = (self._command[ids, ANG] * c.sigma_fator).clamp(
-            min=c.sigma_ori_min)
+        sig = (self._command[ids, ANG] * c.sigma_fator).clamp(min=c.sigma_ori_min)
+        congelada = self._regime_face[ids] == FACE_CONGELADA
+        self.sigma_ori[ids] = torch.where(
+            congelada, torch.deg2rad(torch.full_like(sig, c.tol_ang_deg)), sig)
 
     def _congela_face(self, ids: torch.Tensor) -> None:
         """Fixa a direção pedida na normal ATUAL da face marcada.

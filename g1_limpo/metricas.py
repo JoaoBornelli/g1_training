@@ -166,15 +166,25 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
             func=media_por_estado, reduce="last",
             params={"grandeza": "tronco_incl",
                     "estados": (ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
-        # ⚠ A SENTINELA DO `FACE_DE_PE` (21/09): quantos graus a caixa está tombada
-        # enquanto o robô a segura e enquanto a pousa. O `precise_ori` devolve um kernel
-        # normalizado por σ e não diz o ângulo; esta diz. MEDIDO no `model_9100`, antes
-        # da troca de referência: 29,7° na laje 0,55 e 52,2° na 0,35 na abertura do
-        # BOTAR, e 0,0° no pouso. "Indo para a referência" se lê pela QUEDA dela.
+        # ⚠ AS SENTINELAS DO TOMBO DA CAIXA (21/09), em graus. O `precise_ori` devolve
+        # um kernel normalizado por σ e não diz o ângulo; estas dizem. O fecho exige 25°
+        # nos dois elos (`comando.tol_ang_deg`), e é contra esse número que se lê.
+        #
+        # ⚠⚠ DUAS, E NÃO UMA (22/09). A primeira versão media `PEGAR_COM` e `BOTAR`
+        # JUNTOS e devolvia um número só — 53° a 59° medidos na `zero02` —, e com ele
+        # não dava para saber de qual elo vinha o tombo. A pergunta importa: os dois
+        # tinham defeitos DIFERENTES no σ, consertados por caminhos diferentes, e um
+        # número só não separa qual conserto pegou.
+        #   `caixa_na_pega`  o tombo enquanto o robô SEGURA — acusa o PEGAR erguendo
+        #                    torto, que é o que o σ pela tolerância passou a cobrar.
+        #   `caixa_no_botar` o tombo enquanto ele POUSA — acusa o BOTAR, cuja referência
+        #                    virou a vertical.
         "caixa_na_pega": MetricsTermCfg(
             func=media_por_estado, reduce="last",
-            params={"grandeza": "caixa_incl",
-                    "estados": (ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
+            params={"grandeza": "caixa_incl", "estados": (ESTADO_PEGAR_COM,)}),
+        "caixa_no_botar": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "caixa_incl", "estados": (ESTADO_BOTAR,)}),
     }
 
 
