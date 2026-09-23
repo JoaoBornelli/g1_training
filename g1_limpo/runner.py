@@ -54,7 +54,7 @@ CHAVES_ESCALARES = ("alvo", "dur_loco", "dur_manip", "razao",
                     # dispara no primeiro reset pós-resume com uma contagem PARCIAL
                     # (poucos episódios, não a janela inteira de uma iteração).
                     "ultima_iter_bal")
-CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo")
+CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo", "limpo_freio")
 
 
 class RunnerComEstadoDeCurriculo(MjlabOnPolicyRunner):
@@ -101,6 +101,15 @@ class RunnerComEstadoDeCurriculo(MjlabOnPolicyRunner):
             st["n_ep_C"] = st["n_concluiu_C"] = 0.0
             print(f"[g1_limpo] currículo restaurado: alvo={st['alvo']:.3f} "
                   f"razao={st['razao']:.3f} iters_balanco={st['iters_balanco']:.0f}")
+
+        # ⚠ O buffer do freio tem de existir ANTES do laço abaixo, senão o `getattr`
+        # dele no laço não acha nada para copiar. Numa retomada de um checkpoint SEM
+        # `limpo_freio` (anterior ao Lote B), ele nasce em zero e o currículo o leva
+        # até o nível já restaurado aos poucos, um degrau a cada `espacamento`
+        # episódios de cadeia — sem salto. Com o freio desligado (`degraus_max == 0`),
+        # o currículo `nivel` zera o degrau restaurado.
+        from g1_limpo.curriculo import garante_freio
+        garante_freio(e)
 
         for nome in CHAVES_POR_ENV:
             if nome not in estado:

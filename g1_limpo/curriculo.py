@@ -30,7 +30,7 @@ import torch
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-__all__ = ["nivel", "garante_nivel", "sorteia_elo", "garante_elo",
+__all__ = ["nivel", "garante_nivel", "garante_freio", "sorteia_elo", "garante_elo",
            "forma", "garante_forma", "resolve_sorteio", "resolve_p_c"]
 
 # ⚠ ESTE ARQUIVO NÃO IMPORTA `comando.py`, e não é estilo: `comando.py` importa
@@ -72,6 +72,31 @@ def garante_nivel(env: "ManagerBasedRlEnv") -> torch.Tensor:
     return env.limpo_nivel
 
 
+def garante_freio(env: "ManagerBasedRlEnv") -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Cria os buffers do freio de velocidade, se ainda não existem. Devolve os três.
+
+    `limpo_freio`           o degrau do freio, por env — o que `recompensas.
+        velocidade_por_regime` lê.
+    `limpo_freio_espera`    episódios de cadeia desde o último degrau, por env.
+    `limpo_nivel_sorteado`  marca o env cujo nível ATUAL veio do PISO (§10 do contrato):
+        ela tira da conta do freio o próximo episódio de CADEIA, que começa num nível
+        sorteado, e não conquistado.
+
+    ⚠ SÓ `limpo_freio` VAI NO CHECKPOINT (`runner.CHAVES_POR_ENV`). Os outros dois,
+    perdidos numa retomada, só atrasam um degrau — não há salto nem regressão possível.
+    """
+    if not hasattr(env, "limpo_freio"):
+        env.limpo_freio = torch.zeros(env.num_envs, dtype=torch.long,
+                                      device=env.device)
+    if not hasattr(env, "limpo_freio_espera"):
+        env.limpo_freio_espera = torch.zeros(env.num_envs, dtype=torch.long,
+                                             device=env.device)
+    if not hasattr(env, "limpo_nivel_sorteado"):
+        env.limpo_nivel_sorteado = torch.zeros(env.num_envs, dtype=torch.bool,
+                                               device=env.device)
+    return env.limpo_freio, env.limpo_freio_espera, env.limpo_nivel_sorteado
+
+
 def nivel(
     env: "ManagerBasedRlEnv",
     env_ids: torch.Tensor,
@@ -80,13 +105,28 @@ def nivel(
     forcado: int | None = None,
     frac_uniforme: float = 0.0,
     nome_do_comando: str | None = None,
+    degraus_max: int = 0,
+    espacamento: int = 0,
 ) -> float:
     """Escreve o nível dos envs que resetaram. Devolve a média, para o log.
 
     Passeio aleatório ±1: sobe com sucesso de cadeia, desce sem, `clamp(0, N−1)`. Mais
     o PISO, que sorteia uma fração dos envs uniformemente sobre os níveis abertos.
+
+    `degraus_max` e `espacamento`: com `degraus_max > 0` o freio de `garante_freio`
+    persegue este `nivel` para cima, um degrau a cada `espacamento` episódios de
+    cadeia, e nunca desce. Com `degraus_max == 0` o freio fica DESLIGADO: nenhum buffer
+    é criado, e um `limpo_freio` que o runner restaurou vai a zero (plano
+    `docs/planos/2026-09-23-freio-em-curriculo-pelo-nivel.md` §10).
     """
     buf = garante_nivel(env)
+    freio = espera = sorteado = de_cadeia = None
+    if degraus_max > 0:
+        freio, espera, sorteado = garante_freio(env)
+    elif hasattr(env, "limpo_freio"):
+        # ⚠ o ÚNICO interruptor do freio (code-review de 23/09): desligado, o degrau que
+        # o runner restaurou não pode seguir multiplicando o `velocidade_por_regime`.
+        env.limpo_freio.zero_()
     if forcado is not None:
         buf[env_ids] = int(max(0, min(n_niveis - 1, forcado)))
         return float(buf.float().mean())
@@ -121,6 +161,19 @@ def nivel(
             passo = torch.where(sucesso, 1, -1) * de_cadeia.long()
             buf[env_ids] = (buf[env_ids] + passo).clamp(0, n_niveis - 1)
 
+            # ---------------------------------------------- O FREIO PERSEGUE O NÍVEL
+            # Sobe um degrau atrás do `nivel` deste env e NUNCA desce (contrato §10). Só
+            # conta o episódio de cadeia com SUCESSO que não começou num nível SORTEADO
+            # pelo piso; o `espacamento` dá tempo à política entre dois degraus.
+            if freio is not None:
+                elegivel = de_cadeia & sucesso & ~sorteado[env_ids]
+                espera[env_ids] += de_cadeia.long()
+                sobe = (elegivel & (buf[env_ids] > freio[env_ids])
+                        & (espera[env_ids] >= espacamento) & (freio[env_ids] < degraus_max))
+                freio[env_ids] += sobe.long()
+                espera[env_ids] = torch.where(sobe, torch.zeros_like(espera[env_ids]),
+                                              espera[env_ids])
+
     # ------------------------------------------------------ O PISO DE NÍVEL (F5)
     # ⚠ Uma fração dos envs é sorteada UNIFORMEMENTE sobre os níveis abertos. É seguro
     # barato: o rebaixamento ±1 espalha os envs, mas é DISTRIBUIÇÃO e não garantia — se
@@ -134,12 +187,21 @@ def nivel(
     # ⚠ Até a F6 ele é INERTE por construção: sem o passeio, o nível aberto é só o 0, e
     # sortear uniformemente sobre {0} devolve 0. Ele entra agora para a F6 não precisar
     # mexer em duas coisas ao mesmo tempo.
+    # ⚠ SÓ O EPISÓDIO DE CADEIA CONSOME A MARCA (code-review de 23/09). O de locomoção
+    # não usa o nível, e o nível sorteado segue até o próximo episódio de cadeia:
+    # apagar a marca no reset da locomoção deixava esse episódio subir o freio.
+    if sorteado is not None and de_cadeia is not None:
+        sorteado[env_ids[de_cadeia]] = False
     if frac_uniforme > 0.0 and len(env_ids):
         abertos = int(buf.max()) + 1
         sorteia = torch.rand(len(env_ids), device=env.device) < frac_uniforme
         if bool(sorteia.any()):
             k = torch.randint(abertos, (int(sorteia.sum()),), device=env.device)
             buf[env_ids[sorteia]] = k
+            # ⚠ SÓ OS REALMENTE SORTEADOS ficam marcados: o nível deles não mede
+            # competência, e o episódio que começa com ele não pode virar recorde.
+            if sorteado is not None:
+                sorteado[env_ids[sorteia]] = True
     return float(buf.float().mean())
 
 

@@ -3130,10 +3130,10 @@ check("a task registra o runner que salva o estado do currículo",
       __import__("mjlab.tasks.registry", fromlist=["x"]).load_runner_cls(
           __import__("g1_limpo").TASK_ID) is RN_.RunnerComEstadoDeCurriculo,
       "sem ele o Colab/Kaggle re-paga a rampa de ~400 iterações a cada sessão")
-check("o estado salvo cobre as EMAs, a carência, o nível e o elo",
+check("o estado salvo cobre as EMAs, a carência, o nível, o elo e o degrau do freio",
       {"alvo", "dur_loco", "dur_manip", "razao", "iters_balanco"}
       <= set(RN_.CHAVES_ESCALARES)
-      and set(RN_.CHAVES_POR_ENV) == {"limpo_nivel", "limpo_elo"})
+      and set(RN_.CHAVES_POR_ENV) == {"limpo_nivel", "limpo_elo", "limpo_freio"})
 # ⚠ O CICLO DE VERDADE. Conferir os NOMES das chaves não prova que o estado sobrevive:
 # o furo que isso deixava é uma chave certa com um `save` que não a escreve. Aqui o
 # estado é serializado e restaurado, e os valores são comparados.
@@ -3497,6 +3497,96 @@ try:
 except Exception as _e8d:      # noqa: BLE001
     _falhas.append(f"o passeio não pôde ser simulado: "
                    f"{type(_e8d).__name__}: {_e8d}")
+
+# --- o freio persegue o nível (plano 2026-09-23 §10), env falso, sucesso controlado ---
+try:
+    import types as _tyf
+    import torch as _tf
+
+    def _env_freio(nenv=8, de_cadeia=True):
+        c = _tyf.SimpleNamespace(
+            _cadeia=_tf.full((nenv,), 0 if de_cadeia else -1, dtype=_tf.long),
+            fechou=_tf.ones(nenv, dtype=_tf.bool))
+        c.concluiu = lambda ids: c.fechou[ids]
+        mgr = _tyf.SimpleNamespace(get_term=lambda _n: c)
+        return c, _tyf.SimpleNamespace(num_envs=nenv, device="cpu", command_manager=mgr)
+
+    def _passos(e, n, *, degraus=6, espac=3, frac_uniforme=0.0):
+        for _ in range(n):
+            CU_.nivel(e, _tf.arange(e.num_envs), n_niveis=k.nivel.n_niveis, forcado=None,
+                      frac_uniforme=frac_uniforme, nome_do_comando="alvo_caixa",
+                      degraus_max=degraus, espacamento=espac)
+
+    _cf, _ef = _env_freio()
+    _passos(_ef, 5, degraus=0)
+    _sem_buf = not hasattr(_ef, "limpo_freio")
+    _ef.limpo_freio = _tf.tensor([0, 2, 5, 1, 0, 0, 3, 6])
+    _passos(_ef, 1, degraus=0)
+    check("freio: com `degraus_max = 0` o `nivel` não cria o `limpo_freio`, e zera o que "
+          "o runner restaurou",
+          _sem_buf and bool((_ef.limpo_freio == 0).all()), str(_ef.limpo_freio.tolist()))
+
+    _cf, _ef = _env_freio()
+    _passos(_ef, 2)
+    _f2 = _ef.limpo_freio.clone()
+    _passos(_ef, 1)
+    _f3 = _ef.limpo_freio.clone()
+    _passos(_ef, 60)
+    _f_teto = _ef.limpo_freio.clone()
+    _cf.fechou[:] = False
+    _passos(_ef, 60)
+    check("freio: sucesso 100% e espaçamento 3 dão degrau 0 em 2 episódios, 1 no 3º, e o "
+          "teto 6 depois; com sucesso 0% o nível cai a 0 e o freio NÃO desce",
+          bool((_f2 == 0).all()) and bool((_f3 == 1).all()) and bool((_f_teto == 6).all())
+          and bool((_ef.limpo_nivel == 0).all()) and bool((_ef.limpo_freio == 6).all()),
+          f"{_f2.tolist()} / {_f3.tolist()} / {_f_teto.tolist()} / "
+          f"nível {_ef.limpo_nivel.tolist()} freio {_ef.limpo_freio.tolist()}")
+
+    _cf, _ef = _env_freio(de_cadeia=False)
+    _passos(_ef, 30)
+    check("freio: episódio de LOCOMOÇÃO não move o freio",
+          not hasattr(_ef, "limpo_freio") or bool((_ef.limpo_freio == 0).all()),
+          str(getattr(_ef, "limpo_freio", None)))
+
+    # ⚠ Com o piso sorteando TODO env a cada reset, só o 1º episódio conta: ele começou
+    # num nível ganho (0). Todo episódio seguinte começa num nível sorteado.
+    _cf, _ef = _env_freio()
+    _passos(_ef, 30, espac=1, frac_uniforme=1.0)
+    check("freio: episódio que começou num nível SORTEADO pelo piso não sobe o freio",
+          bool((_ef.limpo_freio == 1).all()), str(_ef.limpo_freio.tolist()))
+
+    # ⚠ O furo do 2º code-review (23/09): o reset de um episódio de LOCOMOÇÃO apagava a
+    # marca, e o nível sorteado chegava sem ela ao episódio de cadeia seguinte.
+    _cf, _ef = _env_freio(de_cadeia=False)
+    _passos(_ef, 1, espac=1, frac_uniforme=1.0)
+    _passos(_ef, 1, espac=1)
+    _marca = _ef.limpo_nivel_sorteado.clone()
+    _cf._cadeia[:] = 0
+    _passos(_ef, 1, espac=1)
+    check("freio: a marca do sorteio sobrevive ao episódio de locomoção, e o episódio de "
+          "cadeia seguinte não sobe o freio",
+          bool(_marca.all()) and bool((_ef.limpo_freio == 0).all())
+          and not bool(_ef.limpo_nivel_sorteado.any()),
+          f"marca {_marca.tolist()} freio {_ef.limpo_freio.tolist()}")
+
+    # ⚠ O furo do code-review (23/09): sem exigir SUCESSO, o env que falha subia o
+    # freio descendo de um nível sorteado alto. Metade dos envs fecha sempre, e abre
+    # níveis altos para o piso; a outra metade nunca fecha.
+    _cf, _ef = _env_freio()
+    _cf.fechou[4:] = False
+    _passos(_ef, 80, espac=1, frac_uniforme=0.5)
+    check("freio: env que NUNCA fecha a cadeia não sobe o freio, mesmo com o piso "
+          "sorteando níveis altos",
+          bool((_ef.limpo_freio[4:] == 0).all()), str(_ef.limpo_freio.tolist()))
+
+    _kk_off = Knobs()
+    _kk_off.tarefa.freio_degraus = 0
+    _cfg_off = make_env_cfg(_kk_off)
+    check("freio: `freio_degraus = 0` dá teto 0 no `nivel`, o único interruptor",
+          _cfg_off.curriculum["nivel"].params["degraus_max"] == 0)
+except Exception as _efx:      # noqa: BLE001
+    _falhas.append(f"o freio por nível não pôde ser simulado: "
+                   f"{type(_efx).__name__}: {_efx}")
 
 # ⚠ A TABELA `prob_por_nivel` SAIU (spec dois-bits §2.1/§2.5): a ordem de
 # aprendizado entre as cadeias B e C não é mais por NÍVEL, é pelo balanceador — a
@@ -4883,10 +4973,13 @@ except Exception as _egx:      # noqa: BLE001
                    f"medida: {type(_egx).__name__}: {_egx}")
 
 # --- 3: `velocidade_por_regime` — a DOBRADIÇA (spec tabela-por-estado §4) ---
-# ⚠ FÓRMULA NOVA: `média(relu(|v|/vmax − 1)²)`, SEM clamp. O `clamp(..., max=4)` da
-# v3.1 SAIU: 2,26% dos passos da pega estavam no teto com derivada ZERO — correr mais
-# era grátis. Abaixo do limite o custo é ZERO; acima, o quadrado do EXCESSO cresce sem
-# teto (2× -> 1; 3× -> 4; 5× -> 16). `vel_max` é FRONTEIRA, não escala.
+# ⚠ FÓRMULA: `Σ_j relu(|v_j|/vmax_j − 1)²`, SEM clamp. O `clamp(..., max=4)` da v3.1
+# SAIU: 2,26% dos passos da pega estavam no teto com derivada ZERO — correr mais era
+# grátis. Abaixo do limite o custo é ZERO; acima, o quadrado do EXCESSO cresce sem teto
+# (2× -> 1; 3× -> 4; 5× -> 16 POR JUNTA). `vel_max` é FRONTEIRA, não escala.
+# ⚠⚠ SOMA, e não média, desde 23/09 (plano `2026-09-23-freio-em-curriculo-pelo-nivel`):
+# com a média uma junta sozinha pagava 1/29 do peso. Com a soma o peso é o PREÇO POR
+# JUNTA. Com as 29 juntas no mesmo múltiplo, o custo é 29× o de uma.
 #
 # ⚠⚠ INSTANCIADO DE VERDADE (revisão independente, item B1): a versão anterior só
 # fazia `min(max((0.0)**2,0),4.0)` em Python puro — NUNCA chamava
@@ -4912,34 +5005,73 @@ try:
           _vmax3g.numel() == 29 and int((_vmax3g == 1.0).sum()) == 6
           and int((_vmax3g == 1.5).sum()) == 23, str(_vmax3g.tolist()))
 
-    def _custo_vel(mult: float) -> float:
+    def _custo_vel_por_env(mult: float) -> "_tg3.Tensor":
         # ⚠ `write_joint_velocity_to_sim`, e NÃO `.data.joint_vel[:] = ...`: a
         # atribuição direta não gruda — o buffer é sobrescrito antes da leitura.
         jv = (mult * _vmax3g).unsqueeze(0).expand_as(_robo3g.data.joint_vel).clone()
         _robo3g.write_joint_velocity_to_sim(jv)
         params = dict(_cg3.rewards["velocidade_por_regime"].params)
         params.pop("func", None)
-        return float(_termo_vpr3(_eg3, **params).mean())
+        return _termo_vpr3(_eg3, **params)
 
+    def _custo_vel(mult: float) -> float:
+        return float(_custo_vel_por_env(mult).mean())
+
+    # ⚠ O DEGRAU EM ZERO, explícito: o inspetor força o nível, e o `limpo_freio` pode
+    # nem existir. Em zero o multiplicador é 1 em todo env, e a dobradiça sai crua.
+    _eg3.limpo_freio = _tg3.zeros(4, dtype=_tg3.long)
     _v_parado, _v_limite, _v_2x, _v_3x, _v_5x = (
         _custo_vel(0.0), _custo_vel(1.0), _custo_vel(2.0), _custo_vel(3.0),
         _custo_vel(5.0))
-    check("3. a dobradiça de verdade: v=0 -> 0; v=vmax -> 0; v=2·vmax -> 1,0; "
-          "v=3·vmax -> 4,0; v=5·vmax -> 16,0 — sem teto",
-          abs(_v_parado) < 1e-6 and abs(_v_limite) < 1e-3
-          and abs(_v_2x - 1.0) < 1e-3 and abs(_v_3x - 4.0) < 1e-3
-          and abs(_v_5x - 16.0) < 1e-2,
+    check("3. a dobradiça de verdade, SOMADA nas 29 juntas: v=0 -> 0; v=vmax -> 0; "
+          "v=2·vmax -> 29; v=3·vmax -> 116; v=5·vmax -> 464 — sem teto",
+          abs(_v_parado) < 1e-6 and abs(_v_limite) < 1e-2
+          and abs(_v_2x - 29.0) < 1e-2 and abs(_v_3x - 116.0) < 5e-2
+          and abs(_v_5x - 464.0) < 2e-1,
           f"{_v_parado:.4f} / {_v_limite:.4f} / {_v_2x:.4f} / {_v_3x:.4f} / "
           f"{_v_5x:.4f}")
+
+    # ⚠ O PREÇO POR ENV (23/09): fora do ANDAR o custo sai multiplicado por
+    # `fator ** degrau`; no ANDAR o preço é o piso, qualquer que seja o degrau. Os
+    # dois primeiros envs ficam num estado de manipulação, os dois últimos no ANDAR;
+    # o degrau é 0, 3, 3 e 0. O regime segue `standing` nos quatro (twist zerado), então
+    # a dobradiça crua é 29 em todos a 2×.
+    _eg3.limpo_estado[:] = _tg3.tensor([CMD.ESTADO_PEGAR_COM, CMD.ESTADO_PEGAR_COM,
+                                        CMD.ESTADO_ANDAR, CMD.ESTADO_ANDAR])
+    _eg3.limpo_freio = _tg3.tensor([0, 3, 3, 0], dtype=_tg3.long)
+    _fator3 = float(_cg3.rewards["velocidade_por_regime"].params["fator"])
+    _pe3 = _custo_vel_por_env(2.0).tolist()
+    _esp3 = [29.0, 29.0 * _fator3 ** 3, 29.0, 29.0]
+    check("3. o preço por env: fora do ANDAR 29·fator^degrau; no ANDAR 29, com degrau "
+          "0 ou 3",
+          all(abs(a - b) < 1e-2 * max(1.0, b) for a, b in zip(_pe3, _esp3)),
+          f"medido {[round(x, 3) for x in _pe3]} contra {[round(x, 3) for x in _esp3]}")
     del _eg3
 except Exception as _eg3x:      # noqa: BLE001
     _falhas.append(f"3. G2 instanciado não pôde ser medido: "
                    f"{type(_eg3x).__name__}: {_eg3x}")
-check("3. `velocidade_por_regime` do módulo bate com a fórmula da DOBRADIÇA, sem clamp",
-      "torch.mean(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)"
-      in inspect.getsource(RC_.velocidade_por_regime)
+check("3. `velocidade_por_regime` do módulo bate com a fórmula da DOBRADIÇA, SOMADA, "
+      "sem clamp",
+      "torch.relu(v.abs() / vmax - 1.0) ** 2" in inspect.getsource(RC_.velocidade_por_regime)
+      and "excesso.sum(dim=1)" in inspect.getsource(RC_.velocidade_por_regime)
+      and "torch.mean(" not in inspect.getsource(RC_.velocidade_por_regime.__call__)
       and "max=4.0" not in inspect.getsource(RC_.velocidade_por_regime),
-      "o clamp em 4,0 dava derivada ZERO acima de 2× o limite — correr mais era grátis")
+      "o clamp em 4,0 dava derivada ZERO acima de 2× o limite; a média dividia o preço "
+      "de uma junta sozinha por 29")
+# ⚠ O PISO É O −6 DA `zero06` NA ESCALA ANTIGA (23/09): −6/29 por junta na soma é
+# exatamente −6 na média. No degrau 0 a recompensa não muda.
+check("3. o piso do freio é −6/29 por junta, e o fator, o teto e o espaçamento chegam "
+      "aos params do termo e do currículo `nivel`",
+      abs(k.tarefa.velocidade_por_regime + 6.0 / 29.0) < 1e-12
+      and cfg.rewards["velocidade_por_regime"].weight == k.tarefa.velocidade_por_regime
+      and cfg.rewards["velocidade_por_regime"].params["fator"] == k.tarefa.freio_fator
+      and cfg.curriculum["nivel"].params["degraus_max"] == k.nivel.n_niveis - 1
+      and cfg.curriculum["nivel"].params["espacamento"] == k.tarefa.freio_espacamento,
+      f"peso {k.tarefa.velocidade_por_regime}, "
+      f"params do termo {sorted(cfg.rewards['velocidade_por_regime'].params)}, "
+      f"params do nivel {sorted(cfg.curriculum['nivel'].params)}")
+check("3. as duas réguas do freio estão no log: `freio_degrau` e `mao_na_pega`",
+      {"freio_degrau", "mao_na_pega"} <= set(cfg.metrics), str(sorted(cfg.metrics)))
 check("3. o peso de `velocidade_por_regime` em `knobs.Tarefa` é NEGATIVO — a "
       "penalidade da correção 1",
       k.tarefa.velocidade_por_regime < 0.0, str(k.tarefa.velocidade_por_regime))
@@ -5553,6 +5685,8 @@ try:
     _cru21.reset()
     _cru21.limpo_forma["s_B"] = 0.1234
     _cru21.limpo_forma["s_C"] = 0.5678
+    # o degrau do freio por env (23/09), para o ciclo provar que ele viaja no checkpoint
+    CU_.garante_freio(_cru21)[0][:] = _tv21.tensor([0, 2, 5, 1], dtype=_tv21.long)
     check("21. `s_B`/`s_C` estão em `CHAVES_ESCALARES`",
           {"s_B", "s_C"} <= set(RN3.CHAVES_ESCALARES), str(RN3.CHAVES_ESCALARES))
 
@@ -5571,6 +5705,8 @@ try:
           and abs(float(_cru21b.limpo_forma["s_C"]) - 0.5678) < 1e-6,
           f"s_B={float(_cru21b.limpo_forma['s_B']):.4f} "
           f"s_C={float(_cru21b.limpo_forma['s_C']):.4f}")
+    check("21. o ciclo save->load do RUNNER preserva o degrau do freio de cada env",
+          _cru21b.limpo_freio.tolist() == [0, 2, 5, 1], str(_cru21b.limpo_freio.tolist()))
 
     # ⚠ SEGUNDO CASO (pedido do coordenador): checkpoint ANTIGO, sem `s_B`/`s_C` na
     # `forma` salva — o `load` não pode quebrar, e o balanceador tem de cair no
@@ -5578,6 +5714,8 @@ try:
     _bruto21 = _tv21.load(_cam21, weights_only=False)
     del _bruto21["infos"]["limpo_curriculo"]["forma"]["s_B"]
     del _bruto21["infos"]["limpo_curriculo"]["forma"]["s_C"]
+    # ⚠ E sem o degrau do freio, como todo checkpoint anterior a 23/09 (a `zero06`).
+    _bruto21["infos"]["limpo_curriculo"].pop("limpo_freio", None)
     _cam21c = str(pathlib.Path(_tmp21.mkdtemp()) / "ck21_antigo.pt")
     _tv21.save(_bruto21, _cam21c)
 
@@ -5592,6 +5730,12 @@ try:
           and abs(float(_cru21c.limpo_forma["s_C"]) - 1.0) < 1e-6,
           f"s_B={float(_cru21c.limpo_forma['s_B']):.4f} "
           f"s_C={float(_cru21c.limpo_forma['s_C']):.4f}")
+    # ⚠ O freio de um checkpoint sem ele nasce em ZERO, e não quebra o load: o
+    # currículo o leva até o nível restaurado aos poucos, um degrau por espaçamento.
+    check("21. checkpoint ANTIGO sem `limpo_freio`: o load NÃO quebra, e o degrau nasce "
+          "em zero em todo env",
+          hasattr(_cru21c, "limpo_freio") and bool((_cru21c.limpo_freio == 0).all()),
+          str(getattr(_cru21c, "limpo_freio", None)))
     del _cru21, _cru21b, _cru21c
 except Exception as _ev21x:      # noqa: BLE001
     _falhas.append(f"item 21 (checkpoint s_B/s_C) não pôde ser medido: "

@@ -134,6 +134,17 @@ def colhe_sigmas_de_postura(cfg) -> dict:
     }
 
 
+def degraus_do_freio(k: Knobs) -> int:
+    """O teto do freio por env (plano `2026-09-23-freio-em-curriculo-pelo-nivel`).
+
+    `knobs.Tarefa.freio_degraus`: `None` é "até o maior nível do currículo `nivel`"
+    (`n_niveis − 1`), e `0` DESLIGA o freio por env. Um teto copiado à mão ficaria
+    errado em silêncio no dia em que `n_niveis` mudasse.
+    """
+    d = k.tarefa.freio_degraus
+    return k.nivel.n_niveis - 1 if d is None else int(d)
+
+
 def make_env_cfg(
     k: Knobs | None = None,
     play: bool = False,
@@ -527,7 +538,10 @@ def make_env_cfg(
         func=CU.nivel,
         params={"n_niveis": n.n_niveis, "forcado": n.forcado,
                 "frac_uniforme": k.piso.frac_nivel_uniforme,
-                "nome_do_comando": "alvo_caixa"},
+                "nome_do_comando": "alvo_caixa",
+                # o freio por env persegue este `nivel` (plano freio-em-curriculo §10)
+                "degraus_max": degraus_do_freio(k),
+                "espacamento": k.tarefa.freio_espacamento},
     )
     cfg.curriculum["elo"] = CurriculumTermCfg(
         func=CU.sorteia_elo,
@@ -690,6 +704,8 @@ def make_env_cfg(
                 "vel_max_running": tr.vel_max_running,
                 "command_name": "twist",
                 "walking_threshold": 0.05, "running_threshold": 1.5,
+                # o preço por env fora do ANDAR, `fator ** degrau` (plano freio-em-curriculo)
+                "fator": tr.freio_fator,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
 
     # ⚠⚠ A FAIXA DE POSE POR FAMÍLIA E POR ESTADO. Irmã do `velocidade_por_regime`

@@ -46,6 +46,7 @@ __all__ = [
     "pico_de_altura",
     "velocidade_de_escorrego",
     "velocidade_de_junta",
+    "freio_degrau",
     "altura_da_pelve",
     "forca_de_pouso",
     "pads_em_contato",
@@ -185,6 +186,17 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
         "caixa_no_botar": MetricsTermCfg(
             func=media_por_estado, reduce="last",
             params={"grandeza": "caixa_incl", "estados": (ESTADO_BOTAR,)}),
+        # ⚠ A RÉGUA DO FREIO POR ENV (Lote B, contrato §10 de
+        # `docs/planos/2026-09-23-freio-em-curriculo-pelo-nivel.md`). O degrau médio dos
+        # envs: sobe com o `nivel` de cada um, e diz se o freio está subindo de fato.
+        "freio_degrau": MetricsTermCfg(func=freio_degrau, reduce="last"),
+        # ⚠ A RÉGUA DA ISO/TS 15066 (Lote B). Velocidade da mão mais rápida, nas idas da
+        # pega e do pouso — a mesma janela do `tronco_na_pega`. A meta é 0,25 m/s; ela é
+        # MÉDIA sobre os passos e lê a tendência, não o pulso de 0,62 s.
+        "mao_na_pega": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "mao_vel",
+                    "estados": (ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
     }
 
 
@@ -414,6 +426,18 @@ def velocidade_de_junta(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     return torch.sqrt((v ** 2).mean(dim=-1))
 
 
+def freio_degrau(env) -> torch.Tensor:
+    """O degrau do freio de velocidade (`env.limpo_freio`), por env. Sem peso.
+
+    ⚠ Zero com o freio desligado: sem o buffer, ou com `degraus_max == 0`, que o zera
+    (contrato §10 de `docs/planos/2026-09-23-freio-em-curriculo-pelo-nivel.md`).
+    """
+    freio = getattr(env, "limpo_freio", None)
+    if freio is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return freio.float()
+
+
 def fracao_do_curso(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """O MAIOR `|frac|` sobre as 29 juntas, por env. 1,0 é o batente do MJCF.
 
@@ -455,6 +479,11 @@ class media_por_estado:
           pouso (PEGAR_SEM, PEGAR_COM, BOTAR). É a régua do `recompensas.FormaPostural`
           (16/09): MEDIDO 84° a 99° no BOTAR contra 22° a 57° de referência. O termo
           devolve a média de quatro rampas e não diz QUAL grandeza mexeu; esta diz.
+      `mao_na_pega`       velocidade linear da mão mais rápida, em m/s, nas idas da
+          pega e do pouso — a grandeza da ISO/TS 15066 (0,25 m/s). É a régua do freio
+          `recompensas.velocidade_por_regime` (Lote B). ⚠ É MÉDIA sobre os passos: lê a
+          TENDÊNCIA, e não o pulso — o pico de 2,58 m/s medido em 21/09 dura 0,62 s e
+          aparece diluído aqui.
 
     ⚠⚠ DESVIO DECLARADO CONTRA O PLANO, e ele é da API. O plano pede `reduce="mean"`
     gateado, e o `MetricsManager` não expressa isso: o `"mean"` dele é `soma /
@@ -484,6 +513,11 @@ class media_por_estado:
         self.passos = torch.zeros(env.num_envs, device=env.device)
         self.estados = torch.tensor(cfg.params["estados"], dtype=torch.long, device=env.device)
         self.id_torso = env.scene["robot"].find_bodies(["torso_link"])[0][0]
+        # ⚠ a FONTE é `cena.PALM_SITES`, a mesma do comando e dos termos de palma. Import
+        # tardio, como o do `comando` em `termos`.
+        from g1_limpo.cena import PALM_SITES
+        self.id_palmas = env.scene["robot"].find_sites(list(PALM_SITES),
+                                                        preserve_order=True)[0]
         self.ez = torch.tensor([0.0, 0.0, 1.0], device=env.device)
 
     def __call__(self, env, grandeza: str, estados) -> torch.Tensor:
@@ -507,6 +541,11 @@ class media_por_estado:
             z = quat_apply(env.scene["box"].data.root_link_quat_w,
                            self.ez.expand(env.num_envs, 3))
             x = torch.rad2deg(torch.acos(z[:, 2].clamp(-1.0, 1.0)))
+        elif grandeza == "mao_vel":
+            # ⚠ A GRANDEZA DA ISO/TS 15066 (0,25 m/s): a norma da velocidade linear da
+            # mão mais rápida das DUAS, em m/s. `amax`, e não média entre as mãos — é a
+            # mão que arrisca mais que responde pela segurança do encontro.
+            x = torch.norm(robot.site_lin_vel_w[:, self.id_palmas], dim=-1).amax(dim=-1)
         else:
             raise ValueError(f"grandeza desconhecida: {grandeza}")
         no_estado = torch.isin(env.limpo_estado, self.estados).float()

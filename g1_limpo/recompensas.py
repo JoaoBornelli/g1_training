@@ -1094,9 +1094,9 @@ class velocidade_por_regime:
     knob: um segundo lugar com o mesmo número é como o `std_standing` do `pose`
     deriva em silêncio num upgrade.
 
-    ⚠⚠ RETORNA `média(relu(|v|/vmax − 1)²)` — a DOBRADIÇA, SEM clamp (spec
-    `g1-limpo-tabela-por-estado.md` §4). Substitui `clamp(média((v/vmax)²), max=4)`
-    (v3.1), e a troca é medida: 2,26% dos passos da pega com a caixa estavam em
+    ⚠⚠ RETORNA `soma(relu(|v|/vmax − 1)²)` — a DOBRADIÇA, SEM clamp (spec
+    `g1-limpo-tabela-por-estado.md` §4; SOMA desde 23/09, ver abaixo). Substitui
+    `clamp(média((v/vmax)²), max=4)` (v3.1), e a troca é medida: 2,26% dos passos da pega com a caixa estavam em
     `valor = 4,0`, e acima do clamp a derivada é ZERO — correr mais era grátis. A
     dobradiça cresce sem teto: 2× o limite custa 1,0; 5× custa 16,0. E abaixo do
     limite ela é ZERO: movimento lento passa a ser livre, em vez de cobrado de leve o
@@ -1106,25 +1106,23 @@ class velocidade_por_regime:
     limite de ~1,5, e `e^{5,7}` num único passo dominaria o lote. O quadrado já
     cresce sem teto.
 
-    ⚠ Confira à mão, com o peso −15,0 (21/09; era −2,0): v=0 -> 0; v=vmax -> 0;
-    v=2·vmax -> 1,0, custo 15,0/s; v=3·vmax -> 4,0, custo 60,0/s; v=5·vmax -> 16,0,
-    custo 240,0/s. A forma NÃO paga renda grátis parado, e não perdoa correr.
+    ⚠ Confira à mão, UMA junta, no preço de −6/29 = 0,207 por junta (23/09): v=0 -> 0;
+    v=vmax -> 0; v=2·vmax -> 1,0, custo 0,21/s; v=5·vmax -> 16,0, custo 3,3/s. A forma
+    NÃO paga renda grátis parado, e não perdoa correr.
 
-    ⚠⚠ ATENÇÃO À DILUIÇÃO: os números acima são o custo de UMA junta se TODAS as 29
-    estiverem no mesmo excesso. A `torch.mean` divide por 29 SEMPRE, e a dobradiça dá
-    zero exato para junta dentro do limite — logo média é soma÷29, e uma única junta a
-    5·vmax custa 240/29 = 8,3/s, e não 240. Trocar a média por soma seria só multiplicar
-    o peso por 29; não é conserto de forma. O que se mede é o custo REAL: MEDIDO no
-    `model_24999`, a rajada da pega (0,62 s, mão a 2,58 m/s) custa 8,64 acumulados com
-    este peso, contra ~6,9 que fechar a pega meio segundo antes compra.
+    ⚠⚠ SOMA, e não MÉDIA, desde 23/09: a média dividia o preço de uma junta sozinha por
+    29. Fora do `ANDAR` o preço sobe por env, `fator ** env.limpo_freio`, com o degrau
+    do currículo `nivel`. O porquê e os números estão em `knobs.Tarefa`, comentário
+    "SOMA E PREÇO POR ENV".
 
     ⚠ `vel_max_standing` é dict POR FAMÍLIA de junta (`knobs.Tarefa`), com os MESMOS
     14 padrões de `vel_max_walking`. `walking`/`running` NÃO mudam — são o p99 da
     marcha, e com a dobradiça a marcha normal passa a custar ZERO em vez de
     `(v/vmax)²`: um pequeno ALÍVIO constante na locomoção, declarado. Peso −2,0 FICA.
 
-    ⚠ MÉDIA sobre as juntas, e não produto: um produto de 29 gaussianas colapsa para
-    qualquer vmax — o mesmo defeito medido no `PosturaPorElo` para posição.
+    ⚠ SOMA sobre as juntas, e não produto: um produto de 29
+    gaussianas colapsa para qualquer vmax — o mesmo defeito medido no `PosturaPorElo`
+    para posição.
     """
 
     def __init__(self, cfg, env):
@@ -1147,11 +1145,17 @@ class velocidade_por_regime:
         self.vel_max_running = torch.tensor(
             vel_max_running, device=env.device, dtype=torch.float32)
 
+        # o fator do preço por degrau e o `ESTADO_ANDAR`, resolvidos UMA vez, como os vmax
+        self.fator = float(cfg.params.get("fator", 1.0))
+        from g1_limpo.comando import ESTADO_ANDAR
+        self.estado_andar = ESTADO_ANDAR
+
     def __call__(self, env, vel_max_standing, vel_max_walking, vel_max_running,
                  asset_cfg: SceneEntityCfg, command_name: str,
                  walking_threshold: float = 0.05,
-                 running_threshold: float = 1.5) -> torch.Tensor:
-        del vel_max_standing, vel_max_walking, vel_max_running  # resolvidos no __init__
+                 running_threshold: float = 1.5,
+                 fator: float = 1.0) -> torch.Tensor:
+        del vel_max_standing, vel_max_walking, vel_max_running, fator  # resolvidos no __init__
 
         asset = env.scene[asset_cfg.name]
         command = env.command_manager.get_command(command_name)
@@ -1182,8 +1186,16 @@ class velocidade_por_regime:
                + self.vel_max_running * running_mask.unsqueeze(1))
 
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
-        # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto
-        return torch.mean(torch.relu(v.abs() / vmax - 1.0) ** 2, dim=1)
+        # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto; SOMA nas juntas
+        excesso = torch.relu(v.abs() / vmax - 1.0) ** 2
+        custo = excesso.sum(dim=1)
+        # o preço por env, fora do `ANDAR`: `custo × fator ** env.limpo_freio`. O buffer
+        # nasce no currículo `nivel`, que também o zera com o freio desligado.
+        freio = getattr(env, "limpo_freio", None)
+        if freio is not None:
+            manip = (env.limpo_estado != self.estado_andar).float()
+            custo = custo * self.fator ** (freio.float() * manip)
+        return custo
 
 
 class renda_congelada:

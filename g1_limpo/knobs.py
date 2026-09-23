@@ -831,7 +831,8 @@ class Tarefa:
     # 0,62 s. Baixar o limite cobraria os 91% que já são seguros e não tocaria o pulso.
     #
     # ⚠ O NÚMERO SAI DE UM BALANÇO, e não de gosto. Fechar a pega meio segundo antes
-    # compra ~6,9 de renda congelada (13,8/s × 0,5 s). Custo acumulado da rajada:
+    # compra ~6,9 de renda congelada (13,8/s × 0,5 s). Custo acumulado da rajada,
+    # escala ANTIGA (média das 29 juntas; ver "SOMA E PREÇO POR ENV" abaixo):
     #
     #     peso     −2      −8     −15
     #     custo  1,15    4,61    8,64      contra 6,9 que a pressa compra
@@ -844,8 +845,26 @@ class Tarefa:
     # multiplicam: o regime escolhe a TABELA, o peso escolhe o CUSTO.
     #
     # ⚠ O RISCO, DECLARADO: a pega fica lenta e a cadeia demora mais a fechar. Se o `s_B`
-    # cair e não voltar em ~1000 iterações, o peso está alto e o meio-termo é −8.
-    velocidade_por_regime: float = -15.0
+    # cair e não voltar em ~1000 iterações, o peso está alto e o meio-termo é −8 na
+    # escala antiga (−8/29 por junta na soma).
+    #
+    # ⚠⚠ SOMA E PREÇO POR ENV (23/09, plano `docs/planos/2026-09-23-freio-em-curriculo-
+    # pelo-nivel.md`). O custo troca a MÉDIA pela SOMA das dobradiças sobre as 29
+    # juntas: uma junta sozinha no excesso paga o peso inteiro, e não mais 1/29 dele.
+    # O peso vira o PREÇO POR JUNTA. `−6/29` é o equivalente EXATO do −6,0 da `zero06`
+    # na média antiga — no degrau 0 a recompensa nova é IDÊNTICA. Fora do `ANDAR` o
+    # preço sobe por env, `freio_fator ** degrau`, conforme o `nivel` daquele env bate
+    # recordes (currículo `nivel`, `curriculo.py`); no `ANDAR` o preço fica no piso.
+    #
+    # ⚠⚠ O BALANÇO DE 21/09 NA ESCALA NOVA: 0,517 por junta (o −15,0 antigo) pagava
+    # 8,64 pela rajada da pega. O empate com os 6,9 da pressa cai para 0,41 por junta
+    # (≈ −12 na média antiga). O degrau 2, com 0,47, já passa do empate.
+    velocidade_por_regime: float = -6.0 / 29.0
+    freio_fator: float = 1.5        # fator por degrau do preço (23/09)
+    # teto de degraus: `None` = até o maior nível do currículo `nivel` (n_niveis − 1); `0`
+    # DESLIGA o freio por env, e o currículo zera o degrau. Em `env_cfg.degraus_do_freio`.
+    freio_degraus: int | None = None
+    freio_espacamento: int = 10     # episódios de cadeia entre dois degraus do mesmo env
 
     # ⚠ A FAIXA DE POSE (`knobs.FaixaDePose`, abaixo). Peso −0,5 e `escala` 1,5 saem de
     # uma conta contra a pose MEDIDA em `model_11322` (`registra_juntas`, laje a 0,15 m):
