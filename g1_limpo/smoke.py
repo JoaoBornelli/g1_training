@@ -5043,8 +5043,8 @@ try:
           f"{_v_5x:.4f}")
 
     # ⚠ O PREÇO POR ENV (23/09): fora do ANDAR o custo sai multiplicado por
-    # `fator ** degrau`; no ANDAR o preço é o piso, qualquer que seja o degrau. Os
-    # dois primeiros envs ficam num estado de manipulação, os dois últimos no ANDAR;
+    # `fator ** degrau`; no ANDAR o preço é ZERO desde 24/09, qualquer que seja o degrau.
+    # Os dois primeiros envs ficam num estado de manipulação, os dois últimos no ANDAR;
     # o degrau é 0, 3, 3 e 0. O regime segue `standing` nos quatro (twist zerado), então
     # a dobradiça crua é 29 em todos a 2×.
     _eg3.limpo_estado[:] = _tg3.tensor([CMD.ESTADO_PEGAR_COM, CMD.ESTADO_PEGAR_COM,
@@ -5052,8 +5052,8 @@ try:
     _eg3.limpo_freio = _tg3.tensor([0, 3, 3, 0], dtype=_tg3.long)
     _fator3 = float(_cg3.rewards["velocidade_por_regime"].params["fator"])
     _pe3 = _custo_vel_por_env(2.0).tolist()
-    _esp3 = [29.0, 29.0 * _fator3 ** 3, 29.0, 29.0]
-    check("3. o preço por env: fora do ANDAR 29·fator^degrau; no ANDAR 29, com degrau "
+    _esp3 = [29.0, 29.0 * _fator3 ** 3, 0.0, 0.0]
+    check("3. o preço por env: fora do ANDAR 29·fator^degrau; no ANDAR ZERO, com degrau "
           "0 ou 3",
           all(abs(a - b) < 1e-2 * max(1.0, b) for a, b in zip(_pe3, _esp3)),
           f"medido {[round(x, 3) for x in _pe3]} contra {[round(x, 3) for x in _esp3]}")

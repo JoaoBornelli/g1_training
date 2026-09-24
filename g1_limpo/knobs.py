@@ -854,7 +854,7 @@ class Tarefa:
     # O peso vira o PREÇO POR JUNTA. `−6/29` é o equivalente EXATO do −6,0 da `zero06`
     # na média antiga — no degrau 0 a recompensa nova é IDÊNTICA. Fora do `ANDAR` o
     # preço sobe por env, `freio_fator ** degrau`, conforme o `nivel` daquele env bate
-    # recordes (currículo `nivel`, `curriculo.py`); no `ANDAR` o preço fica no piso.
+    # recordes (currículo `nivel`, `curriculo.py`); no `ANDAR` o preço é ZERO (24/09).
     #
     # ⚠⚠ O BALANÇO DE 21/09 NA ESCALA NOVA: 0,517 por junta (o −15,0 antigo) pagava
     # 8,64 pela rajada da pega. O empate com os 6,9 da pressa cai para 0,41 por junta

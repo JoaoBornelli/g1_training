@@ -1188,13 +1188,15 @@ class velocidade_por_regime:
         v = asset.data.joint_vel[:, asset_cfg.joint_ids]
         # a dobradiça: ZERO até `vmax`, quadrado do EXCESSO acima, sem teto; SOMA nas juntas
         excesso = torch.relu(v.abs() / vmax - 1.0) ** 2
-        custo = excesso.sum(dim=1)
-        # o preço por env, fora do `ANDAR`: `custo × fator ** env.limpo_freio`. O buffer
+        # ⚠ ZERO no `ANDAR` (24/09). MEDIDO no `model_3150`: com o ruído de perna de 0,3
+        # para 0,6, o freio é o termo que mais perde (−0,44/s), e a marcha treinada custa
+        # 0,0003/s nele. No ANDAR ele só cobrava a exploração que forma a marcha.
+        custo = excesso.sum(dim=1) * (env.limpo_estado != self.estado_andar).float()
+        # fora do `ANDAR`, o preço por env: `custo × fator ** env.limpo_freio`. O buffer
         # nasce no currículo `nivel`, que também o zera com o freio desligado.
         freio = getattr(env, "limpo_freio", None)
         if freio is not None:
-            manip = (env.limpo_estado != self.estado_andar).float()
-            custo = custo * self.fator ** (freio.float() * manip)
+            custo = custo * self.fator ** freio.float()
         return custo
 
 
