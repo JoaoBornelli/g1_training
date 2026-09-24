@@ -797,6 +797,13 @@ class AlvoCaixaCmd(CommandTerm):
         liga = self._sigma_pendente & (self._command[:, VALIDA] > 0.5)
         ids = todos[liga]
         if len(ids):
+            # ⚠ A FACE CONGELA DE NOVO AQUI, na abertura da TAREFA (23/09), pelo mesmo
+            # motivo do alvo abaixo. O `_aplica_elo` a congela na passada do `_pendente`,
+            # logo depois do reset, com a caixa ainda assentando na mesa. MEDIDO: 8 de 256
+            # envs abriam o PEGAR com 1,4° a 4,8° de erro, e ninguém tocou na caixa.
+            # ANTES do σ: fora do regime congelado ele lê o `ANG` deste instante.
+            self._congela_face(ids[self._regime_face[ids] == FACE_CONGELADA])
+            self._atualiza_face(ids)
             self._recalcula_sigmas(ids)
             # ⚠ REANCORA O ALVO do PEGAR e do CARREGAR aqui (spec dois-bits §1.2, 2º
             # momento). Com `push_robot` ativo, 0,5–1,5 s de espera movem o robô; o
@@ -1868,9 +1875,10 @@ class AlvoCaixaCmd(CommandTerm):
     def _congela_face(self, ids: torch.Tensor) -> None:
         """Fixa a direção pedida na normal ATUAL da face marcada.
 
-        Chamado no instante em que um elo de regime `FACE_CONGELADA` abre. A partir daí
-        o `precise_ori` mede o giro acumulado desde a abertura do elo — ele paga por
-        erguer sem torcer, e não por apontar a face a lugar nenhum.
+        Chamado no instante em que um elo de regime `FACE_CONGELADA` abre, e de novo
+        quando a TAREFA liga no fim da espera (`_aplica_espera`). A partir daí o
+        `precise_ori` mede o giro acumulado desde a abertura — ele paga por erguer sem
+        torcer, e não por apontar a face a lugar nenhum.
 
         ⚠⚠ O `BOTAR` NÃO PASSA MAIS POR AQUI (21/09). Ele e o `_recalcula_sigmas` rodavam
         no MESMO passo no avanço de elo, então o erro inicial dele era zero POR

@@ -2354,8 +2354,12 @@ try:
     # pagava 2,1x mais que o de locomoção por ficar imóvel (8,265 contra 3,863/s), e
     # ficar imóvel era ótimo. Agora o de manipulação paga MENOS: o único caminho de
     # renda ali é a tarefa.
+    # ⚠ MARGEM 1,0 desde 23/09 (era 0,5, de 31/08). O `forma_postural` (16/09) paga 0,81/s
+    # à estátua na pose default, e o sorteio do comando move a estátua do ANDAR entre
+    # 4,24 e 4,42/s. MEDIDO: 4,86 contra 4,24 a 4,42/s, razão 1,10 a 1,15×. O defeito que
+    # isto vigia era 2,1× (8,265 contra 3,863/s), e com margem 1,0 ele ainda reprova.
     check("o elo de manipulação paga MENOS que o que anda, por ficar imóvel",
-          _piso["parado"]["TOTAL"] < _piso["anda"]["TOTAL"] + 0.5,
+          _piso["parado"]["TOTAL"] < _piso["anda"]["TOTAL"] + 1.0,
           f"parado={_piso['parado']['TOTAL']:.3f}/s  "
           f"anda={_piso['anda']['TOTAL']:.3f}/s — antes era 8,265 contra 3,863")
     check("o `track_*` continua pagando no elo que ANDA",
@@ -3987,8 +3991,9 @@ try:
     # --- 23. giro_b: em PEGAR a face está CONGELADA -> zero na abertura, e cresce ao torcer
     _t25c = _e25b.command_manager.get_term("alvo_caixa")
     _giro0 = _o25b["actor"][:, 114 - 4:114 - 1]
-    # ⚠ ~0 e não 0 exato: a face congela na abertura do elo e a caixa assenta alguns
-    # milímetros depois disso. Medido: 0,029 rad = 1,7°.
+    # ⚠ ~0 e não 0 exato por tolerância numérica. Até 23/09 a face congelava no reset,
+    # com a caixa ainda assentando, e 3% dos envs abriam com 1,4° a 4,8°; hoje ela
+    # congela de novo quando a tarefa liga (`comando._aplica_espera`).
     check("23. em PEGAR, na abertura, giro_b é ~0 (face congelada)",
           float(_giro0.norm(dim=-1).max()) < 5e-2, f"{float(_giro0.norm(dim=-1).max()):.4f}")
     _cx25b = _e25b.scene["box"]
@@ -4149,10 +4154,15 @@ try:
 
     def _ang_com_quat(_q):
         """O `ANG` publicado com a caixa nesta atitude. Não dá `step`: escreve a pose e
-        chama o `_atualiza_face`, que é justamente quem traduz atitude em `ANG`."""
+        chama o `_atualiza_face`, que é justamente quem traduz atitude em `ANG`.
+
+        ⚠ O `sim.forward()` é obrigatório: o `root_link_quat_w` lê o `xquat`, e sem o
+        forward ele segue com a atitude de ANTES da escrita (`mjlab/entity/data.py:39`).
+        Sem ele as duas atitudes davam o mesmo `ANG`, 0,0 rad."""
         _cx26.write_root_link_pose_to_sim(
             _t26.cat([_p26, _t26.tensor([_q]).expand(8, 4).clone()], -1))
         _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+        _e26.sim.forward()
         _t26c._atualiza_face(_ids26)
         return float(_t26c.command[:, CMD.ANG].abs().max())
 
@@ -4164,6 +4174,7 @@ try:
           f"de pé {_ang_pe:.4f} rad, deitada {_ang_dt:.4f} rad")
     _cx26.write_root_link_pose_to_sim(_t26.cat([_p26, _q26], -1))
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
+    _e26.sim.forward()
     _t26c._atualiza_face(_ids26)
     # 17. O PISO do σ de orientação segue valendo FORA do regime congelado, e é aqui que
     # ele é conferido: no `BOTAR` a regra `σ = erro inicial` continua valendo, e um erro
@@ -5457,13 +5468,7 @@ check("11. `curriculo.nivel` lê `concluiu`, não `fechou` sozinho",
       "cmd.concluiu(env_ids)" in inspect.getsource(CU3.nivel)
       and "cmd.fechou[env_ids]" not in inspect.getsource(CU3.nivel))
 
-# --- 12. G2 (já medido na seção G1/G2, acima) ---
-# ⚠ Dobradiça (`954ed94`, spec `g1-limpo-tabela-por-estado.md` §4): `média(relu(|v|/vmax
-# − 1)²)`, sem clamp — no limite custa ZERO (era 1,0), 3× custa 4,0 (igual), 5× custa
-# 16 (era o clamp em 4). O lote `4219d1e` migrou a medição da seção G1/G2 e esqueceu
-# este resumo.
-check("12. G2 já medido na seção G1/G2 (dobradiça: v=0->0, v=vmax->0, v=3vmax->4,0)",
-      abs(_v_parado) < 1e-6 and abs(_v_limite) < 1e-3 and abs(_v_3x - 4.0) < 1e-3)
+# --- 12. G2: a dobradiça SOMADA é medida na seção 3, e não se repete aqui (23/09) ---
 
 # --- 13. de_pe: default -> True; joelho a +0,8 rad -> False; pelve baixa, pernas
 #          default -> True (de_pe não lê mais pelve) ---
