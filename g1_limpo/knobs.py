@@ -1252,7 +1252,10 @@ class PesoPorEstado:
     #                            ANDAR ESP_SEM ESP_COM REOR_SEM REOR_COM PEG_SEM PEG_COM CARREGAR BOTAR CAUDA
     staged: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     precise_pos: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    1.0,    1.0,     2.0,  0.0)
-    precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
+    # ⚠ PEG_COM = 4 (28/09): com peso 1 a `zero10` erguia a caixa tombando-a com o cotovelo
+    # (`caixa_na_pega` 17° → 60° com `precise_pos` 0,29 → 0,71). A 60° a derivada era
+    # 0,18/rad; com 4, 0,72/rad. Nenhum outro termo vê o tombo.
+    precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    4.0,    0.0,     2.0,  0.0)
     squeeze: tuple[float, ...] = (0.0, 0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     unload: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     postura_ereta: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  8.0)
