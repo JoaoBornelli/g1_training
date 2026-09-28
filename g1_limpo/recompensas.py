@@ -620,16 +620,19 @@ def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
 
 
 def precise_ori(env, nome_do_comando: str) -> torch.Tensor:
-    """`alcançar × exp(−(Δθ/σ_ori)²)`. A face pedida apontando ao robô.
+    """`alcançar × [½(1 − Δθ/π) + ½ exp(−(Δθ/σ_ori)²)]`. A face pedida no lugar.
 
-    ⚠ Gateado por `alcançar`: girar a caixa sem tocá-la não é a tarefa. E o σ é o
-    ÂNGULO inicial daquele env — com σ fixo de 0,40 rad um pedido de 90° dava
-    `exp(−(1,57/0,40)²) = 2,0e−7`, isto é zero. Era a "sorte de nível 3+" do `g1_poc`.
+    ⚠ Gateado por `alcançar`: girar a caixa sem tocá-la não é a tarefa.
+    ⚠ HÍBRIDO (28/09): o gaussiano sozinho morre longe do alvo — MEDIDO no `model_1750`
+    da `zero08`, caixa a 66° na pega com σ 25°: kernel 0,001, derivada 0,011/rad. A
+    metade linear dá 0,16/rad em TODO Δθ de 0 a 180°; a gaussiana dá 1,0/rad na
+    tolerância do fecho. Vale 1 alinhado, 0,61 a 25°, 0,32 a 66°, 0 a 180°.
     """
     from g1_limpo.comando import ANG
     t = _t(env, nome_do_comando)
     erro = env.command_manager.get_command(nome_do_comando)[:, ANG]
-    alinha = torch.exp(-(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
+    alinha = 0.5 * (1.0 - erro / math.pi) + 0.5 * torch.exp(
+        -(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
     return _alcancar(env, nome_do_comando) * alinha
 
 

@@ -1855,7 +1855,7 @@ class AlvoCaixaCmd(CommandTerm):
         # O regime congelado passa a usar a TOLERÂNCIA DO FECHO como σ. Não é knob novo:
         # é o `tol_ang_deg` que o `_fecha_elo_corrente` já lê. Com ele o limiar do fecho
         # e a forma da recompensa concordam sobre onde fica a régua, e em `tol_ang_deg`
-        # o kernel vale `e⁻¹` = 0,368 — a mesma convenção de σ do resto do módulo.
+        # a gaussiana vale `e⁻¹` = 0,368 (o termo híbrido, 0,61; ver `precise_ori`).
         #
         # O `FACE_VIVA` NÃO entra: o alvo do `REORIENTAR` existe independente da caixa,
         # o erro inicial dele é um número de verdade (até 90°), e um σ fixo de 25° ali
