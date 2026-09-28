@@ -929,18 +929,19 @@ try:
 
     check("desenha os EIXOS da caixa (1 por env)", _v.frames == 2, f"{_v.frames}")
     check("desenha a esfera do ALVO e a do ALCANCE", _v.spheres == 4, f"{_v.spheres}")
-    check("desenha 4 setas por env: normal da face MARCADA, direção DESEJADA, "
+    check("desenha 4 setas por env: eixo de CIMA da caixa, direção DESEJADA, "
           "caixa->alvo e pelve->alvo",
           _v.arrows == 8, f"{_v.arrows}")
     check("o desenho separa 'aponta aqui' de 'DEVE apontar aqui'",
-          any("MARCADA aponta" in x for x in _v.labels)
+          any("CIMA da caixa aponta" in x for x in _v.labels)
           and any("DEVE apontar" in x for x in _v.labels),
           "sem os dois vetores não dá para ver o erro de orientação no viewer")
     check("o rótulo do erro cita os quartos de volta",
           any("quarto(s) de volta" in x for x in _v.labels))
     check("desenha o TOPO da laje", _v.boxes == 2, f"{_v.boxes}")
-    check("os rótulos citam a face, o alvo, e o deslocamento até ele",
-          any("face" in x for x in _v.labels)
+    # ⚠ No PEGAR o eixo desenhado é o de CIMA (28/09), e não a face marcada.
+    check("os rótulos citam o eixo de cima, o alvo, e o deslocamento até ele",
+          any("eixo de CIMA" in x for x in _v.labels)
           and any("alvo" in x for x in _v.labels)
           and any("caixa->alvo" in x for x in _v.labels),
           str(sorted({x[:22] for x in _v.labels if x})))
@@ -955,9 +956,9 @@ try:
     check("o ANG publicado é o ERRO angular, em [0, 180]",
           0.0 <= float(_t.rad2deg(_cmd[:, CMD.ANG]).min())
           and float(_t.rad2deg(_cmd[:, CMD.ANG]).max()) <= 180.0 + 1e-3)
-    check("a direção desejada é unitária e HORIZONTAL",
-          abs(float(_cmd[:, CMD.FACE].norm(dim=-1).min()) - 1.0) < 1e-4
-          and float(_cmd[:, CMD.FACE][:, 2].abs().max()) < 1e-6)
+    # ⚠ No PEGAR a direção desejada é a VERTICAL (28/09): a face de baixo para baixo.
+    check("no PEGAR a direção desejada é a VERTICAL do mundo",
+          float((_cmd[:, CMD.FACE] - _t.tensor([0.0, 0.0, 1.0])).abs().max()) < 1e-6)
     # ⚠ ELE INVERTEU EM 02/09. Antes o objetivo nascia ATIVO; com a janela de espera ele
     # nasce DESLIGADO num elo de manipulação, e liga na borda da janela. A
     # descontinuidade 0->1 É o sinal de "o objetivo chegou" — ver `knobs.Alvo.espera_s`.
@@ -2490,14 +2491,10 @@ try:
     check("a distância é até a FACE LATERAL, não o centro",
           float(_d5.max()) < 0.60,
           "ao centro o mínimo alcançável é 0,191 m e o kernel saturava em 0,674")
-    # ⚠⚠ ESTE CHECK MUDOU EM 22/09, e o motivo é que ele tinha virado vácuo. Ele só
-    # afirmava o PISO, e no `PEGAR` o piso ERA o valor: a face congela com a caixa
-    # parada na mesa, ela não gira durante a espera, logo o erro nasce em zero e
-    # `σ = erro inicial` devolvia 0,20 rad em todo episódio. A partir de uns 20° de
-    # tombo o `precise_ori` valia zero exato, e NADA cobrava por erguer a caixa torta —
-    # MEDIDO na `zero02`, `caixa_na_pega` entre 53° e 59° contra os 25° que o fecho
-    # exige. O regime congelado passa a usar a TOLERÂNCIA DO FECHO como σ; o piso segue
-    # valendo para os outros dois regimes, e é conferido no bloco 17 (BOTAR).
+    # ⚠⚠ ESTE CHECK MUDOU EM 22/09, e o motivo é que ele tinha virado vácuo: a caixa
+    # abre o `PEGAR` de pé, o erro nasce em zero, e `σ = erro inicial` devolvia o piso
+    # de 0,20 rad. MEDIDO na `zero02`: `caixa_na_pega` entre 53° e 59°. No regime de pé
+    # o piso é a TOLERÂNCIA DO FECHO (28/09); no BOTAR ele é conferido no bloco 17.
     _tol5 = math.radians(_c5.commands["alvo_caixa"].tol_ang_deg)
     check("no `PEGAR` o σ de orientação é a TOLERÂNCIA DO FECHO, e não o piso",
           abs(float(_t5c.sigma_ori.min()) - _tol5) < 1e-4
@@ -2566,37 +2563,23 @@ try:
           "a média é o que acopla as mãos: uma mão atrasada derruba o termo, e com "
           "`min` a segunda mão não teria gradiente nenhum")
 
-    # ------------------------- a face pedida CONGELA no `PEGAR` (28/08, revisto 22/09)
-    # ⚠ TRÊS pedidos diferentes. No `REORIENTAR` a direção é VIVA ("vire a face para o
-    # robô"); no `BOTAR` é a VERTICAL ("pouse a caixa de pé"); no `PEGAR` e no
-    # `CARREGAR` ela congela na normal da abertura, e aí o termo pergunta "a caixa girou
-    # desde então?" — ele paga por erguer SEM torcer. Com a direção viva em todo elo, o
-    # `precise_ori` ficava inerte no nível 0 (caixa nasce alinhada, `sigma_ori` com piso
-    # de 0,20 rad) E o alvo se movia com o ROBÔ: andar em volta da caixa mudava o termo
-    # sem tocá-la.
-    # ⚠⚠ MAS CONGELAR SOZINHO NÃO BASTAVA, e isso só apareceu em 22/09: o congelamento
-    # zera o erro inicial, logo `σ = erro inicial` devolvia o piso e o termo morria de
-    # novo, agora do outro lado. Os dois têm de andar juntos — o congelamento dá a
-    # pergunta certa, e o σ pela tolerância do fecho dá a escala. Ver o check do σ acima.
-    check("no `PEGAR` a direção pedida está CONGELADA",
-          bool((_t5c._regime_face == CMD.FACE_CONGELADA).all()),
-          "este env foi forçado no PEGAR — o regime tem de ser FACE_CONGELADA")
-    # ⚠ A TOLERÂNCIA COBRE O ASSENTAMENTO DA CAIXA, e não o desenho: a normal é
-    # congelada na passada do `_pendente` e a caixa continua assentando na laje depois
-    # disso. MEDIDO em execuções seguidas: até 0,024 rad. Com 2e−2 o check falhava
-    # acusando o solver de contato, e não o desenho.
-    #
-    # 4e−2 rad são 2,3°, contra os 0,26 rad (15°) que a direção VIVA dava no nível 0.
-    # A separação entre os dois regimes segue sendo de mais de 6× — que é o que este
-    # check afirma.
+    # --------------- no `PEGAR` o pedido é a face de baixo PARA BAIXO (28/09)
+    # ⚠ A normal congelada de UMA face lateral era cega ao tombo em torno do eixo
+    # palma-a-palma: MEDIDO no `model_2000` da `zero09`, tombo real 93° contra `ANG` 62°.
+    # O regime de pé mede o eixo de cima capturado na mesa contra a vertical.
+    check("no `PEGAR` o regime é FACE_DE_PE",
+          bool((_t5c._regime_face == CMD.FACE_DE_PE).all()),
+          f"regimes presentes: {sorted(set(_t5c._regime_face.tolist()))}")
+    # ⚠ A TOLERÂNCIA COBRE O ASSENTAMENTO DA CAIXA: o eixo de cima é capturado na
+    # passada do `_pendente` e a caixa continua assentando na laje. MEDIDO com a face
+    # congelada: até 0,024 rad. 4e−2 rad são 2,3°.
     #
     # ⚠ USA `_ang_cedo5`, capturado com 1 passo só, ANTES da janela. Este check mede o
     # ASSENTAMENTO IMEDIATO da caixa, e não o que se acumula ao longo da espera inteira
     # — esse é o check 4 da seção nova "F1: o σ é a distância da TAREFA".
-    check("congelada na normal ATUAL, portanto o erro angular nasce em ZERO",
+    check("a caixa abre o PEGAR de pé, portanto o erro angular nasce em ZERO",
           _ang_cedo5 < 4e-2,
-          f"pior erro {_ang_cedo5:.5f} rad — "
-          "o pedido é 'erga sem torcer', e no passo da abertura não há giro")
+          f"pior erro {_ang_cedo5:.5f} rad — no passo da abertura não há tombo")
     del _e5
 except Exception as _e5x:      # noqa: BLE001
     _falhas.append(f"o σ não pôde ser medido: {type(_e5x).__name__}: {_e5x}")
@@ -3988,31 +3971,40 @@ try:
     check("3. o último canal é `meia_aresta` e bate com `limpo_meia_aresta` env a env",
           float((_meia_obs - _e25b.limpo_meia_aresta[:, 0]).abs().max()) < 1e-6,
           f"{_meia_obs[:4].tolist()} vs {_e25b.limpo_meia_aresta[:4, 0].tolist()}")
-    # --- 23. giro_b: em PEGAR a face está CONGELADA -> zero na abertura, e cresce ao torcer
+    # --- 23. giro_b: em PEGAR a caixa abre de pé -> zero na abertura; cresce ao TOMBAR
     _t25c = _e25b.command_manager.get_term("alvo_caixa")
     _giro0 = _o25b["actor"][:, 114 - 4:114 - 1]
-    # ⚠ ~0 e não 0 exato por tolerância numérica. Até 23/09 a face congelava no reset,
-    # com a caixa ainda assentando, e 3% dos envs abriam com 1,4° a 4,8°; hoje ela
-    # congela de novo quando a tarefa liga (`comando._aplica_espera`).
-    check("23. em PEGAR, na abertura, giro_b é ~0 (face congelada)",
+    # ⚠ ~0 e não 0 exato por tolerância numérica: o eixo de cima é capturado de novo
+    # quando a tarefa liga (`comando._aplica_espera`), com a caixa já assentada.
+    check("23. em PEGAR, na abertura, giro_b é ~0 (caixa de pé)",
           float(_giro0.norm(dim=-1).max()) < 5e-2, f"{float(_giro0.norm(dim=-1).max()):.4f}")
     _cx25b = _e25b.scene["box"]
     _ang = math.radians(20.0)
-    # ⚠ a torção é RELATIVA ao quatérnion da abertura (a face está congelada nele): a
-    # caixa nasce com um desalinho de até ±15°, portanto um yaw ABSOLUTO de 20° não daria
-    # |giro| = 20°. Compõe-se `qz(20°) ⊗ q0`.
     _q0 = _cx25b.data.root_link_quat_w.clone()
-    _qz = _qmul(_t25.tensor([math.cos(_ang / 2), 0.0, 0.0, math.sin(_ang / 2)]).expand(16, 4), _q0)
-    for _ in range(3):
-        _cx25b.write_root_link_pose_to_sim(_t25.cat([_cx25b.data.root_link_pos_w, _qz], -1))
-        _cx25b.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
-        _o25b = _e25b.step(_t25.zeros(16, _n25b))[0]
-    _giro1 = _o25b["actor"][:, 114 - 4:114 - 1]
-    check("23. torcida 20° em Z, |giro_b| ≈ 0,35 e bate com ANG",
+    # ⚠ 5 cm acima da laje: a caixa inclinada 20° encostada nela seria empurrada pelo
+    # contato, e o `ANG` lido depois do passo não seria o escrito.
+    _p0 = _cx25b.data.root_link_pos_w.clone() + _t25.tensor([0.0, 0.0, 0.05])
+
+    def _gira25(_qr):
+        """Compõe `_qr ⊗ q0` (giro em MUNDO) e devolve o `giro_b` depois de 3 passos."""
+        _q = _qmul(_t25.tensor(_qr).expand(16, 4), _q0)
+        for _ in range(3):
+            _cx25b.write_root_link_pose_to_sim(_t25.cat([_p0, _q], -1))
+            _cx25b.write_root_link_velocity_to_sim(_t25.zeros(16, 6))
+            _o = _e25b.step(_t25.zeros(16, _n25b))[0]
+        return _o["actor"][:, 114 - 4:114 - 1]
+
+    # a GUINADA é livre (decisão do dono, 28/09): 20° em Z não é erro
+    _giro_z = _gira25([math.cos(_ang / 2), 0.0, 0.0, math.sin(_ang / 2)])
+    check("23. girada 20° em Z (guinada), |giro_b| ≈ 0 — a guinada é livre",
+          float(_giro_z.norm(dim=-1).max()) < 5e-2, f"{float(_giro_z.norm(dim=-1).max()):.4f}")
+    # o TOMBO em x (o eixo que a face lateral não via) é erro, com eixo horizontal
+    _giro1 = _gira25([math.cos(_ang / 2), math.sin(_ang / 2), 0.0, 0.0])
+    check("23. tombada 20° em X, |giro_b| ≈ 0,35 e bate com ANG",
           float((_giro1.norm(dim=-1) - _t25c.command[:, CMD.ANG]).abs().max()) < 1e-4
           and abs(float(_giro1.norm(dim=-1).mean()) - _ang) < 0.05,
           f"|giro| {float(_giro1.norm(dim=-1).mean()):.3f}, ANG {float(_t25c.command[:, CMD.ANG].mean()):.3f}")
-    check("23. ... e o eixo é Z", float(_giro1[:, :2].abs().max()) < 0.05)
+    check("23. ... e o eixo é HORIZONTAL", float(_giro1[:, 2].abs().max()) < 0.05)
     del _e25b
 
     # --- 23. giro_b no REORIENTAR: direção VIVA; caixa girada 90° em Z pede giro em Z ---
@@ -4029,8 +4021,8 @@ try:
     _cx25c = _e25c.scene["box"]
     _t25d = _e25c.command_manager.get_term("alvo_caixa")
     # ⚠⚠ SEM CADEIA, e sem isto o teste mede outra coisa. Com `reorientar_inerte` o
-    # REORIENTAR fecha em 0,3 s e a cadeia 1 avança para o PEGAR — e no PEGAR a face é
-    # CONGELADA, portanto o `giro_b` passa a medir a torção desde o avanço em vez do
+    # REORIENTAR fecha em 0,3 s e a cadeia 1 avança para o PEGAR — e no PEGAR o regime é
+    # outro (hoje DE PÉ), portanto o `giro_b` passa a medir outra coisa em vez do
     # giro pedido. Medido em 03/09: o primeiro caso lia (0,0,0) e o do tombo lia o eixo
     # X. `CADEIA_NENHUMA` bloqueia o avanço (o `_avanca_elo` filtra por `_cadeia >= 0`).
     _t25d._cadeia[:] = CMD.CADEIA_NENHUMA
@@ -4141,13 +4133,13 @@ try:
           "mesma pose (σ = d₀ no passo em que o VALIDA acende; v3.3)",
           _alc_pegar < 0.1 and abs(_alc_botar - math.exp(-1)) < 0.02,
           f"pegar {_alc_pegar:.3f}, botar {_alc_botar:.3f}")
-    # 17. O BOTAR mede o eixo Z DA CAIXA contra a VERTICAL (21/09), e não a face
-    # congelada. Antes disto o `_congela_face` capturava a normal da caixa TOMBADA nas
-    # mãos e o `alinhado` passava a exigir que ela MANTIVESSE o tombo: o giro reprovado
-    # era o ENDIREITAMENTO. Medido no `model_9100`, a caixa chega ao BOTAR tombada 29,7°
+    # 17. O BOTAR mede o eixo de cima contra a VERTICAL (21/09), e HERDA o eixo
+    # capturado no PEGAR (28/09). Capturar na abertura do BOTAR pegaria a caixa TOMBADA
+    # nas mãos, e o `alinhado` passaria a exigir que ela MANTIVESSE o tombo: o giro
+    # reprovado era o ENDIREITAMENTO. Medido no `model_9100`, a caixa chega ao BOTAR tombada 29,7°
     # (laje 0,55) e 52,2° (laje 0,35) e termina a 0,0°, porque a laje a nivela. Ver
     # `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
-    check("17. no BOTAR o regime da face é FACE_DE_PE, e não FACE_CONGELADA",
+    check("17. no BOTAR o regime da face é FACE_DE_PE",
           bool((_t26c._regime_face == CMD.FACE_DE_PE).all()),
           f"regimes presentes: {sorted(set(_t26c._regime_face.tolist()))}")
     _p26 = _cx26.data.root_link_pos_w.clone()
@@ -4176,15 +4168,13 @@ try:
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
     _e26.sim.forward()
     _t26c._atualiza_face(_ids26)
-    # 17. O PISO do σ de orientação segue valendo FORA do regime congelado, e é aqui que
-    # ele é conferido: no `BOTAR` a regra `σ = erro inicial` continua valendo, e um erro
-    # inicial pequeno não pode virar um σ perto de zero — o kernel viraria um pico
-    # impossível de sustentar. O check do `PEGAR` deixou de cobrir isto quando o regime
-    # congelado passou a usar a tolerância do fecho.
-    check("17. fora do regime congelado o σ de orientação ainda tem PISO",
-          float(_t26c.sigma_ori.min()) >= cfg.commands["alvo_caixa"].sigma_ori_min - 1e-9,
-          f"σ_ori mínimo {float(_t26c.sigma_ori.min()):.4f} rad contra piso "
-          f"{cfg.commands['alvo_caixa'].sigma_ori_min:.4f}")
+    # 17. No regime de pé o PISO do σ de orientação é a TOLERÂNCIA DO FECHO (28/09):
+    # σ = max(tombo inicial × fator, tolerância). Um tombo inicial pequeno não pode
+    # virar um σ perto de zero — o kernel viraria um pico impossível de sustentar.
+    _tol26 = math.radians(cfg.commands["alvo_caixa"].tol_ang_deg)
+    check("17. no BOTAR o σ de orientação tem a TOLERÂNCIA DO FECHO como piso",
+          float(_t26c.sigma_ori.min()) >= _tol26 - 1e-6,
+          f"σ_ori mínimo {float(_t26c.sigma_ori.min()):.4f} rad contra {_tol26:.4f}")
 
     # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
     _orig = RC_._forca_das_palmas

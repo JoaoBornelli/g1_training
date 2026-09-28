@@ -56,7 +56,8 @@ from mjlab.tasks.velocity.mdp import (
     UniformVelocityCommand,
     UniformVelocityCommandCfg,
 )
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw, wrap_to_pi
+from mjlab.utils.lab_api.math import (quat_apply, quat_apply_inverse, quat_apply_yaw,
+                                      wrap_to_pi)
 
 from g1_limpo.cena import JUNTAS_BRACO
 from g1_limpo.curriculo import garante_elo, garante_nivel, resolve_p_c
@@ -93,15 +94,14 @@ ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3, 4
 ELOS = ("andar", "reorientar", "pegar", "carregar", "botar")
 
 # --- o REGIME DA FACE, por elo. Ver `_atualiza_face`. ---
-# ⚠ Era um bool (`_face_viva`) com dois regimes até 21/09. O terceiro entrou porque o
-# congelamento NO BOTAR capturava a normal da caixa TOMBADA nas mãos e passava a exigir
-# que ela mantivesse o tombo — o giro que ele reprovava era o ENDIREITAMENTO. Medido no
-# `model_9100`: a caixa chega ao BOTAR tombada 29,7° (laje 0,55) e 52,2° (laje 0,35) e
-# termina a 0,0°, porque a laje a nivela. Ver
-# `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
+# ⚠⚠ DOIS REGIMES DESDE 28/09. O `FACE_CONGELADA` (PEGAR, CARREGAR) comparava a normal
+# de UMA face lateral com a da abertura, e um vetor não vê o giro em torno de si mesmo:
+# o tombo em torno do eixo PALMA-A-PALMA, o mais fácil com a pega bimanual, era
+# invisível. MEDIDO no `model_2000` da `zero09`, PEGAR_COM: tombo real p50 93°, `ANG`
+# 62°, dos quais 46° eram guinada. Requisito do dono: a face de baixo continua para
+# baixo; a guinada é livre. Ver `docs/memoria/g1-limpo-ang-cego-ao-tombo.md`.
 FACE_VIVA = 0       # REORIENTAR: a face marcada aponta para o robô, recalculado todo passo
-FACE_CONGELADA = 1  # ANDAR, PEGAR, CARREGAR: a face marcada contra a normal da abertura
-FACE_DE_PE = 2      # BOTAR: o eixo Z DA CAIXA contra a vertical do mundo
+FACE_DE_PE = 2      # os outros: o eixo que estava PARA CIMA na mesa, contra a vertical
 
 # --- os DEZ estados de recompensa (spec `g1-limpo-tabela-por-estado.md` §1). ---
 # A enumeração COMPLETA do que ocorre num env, publicada em `env.limpo_estado` por
@@ -429,31 +429,25 @@ class AlvoCaixaCmd(CommandTerm):
         d, n = self.device, self.num_envs
         self._command = torch.zeros(n, DIM, device=d)
         self._face_b = torch.tensor(cfg.face_alvo_b, device=d)
-        # --- A DIREÇÃO PEDIDA PARA A FACE MARCADA, e se ela é VIVA ou CONGELADA.
+        # --- O PEDIDO DE ATITUDE, e se ele é VIVO ou DE PÉ.
         #
-        # ⚠ TRÊS PEDIDOS DIFERENTES, e confundi-los apagou o termo. No `REORIENTAR` a
-        # direção pedida é VIVA: "vire a face para o robô", recalculada todo passo. No
-        # `PEGAR` e no `CARREGAR` ela é CONGELADA na normal ATUAL no instante em que o
-        # elo abre, e aí o termo pergunta "a caixa girou desde então?" — isto é, ele paga
-        # por ERGUER SEM TORCER. No `BOTAR` ela é a VERTICAL DO MUNDO, contra o eixo Z da
-        # própria caixa: "pouse a caixa DE PÉ". Ver `FACE_DE_PE` no topo do módulo.
+        # ⚠ DOIS PEDIDOS. No `REORIENTAR` a direção é VIVA: "vire a face para o robô",
+        # recalculada todo passo. Nos outros elos o pedido é "a face de baixo continua
+        # para baixo": o eixo que estava PARA CIMA na mesa (`_cima_b`) contra a vertical.
+        # A guinada fica livre, por decisão do dono (28/09).
         #
-        # Até 28/08 a direção era viva em TODO elo, e o `precise_ori` (peso 1,0) ficava
-        # inerte: no nível 0 a caixa nasce alinhada (`voltas_max = 0`, desalinho <= 15°)
-        # e `sigma_ori` tem piso de 0,20 rad, portanto o termo nascia satisfeito com
-        # derivada ~zero. Pior, o alvo se movia com o ROBÔ: andar em volta da caixa
-        # mudava o termo sem tocar nela.
-        #
-        # O `g1_poc` faz exatamente esta separação (`g1_poc/comando.py:246`) e declara
-        # o motivo: o `precise_ori` congelado é o que substitui o `box_shake` de −0,15.
-        self._face_alvo_w = torch.zeros(n, 3, device=d)
-        self._regime_face = torch.full((n,), FACE_CONGELADA, dtype=torch.long, device=d)
+        # Até 28/08 a direção era viva em TODO elo, e o alvo se movia com o ROBÔ: andar
+        # em volta da caixa mudava o termo sem tocar nela.
+        self._regime_face = torch.full((n,), FACE_DE_PE, dtype=torch.long, device=d)
         # o eixo Z, no frame da CAIXA e no do MUNDO. Os dois são o mesmo vetor e mesmo
         # assim ficam separados: um é "que eixo da caixa eu meço", o outro é "para onde
         # ele tem de apontar", e juntá-los num só some com a distinção no dia em que o
         # segundo estágio (a pose de destino) trocar só o segundo.
         self._ez_b = torch.tensor([0.0, 0.0, 1.0], device=d)
         self._ez_w = torch.tensor([0.0, 0.0, 1.0], device=d)
+        # o eixo de cima da CAIXA, no frame dela: a vertical capturada na mesa. No reset
+        # é o Z; o `_captura_cima` o reescreve onde a caixa está apoiada.
+        self._cima_b = self._ez_b.repeat(n, 1)
         self._elo = torch.full((n,), PEGAR, dtype=torch.long, device=d)
         # ⚠⚠ O `_pendente` existe por causa de uma armadilha MEDIDA em 25/08.
         #
@@ -797,13 +791,10 @@ class AlvoCaixaCmd(CommandTerm):
         liga = self._sigma_pendente & (self._command[:, VALIDA] > 0.5)
         ids = todos[liga]
         if len(ids):
-            # ⚠ A FACE CONGELA DE NOVO AQUI, na abertura da TAREFA (23/09), pelo mesmo
-            # motivo do alvo abaixo. O `_aplica_elo` a congela na passada do `_pendente`,
-            # logo depois do reset, com a caixa ainda assentando na mesa. MEDIDO: 8 de 256
-            # envs abriam o PEGAR com 1,4° a 4,8° de erro, e ninguém tocou na caixa.
-            # ANTES do σ: fora do regime congelado ele lê o `ANG` deste instante.
-            self._congela_face(ids[self._regime_face[ids] == FACE_CONGELADA])
-            self._atualiza_face(ids)
+            # ⚠ O EIXO DE CIMA É CAPTURADO DE NOVO AQUI, na abertura da TAREFA (23/09),
+            # pelo mesmo motivo do alvo abaixo: na passada do `_pendente` a caixa ainda
+            # assenta na mesa. ANTES do σ, que lê o `ANG` deste instante.
+            self._captura_cima(ids)
             self._recalcula_sigmas(ids)
             # ⚠ REANCORA O ALVO do PEGAR e do CARREGAR aqui (spec dois-bits §1.2, 2º
             # momento). Com `push_robot` ativo, 0,5–1,5 s de espera movem o robô; o
@@ -1162,6 +1153,8 @@ class AlvoCaixaCmd(CommandTerm):
         # ⚠ NÃO se sorteia face nem ângulo aqui. A face pedida é CONSTANTE (a
         # marcada), e a dificuldade do `reorientar` vem da ORIENTAÇÃO DE NASCIMENTO da
         # caixa, sorteada em quartos de volta pelo evento `posiciona_cena`.
+        # O eixo de cima volta ao Z: é o que vale para quem nasce com a caixa NA MÃO.
+        self._cima_b[env_ids] = self._ez_b
         self._aplica_elo(env_ids)
         # a parte dependente de POSE fica pendente para o 1º passo (ver `_pendente`)
         self._pendente[env_ids] = True
@@ -1562,22 +1555,12 @@ class AlvoCaixaCmd(CommandTerm):
         self._command[ids, ELO] = self._elo[ids].float()
         origem = self._env.scene.env_origins[ids]
 
-        # ⚠ O REGIME DA FACE, e ele é por elo. O `REORIENTAR` pede uma direção VIVA; o
-        # `BOTAR` pede a VERTICAL; os outros congelam a normal do instante da abertura e
-        # passam a medir "a caixa girou desde então?". Escrito ANTES do laço porque o
-        # `_congela_face` precisa da normal fresca, e esta função roda na passada do
-        # `_pendente`.
-        #
-        # ⚠⚠ O BOTAR SAI DO CONGELAMENTO (21/09), e esta é a linha que mata a referência
-        # tombada: `_congela_face` e `_recalcula_sigmas` rodam no MESMO passo no avanço de
-        # elo, portanto o erro inicial do BOTAR era zero POR CONSTRUÇÃO e o `sigma_ori`
-        # caía no piso de 0,20 rad sempre. Com a vertical, o erro na abertura é o tombo
-        # real (29,7° e 52,2° medidos) e o σ nasce vivo sem ninguém tocar nele.
-        elo_de = self._elo[ids]
+        # ⚠ O REGIME DA FACE, e ele é por elo: VIVA no `REORIENTAR`, DE PÉ nos outros.
+        # Escrito ANTES do laço, e o eixo de cima capturado aqui, porque esta função
+        # roda na passada do `_pendente` com a pose fresca.
         self._regime_face[ids] = torch.where(
-            elo_de == REORIENTAR, FACE_VIVA,
-            torch.where(elo_de == BOTAR, FACE_DE_PE, FACE_CONGELADA))
-        self._congela_face(ids[self._regime_face[ids] == FACE_CONGELADA])
+            self._elo[ids] == REORIENTAR, FACE_VIVA, FACE_DE_PE)
+        self._captura_cima(ids)
 
         for elo in (ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR):
             m = ids[self._elo[ids] == elo]
@@ -1816,9 +1799,9 @@ class AlvoCaixaCmd(CommandTerm):
     def _recalcula_sigmas(self, ids: torch.Tensor) -> None:
         """σ = distância inicial × fator, com piso. Ver o bloco do `__init__`.
 
-        ⚠ EXCEÇÃO, e ela é o ponto: o `sigma_ori` do regime `FACE_CONGELADA` NÃO segue
-        esta regra. Ver o bloco ⚠⚠ no corpo — um alvo que nasce da pose atual tem erro
-        inicial zero, e "σ = erro inicial" degenera nele.
+        ⚠ EXCEÇÃO: no regime `FACE_DE_PE` o piso do `sigma_ori` é a TOLERÂNCIA DO FECHO.
+        Ver o bloco ⚠⚠ no corpo — a caixa abre o PEGAR de pé, com erro inicial zero, e
+        "σ = erro inicial" degenera nele.
 
         ⚠ O PISO não é estética: um env que nasce com a palma colada na caixa teria
         σ ≈ 0, e o kernel viraria um pico impossível de sustentar — a recompensa
@@ -1844,53 +1827,39 @@ class AlvoCaixaCmd(CommandTerm):
         # piso. Com σ fixo de 0,40 rad um pedido de 90° dá `exp(−(1,57/0,40)²)` =
         # 2,0e−7, isto é zero: era a "sorte de nível 3+" medida no `g1_poc`.
         #
-        # ⚠⚠ "σ = ERRO INICIAL" É INCOMPATÍVEL COM "ALVO = ATITUDE ATUAL" (22/09). Um
-        # alvo capturado da pose corrente tem erro inicial ZERO POR DEFINIÇÃO, logo o σ
-        # dele cai no piso SEMPRE, e a partir de uns 20° de giro o `precise_ori` é zero
-        # exato. Era o caso do `FACE_CONGELADA` — no `PEGAR` a face congela com a caixa
-        # PARADA NA MESA, ela não gira durante a espera, e depois o robô a ergue TOMBADA
-        # sem que nada cobrasse por isso. MEDIDO na `zero02`: `caixa_na_pega` entre 53° e
-        # 59°, onde o fecho exige 25°.
+        # ⚠⚠ "σ = ERRO INICIAL" DEGENERA QUANDO O ERRO NASCE ZERO (22/09). A caixa abre o
+        # PEGAR de pé na mesa: o σ cairia no piso de 0,20 rad, e a partir de uns 20° de
+        # tombo a gaussiana é zero. MEDIDO na `zero02`: `caixa_na_pega` de 53° a 59°.
         #
-        # O regime congelado passa a usar a TOLERÂNCIA DO FECHO como σ. Não é knob novo:
-        # é o `tol_ang_deg` que o `_fecha_elo_corrente` já lê. Com ele o limiar do fecho
-        # e a forma da recompensa concordam sobre onde fica a régua, e em `tol_ang_deg`
-        # a gaussiana vale `e⁻¹` = 0,368 (o termo híbrido, 0,61; ver `precise_ori`).
+        # No regime DE PÉ o piso é a TOLERÂNCIA DO FECHO (`tol_ang_deg`, a mesma régua do
+        # `_fecha_elo_corrente`): σ = max(erro inicial × fator, tolerância). No PEGAR isso
+        # dá 25°; no BOTAR, quem chega mais tombado que 25° ganha o σ do próprio tombo.
         #
-        # O `FACE_VIVA` NÃO entra: o alvo do `REORIENTAR` existe independente da caixa,
-        # o erro inicial dele é um número de verdade (até 90°), e um σ fixo de 25° ali
-        # devolveria 2,4e−6 — exatamente a "sorte de nível 3+" do parágrafo acima.
-        #
-        # O `FACE_DE_PE` também não entra, e é escolha declarada: a vertical é alvo
-        # independente, então o erro na abertura é o tombo real e a regra do σ vale. O
-        # preço é que ele fica graduado na curva — quem chega mais tombado ganha um σ
-        # mais largo. Só se resolve quando a caixa parar de chegar tombada, que é o que
-        # esta mudança ataca.
+        # O `FACE_VIVA` NÃO entra: o erro inicial do `REORIENTAR` é real (até 90°), e o
+        # piso dele segue `sigma_ori_min`.
         self._atualiza_face(ids)
         sig = (self._command[ids, ANG] * c.sigma_fator).clamp(min=c.sigma_ori_min)
-        congelada = self._regime_face[ids] == FACE_CONGELADA
+        de_pe = self._regime_face[ids] == FACE_DE_PE
         self.sigma_ori[ids] = torch.where(
-            congelada, torch.deg2rad(torch.full_like(sig, c.tol_ang_deg)), sig)
+            de_pe, sig.clamp(min=float(np.deg2rad(c.tol_ang_deg))), sig)
 
-    def _congela_face(self, ids: torch.Tensor) -> None:
-        """Fixa a direção pedida na normal ATUAL da face marcada.
+    def _captura_cima(self, ids: torch.Tensor) -> None:
+        """Guarda qual eixo da caixa aponta PARA CIMA agora, no frame dela.
 
-        Chamado no instante em que um elo de regime `FACE_CONGELADA` abre, e de novo
-        quando a TAREFA liga no fim da espera (`_aplica_espera`). A partir daí o
-        `precise_ori` mede o giro acumulado desde a abertura — ele paga por erguer sem
-        torcer, e não por apontar a face a lugar nenhum.
+        Chamado quando um elo abre (`_aplica_elo`) e quando a TAREFA liga
+        (`_aplica_espera`). A partir daí o `precise_ori` e o `alinhado` medem o tombo
+        desse eixo contra a vertical: a face de baixo continua para baixo.
 
-        ⚠⚠ O `BOTAR` NÃO PASSA MAIS POR AQUI (21/09). Ele e o `_recalcula_sigmas` rodavam
-        no MESMO passo no avanço de elo, então o erro inicial dele era zero POR
-        CONSTRUÇÃO e o `sigma_ori` caía no piso de 0,20 rad em todo episódio — canal
-        morto. E a normal capturada era a da caixa TOMBADA nas mãos, o que fazia o
-        `alinhado` exigir que ela mantivesse o tombo. O `BOTAR` usa `FACE_DE_PE`.
+        ⚠ SÓ COM A CAIXA NA MESA: `CARREGAR` e `BOTAR` ficam FORA. No avanço de cadeia
+        eles herdam o eixo do `PEGAR`; capturar ali pegaria a caixa TOMBADA nas mãos e
+        exigiria manter o tombo (o defeito de 21/09). Quem nasce neles fica com o Z que
+        o reset escreve.
         """
+        ids = ids[(self._elo[ids] != CARREGAR) & (self._elo[ids] != BOTAR)]
         if len(ids) == 0:
             return
-        fb = self._face_b.expand(len(ids), 3)
-        self._face_alvo_w[ids] = quat_apply(
-            self.caixa.data.root_link_quat_w[ids], fb)
+        self._cima_b[ids] = quat_apply_inverse(
+            self.caixa.data.root_link_quat_w[ids], self._ez_w.expand(len(ids), 3))
 
     def _atualiza_face(self, ids: torch.Tensor) -> None:
         """Publica a DIREÇÃO DESEJADA e o ERRO angular do eixo medido da caixa.
@@ -1899,26 +1868,18 @@ class AlvoCaixaCmd(CommandTerm):
             ANG   o erro angular ATUAL, em radianos, entre o eixo medido e essa
                   direção. Zero = alinhado.
 
-        ⚠ A DIREÇÃO PEDIDA TEM TRÊS REGIMES, e é isso que dá função ao termo em todo
-        elo. Ver `FACE_VIVA`/`FACE_CONGELADA`/`FACE_DE_PE` no topo do módulo:
+        ⚠ DOIS REGIMES. Ver `FACE_VIVA`/`FACE_DE_PE` no topo do módulo:
 
             REORIENTAR   VIVA — a face marcada, para o robô, na horizontal, todo passo.
-            PEGAR etc.   CONGELADA — a face marcada, contra a normal da abertura.
-            BOTAR        DE PÉ — o eixo Z DA CAIXA, contra a vertical do mundo.
+            os outros    DE PÉ — o eixo de cima capturado na mesa (`_cima_b`), contra a
+                         vertical do mundo.
 
-        ⚠⚠ O REGIME TROCA O VETOR MEDIDO, e não só a direção pedida. No `FACE_DE_PE` a
-        pergunta é "a caixa está de pé?", e a face marcada é LATERAL (`face_alvo_b` =
-        −x): pedir que ELA aponte para cima seria pedir a caixa deitada. Quem responde
-        "de pé" é o eixo Z da caixa contra o Z do mundo.
+        ⚠⚠ O REGIME TROCA O VETOR MEDIDO, e não só a direção pedida. A face marcada é
+        LATERAL (`face_alvo_b` = −x), e um vetor lateral é cego ao giro em torno de si
+        mesmo — o eixo palma-a-palma (28/09). Quem responde "a face de baixo continua
+        para baixo" é o eixo de cima, em QUALQUER eixo horizontal de tombo, de 0 a 180°.
 
-        ⚠ O erro é o ângulo entre dois vetores 3D, e não uma rotação em torno de Z. É
-        de propósito: se a caixa estiver TOMBADA, a normal da face marcada aponta para
-        cima, e o erro tem de acusar isso — 90°, e não 0.
-
-        ⚠ A GUINADA fica LIVRE no `FACE_DE_PE`, e é decisão do dono (21/09): a caixa
-        assentada com o lado de cima para cima já é o resultado bom. O requisito de
-        orientação pré-determinada entra quando o REORIENTAR sair de inerte, e entra
-        por este MESMO campo — ver `docs/planos/2026-09-21-botar-referencia-de-pe.md`.
+        ⚠ A GUINADA fica LIVRE no `FACE_DE_PE`, e é decisão do dono (21/09 e 28/09).
         """
         if len(ids) == 0:
             return
@@ -1927,7 +1888,7 @@ class AlvoCaixaCmd(CommandTerm):
         de_pe = r == FACE_DE_PE
 
         # o eixo da CAIXA que este elo mede, e a direção em que ele tem de apontar
-        eixo_b = torch.where(de_pe, self._ez_b.expand(k, 3), self._face_b.expand(k, 3))
+        eixo_b = torch.where(de_pe, self._cima_b[ids], self._face_b.expand(k, 3))
         normal_w = quat_apply(self.caixa.data.root_link_quat_w[ids], eixo_b)
 
         para_o_robo = (self.robot.data.root_link_pos_w[ids]
@@ -1938,9 +1899,7 @@ class AlvoCaixaCmd(CommandTerm):
 
         # ⚠ `where` e não indexação por máscara: os ramos são densos e do mesmo
         # tamanho, e assim não há um segundo caminho de escrita para manter em dia.
-        desejada = torch.where(
-            r == FACE_VIVA, viva,
-            torch.where(de_pe, self._ez_w.expand(k, 3), self._face_alvo_w[ids]))
+        desejada = torch.where(de_pe, self._ez_w.expand(k, 3), viva)
 
         self._command[ids, FACE] = desejada
         cos = (normal_w * desejada).sum(-1).clamp(-1.0, 1.0)
@@ -1999,12 +1958,12 @@ class AlvoCaixaCmd(CommandTerm):
 
             # O EIXO MEDIDO da caixa (o que ele É) e a DIREÇÃO DESEJADA (onde ele DEVE
             # apontar). O erro é o ângulo entre os dois.
-            # ⚠ O eixo SEGUE O REGIME (21/09): no BOTAR quem é medido é o Z da caixa, e
-            # não a face marcada. Desenhar a face aqui faria o visualizador mentir —
+            # ⚠ O eixo SEGUE O REGIME (21/09): no regime de pé quem é medido é o eixo
+            # de cima, e não a face marcada. Desenhar a face aqui faria o visualizador mentir —
             # a seta não casaria com o `ANG` impresso ao lado dela.
             de_pe_i = bool(self._regime_face[i] == FACE_DE_PE)
-            fb = (self._ez_b if de_pe_i else self._face_b).unsqueeze(0)
-            nome_eixo = "eixo Z da CAIXA" if de_pe_i else "face MARCADA"
+            fb = (self._cima_b[i] if de_pe_i else self._face_b).unsqueeze(0)
+            nome_eixo = "eixo de CIMA da caixa" if de_pe_i else "face MARCADA"
             n_at = quat_apply(self.caixa.data.root_link_quat_w[i:i + 1], fb)[0]
             n_at = n_at.cpu().numpy()
             erro = np.degrees(float(self._command[i, ANG]))

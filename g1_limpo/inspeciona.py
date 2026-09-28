@@ -130,8 +130,12 @@ def _medidas(env) -> dict:
                    else torch.zeros_like(rb[:, 0])),
         # o AZIMUTE da caixa: quanto a direção desejada (caixa->robô) foge do eixo
         # -x do mundo. Ele ENTRA no erro angular, e não é knob — é geometria.
-        "azimute": torch.rad2deg(torch.acos(
-            (-cmd[:, CMD.FACE][:, 0]).clamp(-1.0, 1.0))).clone(),
+        # ⚠ SÓ no REORIENTAR (28/09): nos outros a direção é a vertical, e o `acos`
+        # daria 90° fixos, o que alargaria o teto até ele não pegar nada.
+        "azimute": torch.where(
+            cmd[:, CMD.ELO] == float(CMD.REORIENTAR),
+            torch.rad2deg(torch.acos((-cmd[:, CMD.FACE][:, 0]).clamp(-1.0, 1.0))),
+            torch.zeros_like(rb[:, 0])).clone(),
     }
 
 
