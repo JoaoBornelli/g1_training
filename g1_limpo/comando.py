@@ -631,20 +631,23 @@ class AlvoCaixaCmd(CommandTerm):
         ⚠⚠ O AVANÇO DE ELO MORA AQUI, e não mais em `_avanca_elo_force` (spec §2.2):
         o fecho de um elo só ARMA a espera. É aqui, no fim dela, que `_passo`/`_elo`
         avançam para o próximo elo da cadeia, ou a cadeia entra na CAUDA (`CARREGAR`
-        para B/R; fica em `BOTAR` para C). Roda ANTES da publicação, para que o
-        publicado e o `VALIDA` já reflitam o elo NOVO no mesmo passo:
+        para B/R e para quem falha o `perto`; fica em `BOTAR` para C). Roda ANTES da
+        publicação, para que o publicado e o `VALIDA` já reflitam o elo NOVO no mesmo
+        passo:
 
             acabou   = fechou ∧ ¬aguardando
-            tem_prox = passo + 1 < n_elos
+            tem_prox = (passo + 1 < n_elos) ∧ (elo ≠ CARREGAR)
             avanca   = acabou ∧ tem_prox ∧ (perto, SE já pegou)
-            cauda    = acabou ∧ ¬tem_prox ∧ ¬já-em-cauda
+            cauda    = acabou ∧ ¬avanca ∧ ¬já-em-cauda
 
         ⚠ `_perto` É RECONFERIDO no fim da espera, e só para quem JÁ PEGOU a caixa
         (revisão, item 10/32): com `push_robot` ativo o robô deriva durante a espera,
-        e sem reconferir ele avança com a caixa longe do alvo. Quem falha `_perto` não
-        fica preso: `acabou` é reavaliado todo passo, e a checagem se repete até
-        passar. Quem ainda não pegou (ex.: REORIENTAR fechando) não precisa dela —
-        ali o alvo É a própria caixa, e `perto` é trivial.
+        e sem reconferir ele avançaria com a caixa longe do alvo. Quem falha `_perto`
+        vai direto à cauda CARREGAR (29/09) — inclusive na cadeia C, que não tem
+        CARREGAR como elo próprio — e não fica retentando no elo fechado — ver o
+        motivo no comentário do `cauda` abaixo. Quem ainda não pegou (ex.:
+        REORIENTAR fechando) não precisa dela — ali o alvo É a própria caixa, e
+        `perto` é trivial.
 
         ⚠ `ja_em_cauda = ~_sigma_pendente`: reaproveita um estado que já existe, em vez
         de um buffer novo. Funciona porque `_sigma_pendente` só volta a `True` num
@@ -708,7 +711,11 @@ class AlvoCaixaCmd(CommandTerm):
         # --- fim da espera: avança pro próximo elo, ou entra na cauda ---
         acabou = self.fechou & ~aguardando
         n_elos = self.n_elos_da_cadeia(todos)
-        tem_prox = (self._passo + 1) < n_elos
+        # ⚠ `& (self._elo != CARREGAR)`: o CARREGAR é CAUDA, nunca elo de cadeia. Sem
+        # isto, o env da cadeia C desviado para a cauda (`fechou=True`, `_passo`
+        # parado no elo que falhou) avançaria ao BOTAR assim que a caixa voltasse ao
+        # peito, e o `concluiu` contaria sucesso de uma cadeia que de fato falhou.
+        tem_prox = ((self._passo + 1) < n_elos) & (self._elo != CARREGAR)
         avanca = acabou & tem_prox
         if bool(self._pegou.any()):
             # ⚠ `perto | _forcado` (revisão independente, item A8): `_forcado`
@@ -739,7 +746,12 @@ class AlvoCaixaCmd(CommandTerm):
             self._zera_aproxima_caixa(ids_avanca)
 
         ja_em_cauda = ~self._sigma_pendente
-        cauda = acabou & ~tem_prox & ~ja_em_cauda
+        # ⚠ Quem fecha o PEGAR e falha o `perto` no fim da espera ficava PRESO nele
+        # (`fechou = True`), pagando os sete termos ao vivo MAIS o congelado — 32,3/s
+        # MEDIDO no `model_1600`, contra 20,7 no BOTAR. Agora vai à cauda CARREGAR,
+        # como a cadeia B: baixar a caixa na espera desvia da rota do BOTAR, que é
+        # perda (29/09).
+        cauda = acabou & ~avanca & ~ja_em_cauda
         ids_cauda = todos[cauda]
         if len(ids_cauda):
             self._forcado[ids_cauda] = False
@@ -756,7 +768,7 @@ class AlvoCaixaCmd(CommandTerm):
             # fecho: seria desincentivo a botar.
             # ⚠ E a regra dos dois bits CONCORDA: a laje só saía porque a cauda ia ter
             # twist ≠ 0. A §2.2 zerou esse twist, logo `twist = 0 ⟹ laje presente`.
-            # ⚠ A cauda de B e de R (CARREGAR, `soltou = False`) CONTINUA afastando a
+            # ⚠ A cauda de B, de R e do C desviado (CARREGAR, `soltou = False`) afasta a
             # laje: ali o robô sai andando com a caixa, e a laje na frente é obstáculo.
             fica = ids_cauda[~self._soltou[ids_cauda]]
             if len(fica):
@@ -1799,9 +1811,9 @@ class AlvoCaixaCmd(CommandTerm):
     def _recalcula_sigmas(self, ids: torch.Tensor) -> None:
         """σ = distância inicial × fator, com piso. Ver o bloco do `__init__`.
 
-        ⚠ EXCEÇÃO: no regime `FACE_DE_PE` o piso do `sigma_ori` é a TOLERÂNCIA DO FECHO.
-        Ver o bloco ⚠⚠ no corpo — a caixa abre o PEGAR de pé, com erro inicial zero, e
-        "σ = erro inicial" degenera nele.
+        ⚠ EXCEÇÃO: no regime `FACE_DE_PE` o `sigma_ori` é FIXO na TOLERÂNCIA DO FECHO, e
+        não mais o erro inicial com piso. Ver o bloco ⚠⚠ no corpo — a caixa abre o PEGAR
+        de pé, com erro inicial zero, e "σ = erro inicial" degenera nele.
 
         ⚠ O PISO não é estética: um env que nasce com a palma colada na caixa teria
         σ ≈ 0, e o kernel viraria um pico impossível de sustentar — a recompensa
@@ -1831,17 +1843,20 @@ class AlvoCaixaCmd(CommandTerm):
         # PEGAR de pé na mesa: o σ cairia no piso de 0,20 rad, e a partir de uns 20° de
         # tombo a gaussiana é zero. MEDIDO na `zero02`: `caixa_na_pega` de 53° a 59°.
         #
-        # No regime DE PÉ o piso é a TOLERÂNCIA DO FECHO (`tol_ang_deg`, a mesma régua do
-        # `_fecha_elo_corrente`): σ = max(erro inicial × fator, tolerância). No PEGAR isso
-        # dá 25°; no BOTAR, quem chega mais tombado que 25° ganha o σ do próprio tombo.
+        # No regime DE PÉ o σ é a TOLERÂNCIA DO FECHO (`tol_ang_deg`, a mesma régua do
+        # `_fecha_elo_corrente`), FIXA — não mais `max(erro inicial × fator, tolerância)`
+        # (29/09): com o `max`, tombar a caixa na espera (os sete termos valem zero ali)
+        # alargava o σ de graça no CARREGAR e no BOTAR seguintes. A metade linear do
+        # híbrido de `_alinha` (S3) já dá o gradiente de longe que o `max` existia para
+        # dar.
         #
-        # O `FACE_VIVA` NÃO entra: o erro inicial do `REORIENTAR` é real (até 90°), e o
-        # piso dele segue `sigma_ori_min`.
+        # O `FACE_VIVA` NÃO entra: o erro inicial do `REORIENTAR` é real (até 90°), e
+        # mantém `max(erro × fator, sigma_ori_min)`.
         self._atualiza_face(ids)
         sig = (self._command[ids, ANG] * c.sigma_fator).clamp(min=c.sigma_ori_min)
         de_pe = self._regime_face[ids] == FACE_DE_PE
         self.sigma_ori[ids] = torch.where(
-            de_pe, sig.clamp(min=float(np.deg2rad(c.tol_ang_deg))), sig)
+            de_pe, torch.full_like(sig, float(np.deg2rad(c.tol_ang_deg))), sig)
 
     def _captura_cima(self, ids: torch.Tensor) -> None:
         """Guarda qual eixo da caixa aponta PARA CIMA agora, no frame dela.

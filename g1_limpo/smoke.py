@@ -1553,7 +1553,8 @@ check("a invariante do `VALIDA` de ontem, explícita: nos SETE a coluna ANDAR é
       str({n: getattr(_TABELA, n)[:3] for n in _SETE_T}))
 check("os números da spec §2: BOTAR = 2 nos sete; CARREGAR só `precise_pos` = 1; "
       "rastreio 3,5 no CARREGAR; `postura_ereta` e `pose` = 8 na CAUDA; `pose` = 4 em "
-      "PEGAR_COM e ESPERA_COM, e 1 em PEGAR_SEM, BOTAR e CARREGAR",
+      "ESPERA_COM, e 1 em PEGAR_SEM, PEGAR_COM, BOTAR e CARREGAR (29/09: o ×4 no "
+      "PEGAR_COM pagava por pairar no alvo sem fechar)",
       all(getattr(_TABELA, n)[CMD.ESTADO_BOTAR] == 2.0 for n in _SETE_T)
       and _TABELA.precise_pos[CMD.ESTADO_CARREGAR] == 1.0
       and all(getattr(_TABELA, n)[CMD.ESTADO_CARREGAR] == 0.0
@@ -1562,22 +1563,23 @@ check("os números da spec §2: BOTAR = 2 nos sete; CARREGAR só `precise_pos` =
       and _TABELA.track_angular_velocity[CMD.ESTADO_CARREGAR] == 3.5
       and _TABELA.postura_ereta[CMD.ESTADO_CAUDA] == 8.0
       and _TABELA.pose[CMD.ESTADO_CAUDA] == 8.0
-      and _TABELA.pose[CMD.ESTADO_PEGAR_COM] == 4.0
+      and _TABELA.pose[CMD.ESTADO_PEGAR_COM] == 1.0
       and _TABELA.pose[CMD.ESTADO_ESPERA_COM] == 4.0
       and _TABELA.pose[CMD.ESTADO_PEGAR_SEM] == 1.0
       and _TABELA.pose[CMD.ESTADO_BOTAR] == 1.0
       and _TABELA.pose[CMD.ESTADO_CARREGAR] == 1.0)
-check("as linhas de rastreio reproduzem os quatro estados do antigo `rastreio_por_elo`: "
-      "0 em ESPERA_SEM, REORIENTAR_SEM e PEGAR_SEM; 1 em ANDAR, ESPERA_COM, "
-      "REORIENTAR_COM, PEGAR_COM, BOTAR e CAUDA",
+# ⚠ PEGAR_COM SAIU DO 1 em 29/09: rastrear o twist nulo pagava ~3,8/s por PAIRAR no alvo
+# sem fechar, e pairar rendia 25,0/s contra 16,5 a 23,2 depois do fecho (`model_1600`).
+check("as linhas de rastreio: 0 em ESPERA_SEM, REORIENTAR_SEM, PEGAR_SEM e PEGAR_COM; "
+      "1 em ANDAR, ESPERA_COM, REORIENTAR_COM, BOTAR e CAUDA",
       all(getattr(_TABELA, n)[i] == 0.0
           for n in ("track_linear_velocity", "track_angular_velocity")
           for i in (CMD.ESTADO_ESPERA_SEM, CMD.ESTADO_REORIENTAR_SEM,
-                    CMD.ESTADO_PEGAR_SEM))
+                    CMD.ESTADO_PEGAR_SEM, CMD.ESTADO_PEGAR_COM))
       and all(getattr(_TABELA, n)[i] == 1.0
               for n in ("track_linear_velocity", "track_angular_velocity")
               for i in (CMD.ESTADO_ANDAR, CMD.ESTADO_ESPERA_COM,
-                        CMD.ESTADO_REORIENTAR_COM, CMD.ESTADO_PEGAR_COM,
+                        CMD.ESTADO_REORIENTAR_COM,
                         CMD.ESTADO_BOTAR, CMD.ESTADO_CAUDA)))
 
 # --- `limpo_estado`: faixa e precedência, SEM ENV, com a função pura do comando ---
@@ -2494,7 +2496,8 @@ try:
     # ⚠⚠ ESTE CHECK MUDOU EM 22/09, e o motivo é que ele tinha virado vácuo: a caixa
     # abre o `PEGAR` de pé, o erro nasce em zero, e `σ = erro inicial` devolvia o piso
     # de 0,20 rad. MEDIDO na `zero02`: `caixa_na_pega` entre 53° e 59°. No regime de pé
-    # o piso é a TOLERÂNCIA DO FECHO (28/09); no BOTAR ele é conferido no bloco 17.
+    # o σ é a TOLERÂNCIA DO FECHO, fixa (29/09); o caso que discrimina (caixa deitada) é
+    # conferido no bloco 17.
     _tol5 = math.radians(_c5.commands["alvo_caixa"].tol_ang_deg)
     check("no `PEGAR` o σ de orientação é a TOLERÂNCIA DO FECHO, e não o piso",
           abs(float(_t5c.sigma_ori.min()) - _tol5) < 1e-4
@@ -4037,6 +4040,14 @@ try:
 
     _h = math.pi / 4
     _g_mais = _giro_com(_t25.tensor([math.cos(_h), 0.0, 0.0, math.sin(_h)]))   # yaw +90°
+    # ⚠ (29/09) no REORIENTAR (FACE_VIVA) a janela de `staged`/`precise_pos` vale 1: ali a
+    # direção pedida aponta da caixa para o robô, e sem mão no produto o robô ganharia
+    # ANDANDO EM VOLTA da caixa. O `precise_ori` (sem o flag) segue medindo a face.
+    _al_viva25 = float(RC_._alinha(_e25c, "alvo_caixa").max())
+    _al_gate25 = RC_._alinha(_e25c, "alvo_caixa", so_de_pe=True)
+    check("23. no REORIENTAR `_alinha(so_de_pe=True)` é 1, e o do `precise_ori` mede a face",
+          float((_al_gate25 - 1.0).abs().max()) < 1e-6 and _al_viva25 < 0.9,
+          f"com o flag {float(_al_gate25.min()):.4f}, sem o flag (máx) {_al_viva25:.4f}")
     _g_menos = _giro_com(_t25.tensor([math.cos(_h), 0.0, 0.0, -math.sin(_h)]))  # yaw −90°
     _g_pitch = _giro_com(_t25.tensor([math.cos(_h), 0.0, math.sin(_h), 0.0]))   # pitch +90°
     check("23. caixa girada 90° em Z: |giro_b| ≈ π/2 e o eixo é Z",
@@ -4164,17 +4175,41 @@ try:
           "o eixo medido é o Z da CAIXA, e a face marcada é LATERAL",
           _ang_pe < 0.05 and abs(_ang_dt - math.pi / 2) < 0.05,
           f"de pé {_ang_pe:.4f} rad, deitada {_ang_dt:.4f} rad")
+    # 17. (29/09) Com a caixa DEITADA, o caso que discrimina: o `max(tombo, tol)` antigo
+    # dava π/2 aqui, e o σ fixo dá a tolerância. O `_recalcula_sigmas` refaz também os σ
+    # de distância: os três são guardados e restaurados.
+    _tol_dt26 = math.radians(cfg.commands["alvo_caixa"].tol_ang_deg)
+    _al_dt26 = float(RC_._alinha(_e26, "alvo_caixa", so_de_pe=True).mean())
+    _sig_guarda26 = [x.clone() for x in (_t26c.sigma_ori, _t26c.sigma_alcance,
+                                         _t26c.sigma_trazer)]
+    _t26c._recalcula_sigmas(_ids26)
+    _sig_dt26 = _t26c.sigma_ori[_ids26].clone()
+    for _x, _g in zip((_t26c.sigma_ori, _t26c.sigma_alcance, _t26c.sigma_trazer),
+                      _sig_guarda26):
+        _x.copy_(_g)
+    check("17. com a caixa deitada, o σ de orientação do regime de pé é a TOLERÂNCIA, "
+          "e não o tombo (π/2)",
+          float((_sig_dt26 - _tol_dt26).abs().max()) < 1e-4,
+          f"σ {float(_sig_dt26.min()):.4f}..{float(_sig_dt26.max()):.4f}, tol {_tol_dt26:.4f}")
     _cx26.write_root_link_pose_to_sim(_t26.cat([_p26, _q26], -1))
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
     _e26.sim.forward()
     _t26c._atualiza_face(_ids26)
-    # 17. No regime de pé o PISO do σ de orientação é a TOLERÂNCIA DO FECHO (28/09):
-    # σ = max(tombo inicial × fator, tolerância). Um tombo inicial pequeno não pode
-    # virar um σ perto de zero — o kernel viraria um pico impossível de sustentar.
+    # 17. (29/09) a janela que `staged` e `precise_pos` usam: ½(1 − Δθ/π) + ½·e^(−(Δθ/σ)²)
+    # dá 1 de pé e ~0,25 deitada 90° (½·½ + ½·e^(−(90/25)²) ≈ 0,25).
+    _al_pe26 = float(RC_._alinha(_e26, "alvo_caixa", so_de_pe=True).mean())
+    check("17. `_alinha` no regime de pé: ~1 com a caixa de pé, ~0,25 deitada 90°",
+          _al_pe26 > 0.97 and abs(_al_dt26 - 0.25) < 0.02,
+          f"de pé {_al_pe26:.4f}, deitada {_al_dt26:.4f}")
+    # 17. No regime de pé o σ de orientação É a TOLERÂNCIA DO FECHO, fixa (29/09). Com
+    # `max(tombo inicial, tol)`, tombar a caixa na espera (os sete valem zero ali)
+    # alargava o σ de graça, e desde 29/09 o σ entra no `staged` e no `precise_pos`.
     _tol26 = math.radians(cfg.commands["alvo_caixa"].tol_ang_deg)
-    check("17. no BOTAR o σ de orientação tem a TOLERÂNCIA DO FECHO como piso",
-          float(_t26c.sigma_ori.min()) >= _tol26 - 1e-6,
-          f"σ_ori mínimo {float(_t26c.sigma_ori.min()):.4f} rad contra {_tol26:.4f}")
+    check("17. no BOTAR o σ de orientação é a TOLERÂNCIA DO FECHO, fixa",
+          abs(float(_t26c.sigma_ori.min()) - _tol26) < 1e-4
+          and abs(float(_t26c.sigma_ori.max()) - _tol26) < 1e-4,
+          f"σ_ori {float(_t26c.sigma_ori.min()):.4f}..{float(_t26c.sigma_ori.max()):.4f} "
+          f"rad contra {_tol26:.4f}")
 
     # 17. as máscaras, com uma força de palma FINGIDA (o robô pinado não aperta nada)
     _orig = RC_._forca_das_palmas
@@ -4932,18 +4967,22 @@ try:
           f"pegou {_pegou_b.tolist()[:3]}, track {_trk_b.tolist()[:3]}")
 
     # 1c: escrevendo o ESTADO à mão — simula engajamento real
-    # ⚠ tabela-por-estado §2: o gate do rastreio é a coluna de `env.limpo_estado`;
-    # `PEGAR_COM` vale 1 (segurar parado É a tarefa) e `PEGAR_SEM` vale 0. O buffer
-    # é escrito IN-PLACE pelo comando DEPOIS da recompensa, no mesmo passo — portanto
-    # o valor escrito à mão aqui é o que a recompensa DESTE passo lê. (Antes o check
-    # escrevia `limpo_pegou`, que o `rastreio_por_elo` lia; a tabela lê o `_pegou`
-    # INTERNO via `limpo_estado`, e escrever `limpo_pegou` já não a alcança.)
+    # ⚠ tabela-por-estado §2: o gate do rastreio é a coluna de `env.limpo_estado`. O
+    # buffer é escrito IN-PLACE pelo comando DEPOIS da recompensa, no mesmo passo —
+    # portanto o valor escrito à mão aqui é o que a recompensa DESTE passo lê. (A tabela
+    # lê o `_pegou` INTERNO via `limpo_estado`; escrever `limpo_pegou` não a alcança.)
+    # ⚠ 29/09: a ESPERA_COM paga o rastreio (parar de pé é a tarefa dela) e o PEGAR_COM
+    # NÃO — ali rastrear o twist nulo pagava por pairar no alvo sem fechar.
+    _eg1.limpo_estado[:] = CMD.ESTADO_ESPERA_COM
+    _eg1.step(_tg1.zeros(_eg1.num_envs, _nag1))
+    _trk_c = _eg1.reward_manager._step_reward[:, _idx_tlg1].clone()
     _eg1.limpo_estado[:] = CMD.ESTADO_PEGAR_COM
     _eg1.step(_tg1.zeros(_eg1.num_envs, _nag1))
-    _trk_c = _eg1.reward_manager._step_reward[:, _idx_tlg1]
-    check("1c. escrevendo `env.limpo_estado[:] = PEGAR_COM` à mão e dando um passo, "
-          "`track_linear_velocity > 0` — segurar JÁ engajado paga cheio",
-          bool((_trk_c > 0.0).all()), f"{_trk_c.tolist()[:3]}")
+    _trk_c2 = _eg1.reward_manager._step_reward[:, _idx_tlg1]
+    check("1c. `limpo_estado` escrito à mão: ESPERA_COM paga `track_linear_velocity > 0`, "
+          "PEGAR_COM paga 0 — pairar no alvo sem fechar não é tarefa",
+          bool((_trk_c > 0.0).all()) and bool((_trk_c2 == 0.0).all()),
+          f"ESPERA_COM {_trk_c.tolist()[:3]}, PEGAR_COM {_trk_c2.tolist()[:3]}")
     del _eg1
 
     # 1d: um SEGUNDO env, só para o `ANDAR` — o único a mais permitido
@@ -5263,7 +5302,7 @@ except Exception as _ev5x:      # noqa: BLE001
     _falhas.append(f"item 5 (publicação) não pôde ser medido: "
                    f"{type(_ev5x).__name__}: {_ev5x}")
 
-# --- 6. fim da espera com perto falso não avança; perto verdadeiro avança; avancos aqui ---
+# --- 6. fim da espera: perto falso vai à cauda CARREGAR; perto verdadeiro avança; avancos ---
 try:
     import torch as _tv6
 
@@ -5292,29 +5331,50 @@ try:
     # para o avanço ser resolvido já no passo seguinte.
     _tv6c._avanca_elo_force(_idsv6)  # arma o fecho do PEGAR (1º elo de C)
     _tv6c._espera[_idsv6] = 0.0
-    # a caixa longe do alvo do PEGAR (`peito_b`, fixo): `_perto` falha
+    # ⚠ OS DOIS CASOS NO MESMO LOTE (29/09): envs 0-1 com a caixa LONGE do alvo do PEGAR
+    # (`peito_b`, fixo), envs 2-3 com a caixa NO alvo. Antes o item rodava os dois em
+    # sequência nos mesmos envs; agora quem falha o `perto` sai do PEGAR (vai à cauda
+    # CARREGAR) e não pode mais avançar ao BOTAR depois.
     _cx6 = _ev6.scene["box"]
+    _longe6, _no_alvo6 = _idsv6[:2], _idsv6[2:]
     _p6 = _cx6.data.root_link_pos_w.clone()
     _p6[:, 0] += 1.0
-    _cx6.write_root_link_pose_to_sim(_tv6.cat([_p6, _cx6.data.root_link_quat_w], -1))
-    _cx6.write_root_link_velocity_to_sim(_tv6.zeros(4, 6))
     _av_antes6 = _tv6c.metrics["avancos"].clone()
-    _ev6.step(_tv6.zeros(4, _nv6))
-    check("6. fim da espera com `_perto` FALSO: NÃO avança (segue no elo anterior)",
-          bool((_tv6c._passo == 0).all()) and bool((_tv6c._elo == CMD.PEGAR).all()),
-          f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
-    # agora põe a caixa NO alvo do PEGAR — `_perto` passa, e o avanço acontece
     for _ in range(2):
-        _cx6.write_root_link_pose_to_sim(
-            _tv6.cat([_tv6c.command[:, CMD.ALVO], _cx6.data.root_link_quat_w], -1))
+        _pose6 = _tv6.cat([_p6, _cx6.data.root_link_quat_w], -1)
+        _pose6[_no_alvo6, :3] = _tv6c.command[_no_alvo6, CMD.ALVO]
+        _cx6.write_root_link_pose_to_sim(_pose6)
         _cx6.write_root_link_velocity_to_sim(_tv6.zeros(4, 6))
         _ev6.step(_tv6.zeros(4, _nv6))
-    check("6. com `_perto` verdadeiro, o avanço acontece e `_passo` sobe",
-          bool((_tv6c._passo == 1).all()) and bool((_tv6c._elo == CMD.BOTAR).all()),
+    # ⚠ 29/09: quem falha o `perto` ficava no PEGAR com `fechou = True` e ganhava os sete
+    # ao vivo MAIS o congelado (32,3/s no `model_1600`, contra 20,7 no BOTAR).
+    check("6. fim da espera com `_perto` FALSO: vai à cauda CARREGAR, sem avançar o passo",
+          bool((_tv6c._passo[_longe6] == 0).all())
+          and bool((_tv6c._elo[_longe6] == CMD.CARREGAR).all()),
           f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
-    check("6. `avancos` incrementa NO AVANÇO",
-          bool((_tv6c.metrics["avancos"] > _av_antes6).all()),
+    check("6. com `_perto` verdadeiro, o avanço acontece e `_passo` sobe",
+          bool((_tv6c._passo[_no_alvo6] == 1).all())
+          and bool((_tv6c._elo[_no_alvo6] == CMD.BOTAR).all()),
+          f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
+    check("6. `avancos` incrementa NO AVANÇO, e só nele",
+          bool((_tv6c.metrics["avancos"][_no_alvo6] > _av_antes6[_no_alvo6]).all())
+          and bool((_tv6c.metrics["avancos"][_longe6] == _av_antes6[_longe6]).all()),
           f"{_av_antes6.tolist()} -> {_tv6c.metrics['avancos'].tolist()}")
+    # ⚠ O VAZAMENTO que a revisão de 29/09 achou: o desviado segue com `fechou = True` e
+    # `_passo = 0`. Sem o `& (elo != CARREGAR)` do `tem_prox`, a caixa de volta ao peito
+    # (o alvo do CARREGAR é o mesmo `peito_b`) o faria avançar ao BOTAR.
+    _av_meio6 = _tv6c.metrics["avancos"].clone()
+    for _ in range(2):
+        _pose6 = _tv6.cat([_cx6.data.root_link_pos_w, _cx6.data.root_link_quat_w], -1)
+        _pose6[_longe6, :3] = _tv6c.command[_longe6, CMD.ALVO]
+        _cx6.write_root_link_pose_to_sim(_pose6)
+        _cx6.write_root_link_velocity_to_sim(_tv6.zeros(4, 6))
+        _ev6.step(_tv6.zeros(4, _nv6))
+    check("6. o desviado, com a caixa DE VOLTA ao peito, segue no CARREGAR e não vaza ao BOTAR",
+          bool((_tv6c._elo[_longe6] == CMD.CARREGAR).all())
+          and bool((_tv6c._passo[_longe6] == 0).all())
+          and bool((_tv6c.metrics["avancos"][_longe6] == _av_meio6[_longe6]).all()),
+          f"elo {_tv6c._elo.tolist()}, passo {_tv6c._passo.tolist()}")
     del _ev6
 except Exception as _ev6x:      # noqa: BLE001
     _falhas.append(f"item 6 (perto no avanço) não pôde ser medido: "

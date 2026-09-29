@@ -331,8 +331,9 @@ class PesoPorEstado:
     (QUAIS juntas) fica — a tabela é QUANTO.
 
     ⚠⚠ A MEDIÇÃO que o `rastreio_por_elo` carregava continua sendo a mais decisiva do
-    módulo, e vive agora nas colunas `ESPERA_SEM`, `REORIENTAR_SEM` e `PEGAR_SEM` = 0
-    das linhas de rastreio. O `smoke` mede o piso da estátua por elo — robô travado:
+    módulo, e vive agora nas colunas `ESPERA_SEM`, `REORIENTAR_SEM`, `PEGAR_SEM` e
+    `PEGAR_COM` = 0 das linhas de rastreio. O `smoke` mede o piso da estátua por elo —
+    robô travado:
 
         piso ANDAR  = 3,863/s
         piso PEGAR  = 8,265/s      <- 2,1x mais
@@ -341,8 +342,10 @@ class PesoPorEstado:
     aos dois rastreios: 4,0/s por rastrear um comando nulo. Com episódio de 17,6 s e
     60% de morte na mesa, ficar parado rendia 145 contra 102 de explorar — a política
     estava no ótimo, e o `play` confirmou: ação MÉDIA imóvel na pose default. Já tocou
-    a caixa (`_COM`)? segurar parado É a tarefa, e o rastreio volta a pagar — e o
-    `pegou` é a arma monotônica de `comando._publica_pegou`, que não desarma ao soltar.
+    a caixa (`_COM`)? segurar parado É a tarefa — EXCETO no PEGAR_COM (29/09): pairar
+    no alvo pagava mais do que fechar, e o rastreio fica em 0 ali; volta em ANDAR,
+    ESPERA_COM, REORIENTAR_COM, BOTAR e CAUDA. `pegou` é a arma monotônica de
+    `comando._publica_pegou`, que não desarma ao soltar.
 
     ⚠ `__init__`: `func` de `cfg.params` é função OU classe; classe é instanciada com
     `(cfg, env)` — o caso do `pose` (`PosturaPorElo`). O `variable_posture` do molde lê
@@ -592,7 +595,7 @@ def _forca_ref(env, mu: float) -> torch.Tensor:
 
 
 def staged(env, nome_do_comando: str) -> torch.Tensor:
-    """`alcançar × (1 + trazer)`. O motor da fase inicial.
+    """`alcançar × (1 + trazer × _alinha)`. O motor da fase inicial.
 
     ⚠ A forma é PRODUTO, e não soma, e isso importa: `trazer` só paga se a mão já
     estiver perto. Com soma, o robô ganharia por EMPURRAR a caixa até o alvo com o pé
@@ -600,40 +603,60 @@ def staged(env, nome_do_comando: str) -> torch.Tensor:
 
     ⚠ Teto de 2,0, e não 1,0. Com peso 3,0 ele contribui até 6,0/s. É o maior termo do
     conjunto de propósito: ele é o único que tem gradiente na pose de repouso.
+
+    ⚠ × `_alinha` no `trazer` (29/09): erguer a caixa tombada deixava de custar; de
+    17° a 60° a soma passa de +0,10 a −2,43/s, e erguer reto rende +1,41/s. O
+    `alcançar` fica fora da janela: aproximar a mão da caixa na mesa não depende
+    do tombo.
     """
     t = _t(env, nome_do_comando)
     alcanca = _alcancar(env, nome_do_comando)
     d_alvo = _dist_caixa_alvo(env, nome_do_comando)
     traz = torch.exp(-(d_alvo / t.sigma_trazer.clamp(min=1e-6)) ** 2)
-    return alcanca * (1.0 + traz)
+    return alcanca * (1.0 + traz * _alinha(env, nome_do_comando, so_de_pe=True))
 
 
 def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
-    """`exp(−‖caixa−alvo‖²/σ²)` com σ FIXO. É a tolerância de ACEITE.
+    """`exp(−‖caixa−alvo‖²/σ²) × _alinha` com σ FIXO. É a tolerância de ACEITE.
 
     ⚠ Único termo com σ fixo, e de propósito: ele responde "a caixa está NO alvo?", que
     é um aceite, não uma rampa de aproximação. Quem faz a rampa é o `staged`, com σ
     por env. Dois termos, duas perguntas.
+
+    ⚠ × `_alinha` (29/09): o aceite exige a caixa no alvo E de pé; no CARREGAR isto
+    é o único gradiente contra o tombo (coluna `precise_ori` = 0 ali).
     """
     d = _dist_caixa_alvo(env, nome_do_comando)
-    return torch.exp(-(d / sigma) ** 2)
+    return torch.exp(-(d / sigma) ** 2) * _alinha(env, nome_do_comando, so_de_pe=True)
+
+
+def _alinha(env, nome: str, so_de_pe: bool = False) -> torch.Tensor:
+    """`½(1 − Δθ/π) + ½ exp(−(Δθ/σ_ori)²)`. HÍBRIDO (28/09): o gaussiano sozinho
+    morre longe do alvo — MEDIDO no `model_1750` da `zero08`, caixa a 66° na pega
+    com σ 25°: kernel 0,001, derivada 0,011/rad. A metade linear dá 0,16/rad em
+    TODO Δθ de 0 a 180°; a gaussiana dá 1,0/rad na tolerância do fecho. Vale 1
+    alinhado, 0,61 a 25°, 0,32 a 66°, 0 a 180°.
+
+    `so_de_pe=True` devolve 1 fora do regime `FACE_DE_PE`. No REORIENTAR
+    (`FACE_VIVA`) a direção pedida aponta da caixa para o robô, e `staged`/
+    `precise_pos` ali não têm mão no produto: o robô ganharia ANDANDO EM VOLTA da
+    caixa. O `precise_ori` chama sem o flag e mede a face, que é a tarefa do
+    REORIENTAR.
+    """
+    from g1_limpo.comando import ANG, FACE_DE_PE
+    t = _t(env, nome)
+    erro = env.command_manager.get_command(nome)[:, ANG]
+    a = 0.5 * (1.0 - erro / math.pi) + 0.5 * torch.exp(
+        -(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
+    return torch.where(t._regime_face == FACE_DE_PE, a, torch.ones_like(a)) if so_de_pe else a
 
 
 def precise_ori(env, nome_do_comando: str) -> torch.Tensor:
-    """`alcançar × [½(1 − Δθ/π) + ½ exp(−(Δθ/σ_ori)²)]`. A face pedida no lugar.
+    """`alcançar × _alinha`. A face pedida no lugar.
 
     ⚠ Gateado por `alcançar`: girar a caixa sem tocá-la não é a tarefa.
-    ⚠ HÍBRIDO (28/09): o gaussiano sozinho morre longe do alvo — MEDIDO no `model_1750`
-    da `zero08`, caixa a 66° na pega com σ 25°: kernel 0,001, derivada 0,011/rad. A
-    metade linear dá 0,16/rad em TODO Δθ de 0 a 180°; a gaussiana dá 1,0/rad na
-    tolerância do fecho. Vale 1 alinhado, 0,61 a 25°, 0,32 a 66°, 0 a 180°.
     """
-    from g1_limpo.comando import ANG
-    t = _t(env, nome_do_comando)
-    erro = env.command_manager.get_command(nome_do_comando)[:, ANG]
-    alinha = 0.5 * (1.0 - erro / math.pi) + 0.5 * torch.exp(
-        -(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
-    return _alcancar(env, nome_do_comando) * alinha
+    return _alcancar(env, nome_do_comando) * _alinha(env, nome_do_comando)
 
 
 def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],

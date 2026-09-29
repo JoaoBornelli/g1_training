@@ -714,7 +714,7 @@ class Tarefa:
     """
 
     # --- os incentivos ---
-    staged: float = 3.0            # alcançar × (1 + trazer). O motor da fase inicial
+    staged: float = 3.0            # alcançar × (1 + trazer × `_alinha`). O motor da fase inicial
     precise_pos: float = 3.0       # caixa NO alvo
     precise_ori: float = 1.0       # face pedida apontando ao robô
     squeeze: float = 1.0           # força nas DUAS palmas
@@ -1225,20 +1225,21 @@ class PesoPorEstado:
       break-even de risco 45% (hoje +1,5 e 5%).
     · Rastreio nas outras colunas reproduz o antigo `rastreio_por_elo` (`fator = 1 −
       zerado × (1 − pegou)`), estado a estado: ANDAR 1 (twist vivo); ESPERA_SEM 0;
-      ESPERA_COM 1; REORIENTAR_SEM e PEGAR_SEM 0 (twist zerado, nunca tocou —
-      estátua); REORIENTAR_COM, PEGAR_COM, BOTAR e CAUDA 1 (já tocou — segurar/parar
-      É a tarefa).
+      ESPERA_COM 1; REORIENTAR_SEM e PEGAR_SEM 0 (nunca tocou); REORIENTAR_COM, BOTAR
+      e CAUDA 1 (já tocou). PEGAR_COM 0 (29/09): pairar no alvo pagava 25,0/s contra
+      16,5 a 23,2 depois do fecho (`model_1600`, zero11), e o que falta fazer tem de
+      pagar pelo menos o que já foi feito; o freio cobre a junta parada, `rumo` o giro.
     · `postura_ereta` e `pose` na CAUDA = 8. Piso depois do BOTAR ×2: 13,79 + 15,8 =
       29,6. Teto da cauda `2k + k + 4 + 1 = 3k + 5` -> k = 8. Só estes dois separam
       "agachado com as mãos na caixa" de "de pé na pose default"; rastreio e `upright`
       são satisfeitos agachado. Break-even de risco 24/(29,6 + 24) = 45%.
-    · `pose` em PEGAR_COM e ESPERA_COM = 4. Enquanto segura, ombro e cotovelo estão
-      FORA do `pose` (máscara do `PosturaPorElo`), portanto ×4 atinge punho, perna e
-      cintura — o punho torcido e a perna solta. Com std 1,00 o punho a 1,6 rad custa
-      0,52/s de um teto de 1,0, 4,5% da renda de 11,38 — ele não se importa; ×4 leva
-      a 2,1/s. NÃO em PEGAR_SEM (o braço ainda está na média e ×4 brigaria com o
-      alcance), NÃO em BOTAR (as pernas agacham para a laje a 0,30 m), NÃO em
-      CARREGAR (é marcha; `std_walking`).
+    · `pose` = 4 passa a ser só ESPERA_COM (29/09): no PEGAR_COM volta a 1, como no
+      PEGAR_SEM — a `faixa_de_pose` já cobra o punho junta a junta, e o ×4 encarecia
+      4× a junta que endireita a caixa (o tombo agora é gradiente de `_alinha`, S3).
+      Mantido só em ESPERA_COM: o `forma_postural` vale 0 ali, e o ×4 do `pose` é o
+      que cobra punho, perna e cintura na espera (ombro e cotovelo saem da máscara).
+      NÃO em BOTAR (as pernas agacham para a laje a 0,30 m), NÃO em CARREGAR (é
+      marcha; `std_walking`).
 
     ⚠ `squeeze` e `unload` (e a `rampa × descarga` do `postura_ereta`) continuam
     zerados DENTRO do BOTAR por `_fora_do_botar`, que fica: o 2 dessas linhas em BOTAR
@@ -1254,15 +1255,16 @@ class PesoPorEstado:
     precise_pos: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    1.0,    1.0,     2.0,  0.0)
     # ⚠ PEG_COM = 4 (28/09): com peso 1 a `zero10` erguia a caixa tombando-a com o cotovelo
     # (`caixa_na_pega` 17° → 60° com `precise_pos` 0,29 → 0,71). A 60° a derivada era
-    # 0,18/rad; com 4, 0,72/rad. Nenhum outro termo vê o tombo.
+    # 0,18/rad; com 4, 0,72/rad. Desde 29/09 o `staged` (no `trazer`) e o `precise_pos`
+    # também veem o tombo, via `_alinha`; este termo é só o que mais pesa nele.
     precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    4.0,    0.0,     2.0,  0.0)
     squeeze: tuple[float, ...] = (0.0, 0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     unload: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     postura_ereta: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  8.0)
     load: tuple[float, ...] = (0.0,    0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
-    track_linear_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0,  0.0,    1.0,    3.5,     1.0,  1.0)
-    track_angular_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0,    1.0,    3.5,     1.0,  1.0)
-    pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    4.0,    1.0,     1.0,  8.0)
+    track_linear_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0,  0.0,    0.0,    3.5,     1.0,  1.0)
+    track_angular_velocity: tuple[float, ...] = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0,    0.0,    3.5,     1.0,  1.0)
+    pose: tuple[float, ...] = (1.0,    1.0,    4.0,    1.0,     1.0,     1.0,    1.0,    1.0,     1.0,  8.0)
     # ⚠ A DÉCIMA PRIMEIRA LINHA (16/09): o incentivo de forma só nas IDAS — PEGAR_SEM,
     # PEGAR_COM e BOTAR (×2, a mesma coluna dos sete). Zero no ANDAR e no CARREGAR (a
     # referência é de agachar para a caixa), zero nas esperas e no REORIENTAR (o robô
