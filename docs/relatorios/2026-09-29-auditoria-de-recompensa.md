@@ -11,6 +11,8 @@ Classes: A = sem gradiente; B = o proibido paga; C = ficar paga mais que avança
 - Caminho B (`_alinha(aproximacao=True)` no `staged` e no `precise_pos`): já estava no HEAD auditado (`7a23ea9`, RUN zero13). A zero14 o leva junto.
 - Leitura no log da zero14: no começo o `unload` e a `postura_ereta` caem, e isso não é regressão. O sinal de sucesso é `renda_congelada` e `sucesso` acima de zero.
 
+- Achado novo do play, fora desta auditoria (29/09, RUN zero15): a caixa DEITAVA 90° com a face de cima para o peito, 43° aos 2 s e 89° aos 7,5 s (`juntas.csv`, zero12 it ~3100). O `caixa_na_pega` do log marcava ~8°, porque ele se dilui entre todos os envs. Consertos: a reta da aproximação passa a `max(0, 1 − Δθ/90°)` e zera a 90°; a âncora desce para z 0,75–0,85; o fecho do PEGAR exige `~apoiada`.
+
 ## 1. Tabela
 
 | # | Título | Etapa | Classe | Veredito | Severidade | Arquivo:linha |

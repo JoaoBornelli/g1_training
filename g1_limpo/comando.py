@@ -299,15 +299,15 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # em mundo.
     # ⚠ DERIVADO do alvo, e não medido do robô — ver `knobs.Alvo.peito_b`, fonte
     # única do valor real.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.102)
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.002)
     # ⚠ o z do alvo é ABSOLUTO nos dois elos que seguram: agachar não baixa o alvo.
-    # `0,798 + peito_b.z (0,102) = 0,90` — ver `knobs.Alvo.altura_carregar`, que traz
-    # o porquê de o piso ser 0,80 e não a anatomia. É só o default PRÉ-RESET: a
-    # altura de verdade é sorteada em `altura_carregar_faixa`.
-    altura_carregar: float = 0.90
+    # `0,798 + peito_b.z (0,002) = 0,80` — ver `knobs.Alvo.altura_carregar`, que traz
+    # o porquê do piso. É só o default PRÉ-RESET: a altura de verdade é sorteada em
+    # `altura_carregar_faixa`.
+    altura_carregar: float = 0.80
     # ⚠ A faixa de sorteio da altura de trabalho, por episódio. Ver
     # `knobs.Alvo.altura_carregar_faixa`, fonte única do valor real.
-    altura_carregar_faixa: tuple[float, float] = (0.85, 0.95)
+    altura_carregar_faixa: tuple[float, float] = (0.75, 0.85)
     # os elos que exigem o robô PARADO. O twist deles é forçado a ZERO, e é isso —
     # e não a forma do alvo — que impede o robô de andar com a caixa.
     elos_parados: tuple[int, ...] = (1, 2, 4)      # REORIENTAR, PEGAR, BOTAR
@@ -1312,7 +1312,7 @@ class AlvoCaixaCmd(CommandTerm):
 
         Condição de fechamento POR ELO (spec `g1-limpo-dois-bits.md` §2.4):
             REORIENTAR: perto & alinhado
-            PEGAR:      perto & alinhado & de pé
+            PEGAR:      perto & alinhado & de pé & ~apoiada (zero15)
             BOTAR:      perto & alinhado & apoiada
 
         ⚠ O "de pé" SAIU DO BOTAR (v3.4, spec `g1-limpo-botar-fecha-e-para.md` §2.1).
@@ -1381,7 +1381,12 @@ class AlvoCaixaCmd(CommandTerm):
                 # PEGAR. Ver o knob para a medição que exigiu isto.
                 fecha[m] = perto[m] & (alinhado[m] | bool(c.reorientar_inerte))
             elif elo_tipo == PEGAR:
-                fecha[m] = (perto[m] & alinhado[m] & de_pe[m])
+                # ⚠ `~apoiada` (29/09, zero15): a âncora desceu para z 0,75–0,85, e a
+                # caixa maior na laje mais alta tem centro em ~0,70. Sem isto o
+                # `perto` passaria com a caixa AINDA NA LAJE, e o PEGAR fecharia sem
+                # erguer. É a condição que `knobs.Alvo.altura_carregar_faixa` exigia
+                # para o piso descer abaixo de 0,80.
+                fecha[m] = (perto[m] & alinhado[m] & de_pe[m] & ~apoiada[m])
             elif elo_tipo == BOTAR:
                 fecha[m] = (perto[m] & alinhado[m] & apoiada[m])
 

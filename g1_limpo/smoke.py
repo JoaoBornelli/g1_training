@@ -819,11 +819,14 @@ check("a faixa de sorteio da altura chega ao comando",
       (tuple(cfg.commands["alvo_caixa"].altura_carregar_faixa)
        == tuple(k.alvo.altura_carregar_faixa)),
       "sem o repasse no env_cfg o comando sorteia na faixa DEFAULT dele")
-check("o piso da faixa da altura não desce abaixo de 0,80",
-      k.alvo.altura_carregar_faixa[0] >= 0.80,
+# ⚠ (29/09, zero15) o piso desceu para 0,75 porque o fecho do PEGAR passou a exigir
+# `~apoiada`: os dois andam juntos, e o check amarra os dois.
+check("o piso da faixa da altura fica abaixo de 0,80 SÓ com `~apoiada` no fecho do PEGAR",
+      k.alvo.altura_carregar_faixa[0] >= 0.80
+      or "de_pe[m] & ~apoiada[m]" in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente),
       "a laje sobe a 0,57 e a caixa maior em cima tem centro em 0,70; com "
       "`tol_pos` 0,10 um alvo abaixo de 0,80 fecha o PEGAR com a caixa AINDA NA "
-      "LAJE. Descer mais exige `& ~apoiada` no fecho do PEGAR")
+      "LAJE, a menos que o fecho exija `& ~apoiada`")
 check("o default da altura fica DENTRO da faixa sorteada",
       (k.alvo.altura_carregar_faixa[0] <= k.alvo.altura_carregar
        <= k.alvo.altura_carregar_faixa[1]),
@@ -4248,12 +4251,13 @@ try:
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
     _e26.sim.forward()
     _t26c._atualiza_face(_ids26)
-    # 17. (29/09, B) a janela que `staged` e `precise_pos` usam é SÓ A RETA, 1 − Δθ/π:
-    # 1 de pé e 0,5 deitada 90°. O híbrido ½(1 − Δθ/π) + ½·e^(−(Δθ/σ)²) fica no
-    # `precise_ori`: ~0,25 deitada (½·½ + ½·e^(−(90/25)²)).
+    # 17. (29/09, zero15) a janela que `staged` e `precise_pos` usam é SÓ A RETA que
+    # ZERA a 90°, max(0, 1 − Δθ/(π/2)): 1 de pé e 0 deitada 90°. Com 1 − Δθ/π (B) a
+    # caixa deitada valia 0,5, e a política a deitava. O híbrido
+    # ½(1 − Δθ/π) + ½·e^(−(Δθ/σ)²) fica no `precise_ori`: ~0,25 deitada.
     _al_pe26 = float(RC_._alinha(_e26, "alvo_caixa", aproximacao=True).mean())
-    check("17. `_alinha`: reta ~1 de pé e 0,5 deitada 90°; híbrido ~0,25 deitada",
-          _al_pe26 > 0.97 and abs(_al_dt26 - 0.5) < 0.02 and abs(_al_dt26h - 0.25) < 0.02,
+    check("17. `_alinha`: reta ~1 de pé e 0 deitada 90°; híbrido ~0,25 deitada",
+          _al_pe26 > 0.97 and _al_dt26 < 0.02 and abs(_al_dt26h - 0.25) < 0.02,
           f"reta de pé {_al_pe26:.4f}, deitada {_al_dt26:.4f}; híbrido deitada {_al_dt26h:.4f}")
     # 17. No regime de pé o σ de orientação É a TOLERÂNCIA DO FECHO, fixa (29/09). Com
     # `max(tombo inicial, tol)`, tombar a caixa na espera (os sete valem zero ali)

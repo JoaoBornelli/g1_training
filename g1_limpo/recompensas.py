@@ -662,7 +662,8 @@ def _alinha(env, nome: str, aproximacao: bool = False) -> torch.Tensor:
 
     `aproximacao=True` é a variante de `staged` e `precise_pos` (29/09, caminho B de
     `docs/relatorios/2026-09-29-pega-parada-na-mesa-cinematica-do-tombo.md`): SÓ A
-    RETA, `1 − Δθ/π` — 1 a 0°, 0,83 a 30°, 0,67 a 60°, 0,32/rad em todo Δθ —, e 1
+    RETA, `1 − Δθ/π` na zero13 (a zero15 a trocou pela reta que zera a 90°, abaixo)
+    — 1 a 0°, 0,83 a 30°, 0,67 a 60°, 0,32/rad em todo Δθ —, e 1
     fora do regime `FACE_DE_PE`. Levar a caixa da mesa à âncora do peito gira a mão
     de 20° a 35° POR CONSTRUÇÃO (ombro, cotovelo e `wrist_pitch` giram no mesmo
     eixo), e só o punho desfaz o giro. Com o híbrido nos três termos, erguer
@@ -673,14 +674,24 @@ def _alinha(env, nome: str, aproximacao: bool = False) -> torch.Tensor:
     a direção pedida aponta da caixa para o robô, e `staged`/`precise_pos` ali não
     têm mão no produto: o robô ganharia ANDANDO EM VOLTA da caixa. O `precise_ori`
     chama sem o flag e mede a face, que é a tarefa do REORIENTAR.
+
+    ⚠⚠ (29/09, zero15) A RETA DA APROXIMAÇÃO ZERA A 90°: `max(0, 1 − Δθ/(π/2))` — 1 a
+    0°, 0,67 a 30°, 0,33 a 60°, 0 a 90°, 0,64/rad (o dobro). Com `1 − Δθ/π` a caixa
+    DEITADA a 90° ainda valia 0,5, e a política aprendeu a deitá-la: MEDIDO no play da
+    `zero12` (it ~3100, `juntas.csv`), a face de cima vira para o peito, 43° aos 2 s e
+    89° aos 7,5 s. Deitar custava metade de `staged`/`precise_pos`/`unload`;
+    endireitar exige o punho. Com o zero em 90°, a caixa deitada no alvo rende menos
+    que a caixa de pé na mesa. O híbrido do `precise_ori` NÃO muda: ele mantém
+    derivada até 180°.
     """
     from g1_limpo.comando import ANG, FACE_DE_PE
     t = _t(env, nome)
     erro = env.command_manager.get_command(nome)[:, ANG]
-    reta = 1.0 - erro / math.pi
     if aproximacao:
-        return torch.where(t._regime_face == FACE_DE_PE, reta, torch.ones_like(reta))
-    return 0.5 * reta + 0.5 * torch.exp(-(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
+        reta90 = (1.0 - erro / (0.5 * math.pi)).clamp(min=0.0)
+        return torch.where(t._regime_face == FACE_DE_PE, reta90, torch.ones_like(reta90))
+    return 0.5 * (1.0 - erro / math.pi) + 0.5 * torch.exp(
+        -(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
 
 
 def precise_ori(env, nome_do_comando: str) -> torch.Tensor:
@@ -998,7 +1009,7 @@ class FormaPostural:
         # ⚠⚠ A CHAVE É PARA ONDE A MÃO VAI, e ela MUDA DE ELO. Corrigido em 20/09; até
         # ali a linha lia `_alvo(...)[:, 2]` nos dois elos, e isso ANULAVA a tabela no
         # PEGAR. Fora do BOTAR o alvo do comando é a ÂNCORA DO PEITO, absoluta e
-        # sorteada em `altura_carregar_faixa` = (0,85; 0,95) (`comando.py:1696`), que é
+        # sorteada em `altura_carregar_faixa` = (0,75; 0,85) desde a zero15, que é
         # a altura de CARREGAR e não a altura que a mão tem de alcançar. A tabela acaba
         # em h = 0,68, portanto o `clamp` de `referencia()` devolvia SEMPRE a última
         # linha — a pose da laje de 0,55 — em todo env de PEGAR, em todo nível.
