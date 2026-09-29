@@ -422,8 +422,10 @@ class Recompensa:
         # máscara do `PosturaPorElo` está certa — era o σ que estava errado), e o
         # pedido do dono, "a mão sempre alinhada com o antebraço", segue atendido, e
         # agora com gradiente para atendê-lo. `std_walking` também não muda: o regime
-        # da pega é o `standing` — o twist é forçado a zero no `PEGAR` —, então
-        # `std_standing` é o alvo exato.
+        # da pega é o `standing` porque, desde 29/09 (zero14), o `PosturaPorElo` lê
+        # `limpo_twist_zerado`, e então `std_standing` é o alvo exato. Antes disso o laço
+        # de rumo trocava o regime para `walking` quando o erro de rumo passava de 0,1
+        # rad, e o punho caía de σ 1,0 para 0,3.
         r".*wrist.*": 1.00,
     })
 
@@ -718,7 +720,7 @@ class Tarefa:
     precise_pos: float = 3.0       # caixa NO alvo
     precise_ori: float = 1.0       # face pedida apontando ao robô
     squeeze: float = 1.0           # força nas DUAS palmas
-    unload: float = 2.0            # a caixa deixou de pesar na laje
+    unload: float = 2.0            # a caixa deixou de pesar na laje × `_trazer` desde 29/09
     postura_ereta: float = 2.0     # ergueu SEM agachar
 
     # ⚠ VOLTA (spec §2.7): a caixa apoiada no alvo, só no BOTAR, mesmo gate

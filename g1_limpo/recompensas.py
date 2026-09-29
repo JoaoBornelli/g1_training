@@ -129,10 +129,20 @@ class PosturaPorElo(variable_posture):
         linear_speed = torch.norm(command[:, :2], dim=1)
         angular_speed = torch.abs(command[:, 2])
         total_speed = linear_speed + angular_speed
-        standing_mask = (total_speed < walking_threshold).float()
+        standing = total_speed < walking_threshold
+        # ⚠ O REGIME VEM DO ESTADO, e não do comando (29/09, zero14; achado 2 da
+        # auditoria). Nos elos parados o twist é o laço de rumo
+        # (`comando._zera_twist_nos_parados`): um erro de rumo acima de 0,1 rad dá
+        # |wz| > 0,05 e trocava o punho de σ 1,0 para 0,3 e o `waist_pitch` de 0,3 para
+        # 0,1, as juntas que desfazem o tombo da caixa. O `velocidade_por_regime` já lê
+        # o estado do mesmo jeito.
+        zerado = getattr(env, "limpo_twist_zerado", None)
+        if zerado is not None:
+            standing = standing | (zerado > 0.5)
+        standing_mask = standing.float()
         walking_mask = ((total_speed >= walking_threshold)
-                       & (total_speed < running_threshold)).float()
-        running_mask = (total_speed >= running_threshold).float()
+                        & (total_speed < running_threshold) & ~standing).float()
+        running_mask = ((total_speed >= running_threshold) & ~standing).float()
         std = (self.std_standing * standing_mask.unsqueeze(1)
               + self.std_walking * walking_mask.unsqueeze(1)
               + self.std_running * running_mask.unsqueeze(1))
@@ -594,6 +604,18 @@ def _forca_ref(env, mu: float) -> torch.Tensor:
     return (env.limpo_massa * 9.81 / (2.0 * mu)).clamp(min=1e-3)
 
 
+def _trazer(env, nome: str) -> torch.Tensor:
+    """`exp(−(d_alvo/σ_trazer)²) × _alinha(aproximacao=True)`. A caixa indo ao alvo, de pé.
+
+    ⚠ FONTE ÚNICA (29/09, zero14): o `staged` e o `unload` leem este fator, e antes a
+    conta vivia dentro do `staged`. Com `σ_trazer = d₀` (`comando._recalcula_sigmas`,
+    `sigma_fator = 1`) ele vale e^(−1) ≈ 0,37 quando o elo abre e ~`reta` no alvo.
+    """
+    t = _t(env, nome)
+    traz = torch.exp(-(_dist_caixa_alvo(env, nome) / t.sigma_trazer.clamp(min=1e-6)) ** 2)
+    return traz * _alinha(env, nome, aproximacao=True)
+
+
 def staged(env, nome_do_comando: str) -> torch.Tensor:
     """`alcançar × (1 + trazer × _alinha)`. O motor da fase inicial.
 
@@ -609,12 +631,11 @@ def staged(env, nome_do_comando: str) -> torch.Tensor:
     pagava +2,9/s sobre ficar na mesa e a `zero12` não erguia; com a reta paga +4,3/s
     a 30°, +2,6/s a 60° e +7,4/s reto. O `alcançar` fica fora da janela: aproximar a
     mão da caixa na mesa não depende do tombo.
+
+    ⚠ O fator de trazer (`exp(−(d_alvo/σ_trazer)²) × _alinha`) mora em `_trazer` desde
+    29/09 (zero14): o `unload` lê o mesmo.
     """
-    t = _t(env, nome_do_comando)
-    alcanca = _alcancar(env, nome_do_comando)
-    d_alvo = _dist_caixa_alvo(env, nome_do_comando)
-    traz = torch.exp(-(d_alvo / t.sigma_trazer.clamp(min=1e-6)) ** 2)
-    return alcanca * (1.0 + traz * _alinha(env, nome_do_comando, aproximacao=True))
+    return _alcancar(env, nome_do_comando) * (1.0 + _trazer(env, nome_do_comando))
 
 
 def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
@@ -693,7 +714,7 @@ def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],
 def unload(env, nome_do_comando: str, sensor_apoio: str,
            sensores_palma: tuple[str, ...], mu: float,
            asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """`1 − F_apoio/(m·g)`. A caixa deixou de pesar na laje.
+    """`(1 − F_apoio/(m·g)) × preensão × _trazer`. A caixa saiu da laje E vai ao alvo.
 
     ⚠ É A PONTE do `pegar`: a força de apoio cai de `m·g` a 0 conforme o robô assume a
     carga. MEDIDO 2026-08-27, erguendo a caixa da laje: `F_apoio` 9,80 N -> 0,00 N e o
@@ -709,10 +730,20 @@ def unload(env, nome_do_comando: str, sensor_apoio: str,
     do apoio desce, e as duas somam `m·g` — ali a força de apoio PASSA pelos valores do
     meio, mesmo com a caixa quase imóvel. Isso só uma run com preensão mede.
 
-    Consequência de desenho, e ela é tranquila: o gradiente de aproximação vem do
-    `staged` e o de força vem do `squeeze` (`tanh`, contínuo desde o primeiro newton).
-    O `unload` marca "a caixa saiu da laje". Como quase-booleano ele é um bônus, e não a
-    rampa que o `pegar` precisa — e é bom que os três não dependam um do outro.
+    ⚠⚠ (29/09, zero14) A "CONSEQUÊNCIA TRANQUILA" QUE ESTE DOCSTRING AFIRMAVA ERA FALSA.
+    Como quase-booleano em 2 mm, o `unload` e a `postura_ereta` (que o chama) pagavam
+    ~4/s com a caixa PAIRANDO a 2 mm da mesa, e com derivada ZERO na subida. LIDO do log
+    da `zero12` na it 2629: `unload`/(2·`squeeze`) ≈ 0,8 (era 0,18 no `model_1750`), e
+    `renda_congelada` e `sucesso` em 0. O robô tira o peso da mesa e para.
+
+    AGORA o termo é multiplicado por `_trazer`: ~0,37 quando o elo abre, ~`reta` no alvo.
+    CONTAS (e não medida) sobre a economia do `model_1750` (relatório
+    `docs/relatorios/2026-09-29-pega-parada-na-mesa-cinematica-do-tombo.md`): pairar a
+    2 mm cai de ~15,2 para ~13,5/s; erguer reto passa a pagar +6,6/s sobre pairar (era
+    +4,9); erguer tombada 30° paga +3,0/s (era +1,8); o gradiente no início da subida
+    vai de 0,08 para 0,14/s por cm. No fecho do PEGAR (d < 0,10) o fator vale ~0,7 a 1,
+    e o piso congelado cai pouco. O porteiro de preensão continua: derrubar a caixa
+    segue pagando zero.
 
     ⚠ A massa vem de `env.limpo_massa`, em KG, publicada pelo evento `carga_caixa`.
     Publicar newtons obrigaria este consumidor a desfazer a conta, e é assim que se
@@ -741,7 +772,8 @@ def unload(env, nome_do_comando: str, sensor_apoio: str,
         _forca_das_palmas(env, sensores_palma, asset_cfg) / _forca_ref(env, mu))
     # ⚠ ZERO NO BOTAR (spec §6.6.2 item 2; g1_poc: "ligado no botar, pagaria 2,0/s para
     # NÃO botar"). `postura_ereta` é `rampa × unload` e zera junto, sem linha própria.
-    return descarga * preensao * _fora_do_botar(env, nome_do_comando)
+    return (descarga * preensao * _trazer(env, nome_do_comando)
+            * _fora_do_botar(env, nome_do_comando))
 
 
 def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
@@ -767,6 +799,10 @@ def postura_ereta(env, nome_do_comando: str, sensores_palma: tuple[str, ...],
     ⚠ A PREENSÃO CONTINUA NO PRODUTO, e ela mudou de lugar em 28/08: o porteiro de
     preensão passou para dentro do `unload`. Multiplicar por ela aqui de novo daria
     `preensão²`, que aperta a rampa sem acrescentar informação.
+
+    ⚠ (29/09, zero14) Ela HERDA o `_trazer` pelo `unload` chamado no corpo: a
+    `rampa × descarga` passa a pagar proporcional à caixa indo ao alvo. O ramo da cauda
+    (`rampa_cauda`) NÃO muda.
     """
     z = (env.scene["robot"].data.root_link_pos_w[:, 2]
          - env.scene.env_origins[:, 2])

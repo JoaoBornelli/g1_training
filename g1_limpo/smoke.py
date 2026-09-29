@@ -1729,6 +1729,26 @@ try:
               "divisor 29 (braço inteiro dentro)",
               abs(-math.log(_v_sem15) - _exp_sem_prev15) < 0.05,
               f"medido {-math.log(_v_sem15):.4f}, previsto {_exp_sem_prev15:.4f}")
+        # 15c. (29/09, zero14) O regime do `pose` vem do ESTADO: com o twist zerado, um
+        # wz de laço de rumo acima do limiar NÃO troca o σ para o de walking. Com o
+        # twist vivo o mesmo wz troca, e o desvio de 0,2 rad passa a custar mais.
+        _tw15 = _env15.command_manager.get_term(_params15["command_name"])
+        _guarda_cmd15 = _tw15.vel_command_b.clone()
+        _guarda_zer15 = _env15.limpo_twist_zerado.clone()
+        _env15.limpo_pegou[:] = 1.0
+        _tw15.vel_command_b[:] = 0.0
+        _env15.limpo_twist_zerado[:] = 1.0
+        _v_parado15 = float(_termo15(_env15, **_params15).mean())
+        _tw15.vel_command_b[:, 2] = 0.3
+        _v_rumo15 = float(_termo15(_env15, **_params15).mean())
+        _env15.limpo_twist_zerado[:] = 0.0
+        _v_vivo15 = float(_termo15(_env15, **_params15).mean())
+        _tw15.vel_command_b.copy_(_guarda_cmd15)
+        _env15.limpo_twist_zerado.copy_(_guarda_zer15)
+        check("15c. com o twist zerado, o wz do laço de rumo NÃO troca o regime do `pose`",
+              abs(_v_rumo15 - _v_parado15) < 1e-6 and _v_vivo15 < _v_parado15 - 0.01,
+              f"parado {_v_parado15:.4f}, laço de rumo {_v_rumo15:.4f}, "
+              f"twist vivo {_v_vivo15:.4f}")
         del _env15
     except Exception as _e15x:      # noqa: BLE001
         _falhas.append(f"item 15 (PosturaPorElo, elo forçado) não pôde ser "
@@ -3343,6 +3363,38 @@ try:
     print(f"  unload: {_u_apoiada/_peso:.4f} (apoiada, {_f_apoiada:.2f} N) -> "
           f"{_u_erguida/_peso:.4f} (erguida SEM preensão, {_f_erguida:.2f} N); "
           f"descarga crua {_desc_erguida:.4f}")
+
+    # (a2) (29/09, zero14) COM PREENSÃO SIMULADA o `unload` cresce com a caixa indo ao
+    # alvo, e não satura em 2 mm. A força das palmas vira uma constante grande (o
+    # `tanh` do porteiro vai a 1); a caixa é teleportada, como na (a). A função CRUA sai
+    # de dentro da tabela (`PesoPorEstado._f`), e os três parâmetros da tabela saem dos
+    # kwargs, porque a função crua não os aceita.
+    _cfg_u = _ec.reward_manager._term_cfgs[_iu]
+    _f_u = _cfg_u.func._f
+    _par_u = {c: v for c, v in _cfg_u.params.items() if c not in ("func", "tabela", "rumo")}
+    _forca_orig = RC_._forca_das_palmas
+
+    def _unload_em(pos):
+        for _ in range(4):
+            _cx.write_root_link_pose_to_sim(
+                _tc.cat([pos, _cx.data.root_link_quat_w], dim=-1))
+            _cx.write_root_link_velocity_to_sim(_tc.zeros(_ec.num_envs, 6))
+            _ec.step(_tc.zeros(_ec.num_envs, _nac))
+        return float(_f_u(_ec, **_par_u).mean())
+
+    try:
+        RC_._forca_das_palmas = lambda env, sensores, asset_cfg: _tc.full(
+            (env.num_envs,), 1.0e3, device=env.device)
+        _p5 = _cx.data.root_link_pos_w.clone()
+        _p5[:, 2] = _z0 + 0.05
+        _u_5cm = _unload_em(_p5)
+        _u_alvo = _unload_em(RC_._alvo(_ec, "alvo_caixa").clone())
+    finally:
+        RC_._forca_das_palmas = _forca_orig
+    check("(zero14) com preensão, o `unload` cresce com a caixa indo ao alvo: "
+          "5 cm acima da laje paga menos que no alvo",
+          _u_5cm < 0.75 and _u_alvo > 0.85 and _u_alvo > _u_5cm + 0.2,
+          f"5 cm {_u_5cm:.4f}, no alvo {_u_alvo:.4f}")
     del _ec
 
     # (b) A TASK DE CADEIA do visualizador existe e o avanço DISPARA.
