@@ -694,9 +694,13 @@ def make_env_cfg(
 
     # ⚠ `velocidade_por_regime` (G2, spec `g1-limpo-lento-e-estavel.md` §3): ANTES do
     # `renda_congelada`, que TEM de continuar o último termo (ver comentário na 3i,
-    # abaixo). Não depende do elo — depende do REGIME do comando `twist`, que já é
-    # zero em todo elo de manipulação (`comando._zera_twist_nos_parados`). Por isso
-    # também NÃO entra em `TERMOS_CONGELAVEIS`.
+    # abaixo). O REGIME vem do ESTADO, e não do comando (21/09): nos elos parados o
+    # `twist` NÃO é zero, é o laço de rumo (`comando._zera_twist_nos_parados`,
+    # `wz = 0,5 × erro de rumo`), e o termo lê `env.limpo_twist_zerado` para ficar na
+    # tabela `standing`. Ele vale ZERO no estado ANDAR (24/09) e, fora dele, o custo é
+    # multiplicado por `fator ** env.limpo_freio`, por env (currículo `nivel`). Fica
+    # FORA da tabela por estado e de `TERMOS_CONGELAVEIS`: é preço lido ao vivo, e não
+    # renda de elo.
     cfg.rewards["velocidade_por_regime"] = RewardTermCfg(
         func=RC.velocidade_por_regime, weight=tr.velocidade_por_regime,
         params={"vel_max_standing": tr.vel_max_standing,
