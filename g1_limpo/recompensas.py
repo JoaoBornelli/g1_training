@@ -604,16 +604,17 @@ def staged(env, nome_do_comando: str) -> torch.Tensor:
     ⚠ Teto de 2,0, e não 1,0. Com peso 3,0 ele contribui até 6,0/s. É o maior termo do
     conjunto de propósito: ele é o único que tem gradiente na pose de repouso.
 
-    ⚠ × `_alinha` no `trazer` (29/09): erguer a caixa tombada deixava de custar; de
-    17° a 60° a soma passa de +0,10 a −2,43/s, e erguer reto rende +1,41/s. O
-    `alcançar` fica fora da janela: aproximar a mão da caixa na mesa não depende
-    do tombo.
+    ⚠ × `_alinha` no `trazer` (29/09): erguer a caixa tombada deixava de custar. A
+    janela aqui é SÓ A RETA (`aproximacao=True`): com o híbrido, erguer tombado a 30°
+    pagava +2,9/s sobre ficar na mesa e a `zero12` não erguia; com a reta paga +4,3/s
+    a 30°, +2,6/s a 60° e +7,4/s reto. O `alcançar` fica fora da janela: aproximar a
+    mão da caixa na mesa não depende do tombo.
     """
     t = _t(env, nome_do_comando)
     alcanca = _alcancar(env, nome_do_comando)
     d_alvo = _dist_caixa_alvo(env, nome_do_comando)
     traz = torch.exp(-(d_alvo / t.sigma_trazer.clamp(min=1e-6)) ** 2)
-    return alcanca * (1.0 + traz * _alinha(env, nome_do_comando, so_de_pe=True))
+    return alcanca * (1.0 + traz * _alinha(env, nome_do_comando, aproximacao=True))
 
 
 def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
@@ -623,32 +624,42 @@ def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
     é um aceite, não uma rampa de aproximação. Quem faz a rampa é o `staged`, com σ
     por env. Dois termos, duas perguntas.
 
-    ⚠ × `_alinha` (29/09): o aceite exige a caixa no alvo E de pé; no CARREGAR isto
-    é o único gradiente contra o tombo (coluna `precise_ori` = 0 ali).
+    ⚠ × `_alinha` (29/09), só a reta (`aproximacao=True`): o aceite paga mais com a
+    caixa de pé; no CARREGAR isto é o único gradiente contra o tombo (coluna
+    `precise_ori` = 0 ali).
     """
     d = _dist_caixa_alvo(env, nome_do_comando)
-    return torch.exp(-(d / sigma) ** 2) * _alinha(env, nome_do_comando, so_de_pe=True)
+    return torch.exp(-(d / sigma) ** 2) * _alinha(env, nome_do_comando, aproximacao=True)
 
 
-def _alinha(env, nome: str, so_de_pe: bool = False) -> torch.Tensor:
+def _alinha(env, nome: str, aproximacao: bool = False) -> torch.Tensor:
     """`½(1 − Δθ/π) + ½ exp(−(Δθ/σ_ori)²)`. HÍBRIDO (28/09): o gaussiano sozinho
     morre longe do alvo — MEDIDO no `model_1750` da `zero08`, caixa a 66° na pega
     com σ 25°: kernel 0,001, derivada 0,011/rad. A metade linear dá 0,16/rad em
     TODO Δθ de 0 a 180°; a gaussiana dá 1,0/rad na tolerância do fecho. Vale 1
-    alinhado, 0,61 a 25°, 0,32 a 66°, 0 a 180°.
+    alinhado, 0,61 a 25°, 0,32 a 66°, 0 a 180°. É o que o `precise_ori` usa.
 
-    `so_de_pe=True` devolve 1 fora do regime `FACE_DE_PE`. No REORIENTAR
-    (`FACE_VIVA`) a direção pedida aponta da caixa para o robô, e `staged`/
-    `precise_pos` ali não têm mão no produto: o robô ganharia ANDANDO EM VOLTA da
-    caixa. O `precise_ori` chama sem o flag e mede a face, que é a tarefa do
-    REORIENTAR.
+    `aproximacao=True` é a variante de `staged` e `precise_pos` (29/09, caminho B de
+    `docs/relatorios/2026-09-29-pega-parada-na-mesa-cinematica-do-tombo.md`): SÓ A
+    RETA, `1 − Δθ/π` — 1 a 0°, 0,83 a 30°, 0,67 a 60°, 0,32/rad em todo Δθ —, e 1
+    fora do regime `FACE_DE_PE`. Levar a caixa da mesa à âncora do peito gira a mão
+    de 20° a 35° POR CONSTRUÇÃO (ombro, cotovelo e `wrist_pitch` giram no mesmo
+    eixo), e só o punho desfaz o giro. Com o híbrido nos três termos, erguer
+    tombado a 30° pagava +2,9/s sobre ficar na mesa, e a `zero12` parou na mesa
+    (MEDIDO no `model_1750`: subida máxima 8 mm p50). Com a reta, erguer tombado
+    paga +4,3/s a 30° e +2,6/s a 60°; reto, +7,4/s. A gaussiana de 25° fica só no
+    `precise_ori`, que é o que puxa ao portão do fecho. No REORIENTAR (`FACE_VIVA`)
+    a direção pedida aponta da caixa para o robô, e `staged`/`precise_pos` ali não
+    têm mão no produto: o robô ganharia ANDANDO EM VOLTA da caixa. O `precise_ori`
+    chama sem o flag e mede a face, que é a tarefa do REORIENTAR.
     """
     from g1_limpo.comando import ANG, FACE_DE_PE
     t = _t(env, nome)
     erro = env.command_manager.get_command(nome)[:, ANG]
-    a = 0.5 * (1.0 - erro / math.pi) + 0.5 * torch.exp(
-        -(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
-    return torch.where(t._regime_face == FACE_DE_PE, a, torch.ones_like(a)) if so_de_pe else a
+    reta = 1.0 - erro / math.pi
+    if aproximacao:
+        return torch.where(t._regime_face == FACE_DE_PE, reta, torch.ones_like(reta))
+    return 0.5 * reta + 0.5 * torch.exp(-(erro / t.sigma_ori.clamp(min=1e-6)) ** 2)
 
 
 def precise_ori(env, nome_do_comando: str) -> torch.Tensor:

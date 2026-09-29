@@ -1256,7 +1256,7 @@ class PesoPorEstado:
     # ⚠ PEG_COM = 4 (28/09): com peso 1 a `zero10` erguia a caixa tombando-a com o cotovelo
     # (`caixa_na_pega` 17° → 60° com `precise_pos` 0,29 → 0,71). A 60° a derivada era
     # 0,18/rad; com 4, 0,72/rad. Desde 29/09 o `staged` (no `trazer`) e o `precise_pos`
-    # também veem o tombo, via `_alinha`; este termo é só o que mais pesa nele.
+    # veem o tombo pela RETA de `_alinha` (0,32/rad); a gaussiana de 25° fica só aqui.
     precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    4.0,    0.0,     2.0,  0.0)
     squeeze: tuple[float, ...] = (0.0, 0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     unload: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)

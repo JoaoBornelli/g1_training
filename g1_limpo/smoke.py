@@ -4044,8 +4044,8 @@ try:
     # direção pedida aponta da caixa para o robô, e sem mão no produto o robô ganharia
     # ANDANDO EM VOLTA da caixa. O `precise_ori` (sem o flag) segue medindo a face.
     _al_viva25 = float(RC_._alinha(_e25c, "alvo_caixa").max())
-    _al_gate25 = RC_._alinha(_e25c, "alvo_caixa", so_de_pe=True)
-    check("23. no REORIENTAR `_alinha(so_de_pe=True)` é 1, e o do `precise_ori` mede a face",
+    _al_gate25 = RC_._alinha(_e25c, "alvo_caixa", aproximacao=True)
+    check("23. no REORIENTAR `_alinha(aproximacao=True)` é 1, e o do `precise_ori` mede a face",
           float((_al_gate25 - 1.0).abs().max()) < 1e-6 and _al_viva25 < 0.9,
           f"com o flag {float(_al_gate25.min()):.4f}, sem o flag (máx) {_al_viva25:.4f}")
     _g_menos = _giro_com(_t25.tensor([math.cos(_h), 0.0, 0.0, -math.sin(_h)]))  # yaw −90°
@@ -4179,7 +4179,8 @@ try:
     # dava π/2 aqui, e o σ fixo dá a tolerância. O `_recalcula_sigmas` refaz também os σ
     # de distância: os três são guardados e restaurados.
     _tol_dt26 = math.radians(cfg.commands["alvo_caixa"].tol_ang_deg)
-    _al_dt26 = float(RC_._alinha(_e26, "alvo_caixa", so_de_pe=True).mean())
+    _al_dt26 = float(RC_._alinha(_e26, "alvo_caixa", aproximacao=True).mean())
+    _al_dt26h = float(RC_._alinha(_e26, "alvo_caixa").mean())
     _sig_guarda26 = [x.clone() for x in (_t26c.sigma_ori, _t26c.sigma_alcance,
                                          _t26c.sigma_trazer)]
     _t26c._recalcula_sigmas(_ids26)
@@ -4195,12 +4196,13 @@ try:
     _cx26.write_root_link_velocity_to_sim(_t26.zeros(8, 6))
     _e26.sim.forward()
     _t26c._atualiza_face(_ids26)
-    # 17. (29/09) a janela que `staged` e `precise_pos` usam: ½(1 − Δθ/π) + ½·e^(−(Δθ/σ)²)
-    # dá 1 de pé e ~0,25 deitada 90° (½·½ + ½·e^(−(90/25)²) ≈ 0,25).
-    _al_pe26 = float(RC_._alinha(_e26, "alvo_caixa", so_de_pe=True).mean())
-    check("17. `_alinha` no regime de pé: ~1 com a caixa de pé, ~0,25 deitada 90°",
-          _al_pe26 > 0.97 and abs(_al_dt26 - 0.25) < 0.02,
-          f"de pé {_al_pe26:.4f}, deitada {_al_dt26:.4f}")
+    # 17. (29/09, B) a janela que `staged` e `precise_pos` usam é SÓ A RETA, 1 − Δθ/π:
+    # 1 de pé e 0,5 deitada 90°. O híbrido ½(1 − Δθ/π) + ½·e^(−(Δθ/σ)²) fica no
+    # `precise_ori`: ~0,25 deitada (½·½ + ½·e^(−(90/25)²)).
+    _al_pe26 = float(RC_._alinha(_e26, "alvo_caixa", aproximacao=True).mean())
+    check("17. `_alinha`: reta ~1 de pé e 0,5 deitada 90°; híbrido ~0,25 deitada",
+          _al_pe26 > 0.97 and abs(_al_dt26 - 0.5) < 0.02 and abs(_al_dt26h - 0.25) < 0.02,
+          f"reta de pé {_al_pe26:.4f}, deitada {_al_dt26:.4f}; híbrido deitada {_al_dt26h:.4f}")
     # 17. No regime de pé o σ de orientação É a TOLERÂNCIA DO FECHO, fixa (29/09). Com
     # `max(tombo inicial, tol)`, tombar a caixa na espera (os sete valem zero ali)
     # alargava o σ de graça, e desde 29/09 o σ entra no `staged` e no `precise_pos`.
