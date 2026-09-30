@@ -173,7 +173,7 @@ class Alvo:
     # da sonda do `model_6999` (`caixa_b.z` no HOLD, p50 1,025) e era CIRCULAR — o
     # robô segurava a caixa na altura do ombro e o knob subia atrás dele. Ver
     # `altura_carregar`, abaixo. O `smoke` confere a soma.
-    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.002)
+    peito_b: tuple[float, float, float] = (0.25, 0.00, 0.102)
 
     # ⚠ A ALTURA DE TRABALHO, ABSOLUTA EM MUNDO. Ela é o z do alvo nos DOIS elos que
     # seguram a caixa, e o referencial é dividido POR EIXO:
@@ -198,36 +198,25 @@ class Alvo:
     # ⚠⚠ E 0,80 É O PISO, e ele vem do FECHO e não da anatomia. A laje sobe a 0,57 e
     # a caixa maior apoiada nela tem centro em 0,70; com `tol_pos = 0,10` um alvo em
     # 0,70 é satisfeito com a caixa AINDA NA LAJE, e o PEGAR fecharia sem o robô
-    # tocar nela. O alvo e o `_perto` falam de CENTRO da caixa, os dois. Até 29/09 o
-    # piso da faixa era 0,85; desde a zero15 o fecho exige `~apoiada`, e o piso é 0,75.
+    # tocar nela. O alvo e o `_perto` falam de CENTRO da caixa, os dois. O piso da
+    # faixa abaixo são 0,85, com 5 cm de folga sobre esse limite.
     #
     # DERIVAÇÃO: a pelve do keyframe joelhos-flexionados fica em z = 0,798, portanto
     # `peito_b.z = 0,900 − 0,798 = 0,102`. O `smoke` confere esta soma contra a pose
     # default do robô, para o número não derivar em silêncio.
     #
     # ⚠ ESTE VALOR É SÓ O DEFAULT PRÉ-RESET. A altura de verdade é sorteada por
-    # episódio em `altura_carregar_faixa`, abaixo; 0,80 é o centro daquela faixa.
-    #
-    # ⚠⚠ DESCEU de 0,90 para 0,80 em 29/09 (zero15, caminho A de
-    # `docs/relatorios/2026-09-29-pega-parada-na-mesa-cinematica-do-tombo.md`, decisão
-    # do dono). Na faixa (0,85; 0,95) levar a caixa da laje ao alvo gira a mão de −7° a
-    # −30° POR CONSTRUÇÃO (ombro, cotovelo e `wrist_pitch` coaxiais), e a política
-    # aprendeu a DEITAR a caixa em vez de usar o punho (89° no play da `zero12`). Em
-    # (0,75; 0,85) a subida natural chega com −15° a +15°, dentro do portão de 25°,
-    # sem punho. CUSTO: a caixa viaja na altura do quadril; folga à coxa de 5 a 8 cm
-    # ao andar. O piso de 0,80 abaixo caiu porque o fecho do PEGAR passou a exigir
-    # `~apoiada`. Com isto `peito_b.z = 0,800 − 0,798 = 0,002`.
-    altura_carregar: float = 0.80
+    # episódio em `altura_carregar_faixa`, abaixo; 0,90 é o centro daquela faixa.
+    altura_carregar: float = 0.90
 
     # ⚠ A FAIXA DE SORTEIO DA ALTURA DE TRABALHO, uniforme e POR EPISÓDIO, por env.
     # O robô tem de generalizar entre alturas de pega em vez de decorar uma. O alvo
     # já é observável (`alvo_b`), portanto o sorteio é APRENDÍVEL e não vira ruído.
     #
-    # ⚠ O PISO SÓ DESCEU ABAIXO DE 0,80 porque o fecho do PEGAR passou a exigir
-    # `& ~apoiada` (29/09, zero15). Ver a derivação do piso acima: abaixo de 0,80 a
-    # caixa apoiada na laje já satisfaz o `perto`. Tirar o `~apoiada` do fecho exige
-    # voltar a faixa para cima de 0,80.
-    altura_carregar_faixa: tuple[float, float] = (0.75, 0.85)
+    # ⚠ O PISO NÃO PODE DESCER ABAIXO DE 0,80 sem mudar o fecho do PEGAR. Ver a
+    # derivação do piso acima: abaixo disso a caixa apoiada na laje já satisfaz o
+    # `perto`, e o fecho passaria a exigir também `& ~apoiada`.
+    altura_carregar_faixa: tuple[float, float] = (0.85, 0.95)
 
     # ⚠ NÃO EXISTE JITTER NO ALVO, e é decisão do dono em 25/08: o alvo do `pegar` e o
     # do `carregar` são **exatamente iguais**. Um jitter em y de ±0,05 sobre x = 0,25

@@ -1009,7 +1009,7 @@ class FormaPostural:
         # ⚠⚠ A CHAVE É PARA ONDE A MÃO VAI, e ela MUDA DE ELO. Corrigido em 20/09; até
         # ali a linha lia `_alvo(...)[:, 2]` nos dois elos, e isso ANULAVA a tabela no
         # PEGAR. Fora do BOTAR o alvo do comando é a ÂNCORA DO PEITO, absoluta e
-        # sorteada em `altura_carregar_faixa` = (0,75; 0,85) desde a zero15, que é
+        # sorteada em `altura_carregar_faixa` = (0,85; 0,95) (`comando.py:1696`), que é
         # a altura de CARREGAR e não a altura que a mão tem de alcançar. A tabela acaba
         # em h = 0,68, portanto o `clamp` de `referencia()` devolvia SEMPRE a última
         # linha — a pose da laje de 0,55 — em todo env de PEGAR, em todo nível.

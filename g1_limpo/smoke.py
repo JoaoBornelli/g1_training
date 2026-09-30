@@ -819,14 +819,11 @@ check("a faixa de sorteio da altura chega ao comando",
       (tuple(cfg.commands["alvo_caixa"].altura_carregar_faixa)
        == tuple(k.alvo.altura_carregar_faixa)),
       "sem o repasse no env_cfg o comando sorteia na faixa DEFAULT dele")
-# ⚠ (29/09, zero15) o piso desceu para 0,75 porque o fecho do PEGAR passou a exigir
-# `~apoiada`: os dois andam juntos, e o check amarra os dois.
-check("o piso da faixa da altura fica abaixo de 0,80 SÓ com `~apoiada` no fecho do PEGAR",
-      k.alvo.altura_carregar_faixa[0] >= 0.80
-      or "de_pe[m] & ~apoiada[m]" in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente),
+check("o piso da faixa da altura não desce abaixo de 0,80",
+      k.alvo.altura_carregar_faixa[0] >= 0.80,
       "a laje sobe a 0,57 e a caixa maior em cima tem centro em 0,70; com "
       "`tol_pos` 0,10 um alvo abaixo de 0,80 fecha o PEGAR com a caixa AINDA NA "
-      "LAJE, a menos que o fecho exija `& ~apoiada`")
+      "LAJE. Descer mais exige `& ~apoiada` no fecho do PEGAR")
 check("o default da altura fica DENTRO da faixa sorteada",
       (k.alvo.altura_carregar_faixa[0] <= k.alvo.altura_carregar
        <= k.alvo.altura_carregar_faixa[1]),

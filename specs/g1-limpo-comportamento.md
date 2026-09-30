@@ -80,15 +80,9 @@ generaliza em campo. Hoje a caixa é isolada. Mais tarde ela terá outra "caixa"
 (laterais, topo e fundo), e o robô terá de pegar sem tocar nela com as mãos nem com a
 caixa.
 
-**Altura de transporte.** No CARREGAR a caixa fica à frente do robô, entre o quadril e
-o abdômen. O z do alvo é sorteado entre 0,75 e 0,85 m no referencial do mundo, e não no
-do robô, para obrigar o robô a ficar de pé. O x e o y do alvo ficam no referencial do
-robô. Decisão do dono em 29/09 (zero15): entre 0,85 e 0,95 m a subida natural do braço
-gira a caixa de 7° a 30°, porque ombro, cotovelo e punho giram no mesmo eixo, e só o
-punho desfaz o giro. A política aprendeu a deitar a caixa em vez de usar o punho. Na
-faixa baixa a caixa chega ao alvo reta. O custo é a folga à coxa, de 5 a 8 cm ao andar.
-Como o alvo baixo fica perto da caixa ainda apoiada na laje mais alta, o fecho do PEGAR
-exige a caixa fora do apoio.
+**Altura de transporte.** No CARREGAR a caixa fica na altura do peito. O z do alvo é
+0,95 m no referencial do mundo, e não no do robô, para obrigar o robô a ficar de pé. O x
+e o y do alvo ficam no referencial do peito.
 
 **Tolerância no BOTAR.** 0,10 m de posição.
 
@@ -304,7 +298,7 @@ Uma linha por hack. O objetivo é reconhecer o padrão antes de repetir o conser
 | PEGAR | Escorou a caixa no tronco | 4,9 N abria a cauda | Escorar comprava o fecho sem preensão |
 | PEGAR | Pairou sem fechar | Pairar 25/s contra fechar 16,5/s | "Fechou e não avançou" pagava 32/s |
 | PEGAR | Mergulhou sobre a caixa | Aborto por perda de preensão era ótimo na tabela | O laço de recuperação é plano externo |
-| PEGAR | Deitou a caixa 90°, face de cima para o peito | A reta `1 − Δθ/π` ainda pagava 0,5 a 90°; endireitar exigia o punho | Reta zera a 90° e âncora baixa (zero15) |
+| PEGAR | Deitou a caixa 90°, face de cima para o peito | A reta `1 − Δθ/π` ainda pagava 0,5 a 90°; endireitar exigia o punho | Reta zera a 90° (zero15); a âncora baixa foi revertida pelo dono em 30/09 (zero16) |
 | PEGAR | Alvo fora do alcance | Alvo circular a 1,02 m era o ombro | σ = distância inicial; alvo no alcance |
 | CARREGAR | Não andou com a caixa | Andar somava 5,2% | Renda congelada acumula 10× o déficit |
 | CARREGAR | Andou agachado | `de_pe` pelo joelho | De pé é o tronco, 94,7% |
