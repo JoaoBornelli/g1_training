@@ -48,7 +48,7 @@ import torch
 from rsl_rl.algorithms import PPO
 
 from g1_limpo.comando import ANDAR, ELOS
-from g1_limpo.observacoes import fatia_do_elo_interno
+from g1_limpo.observacoes import N_SLOTS, fatia_do_elo, fatia_do_elo_interno
 
 __all__ = ["PPOPorElo", "CAMINHO"]
 
@@ -60,11 +60,97 @@ CAMINHO = "g1_limpo.algoritmo:PPOPorElo"
 # a cada quantas chamadas o diagnóstico vai para o log
 _INTERVALO = 50
 
+# ⚠ Abaixo deste desvio o slot do one-hot NUNCA acendeu de verdade: no `model_3450` o
+# CARREGAR tem 0,0006 e o BOTAR 0,0012, e os slots treinados vão de 0,03 (REORIENTAR) a 0,5.
+# A dobra do `load` preserva só os slots acima dele; nos de baixo a escala volta a 1.
+_DESVIO_MIN_DA_DOBRA = 0.01
+
+
+def _one_hots(ator, critico):
+    """`(normalizador, mlp, fatias)` do one-hot, no ator e no crítico (ver `_fixa_one_hot`)."""
+    for rede, fatias in ((ator, lambda D: [fatia_do_elo(D)]),
+                         (critico, lambda D: [fatia_do_elo(D - N_SLOTS),
+                                              fatia_do_elo_interno(D)])):
+        nz = getattr(rede, "obs_normalizer", None)
+        if nz is not None and hasattr(nz, "_mean"):
+            yield nz, getattr(rede, "mlp", None), fatias(nz._mean.shape[-1])
+
 
 class PPOPorElo(PPO):
-    """PPO com a vantagem normalizada por grupo de elo. Ver o docstring do módulo."""
+    """PPO com a vantagem normalizada por grupo de elo, e o one-hot fora da normalização
+    da observação (`_fixa_one_hot`). Ver o docstring do módulo para a vantagem."""
 
     _chamadas = 0
+
+    def _fixa_one_hot(self) -> None:
+        """O one-hot FORA da normalização empírica (spec g1-limpo-curriculo-de-cadeia §6).
+
+        Os canais do one-hot ficam com média 0 e desvio 1, fixos, no ator e no crítico: o
+        publicado do ator, o publicado do crítico e o `elo_interno` do crítico. Um one-hot
+        é categórico, e padronizá-lo só amplifica o slot raro.
+
+        ⚠ MEDIDO no `model_3450` da zero15: o `rsl_rl` normaliza por
+        `(x − média) / (desvio + 0,01)`, com estatística acumulada o treino todo, e um
+        slot que quase nunca acendeu tem desvio ~0. O slot CARREGAR tinha desvio 0,00055 e
+        o BOTAR 0,0012, portanto o slot aceso entrava na rede como ~94 e ~89, no lugar de
+        1. Cada troca de fase do currículo de cadeia acende um slot pouco visto.
+
+        ⚠ LAYOUT (contado do fim, ver `observacoes.fatia_do_elo`): ator
+        `[…, elo(5), caixa(10)]`; crítico `[…, elo(5), caixa(10), elo_interno(5)]`. O
+        `elo` publicado do crítico se acha descontando o `elo_interno` do fim:
+        `fatia_do_elo(131 − 5)` = `slice(111, 116)`; o interno é `slice(126, 131)`.
+
+        ⚠ RODA ANTES de cada `act` e DEPOIS de cada atualização da normalização
+        (`process_env_step`): o `update` do `rsl_rl` mexe em todos os canais, e a
+        fixação desfaz a mexida nos do one-hot antes de a rede os ler.
+        """
+        for nz, _mlp, fatias in _one_hots(self.actor, self.critic):
+            for sl in fatias:
+                nz._mean[..., sl] = 0.0
+                nz._var[..., sl] = 1.0
+                nz._std[..., sl] = 1.0
+
+    def _absorve_one_hot(self) -> None:
+        """DOBRA a normalização antiga do one-hot na 1ª camada, e só depois a fixa.
+
+        ⚠ UM CHECKPOINT ANTERIOR a 30/09 treinou com o one-hot normalizado. Fixar a
+        normalização sem mais nada muda a entrada da rede. MEDIDO no `model_3450`: a 1ª
+        camada do ator desloca 1,5 a 1,8 no ANDAR e no PEGAR, e 38 no REORIENTAR, cuja
+        entrada acesa cai de 24,9 para 1. A dobra reescreve a 1ª camada e a função não muda:
+
+            W'_j = W_j · (1 + ε) / (σ_j + ε)      b' = b − Σ_j W_j · μ_j / (σ_j + ε)
+
+        ⚠ SÓ nos slots com `σ_j ≥ _DESVIO_MIN_DA_DOBRA`. Num slot que nunca acendeu (o
+        CARREGAR e o BOTAR da linhagem zero), a dobra guardaria o ganho de ~95 no peso, e o
+        Adam levaria milhares de passos para desfazê-lo: ali a escala volta a 1, que é o
+        conserto. Num checkpoint já fixado (média 0, desvio 1), a dobra é a identidade.
+        """
+        with torch.no_grad():
+            for nz, mlp, fatias in _one_hots(self.actor, self.critic):
+                lin = mlp[0]
+                for sl in fatias:
+                    for j in range(sl.start, sl.stop):
+                        dp = float(nz._std[0, j])
+                        if dp < _DESVIO_MIN_DA_DOBRA:
+                            continue
+                        s = dp + nz.eps
+                        lin.bias -= lin.weight[:, j] * (float(nz._mean[0, j]) / s)
+                        lin.weight[:, j] *= (1.0 + nz.eps) / s
+        self._fixa_one_hot()
+
+    def load(self, loaded_dict, load_cfg, strict):
+        saida = super().load(loaded_dict, load_cfg, strict)
+        self._absorve_one_hot()
+        return saida
+
+    def act(self, obs):
+        self._fixa_one_hot()
+        return super().act(obs)
+
+    def process_env_step(self, *args, **kwargs):
+        saida = super().process_env_step(*args, **kwargs)
+        self._fixa_one_hot()
+        return saida
 
     def compute_returns(self, obs) -> None:
         """Recalcula a normalização da vantagem, por grupo, sobre a vantagem CRUA.

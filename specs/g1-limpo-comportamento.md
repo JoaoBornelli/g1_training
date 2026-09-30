@@ -35,6 +35,12 @@ CARREGAR é uma tarefa própria, com dois regimes: segurar a caixa parado, e and
 caixa sob comando de velocidade. O controlador compõe o ciclo completo a partir dessas
 transições. Transições fora da lista, como PEGAR → BOTAR sem CARREGAR, não são treinadas.
 
+**Ordem de aprendizado.** As tarefas abrem uma de cada vez, como a manipulação só abre
+depois de a locomoção estar dominada: aprende a andar, a pegar, a carregar parado, a
+carregar andando e a botar. Cada fase deixa a tarefa seguinte com uma fração baixa
+ativa, como o REORIENTAR, e a fase troca sozinha quando a tarefa atual está dominada. O
+desenho está em `specs/g1-limpo-curriculo-de-cadeia.md`.
+
 **Sucesso do ciclo.** As quatro condições valem juntas:
 
 - O robô não cai em nenhuma etapa.

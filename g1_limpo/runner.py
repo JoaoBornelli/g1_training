@@ -53,7 +53,11 @@ CHAVES_ESCALARES = ("alvo", "dur_loco", "dur_manip", "razao",
                     # `garante_forma` recria o fresco `-1,0`, e a EMA do balanceador
                     # dispara no primeiro reset pós-resume com uma contagem PARCIAL
                     # (poucos episódios, não a janela inteira de uma iteração).
-                    "ultima_iter_bal")
+                    "ultima_iter_bal",
+                    # ⚠ o currículo de cadeia (spec g1-limpo-curriculo-de-cadeia §5, 30/09):
+                    # a fase, o `iters_balanco` da última troca e o `s_cauda`. Sem eles todo
+                    # resume volta à fase 1, ou à `fase_inicial` do knob.
+                    "fase_cadeia", "iter_fase", "s_cauda")
 CHAVES_POR_ENV = ("limpo_nivel", "limpo_elo", "limpo_freio")
 
 
@@ -91,6 +95,10 @@ class RunnerComEstadoDeCurriculo(MjlabOnPolicyRunner):
             f = e.cfg.curriculum["forma"].params["f"]
             st = garante_forma(e, f)
             st.update(estado["forma"])
+            # ⚠ checkpoint anterior ao currículo de cadeia (30/09): a fase 1 começa NESTE
+            # resume. Com `iter_fase` em 0, o mínimo de iterações nasceria cumprido.
+            if "iter_fase" not in estado["forma"]:
+                st["iter_fase"] = st["iters_balanco"]
             # ⚠ ZERA OS ACUMULADORES do balanceador (revisão independente, item A6).
             # Eles NÃO estão em `CHAVES_ESCALARES` (só a EMA já resolvida é
             # persistida) — mas se `env.reset()` já rodou antes deste `load`, um

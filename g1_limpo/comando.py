@@ -405,6 +405,22 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     # o ganho da EMA de `concluiu` por cadeia, aplicada uma vez por ITERAÇÃO de PPO.
     balanceador_piso: float = 0.20
     balanceador_alpha: float = 0.05
+    # ⚠⚠ O CURRÍCULO DE CADEIA (spec g1-limpo-curriculo-de-cadeia §4 e §5, 30/09): os dez
+    # campos abaixo ESPELHAM `knobs.Cadeia`, e `env_cfg` copia de lá — mude os dois, ou
+    # eles derivam em silêncio. Ver o `knobs.Cadeia` para o porquê de cada número.
+    # ⚠ Só o default de `fase_inicial` DIFERE: aqui é 4 (o comportamento de hoje), porque
+    # o cfg cru é o que a inspeção e os testes montam. Quem treina recebe o knob (1) pelo
+    # `env_cfg`, e `inspecao`/`play` o fixam em 4 lá.
+    fase_inicial: int = 4
+    fracao_cauda_fase1: float = 0.10
+    fracao_anda_fase2: float = 0.10
+    p_c_antes_do_botar: float = 0.05
+    fase2_s_b: float = 0.50
+    fase2_min_iters: int = 300
+    fase3_s_cauda: float = 0.60
+    fase3_min_iters: int = 200
+    fase4_s_cauda: float = 0.60
+    fase4_min_iters: int = 300
     # ⚠ O INTERRUPTOR DO REORIENTAR (spec §8.3, v2): com `True` o fecho do REORIENTAR
     # ignora `alinhado` e o elo fecha em `sustenta_outros_s` sem trabalho. MEDIDO em
     # 03/09: `voltas_max = 0` não bastava — a direção pedida é "da caixa para o robô", e
@@ -594,6 +610,11 @@ class AlvoCaixaCmd(CommandTerm):
         env.limpo_elo_interno = self._elo
 
         self._pegou = torch.zeros(n, dtype=torch.bool, device=d)
+        # ⚠ A CAUDA PARADA (spec g1-limpo-curriculo-de-cadeia §4, 30/09): "este env entrou
+        # na cauda CARREGAR com comando de andar ZERO" (fases 1 e 2). Escrita UMA vez, na
+        # entrada da cauda (`_aplica_espera`), lida por `_zera_twist_nos_parados`; zera no
+        # reset. Fora da cauda ela não diz nada.
+        self._cauda_parada = torch.zeros(n, dtype=torch.bool, device=d)
         env.limpo_ids_palma = self._ids_palma
         # ⚠ `_forcado` (spec §2.3, revisão independente item A8): `forca_avanco`
         # zera `_espera`, mas sem isto o gate `perto` de `_aplica_espera` ainda
@@ -756,9 +777,37 @@ class AlvoCaixaCmd(CommandTerm):
         if len(ids_cauda):
             self._forcado[ids_cauda] = False
             vira_carregar = ids_cauda[self._pegou[ids_cauda] & ~self._soltou[ids_cauda]]
+            # ⚠⚠ O CURRÍCULO DE CADEIA, fase 1 (spec g1-limpo-curriculo-de-cadeia §4, 30/09).
+            # Só `fracao_cauda_fase1` dos fechos B e R vai à cauda CARREGAR; o resto SEGURA:
+            # o elo fica PEGAR, `fechou`, até o fim. O estado de recompensa segue PEGAR_COM
+            # e os termos ao vivo pagam por cima da renda congelada (~32/s medido, contra
+            # ~17 a 25/s de pairar). A escolha é por env, UMA vez, na entrada da cauda.
+            # ⚠ A cadeia C (2) desviada vai SEMPRE à cauda: SEGURAR no PEGAR deixaria o
+            # `avanca` reavaliar o `perto` todo passo, e o env abriria o BOTAR tarde, com
+            # a laje já afastada abaixo.
+            fase = self._fase()
+            if fase == 1 and len(vira_carregar):
+                vai = ((torch.rand(len(vira_carregar), device=d) < self.cfg.fracao_cauda_fase1)
+                       | (self._cadeia[vira_carregar] == 2))
+                segura = vira_carregar[~vai]
+                vira_carregar = vira_carregar[vai]
+                # ⚠ a tarefa CONTINUA: sem reabrir σ, alvo e eixo de cima no bloco `liga`
+                # abaixo, que só dispara com `_sigma_pendente`. E sem `_sigma_pendente` o
+                # env sai de `cauda` (`ja_em_cauda`), portanto a escolha não se repete.
+                self._sigma_pendente[segura] = False
             if len(vira_carregar):
                 self._elo[vira_carregar] = CARREGAR
                 self._alvo_ancorado_na_base(vira_carregar)
+                # ⚠ A CAUDA PARADA (spec §4): fase 1, sempre; fase 2, em 90% (os outros
+                # 10% andam, `fracao_anda_fase2`); fase 3 em diante, nunca. Lida por
+                # `_zera_twist_nos_parados`, que a conta como parado.
+                if fase <= 1:
+                    self._cauda_parada[vira_carregar] = True
+                elif fase == 2:
+                    self._cauda_parada[vira_carregar] = (
+                        torch.rand(len(vira_carregar), device=d) >= self.cfg.fracao_anda_fase2)
+                else:
+                    self._cauda_parada[vira_carregar] = False
             # senão, o `_elo` FICA `BOTAR` (revisão, item 3): o crítico vê o interno
             # BOTAR, o publicado ANDAR (via `soltou`), e prevê a renda congelada.
             # ⚠ O PÓS-BOTAR NÃO MEXE NA CENA (decisão do dono, 2026-09-10). O robô se
@@ -1006,6 +1055,17 @@ class AlvoCaixaCmd(CommandTerm):
         self._soltou[ids] = False
         self._command[ids, ELO] = float(ANDAR)
 
+    def _fase(self) -> int:
+        """A fase do currículo de cadeia (spec g1-limpo-curriculo-de-cadeia §4, 30/09).
+
+        ⚠ Vem de `env.limpo_forma["fase_cadeia"]` — o estado que o runner salva e restaura,
+        e que `_atualiza_balanceador` avança —, com `cfg.fase_inicial` de PISO. No treino
+        o piso é 1 e não morde. Em `inspecao` e `play` ele é 4, e o `play` de um
+        checkpoint salvo nas fases 1 a 3 roda a cadeia inteira, e não a fase salva.
+        """
+        st = getattr(self._env, "limpo_forma", None) or {}
+        return max(int(st.get("fase_cadeia", 1)), int(self.cfg.fase_inicial))
+
     def _atualiza_balanceador(self, env_ids: torch.Tensor) -> None:
         """`s_B`, `s_C`: EMA de `concluiu` por cadeia, por ITERAÇÃO de PPO (spec
         `g1-limpo-dois-bits.md` §2.5).
@@ -1017,10 +1077,23 @@ class AlvoCaixaCmd(CommandTerm):
         ⚠ `iters_balanco` vem de `env.limpo_forma`, já escrito pelo termo de
         currículo `forma` NESTE MESMO reset — currículo roda antes do comando. O
         mesmo relógio de `knobs.Forma.passos_por_iteracao`, sem contador próprio.
+
+        ⚠ O CURRÍCULO DE CADEIA mora na MESMA borda de iteração (spec
+        g1-limpo-curriculo-de-cadeia §5, 30/09): `s_cauda`, a EMA da fração de episódios
+        que ACABARAM no CARREGAR e acabaram por `time_out`, e a troca de fase
+        (`_avalia_troca_de_fase`).
         """
         st = getattr(self._env, "limpo_forma", None)
         if st is None or "s_B" not in st or len(env_ids) == 0:
             return
+        # ⚠ As chaves do currículo de cadeia nascem AQUI, e não em `curriculo.garante_forma`
+        # (spec §5). `setdefault` não pisa no que o runner restaurou de um checkpoint, e a
+        # fase nasce no `fase_inicial` do cfg.
+        st.setdefault("fase_cadeia", float(self.cfg.fase_inicial))
+        st.setdefault("iter_fase", 0.0)
+        st.setdefault("s_cauda", 0.0)
+        st.setdefault("n_ep_cauda", 0.0)
+        st.setdefault("n_ok_cauda", 0.0)
         cad = self._cadeia[env_ids]
         concluiu = self.concluiu(env_ids)
         eh_b = cad == 0
@@ -1031,6 +1104,18 @@ class AlvoCaixaCmd(CommandTerm):
         if bool(eh_c.any()):
             st["n_ep_C"] += float(eh_c.sum())
             st["n_concluiu_C"] += float(concluiu[eh_c].float().sum())
+        # ⚠ `s_cauda` (spec g1-limpo-curriculo-de-cadeia §5, 30/09): dos episódios que
+        # ACABARAM no CARREGAR, a fração que acabou por `time_out` e não por terminação. O
+        # `mjlab` grava `reset_time_outs` ANTES do reset, e o comando reinicia antes das
+        # terminações (`manager_based_rl_env.py:438, 581, 587`), portanto o `time_out` do
+        # episódio que acabou ainda está lá. Antes do 1º passo o atributo não existe, e
+        # nenhum env está em cauda.
+        em_cauda = self._elo[env_ids] == CARREGAR
+        if bool(em_cauda.any()):
+            to = getattr(self._env, "reset_time_outs", None)
+            ok = em_cauda & (to[env_ids].bool() if to is not None else torch.zeros_like(em_cauda))
+            st["n_ep_cauda"] += float(em_cauda.sum())
+            st["n_ok_cauda"] += float(ok.sum())
 
         # ⚠ A EMA SÓ APLICA NA BORDA DE ITERAÇÃO (spec §5 item 10): `janela` é o
         # inteiro da iteração corrente, e ela só avança quando o floor de
@@ -1046,13 +1131,53 @@ class AlvoCaixaCmd(CommandTerm):
             if st["n_ep_C"] > 0.0:
                 st["s_C"] = ((1.0 - alpha) * st["s_C"]
                             + alpha * (st["n_concluiu_C"] / st["n_ep_C"]))
+            # ⚠ `s_cauda` e a troca de fase, DEPOIS das EMAs de `s_B`/`s_C` (a troca 1 → 2
+            # lê o `s_B` desta iteração). Zerar a contagem da cauda é parte da iteração.
+            if st["n_ep_cauda"] > 0.0:
+                st["s_cauda"] = ((1.0 - alpha) * st["s_cauda"]
+                                + alpha * (st["n_ok_cauda"] / st["n_ep_cauda"]))
+            st["n_ep_cauda"] = st["n_ok_cauda"] = 0.0
+            self._avalia_troca_de_fase(st, janela)
             st["n_ep_B"] = st["n_concluiu_B"] = 0.0
             st["n_ep_C"] = st["n_concluiu_C"] = 0.0
+
+    def _avalia_troca_de_fase(self, st: dict, janela: int) -> None:
+        """A troca de fase do currículo de cadeia (spec g1-limpo-curriculo-de-cadeia §5).
+
+            1 → 2   `s_B ≥ fase2_s_b`       e ≥ `fase2_min_iters` iterações na fase
+            2 → 3   `s_cauda ≥ fase3_s_cauda` e ≥ `fase3_min_iters`
+            3 → 4   `s_cauda ≥ fase4_s_cauda` e ≥ `fase4_min_iters`
+
+        ⚠ PURA sobre o dict, de propósito: o `smoke` a chama com um dict sintético, sem
+        env. Só AVANÇA, e UM degrau por chamada (o `elif` é o que garante) — as fases
+        nunca voltam (decisão D5 do dono). A troca grava `iter_fase` (o `iters_balanco`
+        do instante) e ZERA o `s_cauda`: a taxa da fase nova não herda a da anterior.
+        """
+        c = self.cfg
+        fase = int(st["fase_cadeia"])
+        n = janela - int(st["iter_fase"])
+        nova = fase
+        if fase == 1 and st["s_B"] >= c.fase2_s_b and n >= c.fase2_min_iters:
+            nova = 2
+        elif fase == 2 and st["s_cauda"] >= c.fase3_s_cauda and n >= c.fase3_min_iters:
+            nova = 3
+        elif fase == 3 and st["s_cauda"] >= c.fase4_s_cauda and n >= c.fase4_min_iters:
+            nova = 4
+        if nova != fase:
+            st["fase_cadeia"] = float(nova)
+            st["iter_fase"] = float(janela)
+            st["s_cauda"] = 0.0
 
     def _resolve_p_c(self) -> float:
         """`p_C` do balanceador (spec `g1-limpo-dois-bits.md` §2.5), das médias
         `s_B`, `s_C` do `env.limpo_forma`. `0,0`/`1,0` de fallback se o termo de
-        currículo `forma` não existir neste cfg (cfgs mínimos de teste)."""
+        currículo `forma` não existir neste cfg (cfgs mínimos de teste).
+
+        ⚠ ANTES DA FASE 4 ele é FIXO em `p_c_antes_do_botar` (spec
+        g1-limpo-curriculo-de-cadeia §4, 30/09): prática rara de BOTAR, sem o balanceador.
+        """
+        if self._fase() < 4:
+            return float(self.cfg.p_c_antes_do_botar)
         st = getattr(self._env, "limpo_forma", None)
         s_b = float(st["s_B"]) if st and "s_B" in st else 0.0
         s_c = float(st["s_C"]) if st and "s_C" in st else 1.0
@@ -1077,6 +1202,7 @@ class AlvoCaixaCmd(CommandTerm):
         # laje e as palmas estão longe — dispararia `escapou` na hora.
         self._pegou[env_ids] = False
         self._soltou[env_ids] = False
+        self._cauda_parada[env_ids] = False
 
         # O ELO. Desde a F2 ele é SORTEADO POR ENV, e o sorteio mora no currículo
         # (`curriculo.sorteia_elo`) porque a ordem de reset é currículo -> eventos ->
@@ -1229,8 +1355,8 @@ class AlvoCaixaCmd(CommandTerm):
         # ⚠ O ALVO DO CARREGAR, referenciado no robô, TODO PASSO — mas só com o twist
         # ATIVO (spec dois-bits §1.2, terceiro momento): `anda = (elo == CARREGAR) &
         # (twist_zerado < 0.5)`. É o que faz o alvo acompanhar o robô enquanto ele anda
-        # com a caixa; com twist zero (não deveria acontecer no CARREGAR, mas o gate é
-        # autodocumentado) o alvo continuaria congelado.
+        # com a caixa; com twist zero — a cauda PARADA das fases 1 e 2 do currículo de
+        # cadeia (30/09) — o alvo fica congelado na âncora do fim da espera.
         anda = todos[(self._elo == CARREGAR) & (self._env.limpo_twist_zerado < 0.5)]
         if len(anda):
             self._alvo_ancorado_na_base(anda)
@@ -1255,7 +1381,7 @@ class AlvoCaixaCmd(CommandTerm):
         no `botar` — e não a forma do alvo. Decisão do dono em 25/08, e é o que o
         `g1_poc` faz (`comando.py:826`), cuja manipulação funcionou.
 
-            parados = (elo ∈ elos_parados) ∨ (espera > 0)
+            parados = (elo ∈ elos_parados) ∨ (espera > 0) ∨ (elo = CARREGAR ∧ cauda_parada)
 
         ⚠ O `& ~soltou` SAIU (v3.4, spec `g1-limpo-botar-fecha-e-para.md` §2.2). Ele
         deixava o twist fluir na cauda pós-BOTAR. O dono reverteu em 10/09: depois do
@@ -1265,7 +1391,8 @@ class AlvoCaixaCmd(CommandTerm):
         qualquer elo.
 
         ⚠ Isto afeta SÓ a cauda pós-BOTAR. A cauda das cadeias B e R é `CARREGAR`, que
-        NÃO está em `elos_parados` — ela continua andando.
+        NÃO está em `elos_parados` — ela continua andando, salvo a cauda PARADA das
+        fases 1 e 2 do currículo de cadeia (`cauda_parada`, 30/09).
 
         ⚠ ORDEM NO PASSO: este método roda DEPOIS de `_aplica_espera` e de
         `_avanca_elo`, para ler `_elo` e `_espera` já do passo CORRENTE.
@@ -1292,8 +1419,13 @@ class AlvoCaixaCmd(CommandTerm):
         o do fabricante SEM filtro — nem zerado, nem fixado. A v2.1 sorteava um twist
         próprio (P5); esse bloco saiu.
         """
-        parados = torch.isin(self._elo, torch.tensor(
+        # ⚠ A CAUDA PARADA conta como parado (spec g1-limpo-curriculo-de-cadeia §4, 30/09): o
+        # CARREGAR que entrou parado (fases 1 e 2) usa o laço de rumo dos elos parados, e
+        # com isso o freio e o `pose` leem regime parado — os dois leem
+        # `limpo_twist_zerado`. O CARREGAR sem a marca anda, como sempre.
+        parados = (torch.isin(self._elo, torch.tensor(
             self.cfg.elos_parados, device=self.device)) | (self._espera > 0.0)
+            | ((self._elo == CARREGAR) & self._cauda_parada))
         novos = parados & (self._env.limpo_twist_zerado < 0.5)
         self._env.limpo_twist_zerado.copy_(parados.float())
 

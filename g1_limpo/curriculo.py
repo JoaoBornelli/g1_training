@@ -388,8 +388,8 @@ def garante_forma(env: "ManagerBasedRlEnv", f) -> dict:
 
 
 def _estado_para_log(env: "ManagerBasedRlEnv", st: dict) -> dict:
-    """`{sorteio, p_C, s_B, s_C}`, para o `CurriculumManager` publicar como
-    `Curriculum/forma/{chave}` (revisão independente, item A5).
+    """`{sorteio, p_C, s_B, s_C, fase_cadeia, s_cauda}`, para o `CurriculumManager`
+    publicar como `Curriculum/forma/{chave}` (revisão independente, item A5).
 
     ⚠ SEM ISTO, `p_C`/`s_B`/`s_C` só existiam no CHECKPOINT — a spec §6 manda ler
     `p_C` subindo do piso no PRIMEIRO log, e não havia onde ler. `_resolve_p_c` é
@@ -402,8 +402,12 @@ def _estado_para_log(env: "ManagerBasedRlEnv", st: dict) -> dict:
         p_c = float(env.command_manager.get_term("alvo_caixa")._resolve_p_c())
     except (KeyError, AttributeError):
         pass
+    # ⚠ `fase_cadeia` e `s_cauda` (spec g1-limpo-curriculo-de-cadeia §5, 30/09): ao lado do
+    # `s_B`. Nascem no comando (`_atualiza_balanceador`); antes do 1º reset dele, o default.
     return {"sorteio": st["sorteio"], "p_C": p_c,
-            "s_B": float(st.get("s_B", 0.0)), "s_C": float(st.get("s_C", 1.0))}
+            "s_B": float(st.get("s_B", 0.0)), "s_C": float(st.get("s_C", 1.0)),
+            "fase_cadeia": float(st.get("fase_cadeia", 0.0)),
+            "s_cauda": float(st.get("s_cauda", 0.0))}
 
 
 def forma(

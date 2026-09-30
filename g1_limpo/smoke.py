@@ -3193,8 +3193,10 @@ except Exception as _e9d:      # noqa: BLE001
     _falhas.append(f"o ciclo de checkpoint não pôde ser exercitado: "
                    f"{type(_e9d).__name__}: {_e9d}")
 
+# ⚠ `fase_cadeia` (30/09, spec g1-limpo-curriculo-de-cadeia §5) é a ÚNICA exceção declarada
+# ao "cadeia": é estado de CURRÍCULO, e não o buffer `_cadeia` do episódio.
 check("o estado de EPISÓDIO fica FORA do checkpoint",
-      not any("cadeia" in c or "sust" in c or "sigma" in c
+      not any(("cadeia" in c and c != "fase_cadeia") or "sust" in c or "sigma" in c
               for c in RN_.CHAVES_ESCALARES + RN_.CHAVES_POR_ENV),
       "restaurar um σ de uma pose que não existe mais seria pior que recalculá-lo")
 
@@ -3284,6 +3286,222 @@ try:
 except Exception as _ebx:      # noqa: BLE001
     _falhas.append(f"o fecho natural não pôde ser exercitado: "
                    f"{type(_ebx).__name__}: {_ebx}")
+
+# --- CURRÍCULO DE CADEIA (spec g1-limpo-curriculo-de-cadeia, 30/09) ---
+# ⚠ O MESMO MÉTODO do fecho natural acima: env de inspeção no PEGAR, `cadeia_forcada` no cfg
+# do comando (a 0, B: só PEGAR), `_passa_janela`, e a caixa PINADA no alvo com a face
+# alinhada. O fecho do PEGAR vem SOZINHO, por sustentação; depois da espera do fecho o elo
+# cai na decisão da cauda, que é o que a fase muda. A inspeção nasce na fase 4, e cada
+# cenário fixa a sua no cfg do comando. Nenhum passo de treino: o smoke roda sem update.
+import torch as _tcc                                        # noqa: E402
+
+from g1_limpo.env_cfg import TERMOS_CONGELAVEIS as _TC_CC   # noqa: E402
+from rsl_rl.modules import EmpiricalNormalization as _EN_CC  # noqa: E402
+
+
+def _monta_cc(fase, fracao_cauda=None):
+    """Env de inspeção (PEGAR, cadeia B) com a fase do currículo de cadeia fixada."""
+    _c = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
+    _c.scene.num_envs = 4
+    _cm = _c.commands["alvo_caixa"]
+    _cm.cadeia_forcada = 0
+    _cm.fase_inicial = fase
+    if fracao_cauda is not None:
+        _cm.fracao_cauda_fase1 = fracao_cauda
+    _e = ManagerBasedRlEnv(cfg=_c, device="cpu")
+    _e.reset()
+    return _c, _e, _e.command_manager.get_term("alvo_caixa")
+
+
+def _fecha_cc(e, t):
+    """Queima a janela, ARMA a pega e PINA a caixa no alvo até depois da espera do fecho.
+
+    ⚠ `_pegou` à mão, como na seção 23: a ação zero não garante o toque das duas palmas,
+    e sem a arma o fim da espera não passa por `vira_carregar` — nem SEGURA, nem cauda.
+    A caixa pinada no alvo, parada, não dispara `caixa_largada`.
+    """
+    na = e.action_manager.total_action_dim
+    _passa_janela(e, na, _tcc)
+    t._pegou[:] = True
+    q = _tcc.tensor([[1.0, 0.0, 0.0, 0.0]]).expand(e.num_envs, 4)
+    for _ in range(int((k.cadeia.sustenta_pegar_s + k.alvo.espera_s[1]) / e.step_dt) + 10):
+        e.scene["box"].write_root_link_pose_to_sim(
+            _tcc.cat([t.command[:, CMD.ALVO], q], dim=-1))
+        e.scene["box"].write_root_link_velocity_to_sim(_tcc.zeros(e.num_envs, 6))
+        e.step(_tcc.zeros(e.num_envs, na))
+
+
+# CC1: fase 1, `fracao_cauda_fase1 = 0` — TODO fecho SEGURA. O elo fica PEGAR, fechado, e a
+# tarefa CONTINUA: sem σ, alvo e eixo de cima reabertos, e com a renda congelada MAIS os
+# termos ao vivo pagando (o estado de ~32/s que faz fechar valer a pena).
+try:
+    _cfg_cc1, _env_cc1, _cmd_cc1 = _monta_cc(1, 0.0)
+    _fecha_cc(_env_cc1, _cmd_cc1)
+    check("CC1. fase 1 sem cauda: TODO env SEGURA — `_elo == PEGAR`, `fechou`, "
+          "`_sigma_pendente` falso, `limpo_estado == PEGAR_COM` e canal ELO == PEGAR",
+          bool((_cmd_cc1._elo == CMD.PEGAR).all()) and bool(_cmd_cc1.fechou.all())
+          and not bool(_cmd_cc1._sigma_pendente.any())
+          and bool((_env_cc1.limpo_estado == CMD.ESTADO_PEGAR_COM).all())
+          and bool((_cmd_cc1.command[:, CMD.ELO] == CMD.PEGAR).all()),
+          f"elo {_cmd_cc1._elo.tolist()}, fechou {_cmd_cc1.fechou.tolist()}, "
+          f"sigma_pendente {_cmd_cc1._sigma_pendente.tolist()}, "
+          f"estado {_env_cc1.limpo_estado.tolist()}, "
+          f"canal ELO {_cmd_cc1.command[:, CMD.ELO].tolist()}")
+    _nm_cc1 = list(_cfg_cc1.rewards)
+    _sr_cc1 = _env_cc1.reward_manager._step_reward
+    _rc_cc1 = _sr_cc1[:, _nm_cc1.index("renda_congelada")]
+    _vivo_cc1 = _sr_cc1[:, [_nm_cc1.index(n) for n in _TC_CC]].sum(-1)
+    check("CC1. no último passo, o `renda_congelada` paga (> 0)",
+          bool((_rc_cc1 > 0.0).all()), f"renda_congelada {_rc_cc1.tolist()}")
+    check("CC1. e a soma dos `TERMOS_CONGELAVEIS` AO VIVO também paga (> 0)",
+          bool((_vivo_cc1 > 0.0).all()), f"soma ao vivo {_vivo_cc1.tolist()}")
+    del _env_cc1
+except Exception as _cc1x:      # noqa: BLE001
+    _falhas.append(f"CC1 (fase 1, SEGURA) não pôde ser medido: "
+                   f"{type(_cc1x).__name__}: {_cc1x}")
+
+# CC2: fase 1, `fracao_cauda_fase1 = 1` — TODO fecho vai à cauda CARREGAR, e a cauda é PARADA:
+# a cauda de fase 1 conta como parado para o twist (e, por ele, para o freio e o `pose`).
+try:
+    _cfg_cc2, _env_cc2, _cmd_cc2 = _monta_cc(1, 1.0)
+    _fecha_cc(_env_cc2, _cmd_cc2)
+    check("CC2. fase 1 com `fracao_cauda_fase1 = 1,0`: todos em `CARREGAR`, cauda PARADA e "
+          "`limpo_twist_zerado > 0,5`",
+          bool((_cmd_cc2._elo == CMD.CARREGAR).all())
+          and bool(_cmd_cc2._cauda_parada.all())
+          and bool((_env_cc2.limpo_twist_zerado > 0.5).all()),
+          f"elo {_cmd_cc2._elo.tolist()}, parada {_cmd_cc2._cauda_parada.tolist()}, "
+          f"twist_zerado {_env_cc2.limpo_twist_zerado.tolist()}")
+    del _env_cc2
+except Exception as _cc2x:      # noqa: BLE001
+    _falhas.append(f"CC2 (fase 1, cauda PARADA) não pôde ser medido: "
+                   f"{type(_cc2x).__name__}: {_cc2x}")
+
+# CC3: fase 3 — o fecho vai à cauda CARREGAR, e ela ANDA (o twist é o do fabricante).
+try:
+    _cfg_cc3, _env_cc3, _cmd_cc3 = _monta_cc(3)
+    _fecha_cc(_env_cc3, _cmd_cc3)
+    check("CC3. fase 3: todos em `CARREGAR` e `_cauda_parada` falso",
+          bool((_cmd_cc3._elo == CMD.CARREGAR).all())
+          and not bool(_cmd_cc3._cauda_parada.any()),
+          f"elo {_cmd_cc3._elo.tolist()}, parada {_cmd_cc3._cauda_parada.tolist()}")
+    del _env_cc3
+except Exception as _cc3x:      # noqa: BLE001
+    _falhas.append(f"CC3 (fase 3, cauda ANDANDO) não pôde ser medido: "
+                   f"{type(_cc3x).__name__}: {_cc3x}")
+
+# CC4: o `p_C`. Antes da fase 4 ele é FIXO em `p_c_antes_do_botar`; na fase 4 é o do
+# balanceador, das médias do estado corrente.
+try:
+    _cfg_cc4a, _env_cc4a, _cmd_cc4a = _monta_cc(1)
+    _cfg_cc4b, _env_cc4b, _cmd_cc4b = _monta_cc(4)
+    _forma_cc4 = getattr(_env_cc4b, "limpo_forma", None) or {}
+    _p_bal_cc4 = CU_.resolve_p_c(float(_forma_cc4.get("s_B", 0.0)),
+                                 float(_forma_cc4.get("s_C", 1.0)),
+                                 k.cadeia.balanceador_piso)
+    check("CC4. na fase 1 o `_resolve_p_c()` é `p_c_antes_do_botar`",
+          _cmd_cc4a._resolve_p_c() == k.cadeia.p_c_antes_do_botar,
+          f"{_cmd_cc4a._resolve_p_c()} contra {k.cadeia.p_c_antes_do_botar}")
+    check("CC4. na fase 4 o `_resolve_p_c()` é o `resolve_p_c(s_B, s_C, piso)` do estado",
+          abs(_cmd_cc4b._resolve_p_c() - _p_bal_cc4) < 1e-12,
+          f"{_cmd_cc4b._resolve_p_c()} contra {_p_bal_cc4}")
+    del _env_cc4a, _env_cc4b
+except Exception as _cc4x:      # noqa: BLE001
+    _falhas.append(f"CC4 (`p_C` por fase) não pôde ser medido: "
+                   f"{type(_cc4x).__name__}: {_cc4x}")
+
+# CC5: a troca de fase, SEM passo de env. `_avalia_troca_de_fase` é PURA sobre o dict, e o
+# `cmd` de um env de inspeção só empresta o cfg (os limiares e os mínimos).
+try:
+    _cfg_cc5, _env_cc5, _cmd_cc5 = _monta_cc(4)
+    _kc5 = k.cadeia
+    _st5 = {"fase_cadeia": 1.0, "iter_fase": 0.0, "s_B": 0.6, "s_cauda": 0.9}
+    _j2 = _kc5.fase2_min_iters
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j2 - 1)
+    check("CC5. na fase 1, com `janela = fase2_min_iters − 1`, continua 1",
+          int(_st5["fase_cadeia"]) == 1, str(_st5))
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j2)
+    check("CC5. com `janela = fase2_min_iters` vira 2, com `iter_fase == janela` e "
+          "`s_cauda == 0`",
+          int(_st5["fase_cadeia"]) == 2 and _st5["iter_fase"] == _j2
+          and _st5["s_cauda"] == 0.0, str(_st5))
+    _st5["s_B"] = 0.0
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j2 + 1)
+    check("CC5. com `s_B = 0` depois, continua 2 (não volta)",
+          int(_st5["fase_cadeia"]) == 2, str(_st5))
+    _st5["s_cauda"] = 0.7
+    _j3 = _j2 + _kc5.fase3_min_iters
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j3)
+    check("CC5. com `s_cauda = 0,7` e `fase3_min_iters` na fase, vira 3",
+          int(_st5["fase_cadeia"]) == 3, str(_st5))
+    _st5["s_cauda"] = 0.7
+    _j4 = _j3 + _kc5.fase4_min_iters
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j4)
+    check("CC5. com o mínimo da fase 4, vira 4",
+          int(_st5["fase_cadeia"]) == 4, str(_st5))
+    _st5["s_B"] = 1.0
+    _st5["s_cauda"] = 1.0
+    _cmd_cc5._avalia_troca_de_fase(_st5, _j4 + 10 * _kc5.fase4_min_iters)
+    check("CC5. numa 4ª chamada com tudo alto, continua 4",
+          int(_st5["fase_cadeia"]) == 4, str(_st5))
+    # ⚠ `fase_inicial` é PISO: o `play` restaura a fase do checkpoint, e roda a 4 mesmo assim.
+    _env_cc5.limpo_forma["fase_cadeia"] = 2.0
+    check("CC5. com o estado na fase 2 e o cfg na 4 (o `play` de um checkpoint da fase 2), "
+          "`_fase()` é 4", _cmd_cc5._fase() == 4, str(_cmd_cc5._fase()))
+    del _env_cc5
+except Exception as _cc5x:      # noqa: BLE001
+    _falhas.append(f"CC5 (troca de fase) não pôde ser medida: "
+                   f"{type(_cc5x).__name__}: {_cc5x}")
+
+# CC6 e CC7: estáticos.
+check("CC6. `fase_cadeia`, `iter_fase` e `s_cauda` vão ao checkpoint",
+      {"fase_cadeia", "iter_fase", "s_cauda"} <= set(RN_.CHAVES_ESCALARES),
+      str(RN_.CHAVES_ESCALARES))
+check("CC7. `inspecao` e `play` usam a fase 4; o treino, o knob",
+      make_env_cfg(k, inspecao=True).commands["alvo_caixa"].fase_inicial == 4
+      and make_env_cfg(k, play=True).commands["alvo_caixa"].fase_inicial == 4
+      and make_env_cfg(k).commands["alvo_caixa"].fase_inicial == k.cadeia.fase_inicial,
+      f"knob {k.cadeia.fase_inicial}")
+
+# CC8: o one-hot fora da normalização, SEM env. Dois normalizadores do `rsl_rl` com
+# estatística NÃO trivial (média 0,3, desvio 0,001 — o slot raro de verdade); depois da
+# fixação, média 0 e desvio 1 nas três fatias, e o resto intocado.
+try:
+    import types as _ty_cc8
+
+    def _norm_cc8(D):
+        n = _EN_CC(D)
+        n._mean.fill_(0.3)
+        n._var.fill_(1.0e-6)
+        n._std.fill_(0.001)
+        return n
+
+    def _fixo_cc8(nz, sl):
+        return (bool((nz._mean[..., sl] == 0.0).all()) and bool((nz._std[..., sl] == 1.0).all())
+                and bool((nz._var[..., sl] == 1.0).all()))
+
+    _falso_cc8 = _ty_cc8.SimpleNamespace(
+        actor=_ty_cc8.SimpleNamespace(obs_normalizer=_norm_cc8(114)),
+        critic=_ty_cc8.SimpleNamespace(obs_normalizer=_norm_cc8(131)))
+    ALG.PPOPorElo._fixa_one_hot(_falso_cc8)
+    _na_cc8 = _falso_cc8.actor.obs_normalizer
+    _nc_cc8 = _falso_cc8.critic.obs_normalizer
+    check("CC8. o one-hot fica com média 0 e desvio 1: `slice(99, 104)` no ator e "
+          "`slice(111, 116)` e `slice(126, 131)` no crítico",
+          _fixo_cc8(_na_cc8, slice(99, 104)) and _fixo_cc8(_nc_cc8, slice(111, 116))
+          and _fixo_cc8(_nc_cc8, slice(126, 131)),
+          f"ator {_na_cc8._mean[0, 99:104].tolist()}/{_na_cc8._std[0, 99:104].tolist()}, "
+          f"crítico {_nc_cc8._mean[0, 111:116].tolist()}/{_nc_cc8._std[0, 111:116].tolist()}, "
+          f"interno {_nc_cc8._mean[0, 126:131].tolist()}/{_nc_cc8._std[0, 126:131].tolist()}")
+    check("CC8. e um canal FORA das fatias (o 0) não mudou, no ator e no crítico",
+          all(abs(float(nz._mean[0, 0]) - 0.3) < 1e-6
+              and abs(float(nz._std[0, 0]) - 0.001) < 1e-9
+              for nz in (_na_cc8, _nc_cc8)),
+          f"ator {float(_na_cc8._mean[0, 0])}/{float(_na_cc8._std[0, 0])}, "
+          f"crítico {float(_nc_cc8._mean[0, 0])}/{float(_nc_cc8._std[0, 0])}")
+except Exception as _cc8x:      # noqa: BLE001
+    _falhas.append(f"CC8 (one-hot fora da normalização) não pôde ser medido: "
+                   f"{type(_cc8x).__name__}: {_cc8x}")
 
 # --- A CURVA DO `unload`, e a TASK DE CADEIA do visualizador ---
 try:

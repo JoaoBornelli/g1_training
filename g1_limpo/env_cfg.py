@@ -594,6 +594,20 @@ def make_env_cfg(
         # `prob_por_nivel`, sobraram estes 2 números.
         balanceador_piso=k.cadeia.balanceador_piso,
         balanceador_alpha=k.cadeia.balanceador_alpha,
+        # ⚠ O CURRÍCULO DE CADEIA (spec g1-limpo-curriculo-de-cadeia §4 e §5, 30/09): os
+        # dez campos vêm do knob, e `inspecao`/`play` fixam a fase 4 mais abaixo. Sem
+        # estas linhas o comando fica no default do cfg cru (fase 4), e o currículo é
+        # INERTE em silêncio.
+        fase_inicial=k.cadeia.fase_inicial,
+        fracao_cauda_fase1=k.cadeia.fracao_cauda_fase1,
+        fracao_anda_fase2=k.cadeia.fracao_anda_fase2,
+        p_c_antes_do_botar=k.cadeia.p_c_antes_do_botar,
+        fase2_s_b=k.cadeia.fase2_s_b,
+        fase2_min_iters=k.cadeia.fase2_min_iters,
+        fase3_s_cauda=k.cadeia.fase3_s_cauda,
+        fase3_min_iters=k.cadeia.fase3_min_iters,
+        fase4_s_cauda=k.cadeia.fase4_s_cauda,
+        fase4_min_iters=k.cadeia.fase4_min_iters,
         # as tolerâncias de FECHAMENTO são as mesmas da régua de sustentação da F3:
         # um elo que "fecha" com tolerância diferente da que a recompensa paga
         # ensinaria duas coisas contraditórias.
@@ -827,6 +841,9 @@ def make_env_cfg(
         # entre duas invocações e a tabela deixaria de ser reproduzível.
         import dataclasses as _dc
         cfg.curriculum["forma"].params["f"] = _dc.replace(k.forma, controla=False)
+        # ⚠ A FASE 4 (spec g1-limpo-curriculo-de-cadeia §4, 30/09): inspeção e play mostram
+        # a cadeia INTEIRA de hoje, e não a fase 1 do treino.
+        cfg.commands["alvo_caixa"].fase_inicial = 4
     if inspecao and avanca_apos_s is not None:
         # ⚠ O AVANÇO DE ELO NO VISUALIZADOR, como EVENTO DE INTERVALO. O `run_play` do
         # mjlab roda o próprio laço e não expõe gancho por passo — foi por isso que a

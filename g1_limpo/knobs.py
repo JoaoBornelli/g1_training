@@ -1097,6 +1097,42 @@ class Cadeia:
     balanceador_piso: float = 0.20
     balanceador_alpha: float = 0.05
 
+    # --- o CURRÍCULO DE CADEIA (spec g1-limpo-curriculo-de-cadeia §4 e §5, 30/09) ---
+    # ⚠⚠ O treino do zero não aprende a fechar o PEGAR porque fechar mata o episódio: o
+    # CARREGAR que vem depois o robô nunca praticou, e ele solta a caixa em menos de 2 s
+    # (28 de 28 no `model_3450` da zero15). Então a cadeia abre POR FASES, como a
+    # locomoção já abre antes da manipulação. A fase é UMA por run e só AVANÇA:
+    #
+    #     1  PEGAR              90% dos fechos B/R SEGURAM no PEGAR (parado, fechado, até
+    #                           o fim); 10% vão à cauda CARREGAR, com comando zero
+    #     2  CARREGAR parado    100% à cauda; comando zero em 90%, o do fabricante em 10%
+    #     3  CARREGAR andando   100% à cauda, com o comando do fabricante
+    #     4  BOTAR              o comportamento de hoje (balanceador, piso 0,20)
+    #
+    # Cada fase muda FRAÇÕES, e não liga nem desliga tarefa: a tarefa ainda não aberta fica
+    # com uma fração baixa ativa, como o REORIENTAR, para ter prática desde cedo e para o
+    # slot dela no one-hot acender. A troca é automática, pela taxa de sucesso. `inspecao`
+    # e `play` usam a fase 4 (`env_cfg`).
+    fase_inicial: int = 1
+    # ⚠ 10%: mantém o fecho lucrativo na fase 1 — 0,9 × ~32/s (SEGURA) contra ~17 a 25/s de
+    # pairar (spec §5). Sem a fração, o slot do CARREGAR ficaria em zero até a fase 2.
+    fracao_cauda_fase1: float = 0.10     # fase 1: fração dos fechos B/R que vão à cauda CARREGAR
+    fracao_anda_fase2: float = 0.10      # fase 2: fração das caudas CARREGAR que andam
+    # ⚠ 0,05: prática rara de BOTAR nas fases 1 a 3, e o slot dele não fica em zero. O
+    # balanceador de hoje (piso 0,20) só volta na fase 4.
+    p_c_antes_do_botar: float = 0.05     # p_C nas fases 1 a 3
+    # ⚠ As trocas (spec §5). Com `s_B = 0,5` metade dos episódios B já fecha e pratica o
+    # pós-fecho quando a cauda vira regra (a bloco9 tinha 0,36 a 0,57 quando ela entrou).
+    # `s_cauda ≥ 0,6` exige que a maioria das caudas chegue ao `time_out` antes de somar o
+    # próximo desafio. A EMA tem α = 0,05, ~20 iterações de memória; o mínimo de
+    # iterações na fase impede trocar numa oscilação.
+    fase2_s_b: float = 0.50
+    fase2_min_iters: int = 300
+    fase3_s_cauda: float = 0.60
+    fase3_min_iters: int = 200
+    fase4_s_cauda: float = 0.60
+    fase4_min_iters: int = 300
+
 
 @dataclass
 class Contato:
