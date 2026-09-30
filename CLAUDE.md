@@ -1,5 +1,16 @@
 # CLAUDE.md — g1_training
 
+## Duas regras irrefutáveis
+
+**Toda ação é proposital e consciente.** Antes de mudar qualquer coisa, diga o que a
+mudança faz, onde ela age e o que mais ela toca. Uma mudança com efeito que ninguém
+previu não entra. Na dúvida sobre o efeito, meça ou pergunte; não mude.
+
+**Toda modificação serve ao objetivo final documentado.** O objetivo e o comportamento
+esperado do robô estão em `specs/g1-limpo-comportamento.md`. Uma mudança que não
+aproxima o robô desse comportamento não entra, por mais que resolva um sintoma local.
+Cada proposta cita a seção do enunciado que ela atende.
+
 ## Minimização de código
 
 Antes de adicionar qualquer coisa ao código, procure uma função que já existe e que
