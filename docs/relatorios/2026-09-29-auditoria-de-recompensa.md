@@ -12,6 +12,7 @@ Classes: A = sem gradiente; B = o proibido paga; C = ficar paga mais que avança
 - Leitura no log da zero14: no começo o `unload` e a `postura_ereta` caem, e isso não é regressão. O sinal de sucesso é `renda_congelada` e `sucesso` acima de zero.
 
 - Achado novo do play, fora desta auditoria (29/09, RUN zero15): a caixa DEITAVA 90° com a face de cima para o peito, 43° aos 2 s e 89° aos 7,5 s (`juntas.csv`, zero12 it ~3100). O `caixa_na_pega` do log marcava ~8°, porque ele se dilui entre todos os envs. Consertos: a reta da aproximação passa a `max(0, 1 − Δθ/90°)` e zera a 90°; a âncora desceu para z 0,75–0,85 com `~apoiada` no fecho do PEGAR, e as duas mudanças foram REVERTIDAS pelo dono em 30/09 (zero16): a âncora volta a 0,85–0,95. A reta que zera a 90° fica.
+- Achado 32: CORRIGIDO na zero17 (30/09), decisão do dono: a orientação paga em toda tarefa de manipulação. O `precise_ori` vale 4 na coluna CARREGAR, o peso do PEGAR_COM, e não o 1 proposto: com 1 o gradiente contra o tombo cairia a um quarto na troca PEGAR → CARREGAR. Conta no ponto de operação (`alcançar` 0,6, tombo 5° a 25°): +1,4 a 2,4/s por rad sobre o 1,78/s por rad da reta do `precise_pos`; a caixa nivelada rende +2,4/s, parada ou andando.
 
 ## 1. Tabela
 
@@ -503,6 +504,7 @@ Funde: "o tombo exigido no PEGAR fica quase sem preço no CARREGAR" e "a orienta
 - **Conta:** CARREGAR: d(3·reta)/dθ = 3/π = 0,955/s por rad (0,0167/s por grau); 60° custam 1,0/s contra 14/s de rastreio. PEGAR_COM a 20°: ≈ 5,5/s por rad. Nenhuma terminação lê o tombo. Não há medida de tombo no CARREGAR.
 - **Veredito:** CONFIRMADO (preço baixo sai do código); impacto não medido.
 - **Severidade:** custa eficiência.
+- **Estado:** CORRIGIDO na zero17 (30/09) com `precise_ori` = 4. Ver §0.
 - **Conserto:** `precise_ori` = 1 na coluna CARREGAR. Isto É renda de parado nova (≈ +1/s): o piso parado vai de 16,8 a ~17,8/s; o ganho de andar fica ≈ +14 pela conta do docstring. Não usar a troca do flag de `_alinha` para híbrido: com ele a derivada em θ = 0 cai à metade, e o flag também atinge o PEGAR, desfazendo a decisão de 29/09 (commit 7a23ea9).
 - **Linhas:** 0 (1 número).
 

@@ -173,9 +173,9 @@ checkpoint já fixado, a dobra é a identidade. O `runner.load` de um checkpoint
    balanceador devolve prática a B.
 6. **A laje sai no fim da espera.** Na sonda, 6 de 19 SEGURAS largam a caixa nos
    primeiros 4 s. O robô escora na laje, e a laje sai. Fechar ainda vale mais que pairar.
-7. **A orientação da caixa não paga no CARREGAR.** Na tabela por estado, a coluna CARREGAR
-   paga só `precise_pos`, o rastreio e o `pose`. Isso vem de antes do currículo; ele só
-   passa a importar na fase 2, porque a cauda começa a treinar ali.
+7. **A orientação da caixa no CARREGAR.** RESOLVIDO em 30/09: o `precise_ori` vale 4 na
+   coluna CARREGAR, o peso do PEGAR_COM. Antes, o único canal contra o tombo ali era a
+   reta do `precise_pos`, e a orientação passa a pagar em toda tarefa de manipulação.
 
 ## 8. Decisões do dono
 

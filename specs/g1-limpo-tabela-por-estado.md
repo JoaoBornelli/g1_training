@@ -95,6 +95,11 @@ descer do peito (18 cm de raio; teto 3,0). Medido: `unload ≡ 1`, `load ≡ 0` 
 `postura_ereta` saturada ali — três dos seis são constantes estruturais, apagá-los custa
 zero gradiente.
 
+**30/09 (zero17): `precise_ori` volta ao CARREGAR, com 4.** Decisão do dono: a
+orientação paga em toda tarefa de manipulação (`g1-limpo-comportamento.md` §2 e §4.4). O
+4 é o peso do PEGAR_COM, e o gradiente contra o tombo não cai a um quarto na troca. O
+valor vivo é o de `knobs.PesoPorEstado`, e não a tabela acima.
+
 **Rastreio em CARREGAR = 3,5.** Teto dos dois rastreios: 2,0 + 2,0 = 4,0. ×3,5 = 14 ≈
 o piso de 13,79. Conta: parado = 13,79 + 3 = 16,8; andando bem = 13,79 + 3 + 14 = 30,8;
 ganho de andar **+14**, break-even de risco **45%** (hoje +1,5 e 5%).

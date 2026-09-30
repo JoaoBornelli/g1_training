@@ -646,8 +646,7 @@ def precise_pos(env, nome_do_comando: str, sigma: float) -> torch.Tensor:
     por env. Dois termos, duas perguntas.
 
     ⚠ × `_alinha` (29/09), só a reta (`aproximacao=True`): o aceite paga mais com a
-    caixa de pé; no CARREGAR isto é o único gradiente contra o tombo (coluna
-    `precise_ori` = 0 ali).
+    caixa de pé; no CARREGAR isto soma com o `precise_ori` (coluna 4 desde 30/09).
     """
     d = _dist_caixa_alvo(env, nome_do_comando)
     return torch.exp(-(d / sigma) ** 2) * _alinha(env, nome_do_comando, aproximacao=True)

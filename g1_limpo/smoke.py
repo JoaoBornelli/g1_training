@@ -1551,14 +1551,16 @@ check("a invariante do `VALIDA` de ontem, explícita: nos SETE a coluna ANDAR é
           and getattr(_TABELA, n)[CMD.ESTADO_ESPERA_SEM]
           + getattr(_TABELA, n)[CMD.ESTADO_ESPERA_COM] == 0.0 for n in _SETE_T),
       str({n: getattr(_TABELA, n)[:3] for n in _SETE_T}))
-check("os números da spec §2: BOTAR = 2 nos sete; CARREGAR só `precise_pos` = 1; "
-      "rastreio 3,5 no CARREGAR; `postura_ereta` e `pose` = 8 na CAUDA; `pose` = 4 em "
-      "ESPERA_COM, e 1 em PEGAR_SEM, PEGAR_COM, BOTAR e CARREGAR (29/09: o ×4 no "
-      "PEGAR_COM pagava por pairar no alvo sem fechar)",
+check("os números da spec §2: BOTAR = 2 nos sete; CARREGAR `precise_pos` = 1 e "
+      "`precise_ori` = 4 (30/09: a orientação paga em toda tarefa de manipulação), os "
+      "outros cinco 0; rastreio 3,5 no CARREGAR; `postura_ereta` e `pose` = 8 na CAUDA; "
+      "`pose` = 4 em ESPERA_COM, e 1 em PEGAR_SEM, PEGAR_COM, BOTAR e CARREGAR (29/09: o "
+      "×4 no PEGAR_COM pagava por pairar no alvo sem fechar)",
       all(getattr(_TABELA, n)[CMD.ESTADO_BOTAR] == 2.0 for n in _SETE_T)
       and _TABELA.precise_pos[CMD.ESTADO_CARREGAR] == 1.0
+      and _TABELA.precise_ori[CMD.ESTADO_CARREGAR] == 4.0
       and all(getattr(_TABELA, n)[CMD.ESTADO_CARREGAR] == 0.0
-              for n in _SETE_T if n != "precise_pos")
+              for n in _SETE_T if n not in ("precise_pos", "precise_ori"))
       and _TABELA.track_linear_velocity[CMD.ESTADO_CARREGAR] == 3.5
       and _TABELA.track_angular_velocity[CMD.ESTADO_CARREGAR] == 3.5
       and _TABELA.postura_ereta[CMD.ESTADO_CAUDA] == 8.0

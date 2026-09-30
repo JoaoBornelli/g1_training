@@ -1251,13 +1251,20 @@ class PesoPorEstado:
       extenso — 0 no ANDAR, nas duas esperas e na CAUDA; 1 no REORIENTAR e no PEGAR.
     · BOTAR = 2. Ele fecha hoje a 7,92/s (p50, 135 fechos) contra um piso de 13,79.
       ×2 leva o fecho a ~15,8 >= 13,79. Presente >= passado.
-    · CARREGAR: só `precise_pos` fica (= 1); os outros seis vão a 0. Eles pagam
-      13,20/s pela caixa estar no peito — atingido no instante da pega e satisfeito
+    · CARREGAR: `precise_pos` = 1 e `precise_ori` = 4; os outros cinco vão a 0. Eles
+      pagavam pela caixa estar no peito — atingido no instante da pega e satisfeito
       PARADO. É o piso da estátua com a caixa na mão, e todo termo que paga por estar
       parado tem de ser gateado na tarefa. `precise_pos` fica para a caixa não descer
       do peito (18 cm de raio; teto 3,0). Medido: `unload ≡ 1`, `load ≡ 0` e
       `postura_ereta` saturada ali — três dos seis são constantes, apagá-los custa
       zero gradiente.
+    · `precise_ori` = 4 no CARREGAR (30/09, decisão do dono): a orientação paga em
+      toda tarefa de manipulação (enunciado §2, "a face de cima normal ao solo o tempo
+      todo"; §4.4 "nivelada"). Antes o único canal contra o tombo ali era a reta do
+      `precise_pos`, 1,78/s por rad; o 4 soma 1,4 a 2,4/s por rad entre 5° e 25°
+      (`alcançar` 0,6, medido na cauda do `model_6999`) — o peso do PEGAR_COM, para o
+      gradiente não cair a um quarto na troca. Nivelada, a caixa rende +2,4/s, parada
+      ou andando: o ganho de andar não muda. Auditoria de 29/09, achado 32.
     · Rastreio no CARREGAR = 3,5. Teto dos dois: 2,0 + 2,0 = 4,0; ×3,5 = 14 ≈ o piso
       de 13,79. Parado = 13,79 + 3 = 16,8; andando bem = 30,8; ganho de andar +14 e
       break-even de risco 45% (hoje +1,5 e 5%).
@@ -1295,7 +1302,7 @@ class PesoPorEstado:
     # (`caixa_na_pega` 17° → 60° com `precise_pos` 0,29 → 0,71). A 60° a derivada era
     # 0,18/rad; com 4, 0,72/rad. Desde 29/09 o `staged` (no `trazer`) e o `precise_pos`
     # veem o tombo pela RETA de `_alinha` (0,32/rad); a gaussiana de 25° fica só aqui.
-    precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    4.0,    0.0,     2.0,  0.0)
+    precise_ori: tuple[float, ...] = (0.0, 0.0, 0.0,   1.0,     1.0,     1.0,    4.0,    4.0,     2.0,  0.0)
     squeeze: tuple[float, ...] = (0.0, 0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     unload: tuple[float, ...] = (0.0,  0.0,    0.0,    1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  0.0)
     postura_ereta: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0,     1.0,     1.0,    1.0,    0.0,     2.0,  8.0)
