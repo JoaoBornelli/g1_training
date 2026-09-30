@@ -1036,13 +1036,14 @@ class Cadeia:
     """A tabela de cadeias de elo (spec `g1-limpo-dois-bits.md` §2).
 
     ⚠ O TETO É DERIVADO de `CADEIAS` (hoje 3) — B, R, C:
-      índice 0 (B): (PEGAR,)              -> pegar, depois CAUDA carregar
-      índice 1 (R): (REORIENTAR, PEGAR)   -> reorientar, pegar, depois CAUDA carregar
-      índice 2 (C): (PEGAR, BOTAR)        -> pegar, botar, depois CAUDA botar
+      índice 0 (B): (PEGAR,)                  -> pegar, depois CAUDA carregar
+      índice 1 (R): (REORIENTAR, PEGAR)       -> reorientar, pegar, depois CAUDA carregar
+      índice 2 (C): (PEGAR, CARREGAR, BOTAR)  -> pegar, carregar PARADO, botar, depois
+                                                 CAUDA botar
 
-    O `pegar` aparece em TODAS: ele é o eixo de que não se esquece. O `CARREGAR` SAIU
-    das tuplas — ele é o estado de CAUDA de quem fechou o PEGAR e não vai botar, e
-    não fecha mais.
+    O `pegar` aparece em TODAS: ele é o eixo de que não se esquece. O `CARREGAR` tem dois
+    papéis (30/09, enunciado §1): ELO do meio da C, parado, com fecho de
+    `sustenta_outros_s` pela régua do PEGAR; e CAUDA de B e R, sem fecho.
     """
 
     # ⚠ O INTERRUPTOR DA MÁQUINA DE ELO (§2.1). `prob_por_nivel = ()` — a tabela [7

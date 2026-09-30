@@ -3241,7 +3241,7 @@ try:
 
     _cb = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR)
     _cb.scene.num_envs = 4
-    _cb.commands["alvo_caixa"].cadeia_forcada = 2        # C: (PEGAR, BOTAR)
+    _cb.commands["alvo_caixa"].cadeia_forcada = 2        # C: (PEGAR, CARREGAR, BOTAR)
     _eb = ManagerBasedRlEnv(cfg=_cb, device="cpu")
     _eb.reset()
     _nab = _eb.action_manager.total_action_dim
@@ -3370,9 +3370,9 @@ try:
     check("CC2. fase 1 com `fracao_cauda_fase1 = 1,0`: todos em `CARREGAR`, cauda PARADA e "
           "`limpo_twist_zerado > 0,5`",
           bool((_cmd_cc2._elo == CMD.CARREGAR).all())
-          and bool(_cmd_cc2._cauda_parada.all())
+          and bool(_cmd_cc2._carregar_parado.all())
           and bool((_env_cc2.limpo_twist_zerado > 0.5).all()),
-          f"elo {_cmd_cc2._elo.tolist()}, parada {_cmd_cc2._cauda_parada.tolist()}, "
+          f"elo {_cmd_cc2._elo.tolist()}, parada {_cmd_cc2._carregar_parado.tolist()}, "
           f"twist_zerado {_env_cc2.limpo_twist_zerado.tolist()}")
     del _env_cc2
 except Exception as _cc2x:      # noqa: BLE001
@@ -3383,10 +3383,10 @@ except Exception as _cc2x:      # noqa: BLE001
 try:
     _cfg_cc3, _env_cc3, _cmd_cc3 = _monta_cc(3)
     _fecha_cc(_env_cc3, _cmd_cc3)
-    check("CC3. fase 3: todos em `CARREGAR` e `_cauda_parada` falso",
+    check("CC3. fase 3: todos em `CARREGAR` e `_carregar_parado` falso",
           bool((_cmd_cc3._elo == CMD.CARREGAR).all())
-          and not bool(_cmd_cc3._cauda_parada.any()),
-          f"elo {_cmd_cc3._elo.tolist()}, parada {_cmd_cc3._cauda_parada.tolist()}")
+          and not bool(_cmd_cc3._carregar_parado.any()),
+          f"elo {_cmd_cc3._elo.tolist()}, parada {_cmd_cc3._carregar_parado.tolist()}")
     del _env_cc3
 except Exception as _cc3x:      # noqa: BLE001
     _falhas.append(f"CC3 (fase 3, cauda ANDANDO) não pôde ser medido: "
@@ -3640,16 +3640,24 @@ try:
     _laje_antes = float(_ev.scene["table"].data.root_link_pos_w[0, 2])
     while float(_ev.episode_length_buf[0]) * _ev.step_dt < _gl.AVANCA_APOS_S + 0.5:
         _ev.step(_tc.zeros(_ev.num_envs, _nav))
-    # ⚠ INVERTEU (spec dois-bits §1.4/§2.1): `TASK_CADEIA[2]` é a cadeia C (PEGAR,
-    # BOTAR). O avanço leva a BOTAR, não a CARREGAR — só as cadeias B/R (terminam
-    # em PEGAR) entram na cauda CARREGAR com a laje a `afasta_z`. A laje de C abre
-    # PERTO da base corrente (`botar_delta_topo`/`botar_delta_xy`), não a 5 m.
-    check("o evento de avanço DISPARA, e a mesa ABRE o BOTAR perto da base",
-          int(_tv._elo[0]) == CMD.BOTAR and _elo_antes_v == CMD.PEGAR
+    # ⚠ `TASK_CADEIA[2]` é a cadeia C (PEGAR, CARREGAR, BOTAR) desde 30/09: o 1º avanço
+    # abre o CARREGAR PARADO, e a laje FICA (só a cauda de B/R a manda a `afasta_z`).
+    _laje_meio = float(_ev.scene["table"].data.root_link_pos_w[0, 2])
+    check("o evento de avanço DISPARA: o 1º avanço abre o CARREGAR parado, e a laje fica",
+          int(_tv._elo[0]) == CMD.CARREGAR and _elo_antes_v == CMD.PEGAR
+          and bool(_tv._carregar_parado[0]) and float(_ev.limpo_twist_zerado[0]) > 0.5
+          and abs(_laje_meio - _laje_antes) < 1e-3,
+          f"elo {_elo_antes_v} -> {int(_tv._elo[0])}, laje {_laje_antes:.3f} -> "
+          f"{_laje_meio:.3f} m, parado {_tv._carregar_parado.tolist()}")
+    while float(_ev.episode_length_buf[0]) * _ev.step_dt < 2 * _gl.AVANCA_APOS_S + 0.5:
+        _ev.step(_tc.zeros(_ev.num_envs, _nav))
+    # ⚠ O 2º avanço abre o BOTAR: a laje de C abre PERTO da base corrente
+    # (`botar_delta_topo`/`botar_delta_xy`), não a 5 m.
+    check("e o 2º avanço ABRE o BOTAR, com a mesa perto da base",
+          int(_tv._elo[0]) == CMD.BOTAR
           and abs(float(_ev.scene["table"].data.root_link_pos_w[0, 2])
                   - _laje_antes) < 0.3,
-          f"elo {_elo_antes_v} -> {int(_tv._elo[0])}, laje "
-          f"{_laje_antes:.3f} -> "
+          f"elo {int(_tv._elo[0])}, laje {_laje_antes:.3f} -> "
           f"{float(_ev.scene['table'].data.root_link_pos_w[0, 2]):.3f} m")
     del _ev
 except Exception as _ecx:      # noqa: BLE001
@@ -3685,6 +3693,9 @@ try:
             # `fechou`, sozinho. Este dublê não modela cadeia de vários elos — aqui
             # `fechou` JÁ é "a cadeia inteira fechou".
             return self.fechou[ids]
+        # ⚠ 30/09: o `nivel` lê `concluiu_ate_o_fim` (fecho E `time_out`). O dublê não
+        # modela terminação: aqui "fechou" já é "fechou e chegou ao fim".
+        concluiu_ate_o_fim = concluiu
 
     class _MgrNivel:
         def __init__(self, c):
@@ -3770,6 +3781,7 @@ try:
             _cadeia=_tf.full((nenv,), 0 if de_cadeia else -1, dtype=_tf.long),
             fechou=_tf.ones(nenv, dtype=_tf.bool))
         c.concluiu = lambda ids: c.fechou[ids]
+        c.concluiu_ate_o_fim = c.concluiu       # 30/09: o `nivel` lê fecho E `time_out`
         mgr = _tyf.SimpleNamespace(get_term=lambda _n: c)
         return c, _tyf.SimpleNamespace(num_envs=nenv, device="cpu", command_manager=mgr)
 
@@ -3932,10 +3944,9 @@ try:
           "a fatia lê o interno do currículo, não o publicado")
     del _e23
 
-    # --- a espera FINAL, forçada à mão na cadeia C (PEGAR, BOTAR) ---
-    # ⚠ CADEIA MUDOU DE ÍNDICE (spec dois-bits §2.1): a antiga cadeia 3
-    # (PEGAR, CARREGAR, BOTAR) não existe mais. C é a cadeia 2, com 2 elos —
-    # um avanço só leva direto ao BOTAR.
+    # --- a espera FINAL, forçada à mão na cadeia C (PEGAR, CARREGAR, BOTAR) ---
+    # ⚠ C é a cadeia 2, e desde 30/09 tem 3 elos: o 1º avanço abre o CARREGAR parado, o
+    # 2º abre o BOTAR. São dois `forca_avanco`, um por elo.
     _c23b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)
     _c23b.scene.num_envs = 8
     _e23b = ManagerBasedRlEnv(cfg=_c23b, device="cpu")
@@ -3947,6 +3958,13 @@ try:
     # ⚠⚠ `forca_avanco` só ARMA e zera a espera (spec §2.2); o avanço de verdade
     # acontece dentro de `_aplica_espera`, no `env.step()` seguinte.
     _t23d.forca_avanco(_ids23)                        # arma o fecho do PEGAR
+    _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))      # avança -> CARREGAR (parado)
+    check("12. o 1º avanço da C abre o CARREGAR parado: interno CARREGAR, `carregar_parado`, "
+          "twist zero",
+          bool((_t23d._elo == CMD.CARREGAR).all()) and bool(_t23d._carregar_parado.all())
+          and float(_e23b.limpo_twist_zerado.min()) == 1.0,
+          f"elo {_t23d._elo.tolist()[:4]}, parado {_t23d._carregar_parado.tolist()[:4]}")
+    _t23d.forca_avanco(_ids23)                        # arma o fecho do CARREGAR
     _e23b.step(_t23.zeros(_e23b.num_envs, _n23b))      # avança -> BOTAR
     check("12. antes do fecho do BOTAR o publicado é BOTAR e `soltou` é falso",
           bool((_t23d.command[:, CMD.ELO] == CMD.BOTAR).all())
@@ -4360,7 +4378,7 @@ check("17. `alcança` é o kernel da mão também no BOTAR (sem ramo `== BOTAR`,
 try:
     import torch as _t26
 
-    # ⚠ CADEIA MUDOU DE ÍNDICE (spec dois-bits §2.1): C é a cadeia 2, (PEGAR, BOTAR).
+    # ⚠ C é a cadeia 2, (PEGAR, CARREGAR, BOTAR) desde 30/09: dois avanços até o BOTAR.
     _c26 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)
     _c26.scene.num_envs = 8
     _e26 = ManagerBasedRlEnv(cfg=_c26, device="cpu")
@@ -4406,6 +4424,8 @@ try:
     # ⚠ `forca_avanco` só ARMA e zera a espera; o avanço acontece no `env.step()`
     # seguinte, dentro de `_aplica_espera` (spec §2.2/§2.3).
     _t26c.forca_avanco(_ids26)            # arma o fecho do PEGAR
+    _e26.step(_t26.zeros(8, _n26))         # avança -> CARREGAR parado (30/09)
+    _t26c.forca_avanco(_ids26)            # arma o fecho do CARREGAR
     _e26.step(_t26.zeros(8, _n26))         # avança -> BOTAR (laje nova; alvo lateral)
     _alc_botar = float(RC_._alcancar(_e26, "alvo_caixa").min())
     # ⚠ v3.3 (`206070b`): no BOTAR o `alcança` é o kernel da mão, e não mais `≡ 1`. No
@@ -4503,9 +4523,9 @@ try:
 
     # A: pairar 2 cm acima do alvo, sem apoio
     _rA, _dA = _renda(passos=6, alvo_dz=0.02)
-    # ⚠ CADEIA C tem 2 elos agora (spec §2.1): o `forca_avanco` acima (PEGAR fechando)
-    # já é UM fecho ganho — `renda_congelada` já carrega essa soma antes mesmo de
-    # pairar no BOTAR.
+    # ⚠ CADEIA C tem 3 elos (30/09): os dois `forca_avanco` acima (PEGAR e CARREGAR
+    # fechando) são DOIS fechos ganhos — `renda_congelada` já carrega essa soma antes
+    # mesmo de pairar no BOTAR.
     check("18. pairando no BOTAR, `renda_congelada` já carrega o fecho do PEGAR",
           _dA["renda_congelada"] > 0.0, f"{_dA['renda_congelada']:.4f}")
     check("17. pairando no BOTAR, `unload` e `postura_ereta` são 0 (mascarados)",
@@ -5421,11 +5441,13 @@ from g1_limpo import algoritmo as ALG_            # noqa: E402
 from g1_limpo import runner as RN3                # noqa: E402
 from g1_limpo import eventos as EV3               # noqa: E402
 
-# --- 1. CADEIAS tem 3 entradas sem CARREGAR; _N_ELOS = (1, 2, 2) ---
-check("1. `CADEIAS` tem 3 entradas, sem CARREGAR em nenhuma; `_N_ELOS` = (1,2,2)",
+# --- 1. CADEIAS tem 3 entradas; CARREGAR só na C, como elo do meio; _N_ELOS = (1, 2, 3) ---
+check("1. `CADEIAS` tem 3 entradas; o CARREGAR está SÓ na C, entre PEGAR e BOTAR (30/09, "
+      "enunciado §1); `_N_ELOS` = (1,2,3)",
       len(CMD.CADEIAS) == 3
-      and all(CMD.CARREGAR not in c for c in CMD.CADEIAS)
-      and tuple(int(x) for x in CMD._N_ELOS) == (1, 2, 2),
+      and CMD.CADEIAS[2] == (CMD.PEGAR, CMD.CARREGAR, CMD.BOTAR)
+      and all(CMD.CARREGAR not in c for c in CMD.CADEIAS[:2])
+      and tuple(int(x) for x in CMD._N_ELOS) == (1, 2, 3),
       str(CMD.CADEIAS))
 
 # --- 2. twist zero ⟹ laje presente; twist ≠ 0 ⟹ laje a afasta_z ---
@@ -5581,14 +5603,14 @@ except Exception as _ev5x:      # noqa: BLE001
 try:
     import torch as _tv6
 
-    # ⚠ CADEIA C (PEGAR, BOTAR), não R: `cadeia=` VENCE `elo=` (`env_cfg.py`, "a
+    # ⚠ CADEIA C (PEGAR, CARREGAR, BOTAR), não R: `cadeia=` VENCE `elo=` (`env_cfg.py`, "a
     # cadeia forçada... vence o elo_forcado"), então `cadeia=1` (R) ignoraria
     # `elo=PEGAR` e nasceria em REORIENTAR de qualquer jeito — onde o alvo É a
     # própria caixa (`perto` trivial, a reconferência não se aplica, spec §2.3: "quem
     # ainda não pegou... não precisa dela"). Com `cadeia=2` o PEGAR É o 1º elo de
     # verdade, o alvo é `peito_b` ancorado na base — e afastar a CAIXA dele, com
     # `pegou=True`, é o cenário que a reconferência existe para pegar.
-    _cv6 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)  # C: 2 elos
+    _cv6 = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2)  # C: 3 elos (30/09)
     _cv6.scene.num_envs = 4
     _ev6 = ManagerBasedRlEnv(cfg=_cv6, device="cpu")
     _ev6.reset()
@@ -5627,17 +5649,21 @@ try:
           bool((_tv6c._passo[_longe6] == 0).all())
           and bool((_tv6c._elo[_longe6] == CMD.CARREGAR).all()),
           f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
-    check("6. com `_perto` verdadeiro, o avanço acontece e `_passo` sobe",
+    check("6. com `_perto` verdadeiro, o avanço acontece e `_passo` sobe — ao CARREGAR "
+          "parado, o 2º elo da C (30/09)",
           bool((_tv6c._passo[_no_alvo6] == 1).all())
-          and bool((_tv6c._elo[_no_alvo6] == CMD.BOTAR).all()),
-          f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
+          and bool((_tv6c._elo[_no_alvo6] == CMD.CARREGAR).all())
+          and bool(_tv6c._carregar_parado[_no_alvo6].all())
+          and not bool(_tv6c._carregar_parado[_longe6].any()),
+          f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}, "
+          f"parado {_tv6c._carregar_parado.tolist()}")
     check("6. `avancos` incrementa NO AVANÇO, e só nele",
           bool((_tv6c.metrics["avancos"][_no_alvo6] > _av_antes6[_no_alvo6]).all())
           and bool((_tv6c.metrics["avancos"][_longe6] == _av_antes6[_longe6]).all()),
           f"{_av_antes6.tolist()} -> {_tv6c.metrics['avancos'].tolist()}")
     # ⚠ O VAZAMENTO que a revisão de 29/09 achou: o desviado segue com `fechou = True` e
-    # `_passo = 0`. Sem o `& (elo != CARREGAR)` do `tem_prox`, a caixa de volta ao peito
-    # (o alvo do CARREGAR é o mesmo `peito_b`) o faria avançar ao BOTAR.
+    # `_passo = 0`. Sem o `& pendente` do `tem_prox` (até 30/09, `elo != CARREGAR`), a
+    # caixa de volta ao peito (o alvo do CARREGAR é o mesmo `peito_b`) o faria avançar.
     _av_meio6 = _tv6c.metrics["avancos"].clone()
     for _ in range(2):
         _pose6 = _tv6.cat([_cx6.data.root_link_pos_w, _cx6.data.root_link_quat_w], -1)
@@ -5668,6 +5694,8 @@ try:
     _tv7c = _ev7.command_manager.get_term("alvo_caixa")
     _topo0_7 = _ev7.limpo_topo.clone()
     _idsv7 = _tv7.arange(8)
+    _tv7c.forca_avanco(_idsv7)
+    _ev7.step(_tv7.zeros(8, _nv7))     # avança -> CARREGAR parado (30/09)
     _tv7c.forca_avanco(_idsv7)
     _ev7.step(_tv7.zeros(8, _nv7))     # avança -> BOTAR
     _base_p7 = _ev7.scene["robot"].data.root_link_pos_w
@@ -5742,12 +5770,15 @@ except Exception as _ev8x:      # noqa: BLE001
     _falhas.append(f"item 8 (renda congelada na espera) não pôde ser medido: "
                    f"{type(_ev8x).__name__}: {_ev8x}")
 
-# --- 9. CARREGAR nunca fecha ---
-check("9. CARREGAR SAIU do laço de fechamento — `_fecha_elo_corrente` não tem ramo "
-      "para ele",
-      "elif elo_tipo == CARREGAR" not in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
-      and "for elo_tipo in (REORIENTAR, PEGAR, BOTAR)"
-      in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente))
+# --- 9. CARREGAR fecha SÓ como elo da C, pela régua do PEGAR ---
+check("9. o CARREGAR está no laço de fechamento e no do sustain (30/09), com a régua do "
+      "PEGAR (`perto & alinhado & de_pe`)",
+      "for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR)"
+      in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
+      and "elif elo_tipo in (PEGAR, CARREGAR)"
+      in inspect.getsource(CMD.AlvoCaixaCmd._fecha_elo_corrente)
+      and "for elo_tipo in (REORIENTAR, PEGAR, CARREGAR, BOTAR)"
+      in inspect.getsource(CMD.AlvoCaixaCmd._sustain_alvo_de))
 
 # --- 10. p_C ∈ [piso, 1−piso]; semente; EMA só na borda de iteração ---
 _piso10 = k.cadeia.balanceador_piso
@@ -5785,13 +5816,27 @@ try:
     check("11. `concluiu` é VERDADEIRO no fecho do ÚLTIMO elo, e `sucesso` é 1 ali",
           bool(_tv11c.concluiu(_idsv11).all())
           and float(_tv11c.metrics["sucesso"].min()) == 1.0)
+    # ⚠ 30/09 (enunciado §1): o SUCESSO que move o nível e o `s_B` exige chegar ao fim
+    # pelo tempo. Um fecho seguido de terminação (caixa ou robô no chão) não conta.
+    _ev11.reset_time_outs[:] = False
+    _sem_fim11 = _tv11c.concluiu_ate_o_fim(_idsv11).clone()
+    _ev11.reset_time_outs[:] = True
+    _com_fim11 = _tv11c.concluiu_ate_o_fim(_idsv11).clone()
+    check("11. `concluiu_ate_o_fim` é `concluiu ∧ time_out`: falso com terminação, "
+          "verdadeiro no `time_out`",
+          not bool(_sem_fim11.any()) and bool(_com_fim11.all()),
+          f"sem fim {_sem_fim11.tolist()}, com fim {_com_fim11.tolist()}")
     del _ev11
 except Exception as _ev11x:      # noqa: BLE001
     _falhas.append(f"item 11 (concluiu/sucesso) não pôde ser medido: "
                    f"{type(_ev11x).__name__}: {_ev11x}")
-check("11. `curriculo.nivel` lê `concluiu`, não `fechou` sozinho",
-      "cmd.concluiu(env_ids)" in inspect.getsource(CU3.nivel)
-      and "cmd.fechou[env_ids]" not in inspect.getsource(CU3.nivel))
+check("11. `curriculo.nivel` e o balanceador leem `concluiu_ate_o_fim`, não `fechou` nem "
+      "`concluiu` sozinhos",
+      "cmd.concluiu_ate_o_fim(env_ids)" in inspect.getsource(CU3.nivel)
+      and "cmd.concluiu(env_ids)" not in inspect.getsource(CU3.nivel)
+      and "cmd.fechou[env_ids]" not in inspect.getsource(CU3.nivel)
+      and "self.concluiu_ate_o_fim(env_ids)"
+      in inspect.getsource(CMD.AlvoCaixaCmd._atualiza_balanceador))
 
 # --- 12. G2: a dobradiça SOMADA é medida na seção 3, e não se repete aqui (23/09) ---
 
@@ -5936,6 +5981,8 @@ try:
     _passa_janela(_ev17, _nv17, _tv17)
     _tv17c = _ev17.command_manager.get_term("alvo_caixa")
     _idsv17 = _tv17.arange(4)
+    _tv17c.forca_avanco(_idsv17)
+    _ev17.step(_tv17.zeros(4, _nv17))    # -> CARREGAR parado (30/09)
     _tv17c.forca_avanco(_idsv17)
     _ev17.step(_tv17.zeros(4, _nv17))    # -> BOTAR
     _tv17c._pegou[:] = True
@@ -6101,7 +6148,7 @@ try:
     # `forca_avanco`, `_aplica_espera` gateia `avanca` por `perto`, e o viewer
     # (que nunca move a caixa) travaria pra sempre num env que já pegou.
     _cv22b = make_env_cfg(k, inspecao=True, elo=CMD.PEGAR, cadeia=2,
-                          avanca_apos_s=0.06)  # C: PEGAR, BOTAR
+                          avanca_apos_s=0.06)  # C: PEGAR, CARREGAR, BOTAR
     _cv22b.scene.num_envs = 4
     _ev22b = ManagerBasedRlEnv(cfg=_cv22b, device="cpu")
     _ev22b.reset()

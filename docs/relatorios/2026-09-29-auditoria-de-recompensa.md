@@ -13,6 +13,7 @@ Classes: A = sem gradiente; B = o proibido paga; C = ficar paga mais que avança
 
 - Achado novo do play, fora desta auditoria (29/09, RUN zero15): a caixa DEITAVA 90° com a face de cima para o peito, 43° aos 2 s e 89° aos 7,5 s (`juntas.csv`, zero12 it ~3100). O `caixa_na_pega` do log marcava ~8°, porque ele se dilui entre todos os envs. Consertos: a reta da aproximação passa a `max(0, 1 − Δθ/90°)` e zera a 90°; a âncora desceu para z 0,75–0,85 com `~apoiada` no fecho do PEGAR, e as duas mudanças foram REVERTIDAS pelo dono em 30/09 (zero16): a âncora volta a 0,85–0,95. A reta que zera a 90° fica.
 - Achado 32: CORRIGIDO na zero17 (30/09), decisão do dono: a orientação paga em toda tarefa de manipulação. O `precise_ori` vale 4 na coluna CARREGAR, o peso do PEGAR_COM, e não o 1 proposto: com 1 o gradiente contra o tombo cairia a um quarto na troca PEGAR → CARREGAR. Conta no ponto de operação (`alcançar` 0,6, tombo 5° a 25°): +1,4 a 2,4/s por rad sobre o 1,78/s por rad da reta do `precise_pos`; a caixa nivelada rende +2,4/s, parada ou andando.
+- Achado 3: CORRIGIDO na zero17 (30/09), decisão do dono. A cadeia C vira (PEGAR, CARREGAR, BOTAR): o CARREGAR da C é um elo parado, fecha pela régua do PEGAR em 0,5 s, e o BOTAR abre depois dele. A cauda de B e R não muda. E o sucesso que move o nível e o `s_B`/`s_C` passa a exigir o `time_out` (`concluiu_ate_o_fim`): um fecho seguido de queda não conta.
 
 ## 1. Tabela
 
@@ -176,6 +177,7 @@ Funde: "pose da CAUDA ×8 e da ESPERA lê o regime pelo comando" e "o pose ainda
 - **Veredito:** CONFIRMADO.
 - **Severidade:** trava o aprendizado (céticos: não medida).
 - **Conserto:** cadeia C = (PEGAR, CARREGAR, BOTAR). Fecho temporal curto do CARREGAR só nessa cadeia, reusando `_fecha_elo_corrente` e `_sustain_alvo_de`. Sem termo novo.
+- **Estado:** CORRIGIDO na zero17 (30/09). C = (PEGAR, CARREGAR, BOTAR); o CARREGAR da C é parado e fecha pela régua do PEGAR (perto, alinhado, de pé, 0,5 s), e não por tempo só: um fecho por tempo fecharia com a caixa tombada. Ver §0.
 - **Linhas:** +3 a +8 em comando.py; 0 em recompensas.py.
 
 ### 4. `unload` e `postura_ereta` saturam em 2 mm

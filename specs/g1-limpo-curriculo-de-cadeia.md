@@ -81,9 +81,8 @@ herdaram uma política que já fechava. O treino do zero encontra a cauda desde 
 **Objetivo.** Um pipeline do zero que aprende, em ordem, PEGAR, CARREGAR parado, CARREGAR
 andando e BOTAR, sem intervenção manual, e que roda igual em outro simulador.
 
-**Fora de escopo:** os portões do fecho (§8, D2 e D3); a cadeia C pular o CARREGAR
-(achado 3 da auditoria); o REORIENTAR, que segue inerte; qualquer termo de recompensa
-novo.
+**Fora de escopo:** os portões do fecho (§8, D2 e D3); o REORIENTAR, que segue inerte;
+qualquer termo de recompensa novo. A cadeia C ganhou o CARREGAR em 30/09 (§4).
 
 ## 4. As fases
 
@@ -111,11 +110,18 @@ por env, uma vez, na entrada da cauda.
 **A cauda parada** usa o laço de rumo dos elos parados: o CARREGAR com comando zero conta
 como parado para o twist, para o freio e para o `pose`.
 
+**A cadeia C tem o CARREGAR** (30/09, achado 3 da auditoria, enunciado §1): C = PEGAR →
+CARREGAR parado → BOTAR. O CARREGAR da C é um elo: abre no fim da espera do PEGAR, com a
+caixa no alvo de transporte e comando de andar zero, e fecha pela régua do PEGAR (caixa
+no alvo, nivelada, robô de pé, 0,5 s). A laje fica; o BOTAR a reposiciona ao abrir. Quem
+falha o `perto` no fim da espera do PEGAR ou do CARREGAR vai à cauda, como antes. O
+`p_C` continua em 0,05 até a fase 4, e o CARREGAR da C é parado em todas as fases.
+
 ## 5. Métricas de troca e persistência
 
 | Métrica | Definição |
 |---|---|
-| `s_B` | EMA, por iteração, da fração de episódios B que concluíram. Já existe |
+| `s_B` | EMA, por iteração, da fração de episódios B que concluíram E chegaram ao fim pelo `time_out` (30/09: fecho e sobrevivência). Já existia, só com o fecho |
 | `s_cauda` | NOVA. EMA, por iteração, da fração de episódios que ACABARAM no CARREGAR e acabaram por `time_out`, e não por terminação. Zera em toda troca de fase |
 | `fase_cadeia` | NOVA. 1, 2, 3 ou 4 |
 | `iter_fase` | NOVA. O `iters_balanco` do instante da última troca |
@@ -135,7 +141,18 @@ trocar numa oscilação. A fração de 10% mantém o fecho lucrativo na fase 1:
 
 **Fim de episódio.** O `mjlab` grava `env.reset_time_outs` antes do reset, e o comando
 reinicia antes das terminações (`manager_based_rl_env.py:438, 581, 587`). O
-`_atualiza_balanceador` pode ler o `time_out` do episódio que acabou.
+`_atualiza_balanceador` e o `nivel` leem o `time_out` do episódio que acabou.
+
+**O sucesso é fecho e sobrevivência** (30/09, decisão do dono): `concluiu_ate_o_fim` =
+`concluiu ∧ time_out` move o nível e as EMAs `s_B`/`s_C`. Um fecho seguido da queda da
+caixa ou do robô não conta. Isso substitui a "limitação declarada" da spec dois-bits §2.5.
+Consequência: na fase 1 o `s_B` só sobe quando o robô fecha E segura até o fim do
+episódio, e o nível só sobe com o episódio inteiro. `metrics["sucesso"]` segue no fecho.
+
+**`s_B ≥ 0,50` e o passeio de nível.** O passeio ±1 equilibra a taxa de sucesso perto de
+0,5 por construção. O `s_B` fica abaixo enquanto envs falham no nível 0 e perto de 0,5
+depois; o instante da troca 1 → 2 tem ruído. O dono manteve o portão (30/09); o nível
+médio (`Curriculum/nivel`) é o medidor de competência a acompanhar.
 
 **Persistência.** `fase_cadeia`, `iter_fase` e `s_cauda` entram em
 `runner.CHAVES_ESCALARES`. Um resume retoma na fase certa.
@@ -199,6 +216,8 @@ Sem termo de recompensa novo. Tudo reaproveita peças que já existem.
 | `comando.py` | `_zera_twist_nos_parados` | a cauda parada conta como parado |
 | `comando.py` | `_resolve_p_c` | `p_C = p_c_antes_do_botar` antes da fase 4 |
 | `comando.py` | `_atualiza_balanceador` | `s_cauda` e a troca de fase, na mesma borda de iteração do `s_B` |
+| `comando.py` | `CADEIAS`, `_fecha_elo_corrente`, `_sustain_alvo_de`, `_aplica_espera` | C = (PEGAR, CARREGAR, BOTAR); o CARREGAR da C fecha pela régua do PEGAR e é parado; o guarda do avanço é `_sigma_pendente` |
+| `comando.py`, `curriculo.py` | `concluiu_ate_o_fim`, `nivel` | o sucesso é fecho e `time_out` |
 | `curriculo.py` | `garante_forma` e o log da forma | as chaves novas e seus valores no log |
 | `runner.py` | `CHAVES_ESCALARES` e `load` | as três chaves novas; `iter_fase` no resume de checkpoint antigo |
 | `algoritmo.py` | `PPOPorElo` | o one-hot fora da normalização, e a dobra no `load` (§6) |
@@ -232,7 +251,9 @@ recompensa: é a ordem em que os elos ficam disponíveis.
 | `p_C`, one-hot fixo, save/load, troca de fase | corretos |
 
 **Smoke** (roda o dono): as mesmas quatro, mais: `inspecao` usa a fase 4; antes da fase 4
-o `p_C` é 0,05; a cauda parada tem twist zero.
+o `p_C` é 0,05; a cauda parada tem twist zero; na cadeia C o 1º avanço abre o CARREGAR
+parado e o 2º o BOTAR; `concluiu_ate_o_fim` é falso com terminação e verdadeiro no
+`time_out`.
 
 **Sinais no log da Kaggle:** na fase 1, `s_B` sai de zero e sobe, `renda_congelada` acima
 de zero e `time_out` domina; na troca 1 → 2, queda de retorno e pico de value loss,

@@ -150,11 +150,12 @@ def nivel(
         try:
             cmd = env.command_manager.get_term(nome_do_comando)
             de_cadeia = cmd._cadeia[env_ids] >= 0
-            # ⚠ `concluiu`, e não `fechou` sozinho (spec dois-bits §2.2, §5 item 11): um
-            # elo que fechou e nunca avançou (o episódio terminou na espera entre
-            # elos) não é a cadeia INTEIRA. `concluiu` é a ÚNICA definição de sucesso,
-            # e o mesmo predicado que `metrics["sucesso"]` e o balanceador leem.
-            sucesso = cmd.concluiu(env_ids)
+            # ⚠ `concluiu_ate_o_fim`, e não `fechou` sozinho (spec dois-bits §2.2, §5 item
+            # 11; 30/09): um elo que fechou e nunca avançou não é a cadeia INTEIRA, e um
+            # fecho seguido da queda da caixa ou do robô não é sucesso (enunciado §1). O
+            # mesmo predicado que o balanceador lê; `metrics["sucesso"]` lê o `concluiu` no
+            # fecho, porque ali o fim do episódio ainda não aconteceu.
+            sucesso = cmd.concluiu_ate_o_fim(env_ids)
         except (KeyError, AttributeError):
             de_cadeia = sucesso = None
         if de_cadeia is not None and bool(de_cadeia.any()):

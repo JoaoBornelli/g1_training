@@ -224,6 +224,8 @@ p_C = clamp((1 − s_C) / ((1 − s_B) + (1 − s_C) + 1e-6), piso, 1 − piso);
 
 **Limitação declarada:** `concluiu` em B mede "PEGAR fechou", não a qualidade do carregar. A qualidade fica visível em `Metrics/twist/eficiencia_*` da cauda. Uma condição a mais no sucesso misturaria taxa de queda com conclusão (revisão, item 16) e enviesaria `p_C` para 0,5.
 
+**Superada em 30/09** (spec `g1-limpo-curriculo-de-cadeia.md` §5, decisão do dono): o nível e as EMAs leem `concluiu_ate_o_fim` = `concluiu ∧ time_out`. O sucesso do enunciado §1 exige que nem a caixa nem o robô caiam depois do fecho.
+
 ### 2.6 `renda_congelada`
 
 - `return self.congelado * _valida(...)` vira `return self.congelado`. Com esperas entre elos, o `× _valida` zerava a renda ganha em toda espera.

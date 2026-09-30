@@ -49,6 +49,10 @@ desenho está em `specs/g1-limpo-curriculo-de-cadeia.md`.
   sem contato com o robô.
 - O robô termina de pé, livre, pronto para o próximo ciclo.
 
+**Sucesso de um episódio de treino.** O último elo da cadeia fechou e o episódio chegou
+ao fim pelo tempo, sem terminação: nem a caixa nem o robô caíram depois do fecho. Esse
+sinal move o nível de dificuldade e as médias de sucesso das cadeias.
+
 
 **Fora do objetivo deste modelo:** andar até a mesa com navegação (o comando de
 velocidade vem de fora), estimar a pose da caixa (oráculo no sim; estimador vem depois),
@@ -214,7 +218,9 @@ velocidades, com giro andando ou parado, e frear em poucos passos. Rastreia a ve
 com a caixa nas mãos, nivelada, sem sacudida, com o centro de massa sobre os pés. A caixa
 fica no alvo de transporte o tempo todo. Em carga alta pode apoiar no tronco.
 
-**Fecho.** Não tem. CARREGAR dura enquanto o controlador pedir.
+**Fecho.** Como cauda das cadeias B e R, não tem: CARREGAR dura enquanto o controlador
+pedir. Como elo da cadeia C, fecha com a caixa no alvo de transporte, nivelada, o robô de
+pé, por 0,5 s, e então abre o BOTAR.
 
 **Proibido.** Largar. Deixar a caixa cair de altura. Andar agachado. Girar sem comando.
 Segurar com uma mão. Sacudir a caixa.

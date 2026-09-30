@@ -415,17 +415,20 @@ def viewer(args) -> int:
         print(f"⚠ o AVANÇO dispara em {g1_limpo.AVANCA_APOS_S:.0f} s — os primeiros "
               f"{g1_limpo.AVANCA_APOS_S:.0f} s mostram o 1º elo, depois a cena muda "
               f"para o 2º")
-        # ⚠ `CARREGAR` NÃO é mais o índice [1] de cadeia nenhuma (spec dois-bits
-        # §2.1): ele é a CAUDA de quem fecha o PEGAR sem botar, escrita por
-        # `_aplica_espera` — não um passo escrito em `CADEIAS`. Ela só aparece numa
-        # 2ª rodada de avanço (o evento de intervalo repete a cada
-        # `AVANCA_APOS_S`), depois de o PEGAR fechar.
+        # ⚠ Na cadeia C o `CARREGAR` é o ELO DO MEIO (30/09): o 1º avanço abre o
+        # carregar PARADO (a laje fica), o 2º abre o BOTAR. Nas cadeias que terminam em
+        # PEGAR ele é a CAUDA, escrita por `_aplica_espera` — não um passo de
+        # `CADEIAS` — e aparece numa 2ª rodada de avanço (o evento de intervalo
+        # repete a cada `AVANCA_APOS_S`), depois de o PEGAR fechar.
         if CMD.CADEIAS[cadeia_id][-1] != CMD.BOTAR:
             print("  em seguida (mais um avanço): a MESA SOBE (vai para +5 m) e o "
                   "chão fica livre — o PEGAR fechou e virou a CAUDA carregar")
-        if CMD.CADEIAS[cadeia_id][1] == CMD.BOTAR:
-            print("  o que olhar: a laje REAPARECE num topo novo, e o alvo lateral "
-                  "cai em cima dela")
+        if CMD.CARREGAR in CMD.CADEIAS[cadeia_id]:
+            print("  o que olhar: no 1º avanço o alvo FICA no peito e a laje fica — é "
+                  "o carregar PARADO; o comando de andar é zero")
+        if CMD.BOTAR in CMD.CADEIAS[cadeia_id]:
+            print("  o que olhar: no avanço para o BOTAR a laje REAPARECE num topo "
+                  "novo, e o alvo lateral cai em cima dela")
         if CMD.CADEIAS[cadeia_id][0] == CMD.REORIENTAR:
             print("  o que olhar: o alvo deixa de ser a ATITUDE e passa a ser o PONTO "
                   "do peito")
