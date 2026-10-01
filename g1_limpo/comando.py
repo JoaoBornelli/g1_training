@@ -70,7 +70,7 @@ __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
-           "ESTADOS", "estado_de_recompensa", "carregar_elo_aberto",
+           "ESTADOS", "estado_de_recompensa",
            "ESTADO_ANDAR", "ESTADO_ESPERA_SEM", "ESTADO_ESPERA_COM",
            "ESTADO_REORIENTAR_SEM", "ESTADO_REORIENTAR_COM",
            "ESTADO_PEGAR_SEM", "ESTADO_PEGAR_COM",
@@ -151,20 +151,6 @@ def estado_de_recompensa(elo: torch.Tensor, aguardando: torch.Tensor,
     estado = torch.where(aguardando, ESTADO_ESPERA_SEM + com, por_elo)
     return torch.where(soltou, torch.full_like(elo, ESTADO_CAUDA), estado)
 
-
-def carregar_elo_aberto(elo: torch.Tensor, cadeia: torch.Tensor,
-                        fechou: torch.Tensor) -> torch.Tensor:
-    """O env está no elo CARREGAR ABERTO da cadeia C? `bool`, por env (spec
-    `g1-limpo-rastreio-carregar-elo.md` §1). Só aí os dois rastreios trocam a coluna
-    CARREGAR da tabela (×3,5, feita para a cauda que ANDA) por
-    `knobs.Cadeia.rastreio_carregar_elo`: o comando é ZERO e o robô ganhava 14/s por
-    ficar, contra ≈ 0 de fechar. A cauda (`fechou = True`: B, R e a C desviada) fica fora.
-
-    ⚠ O `2` é o índice da cadeia C em `CADEIAS` (PEGAR, CARREGAR, BOTAR), o mesmo
-    `cad == 2` do `eh_c` do currículo. Função PURA, como `estado_de_recompensa`: o
-    `smoke` prova a tabela-verdade sem montar um env.
-    """
-    return (elo == CARREGAR) & (cadeia == 2) & ~fechou
 
 # --- as cadeias de elo (spec dois-bits §2.1). O teto é DERIVADO (`_TETO_ELOS`),
 # nunca redigitado. O `CARREGAR` tem DOIS papéis: na cadeia C ele é o ELO DO MEIO
@@ -554,6 +540,16 @@ class AlvoCaixaCmd(CommandTerm):
         self.metrics["passo_final"] = z.clone()
         self.metrics["avancos"] = z.clone()
         self.metrics["fatia_cadeia"] = z.clone()
+        # ⚠ K12 (lote 01/10, Parte 3; enunciado §7 item 6): métricas SEM PESO da cadeia C —
+        # nenhuma recompensa as lê. Flags valem 1 até o fim do episódio; razões no log:
+        # `c_chegou_botar/c_episodio`, `c_desvio_pegar/c_episodio`,
+        # `c_desvio_carregar/c_chegou_carregar`.
+        for _m in ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
+                   "c_desvio_carregar", "cauda_twist_herdado"):
+            self.metrics[_m] = z.clone()
+        # fração dos passos de cauda andando com comando linear < 0,05 m/s (twist herdado)
+        self._n_cauda_anda = torch.zeros(n, device=d)
+        self._n_cauda_herdado = torch.zeros(n, device=d)
 
         # ---------------------------------------------------------- os σ POR ENV
         # ⚠ ELES NÃO SÃO KNOBS. Cada um é a DISTÂNCIA INICIAL daquele env, medida no
@@ -608,10 +604,6 @@ class AlvoCaixaCmd(CommandTerm):
         # `aguardando` que escreve o `VALIDA`, e lido por `recompensas.PesoPorEstado`.
         # Nasce `ANDAR` (0); a leitura real começa no primeiro `_update_command`.
         env.limpo_estado = torch.zeros(n, dtype=torch.long, device=d)
-        # ⚠ O ELO CARREGAR ABERTO da cadeia C (spec g1-limpo-rastreio-carregar-elo §2): 0/1
-        # por env, escrito IN-PLACE por `_aplica_espera` na MESMA fase do `limpo_estado` (NÃO
-        # em `_update_command`) e lido por `recompensas.PesoPorEstado` só nos dois rastreios.
-        env.limpo_carregar_elo = torch.zeros(n, device=d)
         # ⚠ A MÁSCARA "esta tarefa zerou o twist deste env", por env (v2.1, spec P4).
         # Publicada por `_zera_twist_nos_parados`. Desde a tabela por estado NENHUMA
         # recompensa a lê (o gate do rastreio virou `limpo_estado`); quem lê é a
@@ -778,6 +770,11 @@ class AlvoCaixaCmd(CommandTerm):
             prox = self._passo[ids_avanca] + 1
             self._passo[ids_avanca] = prox
             self._elo[ids_avanca] = _ELO_EM.to(d)[cad, prox]
+            na_c = cad == 2
+            self.metrics["c_chegou_carregar"][
+                ids_avanca[na_c & (self._elo[ids_avanca] == CARREGAR)]] = 1.0
+            self.metrics["c_chegou_botar"][
+                ids_avanca[na_c & (self._elo[ids_avanca] == BOTAR)]] = 1.0
             self.fechou[ids_avanca] = False
             self._sust[ids_avanca] = 0.0
             self._sustain_alvo[ids_avanca] = self._sustain_alvo_de(ids_avanca)
@@ -811,9 +808,10 @@ class AlvoCaixaCmd(CommandTerm):
             # o elo fica PEGAR, `fechou`, até o fim. O estado de recompensa segue PEGAR_COM
             # e os termos ao vivo pagam por cima da renda congelada (~32/s medido, contra
             # ~17 a 25/s de pairar). A escolha é por env, UMA vez, na entrada da cauda.
-            # ⚠ A cadeia C (2) desviada vai SEMPRE à cauda: a C pratica o CARREGAR como
-            # ELO (o avanço acima), e não como SEGURA; quem falhou o `perto` no fim da
-            # espera do PEGAR ou do CARREGAR vira cauda, como sempre.
+            # ⚠ A cadeia C (2) desviada vai SEMPRE à cauda, e a cauda dela é PARADA em toda
+            # fase (abaixo): a C pratica o CARREGAR como ELO (o avanço acima), e não como
+            # SEGURA; quem falhou o `perto` no fim da espera do PEGAR ou do CARREGAR vira
+            # cauda parada, como sempre.
             fase = self._fase()
             if fase == 1 and len(vira_carregar):
                 vai = ((torch.rand(len(vira_carregar), device=d) < self.cfg.fracao_cauda_fase1)
@@ -825,6 +823,10 @@ class AlvoCaixaCmd(CommandTerm):
                 # env sai de `cauda` e de `avanca` (`pendente`): a escolha não se repete.
                 self._sigma_pendente[segura] = False
             if len(vira_carregar):
+                # K12: de onde a C desviou (lê o `_elo` ANTES de virar CARREGAR)
+                ids_c = vira_carregar[self._cadeia[vira_carregar] == 2]
+                self.metrics["c_desvio_pegar"][ids_c[self._elo[ids_c] == PEGAR]] = 1.0
+                self.metrics["c_desvio_carregar"][ids_c[self._elo[ids_c] == CARREGAR]] = 1.0
                 self._elo[vira_carregar] = CARREGAR
                 self._alvo_ancorado_na_base(vira_carregar)
                 # ⚠ A CAUDA PARADA (spec §4): fase 1, sempre; fase 2, em 90% (os outros
@@ -837,6 +839,10 @@ class AlvoCaixaCmd(CommandTerm):
                         torch.rand(len(vira_carregar), device=d) >= self.cfg.fracao_anda_fase2)
                 else:
                     self._carregar_parado[vira_carregar] = False
+                # ⚠ A cauda da cadeia C DESVIADA é SEMPRE parada, em toda fase (spec K1b
+                # `g1-limpo-rastreio-carregar-parado.md`): andando ela herdava twist zero por
+                # ~2,9 s e o desvio rendia mais que avançar (rastreio ×3,5 contra ×1 do elo).
+                self._carregar_parado[vira_carregar[self._cadeia[vira_carregar] == 2]] = True
             # senão, o `_elo` FICA `BOTAR` (revisão, item 3): o crítico vê o interno
             # BOTAR, o publicado ANDAR (via `soltou`), e prevê a renda congelada.
             # ⚠ O PÓS-BOTAR NÃO MEXE NA CENA (decisão do dono, 2026-09-10). O robô se
@@ -873,10 +879,6 @@ class AlvoCaixaCmd(CommandTerm):
         # soma errada. IN-PLACE, como `limpo_aguardando` e `limpo_soltou`.
         self._env.limpo_estado.copy_(estado_de_recompensa(
             self._elo, aguardando, self._pegou, self._soltou))
-        # ⚠ O ELO CARREGAR ABERTO da cadeia C, na MESMA fase do `limpo_estado` acima: o `_elo`
-        # de depois do avanço e o `fechou` fresco (spec g1-limpo-rastreio-carregar-elo §2).
-        self._env.limpo_carregar_elo.copy_(
-            carregar_elo_aberto(self._elo, self._cadeia, self.fechou).float())
 
         # ⚠ O σ da TAREFA, no instante em que ela liga. `_sigma_pendente` é verdadeiro
         # do resample até aqui; no `ANDAR` puro `VALIDA` nunca acende, e ele fica
@@ -1251,6 +1253,8 @@ class AlvoCaixaCmd(CommandTerm):
         # ⚠ Zerado no reset para que o primeiro passo parado do episódio novo congele o
         # `_rumo_ref` no rumo ATUAL — e não no do episódio que acabou parado no BOTAR.
         self._env.limpo_twist_zerado[env_ids] = 0.0
+        self._n_cauda_anda[env_ids] = 0.0
+        self._n_cauda_herdado[env_ids] = 0.0
 
         # ⚠ O BALANCEADOR B/C LÊ O EPISÓDIO QUE ACABOU (spec §2.5), antes de
         # `_cadeia`/`fechou`/`_passo` virarem os do episódio NOVO.
@@ -1411,6 +1415,15 @@ class AlvoCaixaCmd(CommandTerm):
         # dois-bits §1.1): só assim ele lê `_elo` e `_espera` do passo CORRENTE, e não
         # do passo anterior.
         self._zera_twist_nos_parados()
+
+        # K12: `cauda_twist_herdado` = fração dos passos de cauda ANDANDO (CARREGAR sem a
+        # marca de parado e sem `soltou`) cujo comando linear é < 0,05 m/s. Sem peso.
+        anda_c = (self._elo == CARREGAR) & ~self._carregar_parado & ~self._soltou
+        vel = self._env.command_manager.get_term(self.cfg.nome_do_twist).vel_command_b
+        self._n_cauda_anda[anda_c] += 1.0
+        self._n_cauda_herdado[anda_c & (torch.norm(vel[:, :2], dim=1) < 0.05)] += 1.0
+        self.metrics["cauda_twist_herdado"][:] = (
+            self._n_cauda_herdado / self._n_cauda_anda.clamp(min=1.0))
 
         # ⚠ O ALVO DO CARREGAR, referenciado no robô, TODO PASSO — mas só com o twist
         # ATIVO (spec dois-bits §1.2, terceiro momento): `anda = (elo == CARREGAR) &
@@ -1669,6 +1682,7 @@ class AlvoCaixaCmd(CommandTerm):
         if bool(tem_t.any()):
             n_el[tem_t] = _N_ELOS.to(d)[cad_t[tem_t]]
         self.metrics["fatia_cadeia"][:] = (n_el > 1).float()
+        self.metrics["c_episodio"][:] = (self._cadeia == 2).float()
         self.metrics["passo_final"][:] = self._passo.float()
 
     def _avanca_elo_force(self, ids: torch.Tensor) -> None:
@@ -1843,6 +1857,10 @@ class AlvoCaixaCmd(CommandTerm):
                 # coordenador): o avanço do BOTAR é medido à parte do reset — subir o
                 # knob afastaria a caixa do PEGAR em todo nível.
                 dxy = c.botar_delta_xy * (2.0 * torch.rand(k, 2, device=d) - 1.0)
+                # ⚠ A laje do BOTAR só se AFASTA em x, dx ∈ [0; δ] (lote 01/10, R1): ela nascia
+                # dentro da perna em 31–72% das aberturas (toque 39% → 0,6%); y segue simétrico.
+                # Spec `g1-limpo-lote-resume-01-10.md`, Parte 2.
+                dxy[:, 0] = dxy[:, 0].abs()
                 off_laje = torch.zeros(k, 3, device=d)
                 off_laje[:, 0] = _AVANCO_LAJE_BOTAR + dxy[:, 0]
                 off_laje[:, 1] = dxy[:, 1]

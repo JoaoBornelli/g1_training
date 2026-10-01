@@ -721,7 +721,7 @@ def make_env_cfg(
                 "vel_max_walking": tr.vel_max_walking,
                 "vel_max_running": tr.vel_max_running,
                 "command_name": "twist",
-                "walking_threshold": 0.05, "running_threshold": 1.5,
+                "walking_threshold": RC.LIMIAR_ANDANDO, "running_threshold": 1.5,
                 # o preço por env fora do ANDAR, `fator ** degrau` (plano freio-em-curriculo)
                 "fator": tr.freio_fator,
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])})
@@ -821,10 +821,10 @@ def make_env_cfg(
         assert "func" not in _t.params and "tabela" not in _t.params, _nome
         _t.params["func"] = _t.func
         _t.params["tabela"] = getattr(k.peso_por_estado, _nome)
-        # ⚠ SÓ os dois rastreios levam o multiplicador do elo CARREGAR aberto da cadeia C
-        # (spec g1-limpo-rastreio-carregar-elo §2); o `smoke` prova que os outros não.
+        # ⚠ SÓ os dois rastreios levam o multiplicador do CARREGAR parado (spec
+        # g1-limpo-rastreio-carregar-parado §2); o `smoke` prova que os outros não.
         if _nome in ("track_linear_velocity", "track_angular_velocity"):
-            _t.params["carregar_elo"] = k.cadeia.rastreio_carregar_elo
+            _t.params["carregar_parado"] = k.cadeia.rastreio_carregar_parado
         if k.giro.portao_da_renda and _nome in TERMOS_CONGELAVEIS + ("forma_postural",):
             _t.params["rumo"] = _rumo
         _t.func = RC.PesoPorEstado

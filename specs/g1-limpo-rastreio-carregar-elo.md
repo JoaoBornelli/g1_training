@@ -1,6 +1,6 @@
 # G1 limpo — rastreio ×1 no CARREGAR aberto da cadeia C (R2)
 
-Estado: aprovado pelo dono ("implementa", 01/10). Origem: `docs/relatorios/2026-09-30-plato-do-botar.md`
+Estado: Substituída por `g1-limpo-rastreio-carregar-parado.md` (01/10). (Antes: aprovado pelo dono, "implementa", 01/10.) Origem: `docs/relatorios/2026-09-30-plato-do-botar.md`
 (achado A4, opção R2 b). Enunciado: §3 "Sem estátua" e "Progressão na cadeia"; §4.4 Fecho.
 
 ## 0. Problema (medido)

@@ -1396,15 +1396,15 @@ check("a tabela dos dois rastreios é a do `knobs.PesoPorEstado`, por IDENTIDADE
       cfg.rewards[_TL].params["tabela"] is k.peso_por_estado.track_linear_velocity
       and cfg.rewards[_TA].params["tabela"] is k.peso_por_estado.track_angular_velocity,
       "o wrapper lê `params[\"tabela\"]`; uma cópia redigitada derivaria em silêncio")
-check("só os dois `track_*` levam `carregar_elo` — o do `knobs.Cadeia`, por igualdade — e "
+check("só os dois `track_*` levam `carregar_parado` — o do `knobs.Cadeia`, por igualdade — e "
       "nenhum dos outros termos da tabela por estado leva a chave (spec "
-      "g1-limpo-rastreio-carregar-elo §2)",
-      all(cfg.rewards[n].params.get("carregar_elo") == k.cadeia.rastreio_carregar_elo
+      "g1-limpo-rastreio-carregar-parado §2)",
+      all(cfg.rewards[n].params.get("carregar_parado") == k.cadeia.rastreio_carregar_parado
           for n in (_TL, _TA))
-      and not any("carregar_elo" in cfg.rewards[f.name].params
+      and not any("carregar_parado" in cfg.rewards[f.name].params
                   for f in dataclasses.fields(k.peso_por_estado)
                   if f.name not in (_TL, _TA)),
-      str({f.name: cfg.rewards[f.name].params.get("carregar_elo")
+      str({f.name: cfg.rewards[f.name].params.get("carregar_parado")
            for f in dataclasses.fields(k.peso_por_estado)}))
 # ⚠ O ANGULAR SAI DESTES DOIS CHECKS, e é de propósito: desde o lote do giro ele NÃO
 # é mais o termo do molde (é o `giro_sem_gingado`) e desde o lote do envelope o `std`
@@ -1637,51 +1637,65 @@ check("`limpo_estado` é escrito em `_aplica_espera`, DEPOIS do `VALIDA` e do ME
       "no fim de `_update_command` o `_avanca_elo` já correu: a espera apareceria um "
       "passo antes do `VALIDA`")
 
-# --- `limpo_carregar_elo` (spec g1-limpo-rastreio-carregar-elo §2): SEM ENV, a função pura
-# e o wrapper. O flag é o elo CARREGAR ABERTO da cadeia C, e só ele troca o peso do rastreio.
-_comb_c = list(_it.product(range(len(CMD.ELOS)), (-1, 0, 1, 2), (False, True)))
-_ab_s = CMD.carregar_elo_aberto(
-    torch.tensor([c[0] for c in _comb_c], dtype=torch.long),
-    torch.tensor([c[1] for c in _comb_c], dtype=torch.long),
-    torch.tensor([c[2] for c in _comb_c]))
-_so_ab = [c for c, v in zip(_comb_c, _ab_s.tolist()) if v]
-check("`carregar_elo_aberto` é verdadeiro SÓ em (CARREGAR, cadeia 2 = C, ¬fechou), em todas "
-      "as combinações de elo × cadeia {−1, 0, 1, 2} × fechou",
-      _ab_s.dtype == torch.bool and _so_ab == [(CMD.CARREGAR, 2, False)],
-      str(_so_ab))
-check("`limpo_carregar_elo` é escrito em `_aplica_espera`, DEPOIS do `limpo_estado` (a MESMA "
-      "fase) — e NÃO em `_update_command`",
-      _src_esp_t.index("limpo_estado.copy_(") < _src_esp_t.index("limpo_carregar_elo.copy_(")
-      and "limpo_carregar_elo" not in inspect.getsource(CMD.AlvoCaixaCmd._update_command),
-      "no fim de `_update_command` o `_avanca_elo` já correu: o flag apareceria um passo "
-      "antes do estado")
-# ⚠ O wrapper SEM env: `PesoPorEstado` só lê `env.device`, `limpo_estado` e, se o cfg traz
-# `carregar_elo`, `limpo_carregar_elo`. Três envs — CARREGAR sem o flag, CARREGAR com ele e
-# BOTAR com ele — e um termo que devolve 1,0 em todos, para que o resultado SEJA o peso.
+# --- o rastreio ×1 no CARREGAR PARADO (spec g1-limpo-rastreio-carregar-parado §2): SEM ENV,
+# o wrapper. O regime parado vem de `regime_parado` (`limpo_twist_zerado` OU comando < 0,05).
+# ⚠ `PesoPorEstado` só lê `env.device`, `limpo_estado`, `limpo_twist_zerado` e o `twist` do
+# `command_manager`. Quatro envs — CARREGAR andando, CARREGAR com `twist_zerado` e wz de rumo
+# (0,3) acima do limiar, CARREGAR com comando 0,01 abaixo do limiar, BOTAR com `twist_zerado` —
+# e um termo que devolve 1,0 em todos, para que o resultado SEJA o peso.
+_tw_w = torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.3], [0.0, 0.0, 0.01], [0.0, 0.0, 0.0]])
 _env_w = _ty_pelve.SimpleNamespace(
     device="cpu",
-    limpo_estado=torch.tensor([CMD.ESTADO_CARREGAR, CMD.ESTADO_CARREGAR, CMD.ESTADO_BOTAR],
-                              dtype=torch.long),
-    limpo_carregar_elo=torch.tensor([0.0, 1.0, 1.0]))
+    limpo_estado=torch.tensor([CMD.ESTADO_CARREGAR] * 3 + [CMD.ESTADO_BOTAR], dtype=torch.long),
+    limpo_twist_zerado=torch.tensor([0.0, 1.0, 0.0, 1.0]),
+    command_manager=_ty_pelve.SimpleNamespace(get_command=lambda nome: _tw_w))
+_col_botar = k.peso_por_estado.track_linear_velocity[CMD.ESTADO_BOTAR]
 
 
 def _peso_w(**extra) -> list:
     """O peso que o wrapper aplica, por env, ao rastreio linear com `extra` no cfg."""
-    _par = {"func": lambda env: torch.ones(3),
-            "tabela": k.peso_por_estado.track_linear_velocity, **extra}
+    _par = {"func": lambda env, **kw: torch.ones(4),
+            "tabela": k.peso_por_estado.track_linear_velocity, "command_name": "twist", **extra}
     return RC_.PesoPorEstado(_ty_pelve.SimpleNamespace(params=_par), _env_w)(
         _env_w, **_par).tolist()
 
 
-check("o `PesoPorEstado` troca o peso SÓ onde `limpo_carregar_elo` vale 1: com o knob dá "
-      "[3,5; 1,0; 1,0] (a coluna CARREGAR de quem não tem o flag, o knob nos outros dois); "
-      "com 0,25 dá [3,5; 0,25; 0,25] (o flag manda no peso, qualquer que seja o estado); "
-      "sem `carregar_elo` no cfg o flag é IGNORADO: [3,5; 3,5; 1,0]",
-      _peso_w(carregar_elo=k.cadeia.rastreio_carregar_elo) == [3.5, 1.0, 1.0]
-      and _peso_w(carregar_elo=0.25) == [3.5, 0.25, 0.25]
-      and _peso_w() == [3.5, 3.5, 1.0],
-      f"{_peso_w(carregar_elo=k.cadeia.rastreio_carregar_elo)} / "
-      f"{_peso_w(carregar_elo=0.25)} / {_peso_w()}")
+check("o `PesoPorEstado` troca o peso SÓ no CARREGAR em regime parado: com o knob dá "
+      "[3,5; 1,0; 1,0; coluna BOTAR] (env 2 prova o `limpo_twist_zerado` com wz acima do "
+      "limiar, env 3 o comando abaixo do limiar); com 0,25 dá [3,5; 0,25; 0,25; BOTAR]; sem "
+      "`carregar_parado` no cfg dá [3,5; 3,5; 3,5; BOTAR]",
+      _peso_w(carregar_parado=k.cadeia.rastreio_carregar_parado) == [3.5, 1.0, 1.0, _col_botar]
+      and _peso_w(carregar_parado=0.25) == [3.5, 0.25, 0.25, _col_botar]
+      and _peso_w() == [3.5, 3.5, 3.5, _col_botar],
+      f"{_peso_w(carregar_parado=k.cadeia.rastreio_carregar_parado)} / "
+      f"{_peso_w(carregar_parado=0.25)} / {_peso_w()}")
+# ⚠ A cauda da cadeia C desviada fica PARADA em toda fase: o env real não alcança a fase 3 nem
+# um fecho falho, então a prova é de FONTE, em `_aplica_espera` — a linha existe, vem DEPOIS do
+# `if fase <= 1 / elif / else` que escreve a regra de fase, e filtra a cadeia 2.
+_lin_c = "self._carregar_parado[vira_carregar[self._cadeia[vira_carregar] == 2]] = True"
+check("a cauda da cadeia C desviada fica com `_carregar_parado = True` em toda fase (spec K1b): "
+      "a escrita vem DEPOIS da regra de fase de B/R",
+      _lin_c in _src_esp_t
+      and _src_esp_t.index("self._carregar_parado[vira_carregar] = False")
+      < _src_esp_t.index(_lin_c),
+      "sem a linha, a C desviada andaria na fase ≥ 3 e herdaria o ×3,5")
+
+# --- R1 (lote 01/10, Parte 2): a laje do BOTAR só se afasta em x
+check("o sorteio da laje do BOTAR leva `.abs()` no x (dx ∈ [0; δ])",
+      "dxy[:, 0] = dxy[:, 0].abs()" in inspect.getsource(CMD.AlvoCaixaCmd),
+      "sem ele a laje nasce dentro da perna em 31–72% das aberturas")
+
+# --- K12 (lote 01/10, Parte 3): as métricas sem peso da cadeia C
+_chaves_k12 = ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
+               "c_desvio_carregar", "cauda_twist_herdado")
+check("as seis métricas do K12 nascem em `metrics` do comando",
+      all(f'"{c}"' in inspect.getsource(CMD.AlvoCaixaCmd.__init__) for c in _chaves_k12),
+      str(_chaves_k12))
+check("`c_desvio_*` é escrito ANTES de `self._elo[vira_carregar] = CARREGAR` em `_aplica_espera`",
+      _src_esp_t.index("c_desvio_pegar") < _src_esp_t.index("self._elo[vira_carregar] = CARREGAR")
+      and _src_esp_t.index("c_desvio_carregar")
+      < _src_esp_t.index("self._elo[vira_carregar] = CARREGAR"),
+      "depois da escrita o `_elo` já é CARREGAR e a origem do desvio se perde")
 
 # --- a VALIDAÇÃO do `std_standing` novo, SEM ENV (spec §3.1) ---
 # ⚠ Esta tabela valida SÓ as 15 de perna+cintura, contra os limiares de origem:
@@ -5072,11 +5086,11 @@ try:
     check("11. e `limpo_estado == ANDAR` em todos os envs",
           bool((_e35c.limpo_estado == CMD.ESTADO_ANDAR).all()),
           str(_e35c.limpo_estado.tolist()[:6]))
-    # ⚠ o MOLDE cru não aceita `func`, `tabela` nem `carregar_elo`: os três saem antes da chamada.
+    # ⚠ o MOLDE cru não aceita `func`, `tabela` nem `carregar_parado`: os três saem antes da chamada.
     _params35c = dict(_c35c.rewards["track_linear_velocity"].params)
     _molde35c = _params35c.pop("func")
     _params35c.pop("tabela")
-    _params35c.pop("carregar_elo")
+    _params35c.pop("carregar_parado")
     _valor_molde35c = _molde35c(_e35c, **_params35c)
     _idx_tl35c = list(_c35c.rewards).index("track_linear_velocity")
     _wrap35c = _e35c.reward_manager._term_cfgs[_idx_tl35c].func
@@ -5348,7 +5362,7 @@ try:
     _params_d = dict(_eg2.reward_manager.cfg["track_linear_velocity"].params)
     _molde_d = _params_d.pop("func")
     _params_d.pop("tabela")
-    _params_d.pop("carregar_elo")  # o molde cru também não o aceita
+    _params_d.pop("carregar_parado")  # o molde cru também não o aceita
     # ⚠ o wrapper INSTANCIADO: `PesoPorEstado` multiplica pela coluna de
     # `limpo_estado`, que no ANDAR é 1 para os dois rastreios (tabela-por-estado §2).
     _idx_tl_d = list(_cg2.rewards).index("track_linear_velocity")

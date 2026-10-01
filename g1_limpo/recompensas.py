@@ -55,6 +55,29 @@ class AlturaDeBalanco(feet_swing_height):
         self.peak_heights[env_ids] = 0.0
 
 
+LIMIAR_ANDANDO = 0.05  # `walking_threshold` do molde: o mesmo no `pose`, no freio e no rastreio
+
+
+def regime_parado(env, command_name: str, walking_threshold: float = LIMIAR_ANDANDO) -> torch.Tensor:
+    """O env está no regime PARADO? `bool`, por env: `‖cmd_xy‖ + |cmd_wz| < walking_threshold`
+    OU `env.limpo_twist_zerado > 0,5` (quando o atributo existe).
+
+    ⚠ O REGIME VEM DO ESTADO, e não do comando (29/09, zero14; achado 2 da
+    auditoria). Nos elos parados o twist é o laço de rumo
+    (`comando._zera_twist_nos_parados`): um erro de rumo acima de 0,1 rad dá
+    |wz| > 0,05 e trocava o punho de σ 1,0 para 0,3 e o `waist_pitch` de 0,3 para
+    0,1, as juntas que desfazem o tombo da caixa. O `velocidade_por_regime` já lê
+    o estado do mesmo jeito. Compartilhada por `PosturaPorElo` e `PesoPorEstado`.
+    """
+    command = env.command_manager.get_command(command_name)
+    assert command is not None
+    standing = (torch.norm(command[:, :2], dim=1) + torch.abs(command[:, 2])) < walking_threshold
+    zerado = getattr(env, "limpo_twist_zerado", None)
+    if zerado is not None:
+        standing = standing | (zerado > 0.5)
+    return standing
+
+
 class PosturaPorElo(variable_posture):
     """O `variable_posture` do fabricante, sem os BRAÇOS enquanto eles TRABALHAM
     (spec `g1-limpo-dois-bits.md` §3.1).
@@ -126,19 +149,8 @@ class PosturaPorElo(variable_posture):
         command = env.command_manager.get_command(command_name)
         assert command is not None
 
-        linear_speed = torch.norm(command[:, :2], dim=1)
-        angular_speed = torch.abs(command[:, 2])
-        total_speed = linear_speed + angular_speed
-        standing = total_speed < walking_threshold
-        # ⚠ O REGIME VEM DO ESTADO, e não do comando (29/09, zero14; achado 2 da
-        # auditoria). Nos elos parados o twist é o laço de rumo
-        # (`comando._zera_twist_nos_parados`): um erro de rumo acima de 0,1 rad dá
-        # |wz| > 0,05 e trocava o punho de σ 1,0 para 0,3 e o `waist_pitch` de 0,3 para
-        # 0,1, as juntas que desfazem o tombo da caixa. O `velocidade_por_regime` já lê
-        # o estado do mesmo jeito.
-        zerado = getattr(env, "limpo_twist_zerado", None)
-        if zerado is not None:
-            standing = standing | (zerado > 0.5)
+        total_speed = torch.norm(command[:, :2], dim=1) + torch.abs(command[:, 2])
+        standing = regime_parado(env, command_name, walking_threshold)
         standing_mask = standing.float()
         walking_mask = ((total_speed >= walking_threshold)
                         & (total_speed < running_threshold) & ~standing).float()
@@ -373,10 +385,11 @@ class PesoPorEstado:
     2,0/s de 8 e 3,8 de 15 — proporcional à renda. Parado (wz = 0) o kernel é 1: o piso
     da estátua não muda. Só os `TERMOS_CONGELAVEIS` e o `forma_postural` levam `rumo`.
 
-    ⚠ `carregar_elo` (01/10, spec `g1-limpo-rastreio-carregar-elo.md`): SÓ os dois
-    rastreios o levam, e SÓ vale no elo CARREGAR ABERTO da cadeia C — onde
-    `env.limpo_carregar_elo` (publicado na mesma fase do `limpo_estado`) passa de 0,5, o
-    peso ×1 substitui o da tabela (3,5). Nos outros termos a chave não existe.
+    ⚠ `carregar_parado` (01/10, spec `g1-limpo-rastreio-carregar-parado.md`): SÓ os dois
+    rastreios o levam, e SÓ vale no estado CARREGAR em regime PARADO (`regime_parado`,
+    observável pelo ator e pelo crítico): o peso ×1 substitui o da tabela (3,5, feita para
+    a cauda que ANDA). Não depende da cadeia — o §6 do enunciado rejeita multiplicador
+    inobservável. Nos outros termos a chave não existe.
 
     ⚠ `renda_congelada` lê `_step_reward` dos sete pelo NOME, JÁ multiplicados pela
     tabela — INTENCIONAL: é isso que faz o piso do BOTAR ×2 valer ~15,8.
@@ -388,7 +401,8 @@ class PesoPorEstado:
     """
 
     def __init__(self, cfg, env):
-        from g1_limpo.comando import ESTADOS
+        from g1_limpo.comando import ESTADO_CARREGAR, ESTADOS
+        self._est_carregar = ESTADO_CARREGAR
         f = cfg.params["func"]
         self._f = f(cfg, env) if inspect.isclass(f) else f
         tabela = tuple(float(x) for x in cfg.params["tabela"])
@@ -396,14 +410,15 @@ class PesoPorEstado:
             f"tabela com {len(tabela)} colunas para {len(ESTADOS)} estados")
         self._t = torch.tensor(tabela, dtype=torch.float32, device=env.device)
         self._rumo = cfg.params.get("rumo")   # kwargs do `giro_sem_gingado`, ou None
-        self._w_elo = cfg.params.get("carregar_elo")  # peso do elo CARREGAR aberto, ou None
+        self._w_par = cfg.params.get("carregar_parado")  # peso do CARREGAR parado, ou None
 
-    def __call__(self, env, func, tabela, rumo=None, carregar_elo=None, **kw) -> torch.Tensor:
-        del func, tabela, rumo, carregar_elo  # resolvidos no __init__
+    def __call__(self, env, func, tabela, rumo=None, carregar_parado=None, **kw) -> torch.Tensor:
+        del func, tabela, rumo, carregar_parado  # resolvidos no __init__
         w = self._t[env.limpo_estado]
-        if self._w_elo is not None:
-            w = torch.where(env.limpo_carregar_elo > 0.5,
-                            torch.full_like(w, float(self._w_elo)), w)
+        if self._w_par is not None:
+            w = torch.where((env.limpo_estado == self._est_carregar)
+                            & regime_parado(env, kw["command_name"], LIMIAR_ANDANDO),
+                            torch.full_like(w, float(self._w_par)), w)
         r = self._f(env, **kw) * w
         return r * giro_sem_gingado(env, **self._rumo) if self._rumo else r
 
