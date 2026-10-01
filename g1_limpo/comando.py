@@ -70,7 +70,7 @@ __all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
-           "ESTADOS", "estado_de_recompensa",
+           "ESTADOS", "estado_de_recompensa", "carregar_elo_aberto",
            "ESTADO_ANDAR", "ESTADO_ESPERA_SEM", "ESTADO_ESPERA_COM",
            "ESTADO_REORIENTAR_SEM", "ESTADO_REORIENTAR_COM",
            "ESTADO_PEGAR_SEM", "ESTADO_PEGAR_COM",
@@ -150,6 +150,21 @@ def estado_de_recompensa(elo: torch.Tensor, aguardando: torch.Tensor,
     por_elo = torch.where(elo == BOTAR, torch.full_like(elo, ESTADO_BOTAR), por_elo)
     estado = torch.where(aguardando, ESTADO_ESPERA_SEM + com, por_elo)
     return torch.where(soltou, torch.full_like(elo, ESTADO_CAUDA), estado)
+
+
+def carregar_elo_aberto(elo: torch.Tensor, cadeia: torch.Tensor,
+                        fechou: torch.Tensor) -> torch.Tensor:
+    """O env está no elo CARREGAR ABERTO da cadeia C? `bool`, por env (spec
+    `g1-limpo-rastreio-carregar-elo.md` §1). Só aí os dois rastreios trocam a coluna
+    CARREGAR da tabela (×3,5, feita para a cauda que ANDA) por
+    `knobs.Cadeia.rastreio_carregar_elo`: o comando é ZERO e o robô ganhava 14/s por
+    ficar, contra ≈ 0 de fechar. A cauda (`fechou = True`: B, R e a C desviada) fica fora.
+
+    ⚠ O `2` é o índice da cadeia C em `CADEIAS` (PEGAR, CARREGAR, BOTAR), o mesmo
+    `cad == 2` do `eh_c` do currículo. Função PURA, como `estado_de_recompensa`: o
+    `smoke` prova a tabela-verdade sem montar um env.
+    """
+    return (elo == CARREGAR) & (cadeia == 2) & ~fechou
 
 # --- as cadeias de elo (spec dois-bits §2.1). O teto é DERIVADO (`_TETO_ELOS`),
 # nunca redigitado. O `CARREGAR` tem DOIS papéis: na cadeia C ele é o ELO DO MEIO
@@ -593,6 +608,10 @@ class AlvoCaixaCmd(CommandTerm):
         # `aguardando` que escreve o `VALIDA`, e lido por `recompensas.PesoPorEstado`.
         # Nasce `ANDAR` (0); a leitura real começa no primeiro `_update_command`.
         env.limpo_estado = torch.zeros(n, dtype=torch.long, device=d)
+        # ⚠ O ELO CARREGAR ABERTO da cadeia C (spec g1-limpo-rastreio-carregar-elo §2): 0/1
+        # por env, escrito IN-PLACE por `_aplica_espera` na MESMA fase do `limpo_estado` (NÃO
+        # em `_update_command`) e lido por `recompensas.PesoPorEstado` só nos dois rastreios.
+        env.limpo_carregar_elo = torch.zeros(n, device=d)
         # ⚠ A MÁSCARA "esta tarefa zerou o twist deste env", por env (v2.1, spec P4).
         # Publicada por `_zera_twist_nos_parados`. Desde a tabela por estado NENHUMA
         # recompensa a lê (o gate do rastreio virou `limpo_estado`); quem lê é a
@@ -854,6 +873,10 @@ class AlvoCaixaCmd(CommandTerm):
         # soma errada. IN-PLACE, como `limpo_aguardando` e `limpo_soltou`.
         self._env.limpo_estado.copy_(estado_de_recompensa(
             self._elo, aguardando, self._pegou, self._soltou))
+        # ⚠ O ELO CARREGAR ABERTO da cadeia C, na MESMA fase do `limpo_estado` acima: o `_elo`
+        # de depois do avanço e o `fechou` fresco (spec g1-limpo-rastreio-carregar-elo §2).
+        self._env.limpo_carregar_elo.copy_(
+            carregar_elo_aberto(self._elo, self._cadeia, self.fechou).float())
 
         # ⚠ O σ da TAREFA, no instante em que ela liga. `_sigma_pendente` é verdadeiro
         # do resample até aqui; no `ANDAR` puro `VALIDA` nunca acende, e ele fica

@@ -373,6 +373,11 @@ class PesoPorEstado:
     2,0/s de 8 e 3,8 de 15 — proporcional à renda. Parado (wz = 0) o kernel é 1: o piso
     da estátua não muda. Só os `TERMOS_CONGELAVEIS` e o `forma_postural` levam `rumo`.
 
+    ⚠ `carregar_elo` (01/10, spec `g1-limpo-rastreio-carregar-elo.md`): SÓ os dois
+    rastreios o levam, e SÓ vale no elo CARREGAR ABERTO da cadeia C — onde
+    `env.limpo_carregar_elo` (publicado na mesma fase do `limpo_estado`) passa de 0,5, o
+    peso ×1 substitui o da tabela (3,5). Nos outros termos a chave não existe.
+
     ⚠ `renda_congelada` lê `_step_reward` dos sete pelo NOME, JÁ multiplicados pela
     tabela — INTENCIONAL: é isso que faz o piso do BOTAR ×2 valer ~15,8.
 
@@ -391,10 +396,15 @@ class PesoPorEstado:
             f"tabela com {len(tabela)} colunas para {len(ESTADOS)} estados")
         self._t = torch.tensor(tabela, dtype=torch.float32, device=env.device)
         self._rumo = cfg.params.get("rumo")   # kwargs do `giro_sem_gingado`, ou None
+        self._w_elo = cfg.params.get("carregar_elo")  # peso do elo CARREGAR aberto, ou None
 
-    def __call__(self, env, func, tabela, rumo=None, **kw) -> torch.Tensor:
-        del func, tabela, rumo  # resolvidos no __init__
-        r = self._f(env, **kw) * self._t[env.limpo_estado]
+    def __call__(self, env, func, tabela, rumo=None, carregar_elo=None, **kw) -> torch.Tensor:
+        del func, tabela, rumo, carregar_elo  # resolvidos no __init__
+        w = self._t[env.limpo_estado]
+        if self._w_elo is not None:
+            w = torch.where(env.limpo_carregar_elo > 0.5,
+                            torch.full_like(w, float(self._w_elo)), w)
+        r = self._f(env, **kw) * w
         return r * giro_sem_gingado(env, **self._rumo) if self._rumo else r
 
 

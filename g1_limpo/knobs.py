@@ -1134,6 +1134,12 @@ class Cadeia:
     fase4_s_cauda: float = 0.60
     fase4_min_iters: int = 300
 
+    # ⚠ O multiplicador do RASTREIO no elo CARREGAR ABERTO da cadeia C (spec
+    # g1-limpo-rastreio-carregar-elo §1, 01/10), no lugar da coluna CARREGAR da tabela
+    # (3,5). Mora AQUI e não em `Recompensa` nem em `PesoPorEstado`: os campos deles têm
+    # de ser termos de recompensa (`env_cfg.aplica_pesos` e o laço da tabela afirmam isso).
+    rastreio_carregar_elo: float = 1.0
+
 
 @dataclass
 class Contato:
@@ -1269,6 +1275,10 @@ class PesoPorEstado:
     · Rastreio no CARREGAR = 3,5. Teto dos dois: 2,0 + 2,0 = 4,0; ×3,5 = 14 ≈ o piso
       de 13,79. Parado = 13,79 + 3 = 16,8; andando bem = 30,8; ganho de andar +14 e
       break-even de risco 45% (hoje +1,5 e 5%).
+    · EXCEÇÃO ao 3,5 (01/10, spec `g1-limpo-rastreio-carregar-elo.md`): no elo CARREGAR
+      ABERTO da cadeia C o comando é zero e parado o rastreio paga 14/s, contra ≈ 0 de
+      fechar (a espera é ×1 e o rastreio não entra na renda congelada). Ali os dois usam
+      `Cadeia.rastreio_carregar_elo` = 1,0; a cauda (`fechou`) segue em 3,5.
     · Rastreio nas outras colunas reproduz o antigo `rastreio_por_elo` (`fator = 1 −
       zerado × (1 − pegou)`), estado a estado: ANDAR 1 (twist vivo); ESPERA_SEM 0;
       ESPERA_COM 1; REORIENTAR_SEM e PEGAR_SEM 0 (nunca tocou); REORIENTAR_COM, BOTAR
