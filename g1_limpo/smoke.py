@@ -1687,8 +1687,8 @@ check("o sorteio da laje do BOTAR leva `.abs()` no x (dx ∈ [0; δ])",
 
 # --- K12 (lote 01/10, Parte 3): as métricas sem peso da cadeia C
 _chaves_k12 = ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
-               "c_desvio_carregar", "cauda_twist_herdado")
-check("as seis métricas do K12 nascem em `metrics` do comando",
+               "c_desvio_carregar", "cauda_twist_herdado", "c_botar_raso")
+check("as sete métricas do K12 (+ `c_botar_raso` do R4) nascem em `metrics` do comando",
       all(f'"{c}"' in inspect.getsource(CMD.AlvoCaixaCmd.__init__) for c in _chaves_k12),
       str(_chaves_k12))
 check("`c_desvio_*` é escrito ANTES de `self._elo[vira_carregar] = CARREGAR` em `_aplica_espera`",
@@ -1696,6 +1696,27 @@ check("`c_desvio_*` é escrito ANTES de `self._elo[vira_carregar] = CARREGAR` em
       and _src_esp_t.index("c_desvio_carregar")
       < _src_esp_t.index("self._elo[vira_carregar] = CARREGAR"),
       "depois da escrita o `_elo` já é CARREGAR e a origem do desvio se perde")
+
+# --- R4 (lote 01/10): BOTAR raso, spec `g1-limpo-botar-raso.md`
+check("`frac_botar_raso`: 0,0 → 0,5; 0,15 → 0,25; 0,30 → 0; 1,0 → 0",
+      all(abs(CMD.frac_botar_raso(s, 0.5, 0.30) - e) < 1e-9
+          for s, e in ((0.0, 0.5), (0.15, 0.25), (0.30, 0.0), (1.0, 0.0))),
+      str([CMD.frac_botar_raso(s, 0.5, 0.30) for s in (0.0, 0.15, 0.30, 1.0)]))
+_cfg_raso = CMD.AlvoCaixaCmdCfg
+for _nr in ("botar_raso_frac", "botar_raso_s_c", "botar_raso_topo_max"):
+    check(f"`{_nr}` é o MESMO em `knobs.Alvo` e em `AlvoCaixaCmdCfg`",
+          getattr(k.alvo, _nr) == _cfg_raso.__dataclass_fields__[_nr].default,
+          f"{getattr(k.alvo, _nr)} contra {_cfg_raso.__dataclass_fields__[_nr].default}")
+    check(f"`make_env_cfg` entrega `{_nr}` ao comando",
+          getattr(make_env_cfg(k).commands["alvo_caixa"], _nr) == getattr(k.alvo, _nr),
+          _nr)
+_src_ae = inspect.getsource(CMD.AlvoCaixaCmd._aplica_elo)
+check("em `_aplica_elo`, o `clamp(teto, max=botar_raso_topo_max)` vem DEPOIS do guarda `teto` "
+      "e ANTES do `topo = torch.where(`",
+      _src_ae.index("teto = torch.clamp(")
+      < _src_ae.index("torch.clamp(teto, max=c.botar_raso_topo_max)")
+      < _src_ae.index("topo = torch.where("),
+      "o teto raso tem de nascer do guarda físico, e antes do topo final")
 
 # --- a VALIDAÇÃO do `std_standing` novo, SEM ENV (spec §3.1) ---
 # ⚠ Esta tabela valida SÓ as 15 de perna+cintura, contra os limiares de origem:
@@ -5722,11 +5743,14 @@ try:
           and bool((_tv6c._elo[_longe6] == CMD.CARREGAR).all()),
           f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}")
     check("6. com `_perto` verdadeiro, o avanço acontece e `_passo` sobe — ao CARREGAR "
-          "parado, o 2º elo da C (30/09)",
+          "parado, o 2º elo da C (30/09); e a C DESVIADA (`_perto` falso) também fica parada "
+          "(K1b, 01/10)",
           bool((_tv6c._passo[_no_alvo6] == 1).all())
           and bool((_tv6c._elo[_no_alvo6] == CMD.CARREGAR).all())
           and bool(_tv6c._carregar_parado[_no_alvo6].all())
-          and not bool(_tv6c._carregar_parado[_longe6].any()),
+          # ⚠ K1b: até 30/09 o desviado andava (fase ≥ 3) e rendia mais que avançar (×3,5
+          # contra ×1 do elo); agora a cauda da cadeia C é parada em toda fase.
+          and bool(_tv6c._carregar_parado[_longe6].all()),
           f"passo {_tv6c._passo.tolist()}, elo {_tv6c._elo.tolist()}, "
           f"parado {_tv6c._carregar_parado.tolist()}")
     check("6. `avancos` incrementa NO AVANÇO, e só nele",
@@ -5782,10 +5806,16 @@ try:
           and float((_dist_xy7 - CMD._AVANCO_LAJE_BOTAR).abs().max())
           <= k.alvo.botar_delta_xy + 0.05,
           f"dist {_dist_xy7.tolist()}")
-    check("7. `|topo − topo0| <= delta_topo` (mais a folga de guarda física)",
-          float((_ev7.limpo_topo - _topo0_7).abs().max())
-          <= k.alvo.botar_delta_topo + 0.05,
-          f"topo0 {_topo0_7.tolist()}, topo {_ev7.limpo_topo.tolist()}")
+    # ⚠ R4: nos envs de laje RASA (`c_botar_raso` = 1) o topo não deriva do `topo0`; ali vale
+    # `topo <= botar_raso_topo_max`. Nos demais o check segue como era, sem afrouxar.
+    _raso7 = _tv7c.metrics["c_botar_raso"] > 0.5
+    check("7. `|topo − topo0| <= delta_topo` (mais a folga de guarda física), nos envs não rasos",
+          bool((((_ev7.limpo_topo - _topo0_7).abs() <= k.alvo.botar_delta_topo + 0.05)
+                | _raso7).all()),
+          f"topo0 {_topo0_7.tolist()}, topo {_ev7.limpo_topo.tolist()}, raso {_raso7.tolist()}")
+    check("7. nos envs de laje rasa, `topo <= botar_raso_topo_max` (R4)",
+          bool(((_ev7.limpo_topo <= k.alvo.botar_raso_topo_max + 1e-6) | ~_raso7).all()),
+          f"topo {_ev7.limpo_topo.tolist()}, raso {_raso7.tolist()}")
     _cx7 = _ev7.scene["box"]
     _dist_alvo_centro7 = (_tv7c.command[:, CMD.ALVO][:, :2]
                          - _mesa7[:, :2]).norm(dim=-1)

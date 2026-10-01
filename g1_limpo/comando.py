@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio",
+__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio", "frac_botar_raso",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
@@ -261,6 +261,13 @@ ALCANCE_R = 0.85
 # botar_folga_laje` continua sendo o que de fato limita.
 _TOPO_TETO_FISICO = 0.80
 
+
+def frac_botar_raso(s_c: float, frac: float, s_c_alvo: float) -> float:
+    """Fração das aberturas do BOTAR com laje rasa (R4, spec `g1-limpo-botar-raso.md`):
+    `frac` com `s_C` = 0, linear até 0 em `s_C` ≥ `s_c_alvo`. Sem termo `forma`, `s_C` = 1
+    e a fração é 0."""
+    return frac * min(max(1.0 - s_c / s_c_alvo, 0.0), 1.0)
+
 # ⚠ O AVANÇO EM X DA LAJE NO BOTAR (spec dois-bits §1.4, revisão do coordenador,
 # item 27). É NÚMERO MEDIDO, não sintonizável — não vira knob: `knobs.Cena.
 # prateleira_xy` continua em 0,50 (o reset), e só a chamada do BOTAR usa este
@@ -344,6 +351,10 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     botar_delta_xy: float = 0.10
     botar_recuo_borda: float = 0.15
     botar_folga_laje: float = 0.05
+    # BOTAR raso (R4, spec g1-limpo-botar-raso.md); mesmos valores de `knobs.Alvo`.
+    botar_raso_frac: float = 0.5
+    botar_raso_s_c: float = 0.30
+    botar_raso_topo_max: float = 0.64
     # geometria de que o termo precisa para mover a laje
     afasta_z: float = 5.0
     # posição da laje no RESET. O avanço do BOTAR usa `_AVANCO_LAJE_BOTAR`, uma
@@ -545,7 +556,7 @@ class AlvoCaixaCmd(CommandTerm):
         # `c_chegou_botar/c_episodio`, `c_desvio_pegar/c_episodio`,
         # `c_desvio_carregar/c_chegou_carregar`.
         for _m in ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
-                   "c_desvio_carregar", "cauda_twist_herdado"):
+                   "c_desvio_carregar", "cauda_twist_herdado", "c_botar_raso"):
             self.metrics[_m] = z.clone()
         # fração dos passos de cauda andando com comando linear < 0,05 m/s (twist herdado)
         self._n_cauda_anda = torch.zeros(n, device=d)
@@ -1848,8 +1859,21 @@ class AlvoCaixaCmd(CommandTerm):
                 # sobe a laje até `prateleira_topo_piso` (nunca ENTERRADA), mesmo que
                 # isso passe do `teto` — geometricamente impossível de satisfazer, e é
                 # melhor declarar que violar em silêncio.
-                topo = torch.minimum(topo0 + dtopo, teto).clamp(
+                # ⚠ BOTAR RASO (R4, spec `g1-limpo-botar-raso.md`): a descida típica (~25 cm)
+                # era longa demais, o robô nunca via o fecho e o crítico esquecia o valor de
+                # fechar. Em fração `f` (cai com o `s_C`) a laje nasce RASA, em
+                # [teto_raso − delta; teto_raso]. Desvio do §2 do enunciado, só enquanto
+                # `s_C` < `botar_raso_s_c`; o resto dos envs segue em `topo0 ± delta`.
+                st_r = getattr(self._env, "limpo_forma", None)
+                s_c_r = float(st_r["s_C"]) if st_r and "s_C" in st_r else 1.0
+                f_raso = frac_botar_raso(s_c_r, c.botar_raso_frac, c.botar_raso_s_c)
+                raso = torch.rand(k, device=d) < f_raso
+                topo_raso = (torch.clamp(teto, max=c.botar_raso_topo_max)
+                             - c.botar_delta_topo * torch.rand(k, device=d))
+                topo = torch.where(raso, topo_raso,
+                                   torch.minimum(topo0 + dtopo, teto)).clamp(
                     min=c.prateleira_topo_piso)
+                self.metrics["c_botar_raso"][m] = raso.float()
 
                 # ⚠ A LAJE nasce perto da BASE, não da origem do env (revisão, item 5):
                 # `xy_laje = base_p + quat_apply_yaw(base_q, _AVANCO_LAJE_BOTAR + dxy)`.
