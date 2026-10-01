@@ -1687,8 +1687,8 @@ check("o sorteio da laje do BOTAR leva `.abs()` no x (dx ∈ [0; δ])",
 
 # --- K12 (lote 01/10, Parte 3): as métricas sem peso da cadeia C
 _chaves_k12 = ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
-               "c_desvio_carregar", "cauda_twist_herdado", "c_botar_raso")
-check("as sete métricas do K12 (+ `c_botar_raso` do R4) nascem em `metrics` do comando",
+               "c_desvio_carregar", "cauda_twist_herdado", "c_botar_topo", "c_fechou_botar", "c_fecho_topo")
+check("as sete métricas do K12 (+ as três do R4b) nascem em `metrics` do comando",
       all(f'"{c}"' in inspect.getsource(CMD.AlvoCaixaCmd.__init__) for c in _chaves_k12),
       str(_chaves_k12))
 check("`c_desvio_*` é escrito ANTES de `self._elo[vira_carregar] = CARREGAR` em `_aplica_espera`",
@@ -1697,13 +1697,13 @@ check("`c_desvio_*` é escrito ANTES de `self._elo[vira_carregar] = CARREGAR` em
       < _src_esp_t.index("self._elo[vira_carregar] = CARREGAR"),
       "depois da escrita o `_elo` já é CARREGAR e a origem do desvio se perde")
 
-# --- R4 (lote 01/10): BOTAR raso, spec `g1-limpo-botar-raso.md`
-check("`frac_botar_raso`: 0,0 → 0,5; 0,15 → 0,25; 0,30 → 0; 1,0 → 0",
-      all(abs(CMD.frac_botar_raso(s, 0.5, 0.30) - e) < 1e-9
-          for s, e in ((0.0, 0.5), (0.15, 0.25), (0.30, 0.0), (1.0, 0.0))),
-      str([CMD.frac_botar_raso(s, 0.5, 0.30) for s in (0.0, 0.15, 0.30, 1.0)]))
+# --- R4b (01/10): profundidade do BOTAR, spec `g1-limpo-botar-profundidade.md`
+check("`avanco_prof_botar`: 0,0 → 0; 0,25 → 0,5; 0,5 → 1; 1,0 → 1 (s_c_alvo = 0,5)",
+      all(abs(CMD.avanco_prof_botar(s, 0.5) - e) < 1e-9
+          for s, e in ((0.0, 0.0), (0.25, 0.5), (0.5, 1.0), (1.0, 1.0))),
+      str([CMD.avanco_prof_botar(s, 0.5) for s in (0.0, 0.25, 0.5, 1.0)]))
 _cfg_raso = CMD.AlvoCaixaCmdCfg
-for _nr in ("botar_raso_frac", "botar_raso_s_c", "botar_raso_topo_max"):
+for _nr in ("botar_prof_s_c", "botar_raso_topo_max"):
     check(f"`{_nr}` é o MESMO em `knobs.Alvo` e em `AlvoCaixaCmdCfg`",
           getattr(k.alvo, _nr) == _cfg_raso.__dataclass_fields__[_nr].default,
           f"{getattr(k.alvo, _nr)} contra {_cfg_raso.__dataclass_fields__[_nr].default}")
@@ -1711,12 +1711,12 @@ for _nr in ("botar_raso_frac", "botar_raso_s_c", "botar_raso_topo_max"):
           getattr(make_env_cfg(k).commands["alvo_caixa"], _nr) == getattr(k.alvo, _nr),
           _nr)
 _src_ae = inspect.getsource(CMD.AlvoCaixaCmd._aplica_elo)
-check("em `_aplica_elo`, o `clamp(teto, max=botar_raso_topo_max)` vem DEPOIS do guarda `teto` "
-      "e ANTES do `topo = torch.where(`",
-      _src_ae.index("teto = torch.clamp(")
-      < _src_ae.index("torch.clamp(teto, max=c.botar_raso_topo_max)")
-      < _src_ae.index("topo = torch.where("),
-      "o teto raso tem de nascer do guarda físico, e antes do topo final")
+_src_ae_botar = _src_ae[_src_ae.index("elif elo == BOTAR:"):]
+check("em `_aplica_elo`, o guarda `teto = torch.clamp(` vem ANTES de `avanco_prof_botar(`, "
+      "e o BOTAR não herda o `topo0` do PEGAR",
+      _src_ae.index("teto = torch.clamp(") < _src_ae.index("avanco_prof_botar(")
+      and "topo0" not in _src_ae_botar,
+      "o teto raso nasce do guarda físico; a laje do BOTAR não deriva mais do PEGAR")
 
 # --- a VALIDAÇÃO do `std_standing` novo, SEM ENV (spec §3.1) ---
 # ⚠ Esta tabela valida SÓ as 15 de perna+cintura, contra os limiares de origem:
@@ -5788,7 +5788,6 @@ try:
     _nv7 = _ev7.action_manager.total_action_dim
     _passa_janela(_ev7, _nv7, _tv7)
     _tv7c = _ev7.command_manager.get_term("alvo_caixa")
-    _topo0_7 = _ev7.limpo_topo.clone()
     _idsv7 = _tv7.arange(8)
     _tv7c.forca_avanco(_idsv7)
     _ev7.step(_tv7.zeros(8, _nv7))     # avança -> CARREGAR parado (30/09)
@@ -5806,16 +5805,26 @@ try:
           and float((_dist_xy7 - CMD._AVANCO_LAJE_BOTAR).abs().max())
           <= k.alvo.botar_delta_xy + 0.05,
           f"dist {_dist_xy7.tolist()}")
-    # ⚠ R4: nos envs de laje RASA (`c_botar_raso` = 1) o topo não deriva do `topo0`; ali vale
-    # `topo <= botar_raso_topo_max`. Nos demais o check segue como era, sem afrouxar.
-    _raso7 = _tv7c.metrics["c_botar_raso"] > 0.5
-    check("7. `|topo − topo0| <= delta_topo` (mais a folga de guarda física), nos envs não rasos",
-          bool((((_ev7.limpo_topo - _topo0_7).abs() <= k.alvo.botar_delta_topo + 0.05)
-                | _raso7).all()),
-          f"topo0 {_topo0_7.tolist()}, topo {_ev7.limpo_topo.tolist()}, raso {_raso7.tolist()}")
-    check("7. nos envs de laje rasa, `topo <= botar_raso_topo_max` (R4)",
-          bool(((_ev7.limpo_topo <= k.alvo.botar_raso_topo_max + 1e-6) | ~_raso7).all()),
-          f"topo {_ev7.limpo_topo.tolist()}, raso {_raso7.tolist()}")
+    # ⚠ R4b: o topo do BOTAR é sorteado por profundidade (`s_C`), sem herdar o `topo0`.
+    # Limite inferior esperado: `topo >= (1 − a)(teto_raso − delta) + a·piso`, com `teto_raso`
+    # recalculado do fundo da caixa AGORA (1 passo depois da abertura: folga de 0,03 m). Sem
+    # `limpo_forma`, `s_C` = 1 (a = 1, profundidade cheia).
+    _topo7 = _ev7.limpo_topo
+    _forma7 = getattr(_ev7, "limpo_forma", None)
+    _s_c7 = float(_forma7["s_C"]) if _forma7 and "s_C" in _forma7 else 1.0
+    _a7 = CMD.avanco_prof_botar(_s_c7, k.alvo.botar_prof_s_c)
+    _fundo7 = (_ev7.scene["box"].data.root_link_pos_w[:, 2] - _tv7c._meia(_idsv7)[:, 2])
+    _teto7 = _tv7.clamp(_tv7.clamp(_fundo7 - k.alvo.botar_folga_laje, max=CMD._TOPO_TETO_FISICO),
+                        max=k.alvo.botar_raso_topo_max)
+    _piso7 = k.alvo.prateleira_topo_piso
+    _inf7 = (1.0 - _a7) * (_teto7 - k.alvo.botar_delta_topo) + _a7 * _piso7
+    check("7. `topo <= botar_raso_topo_max` e `topo >= prateleira_topo_piso` (R4b)",
+          bool(((_topo7 <= k.alvo.botar_raso_topo_max + 1e-6)
+                & (_topo7 >= _piso7 - 1e-6)).all()),
+          f"topo {_topo7.tolist()}")
+    check("7. `topo >= teto_raso − prof` pelo `s_C` do env (R4b; folga 0,03 m do passo)",
+          bool((_topo7 >= _inf7 - 0.03).all()),
+          f"s_C {_s_c7}, a {_a7}, topo {_topo7.tolist()}, limite {_inf7.tolist()}")
     _cx7 = _ev7.scene["box"]
     _dist_alvo_centro7 = (_tv7c.command[:, CMD.ALVO][:, :2]
                          - _mesa7[:, :2]).norm(dim=-1)

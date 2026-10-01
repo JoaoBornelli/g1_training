@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio", "frac_botar_raso",
+__all__ = ["AlvoCaixaCmd", "AlvoCaixaCmdCfg", "FACE_AXES", "forca_de_apoio", "avanco_prof_botar",
            "ALVO", "FACE", "ANG", "VALIDA", "ELO", "GIRO", "DIM",
            "ANDAR", "REORIENTAR", "PEGAR", "CARREGAR", "BOTAR", "ELOS", "elo_por_nome",
            "CADEIAS",
@@ -262,11 +262,11 @@ ALCANCE_R = 0.85
 _TOPO_TETO_FISICO = 0.80
 
 
-def frac_botar_raso(s_c: float, frac: float, s_c_alvo: float) -> float:
-    """Fração das aberturas do BOTAR com laje rasa (R4, spec `g1-limpo-botar-raso.md`):
-    `frac` com `s_C` = 0, linear até 0 em `s_C` ≥ `s_c_alvo`. Sem termo `forma`, `s_C` = 1
-    e a fração é 0."""
-    return frac * min(max(1.0 - s_c / s_c_alvo, 0.0), 1.0)
+def avanco_prof_botar(s_c: float, s_c_alvo: float) -> float:
+    """Avanço da PROFUNDIDADE do sorteio da laje do BOTAR (R4b, spec
+    `g1-limpo-botar-profundidade.md`): `clamp(s_C / s_c_alvo, 0, 1)`. 0 = laje só rasa;
+    1 = todas as alturas. Sem termo `forma`, `s_C` = 1 e a profundidade é cheia."""
+    return min(max(s_c / s_c_alvo, 0.0), 1.0)
 
 # ⚠ O AVANÇO EM X DA LAJE NO BOTAR (spec dois-bits §1.4, revisão do coordenador,
 # item 27). É NÚMERO MEDIDO, não sintonizável — não vira knob: `knobs.Cena.
@@ -351,9 +351,9 @@ class AlvoCaixaCmdCfg(CommandTermCfg):
     botar_delta_xy: float = 0.10
     botar_recuo_borda: float = 0.15
     botar_folga_laje: float = 0.05
-    # BOTAR raso (R4, spec g1-limpo-botar-raso.md); mesmos valores de `knobs.Alvo`.
-    botar_raso_frac: float = 0.5
-    botar_raso_s_c: float = 0.30
+    # Profundidade do BOTAR (R4b, spec g1-limpo-botar-profundidade.md); mesmos valores de
+    # `knobs.Alvo`.
+    botar_prof_s_c: float = 0.50
     botar_raso_topo_max: float = 0.64
     # geometria de que o termo precisa para mover a laje
     afasta_z: float = 5.0
@@ -556,7 +556,8 @@ class AlvoCaixaCmd(CommandTerm):
         # `c_chegou_botar/c_episodio`, `c_desvio_pegar/c_episodio`,
         # `c_desvio_carregar/c_chegou_carregar`.
         for _m in ("c_episodio", "c_chegou_carregar", "c_chegou_botar", "c_desvio_pegar",
-                   "c_desvio_carregar", "cauda_twist_herdado", "c_botar_raso"):
+                   "c_desvio_carregar", "cauda_twist_herdado", "c_botar_topo", "c_fechou_botar",
+                   "c_fecho_topo"):
             self.metrics[_m] = z.clone()
         # fração dos passos de cauda andando com comando linear < 0,05 m/s (twist herdado)
         self._n_cauda_anda = torch.zeros(n, device=d)
@@ -1753,6 +1754,11 @@ class AlvoCaixaCmd(CommandTerm):
         terminal = ids[self.concluiu(ids)]
         if len(terminal):
             self.metrics["sucesso"][terminal] = 1.0
+            # ⚠ métricas SEM PESO do R4b: topo do fecho terminal da cadeia C (razão no log:
+            # `c_fecho_topo / c_fechou_botar`), para comparar com `c_botar_topo / c_chegou_botar`.
+            term_c = terminal[self._cadeia[terminal] == 2]
+            self.metrics["c_fechou_botar"][term_c] = 1.0
+            self.metrics["c_fecho_topo"][term_c] = self._env.limpo_topo[term_c]
 
         # ⚠ A ESPERA FINAL (spec §6.6, dois-bits §2.2): quem fecha o BOTAR já entra
         # `_soltou`, NO MESMO PASSO do fecho, e não só quando a cauda é escrita —
@@ -1846,8 +1852,6 @@ class AlvoCaixaCmd(CommandTerm):
                 # (`limpo_topo`), e não sorteado numa faixa absoluta.
                 base_p = self.robot.data.root_link_pos_w[m]
                 base_q = self.robot.data.root_link_quat_w[m]
-                topo0 = self._env.limpo_topo[m]
-                dtopo = c.botar_delta_topo * (2.0 * torch.rand(k, device=d) - 1.0)
                 # ⚠ O GUARDA `teto = fundo − botar_folga_laje` FICA: o limite físico
                 # (o fundo da caixa SEGURADA menos a folga) sempre vence — sem ele a
                 # laje nasceria DENTRO da caixa. `botar_topo_teto` era um teto do teto;
@@ -1859,21 +1863,19 @@ class AlvoCaixaCmd(CommandTerm):
                 # sobe a laje até `prateleira_topo_piso` (nunca ENTERRADA), mesmo que
                 # isso passe do `teto` — geometricamente impossível de satisfazer, e é
                 # melhor declarar que violar em silêncio.
-                # ⚠ BOTAR RASO (R4, spec `g1-limpo-botar-raso.md`): a descida típica (~25 cm)
-                # era longa demais, o robô nunca via o fecho e o crítico esquecia o valor de
-                # fechar. Em fração `f` (cai com o `s_C`) a laje nasce RASA, em
-                # [teto_raso − delta; teto_raso]. Desvio do §2 do enunciado, só enquanto
-                # `s_C` < `botar_raso_s_c`; o resto dos envs segue em `topo0 ± delta`.
+                # ⚠ PROFUNDIDADE DO BOTAR (R4b, spec `g1-limpo-botar-profundidade.md`; §2 do
+                # enunciado, D17): a laje NÃO herda mais o topo do PEGAR (quase nunca ficava
+                # abaixo de 0,15 m). Topo = `teto_raso − prof × U(0;1)`, com `prof` de
+                # `botar_delta_topo` (s_C = 0) até o chão (s_C ≥ `botar_prof_s_c`). Sem `forma`,
+                # s_C = 1: profundidade cheia. Se o s_C cai, a profundidade encolhe.
                 st_r = getattr(self._env, "limpo_forma", None)
                 s_c_r = float(st_r["s_C"]) if st_r and "s_C" in st_r else 1.0
-                f_raso = frac_botar_raso(s_c_r, c.botar_raso_frac, c.botar_raso_s_c)
-                raso = torch.rand(k, device=d) < f_raso
-                topo_raso = (torch.clamp(teto, max=c.botar_raso_topo_max)
-                             - c.botar_delta_topo * torch.rand(k, device=d))
-                topo = torch.where(raso, topo_raso,
-                                   torch.minimum(topo0 + dtopo, teto)).clamp(
+                teto_raso = torch.clamp(teto, max=c.botar_raso_topo_max)
+                prof = c.botar_delta_topo + avanco_prof_botar(s_c_r, c.botar_prof_s_c) * (
+                    teto_raso - c.prateleira_topo_piso - c.botar_delta_topo)
+                topo = (teto_raso - prof * torch.rand(k, device=d)).clamp(
                     min=c.prateleira_topo_piso)
-                self.metrics["c_botar_raso"][m] = raso.float()
+                self.metrics["c_botar_topo"][m] = topo
 
                 # ⚠ A LAJE nasce perto da BASE, não da origem do env (revisão, item 5):
                 # `xy_laje = base_p + quat_apply_yaw(base_q, _AVANCO_LAJE_BOTAR + dxy)`.

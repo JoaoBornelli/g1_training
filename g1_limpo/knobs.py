@@ -254,13 +254,13 @@ class Alvo:
     # em que o `pegar` fecha na cadeia `pegar` -> `botar`. Sem este teto efetivo a
     # laje nasceria DENTRO da caixa.
     botar_folga_laje: float = 0.05
-    # ⚠ BOTAR RASO (R4, spec `g1-limpo-botar-raso.md`): em uma fração `f` das aberturas a laje
-    # nasce rasa, topo em [teto_raso − botar_delta_topo; teto_raso], `teto_raso = min(teto,
-    # botar_raso_topo_max)`. A descida típica (~25 cm) era longa demais para o robô explorar o
-    # fecho. `f = botar_raso_frac × clamp(1 − s_C/botar_raso_s_c, 0, 1)`: some quando o fundo
-    # aprende (s_C ≥ botar_raso_s_c) e volta ao §2. 0,64 m: acima disso o robô de pé toca a laje.
-    botar_raso_frac: float = 0.5
-    botar_raso_s_c: float = 0.30
+    # ⚠ PROFUNDIDADE DO BOTAR (R4b, spec `g1-limpo-botar-profundidade.md`; enunciado §2, D17):
+    # toda laje do BOTAR é sorteada, sem herdar o topo do PEGAR: `topo = teto_raso − prof ×
+    # U(0;1)`, `teto_raso = min(teto, botar_raso_topo_max)`, `prof = botar_delta_topo + a ×
+    # (teto_raso − piso − botar_delta_topo)`, `a = clamp(s_C / botar_prof_s_c, 0, 1)`. Com s_C = 0
+    # só o raso; com s_C ≥ `botar_prof_s_c`, até o chão. 0,64 m: acima disso o robô de pé toca
+    # a laje; `botar_delta_topo` é a profundidade mínima.
+    botar_prof_s_c: float = 0.50
     botar_raso_topo_max: float = 0.64
 
     # ⚠ A JANELA DE ESPERA, em segundos, SORTEADA por episódio. Portada do `g1_poc`
