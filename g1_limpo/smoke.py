@@ -1603,6 +1603,12 @@ check("a chave da referência de IK é a CAIXA fora do BOTAR e o ALVO no BOTAR �
       and "torch.lerp(" in _src_fp
       and 'caixa_w = env.scene["box"].data.root_link_pos_w' in _src_fp,
       "o `__call__` do `FormaPostural` não monta a chave por elo")
+# ⚠ PESOS DA FORMA (05/10): seis entradas, somam 1, e o param do termo é o knob.
+check("os pesos do `forma_postural` têm 6 entradas, somam 1 e o param `pesos` do termo "
+      "é o do knob",
+      len(k.forma_postural.pesos) == 6 and abs(sum(k.forma_postural.pesos) - 1.0) < 1e-6
+      and tuple(cfg.rewards["forma_postural"].params["pesos"]) == tuple(k.forma_postural.pesos),
+      str(k.forma_postural.pesos))
 # ⚠ E A TABELA TEM DE COBRIR ONDE A CAIXA NASCE, senão o clamp volta por outro caminho.
 # A caixa nasce em `topo + meia_z` (`eventos.py:203`): `topo` entre o piso do nível e
 # `prateleira_topo_teto`, e `meia_z` na faixa do evento de tamanho.

@@ -1594,6 +1594,14 @@ class FormaPostural:
     # zero. 2,8 passa da faixa da junta (±2,76), então a rampa nunca satura.
     escala_sola_deg: float = 60.0
     escala_quadril_rad: float = 2.8
+    # ⚠ PESOS POR GRANDEZA (05/10), somam 1, na ordem (pelve, tronco, pés, pad, sola, quadril).
+    # Com a média simples a derivada do tronco era 3 × 1/6 × 1/90° ≈ 0,006/s por grau e a
+    # política dobrava o corpo sobre a caixa (MEDIDO `model_24800`, laje 0,15: tronco 109°
+    # contra 66° da IK, cabeça a 7 mm da caixa). Erro médio na janela da pega: tronco 20–28°
+    # (r 0,69–0,78), pés 0,10–0,12 m (r 0,39–0,49), pelve 0,03–0,05 m (r 0,83–0,89), pad
+    # 10–21° (r 0,77–0,88), sola ~1° (r 0,94–0,99), quadril 0,08–0,25 rad (r 0,91–0,97).
+    # Os pesos vão para as duas grandezas mais longe da IK; o máximo do termo não muda.
+    pesos: tuple[float, ...] = (0.15, 0.35, 0.25, 0.10, 0.075, 0.075)
     referencia: str = "ik/ref_botar.npz"   # relativo a `g1_limpo/`
 
 

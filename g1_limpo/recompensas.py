@@ -925,7 +925,7 @@ class FormaPostural:
 
         r_i = 1 − min( |x_i − ref_i(h)| / escala_i , 1 )     i = pelve, tronco, pés, pad,
                                                              sola, quadril
-        r   = média das seis  ×  alcancar
+        r   = Σ w_i · r_i  ×  alcancar            (pesos em `knobs.FormaPostural.pesos`)
 
     A referência é o `ref_botar.npz` do `g1_limpo/ik/gera_botar.py`: 15 poses sem peça
     dentro de peça, pelve abaixo de 60°, sem rotação interna do joelho, aprovadas uma a
@@ -965,8 +965,10 @@ class FormaPostural:
     tronco era 60° e SATURAVA na laje de 0,55, onde o erro chega a 77° — ver
     `knobs.FormaPostural`.
 
-    ⚠ MÉDIA das quatro, e não produto: o produto repete o defeito do `pose` — uma
-    grandeza ruim zera o termo e apaga o gradiente das outras.
+    ⚠ MÉDIA PONDERADA das seis (pesos em `knobs.FormaPostural.pesos`, 05/10), e não
+    produto: o produto repete o defeito do `pose` — uma grandeza ruim zera o termo e
+    apaga o gradiente das outras. Os pesos põem o gradiente onde o robô está mais longe
+    da IK (tronco, pés); a soma é 1, o máximo do termo não muda.
 
     ⚠ SEM faixa de tolerância: ela criaria um platô de derivada zero em volta da
     referência, e a referência é aproximada. A rampa já paga mais por estar mais perto
@@ -1018,6 +1020,8 @@ class FormaPostural:
         tab = np.stack([ref["pelve_z"], np.radians(ref["tronco_incl"]), ref["pes_larg"]],
                        axis=1)[ordem]
         self.tab = torch.tensor(tab, device=d, dtype=torch.float32)         # (15, 3)
+        assert abs(sum(p["pesos"]) - 1.0) < 1e-6 and len(p["pesos"]) == 6
+        self.pesos = torch.tensor(p["pesos"], device=d)
         self.escala = torch.tensor(
             [p["escala_pelve"], math.radians(p["escala_tronco_deg"]),
              p["escala_pes"], math.radians(p["escala_pad_deg"]),
@@ -1041,9 +1045,9 @@ class FormaPostural:
 
     def __call__(self, env, nome_do_comando: str, referencia, escala_pelve, escala_tronco_deg,
                  escala_pes, escala_pad_deg, escala_sola_deg, escala_quadril_rad,
-                 sitios_pe, sitios_palma) -> torch.Tensor:
+                 pesos, sitios_pe, sitios_palma) -> torch.Tensor:
         del referencia, escala_pelve, escala_tronco_deg, escala_pes, escala_pad_deg
-        del escala_sola_deg, escala_quadril_rad, sitios_pe, sitios_palma   # no `__init__`
+        del escala_sola_deg, escala_quadril_rad, pesos, sitios_pe, sitios_palma   # no `__init__`
         robot = env.scene["robot"].data
         n = env.num_envs
         origem_z = env.scene.env_origins[:, 2]
@@ -1092,7 +1096,7 @@ class FormaPostural:
         # as pernas; o lado externo era grátis e o interno saturava (1,97 > 1,6).
         torcao = robot.joint_pos[:, self.ids_yaw].abs()                            # (n, 2)
         r_quadril = (1.0 - (torcao / self.escala[5]).clamp(max=1.0)).mean(dim=1, keepdim=True)
-        r = torch.cat([r_corpo, r_pad, r_sola, r_quadril], dim=1).mean(dim=1)
+        r = (torch.cat([r_corpo, r_pad, r_sola, r_quadril], dim=1) * self.pesos).sum(dim=1)
         return r * _alcancar(env, nome_do_comando)
 
 
