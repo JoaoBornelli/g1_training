@@ -11,10 +11,15 @@ segundos, e cada passo vira uma linha do CSV.
 depende do `mjlab`: o MuJoCo clássico roda ~40× tempo real nesta CPU, contra 96× mais
 LENTO por substep no Warp.
 
-O que sai, e nada mais:
+O que sai, e nada mais (o `giro_w` de correção do tombo entra na observação em todo
+passo, como no treino; antes o registrador o deixava em zero e o ator ficava cego ao tombo):
   <saida>.csv           passo, t, fase, elo, one-hot, o ÂNGULO CRU das 29 juntas, e a
                         POSE DE MUNDO da raiz do robô e da caixa (7 números cada:
                         x, y, z, qw, qx, qy, qz)
+                        + o ALVO do comando em mundo (alvo_x/y/z), o `giro_ang` (graus
+                        de tombo da caixa, como o treino o mede) e a coluna `ckpt`
+                        (nome do arquivo:sha256 de 10 dígitos do checkpoint)
+                        + `a_<junta>` (a ação crua do ator) e `alvo_pd_<junta>` (o alvo do PD, rad)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 
 ⚠ A RAIZ E A CAIXA entraram em 15/09. Sem elas, uma sonda que queira a altura da pelve
@@ -25,15 +30,35 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import time
 from pathlib import Path
 
 import mujoco
 import numpy as np
 
-from pilota import ELOS, Ator, carrega_cena, monta_observacao, restaura
+from pilota import (ELOS, Ator, alvo_do_elo, carrega_cena, gira, gira_inverso,
+                    monta_observacao, restaura)
 
 I_ANDAR, I_CARREGAR = ELOS.index("ANDAR"), ELOS.index("CARREGAR")
+I_PEGAR, I_REORIENTAR = ELOS.index("PEGAR"), ELOS.index("REORIENTAR")
+EZ = np.array([0.0, 0.0, 1.0])
+
+
+def giro_de_pe(quat_caixa: np.ndarray, cima_b: np.ndarray) -> tuple[np.ndarray, float]:
+    """`(giro_w, ang)`: o vetor de MUNDO que endireita a caixa, e o tombo em graus.
+
+    A fórmula do `comando._atualiza_face` no regime de pé: `normal_w = R·cima_b` contra
+    o `ez`; eixo = normal × ez; `giro_w = eixo · ang`. ⚠ Só o regime de pé: no
+    REORIENTAR o treino usa o regime vivo, e um roteiro com REORIENTAR publica aqui o
+    giro de pé.
+    """
+    normal_w = gira(quat_caixa, cima_b)
+    ang = float(np.arccos(np.clip(normal_w @ EZ, -1.0, 1.0)))
+    eixo = np.cross(normal_w, EZ)
+    n = float(np.linalg.norm(eixo))
+    eixo = eixo / n if n > 1e-6 else EZ
+    return eixo * ang, float(np.degrees(ang))
 
 # ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
 # Por isso todo roteiro abre na espera e não numa aproximação.
@@ -253,10 +278,14 @@ def main() -> None:
     ap.add_argument("--massa", type=float, default=0.0,
                     help="massa da caixa em kg (0 = a do modelo, que é 1,0). A inércia "
                          "acompanha. O teto do currículo é `carga_max`; tente 5")
-    ap.add_argument("--rumo-k", type=float, default=0.5,
+    ap.add_argument("--rumo-k", type=float, default=2.0,
                     help="laço de rumo: wz = k x (rumo inicial - rumo), como o driver do "
                          "robô real fecha com a IMU; 0 desliga (wz = 0 fixo, mostra a "
-                         "deriva crua). 0,5 é o heading_control_stiffness do mjlab")
+                         "deriva crua). Padrão 2,0 desde 02/10: com 0,5 o rumo assentava a "
+                         "~6° da referência (erro de equilíbrio = viés/k); com 2,0 assentou "
+                         "em -2,1° no teste `23250_k2`. O treino ainda usa o 0,5 do "
+                         "`heading_control_stiffness` do mjlab; `--rumo-k 0.5` reproduz os "
+                         "plays antigos")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -266,6 +295,10 @@ def main() -> None:
     m, c = carrega_cena(args.cena)
     d = mujoco.MjData(m)
     ator = Ator(args.checkpoint)
+    # ⚠ Duas cópias com a mesma iteração (`model_5000.pt`, `model_5000(1).pt`) geram CSVs
+    # indistinguíveis; nome + hash dos bytes identifica o arquivo que de fato rodou.
+    arq_ckpt = Path(args.checkpoint).expanduser()
+    ckpt = f"{arq_ckpt.name}:{hashlib.sha256(arq_ckpt.read_bytes()).hexdigest()[:10]}"
     if ator.dim_entrada != int(c.dim_obs):
         raise SystemExit(f"o checkpoint espera {ator.dim_entrada} canais e a cena monta "
                          f"{int(c.dim_obs)}. Checkpoint de outra fase?")
@@ -312,6 +345,10 @@ def main() -> None:
     ids_atuador = np.asarray(c.ids_atuador, dtype=np.int64)
     q_default_acao = np.asarray(c.q_default_acao, dtype=np.float64)
     escala_acao = np.asarray(c.escala_acao, dtype=np.float64)
+    # Cada ação é rotulada pela junta que o ATUADOR dela move, sem supor que a ordem da
+    # ação seja a de `nomes` (`exporta_cena.py:115-117`: as duas ordens podem divergir).
+    nomes_acao = [m.joint(int(m.actuator_trnid[a, 0])).name.split("/")[-1]
+                  for a in ids_atuador]
     decimation, physics_dt = int(c.decimation), float(c.physics_dt)
     dt = physics_dt * decimation
 
@@ -321,6 +358,7 @@ def main() -> None:
     acao = np.zeros(ator.dim_saida)
     twist = np.zeros(3)
     rumo0 = None          # rumo do 1º passo; o laço de rumo segura este valor
+    cima_b = EZ.copy()    # eixo da caixa que aponta para cima, no frame dela
 
     def rumo_da_raiz() -> float:
         qw, qx, qy, qz = d.qpos[3:7]
@@ -329,7 +367,7 @@ def main() -> None:
 
     if args.tempo <= 0:
         raise SystemExit("--tempo tem de ser > 0")
-    print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao}  "
+    print(f"[registra] cena {args.cena}  checkpoint iter={ator.iteracao} ({ckpt})  "
           f"dt={dt*1000:.0f} ms ({1/dt:.0f} Hz)  tempo x{args.tempo:g}  rumo_k={args.rumo_k:g}  "
           f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
           f"topo {_topo_da_laje(m, d, c):.3f} m  "
@@ -353,6 +391,10 @@ def main() -> None:
         for volta in range(args.voltas):
             for fase in fases:
                 twist[:] = (fase.vx, 0.0, 0.0)
+                # ⚠ Como o treino (`_captura_cima`): o PEGAR recaptura o "cima" da caixa
+                # ao abrir; CARREGAR e BOTAR herdam o do PEGAR.
+                if fase.elo in (I_PEGAR, I_REORIENTAR):
+                    cima_b = gira_inverso(d.qpos[adr_caixa + 3:adr_caixa + 7], EZ)
                 if fase.limpa_laje or fase.limpa_caixa:
                     limpa_a_cena(m, d, c, args.afasta,
                                  laje=fase.limpa_laje, caixa=fase.limpa_caixa)
@@ -367,7 +409,10 @@ def main() -> None:
                         rumo0 = rumo if rumo0 is None else rumo0
                         erro = (rumo0 - rumo + np.pi) % (2 * np.pi) - np.pi
                         twist[2] = np.clip(args.rumo_k * erro, -1.6, 1.6)
-                    obs, _ = monta_observacao(m, d, c, twist, fase.elo, acao)
+                    alvo = alvo_do_elo(m, d, c, fase.elo)
+                    giro, giro_ang = giro_de_pe(d.qpos[adr_caixa + 3:adr_caixa + 7], cima_b)
+                    obs, _ = monta_observacao(m, d, c, twist, fase.elo, acao, alvo_w=alvo,
+                                              giro_w=giro)
                     acao = ator(obs)
                     d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao
                     for _ in range(decimation):
@@ -378,11 +423,23 @@ def main() -> None:
 
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
-                          "fase": fase.rotulo, "elo": ELOS[fase.elo]}
+                          "fase": fase.rotulo, "elo": ELOS[fase.elo], "ckpt": ckpt}
+                    # O alvo é o do estado ANTES do passo, o que o ator viu. No ANDAR é
+                    # irrelevante: os canais da caixa zeram no gate.
+                    for i, eixo in enumerate("xyz"):
+                        ln[f"alvo_{eixo}"] = float(alvo[i])
+                    ln["giro_ang"] = giro_ang
                     for k in range(len(ELOS)):
                         ln[f"oh_{ELOS[k].lower()}"] = int(k == fase.elo)
                     for i, nome in enumerate(nomes):
                         ln[f"q_{nome}"] = float(q[i])
+                    # Com a escala de 0,075 rad/unidade e o torque de ±5 N·m do punho, uma
+                    # junta longe do alvo do PD separa "a política comandou" de "o contato
+                    # empurrou": `a_` enorme é comando; `a_` pequeno com `q` longe é contato.
+                    for i, nome in enumerate(nomes_acao):
+                        ln[f"a_{nome}"] = float(acao[i])
+                        ln[f"alvo_pd_{nome}"] = float(q_default_acao[i]
+                                                      + escala_acao[i] * acao[i])
                     # ⚠⚠ A RAIZ E A CAIXA, e sem elas metade das grandezas de forma é
                     # incalculável. As 29 juntas dão a pose ARTICULAR; a altura da
                     # pelve no mundo, a inclinação do tronco, o CoM e a palma no frame
