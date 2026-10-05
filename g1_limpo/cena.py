@@ -29,7 +29,8 @@ from g1_limpo.knobs import Cena, Knobs
 __all__ = [
     "BOX_GEOM", "TABLE_GEOM", "MARCADOR_GEOM",
     "PALM_SITES", "PALM_PAD_GEOMS", "BACK_PAD_GEOMS", "FOOT_SITES",
-    "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CORPO_PRATELEIRA",
+    "SENSOR_PALMA", "SENSOR_DORSO", "SENSOR_APOIO", "SENSOR_CAIXA_ROBO",
+    "SENSOR_CORPO_PRATELEIRA",
     "SENSOR_PALMA_PRATELEIRA", "SENSOR_DORSO_PRATELEIRA", "MESA_POR_GRUPO",
     "SENSOR_AUTO_COLISAO", "SENSOR_PES", "CORPOS_QUE_NAO_ESCORAM",
     "GRUPO_TRONCO", "GRUPO_PALMA", "GRUPO_DORSO", "JUNTAS_BRACO",
@@ -64,6 +65,7 @@ _PALM_X = 0.10                      # ao longo da mão, na região da palma
 SENSOR_PALMA = ("palma_E", "palma_D")
 SENSOR_DORSO = ("dorso_E", "dorso_D")
 SENSOR_APOIO = "apoio_caixa"
+SENSOR_CAIXA_ROBO = "caixa_robo"   # todo contato robô–caixa, em fatias (`aperto_excessivo`)
 # ⚠ TRÊS sensores de mesa, um por grupo de geom. Ver o bloco dos grupos: a partição é
 # de MEDIÇÃO, e a união deles é o mesmo conjunto que o sensor único cobria.
 SENSOR_CORPO_PRATELEIRA = "corpo_prateleira"
@@ -160,13 +162,16 @@ JUNTAS_BRACO = (".*_shoulder_pitch_joint", ".*_shoulder_roll_joint",
 
 # ============================================================ specs de entidade
 def _spec_box(body: str, geom: str, joint: str | None, half, mass, rgba,
-              condim: int, atrito) -> mujoco.MjSpec:
+              condim: int, atrito, priority: int = 0) -> mujoco.MjSpec:
     """Um box primitivo num MjSpec PRÓPRIO.
 
     No mjlab cada objeto é uma ENTIDADE separada (um MjSpec), e o mjlab combina as
     entidades numa cena e as replica por ambiente.
 
     `joint=None` -> corpo SEM free joint -> o mjlab auto-envolve em MOCAP.
+
+    ⚠ `priority` > a do robô (0; pés 1) faz TODO contato com o robô usar o μ, o condim e o
+    solref DESTE geom, e não o max do par. É o que dá sentido ao DR de μ da caixa.
     """
     spec = mujoco.MjSpec()
     b = spec.worldbody.add_body(name=body)
@@ -174,7 +179,7 @@ def _spec_box(body: str, geom: str, joint: str | None, half, mass, rgba,
         b.add_freejoint(name=joint)       # 7 DoF: transladar e girar livre
     kwargs = dict(
         name=geom, type=mujoco.mjtGeom.mjGEOM_BOX, size=tuple(half),
-        condim=condim, friction=tuple(atrito), rgba=tuple(rgba),
+        condim=condim, friction=tuple(atrito), rgba=tuple(rgba), priority=priority,
     )
     if mass is not None:
         kwargs["mass"] = mass
@@ -194,7 +199,8 @@ def spec_caixa(c: Cena) -> mujoco.MjSpec:
     uniforme girado 90° é visualmente idêntico ao original.
     """
     spec = _spec_box("box", BOX_GEOM, "box_joint", c.caixa_meia_aresta,
-                     c.caixa_massa, c.caixa_rgba, c.caixa_condim, c.caixa_atrito)
+                     c.caixa_massa, c.caixa_rgba, c.caixa_condim, c.caixa_atrito,
+                     priority=2)
     corpo = spec.body("box")
     n = c.face_alvo_b
     meia = c.caixa_meia_aresta
@@ -224,7 +230,8 @@ def spec_prateleira(c: Cena) -> mujoco.MjSpec:
     """
     half = (c.prateleira_meia_xy, c.prateleira_meia_xy, c.prateleira_meia_z)
     return _spec_box("table", TABLE_GEOM, None, half, None,
-                     c.prateleira_rgba, c.prateleira_condim, c.prateleira_atrito)
+                     c.prateleira_rgba, c.prateleira_condim, c.prateleira_atrito,
+                     priority=3)
 
 
 # ===================================================================== o robô
@@ -345,7 +352,7 @@ def entidades(k: Knobs) -> dict[str, EntityCfg]:
 
 
 def sensores() -> tuple[ContactSensorCfg, ...]:
-    """Os 6 sensores.
+    """Os sensores de contato.
 
     `force` é pedido onde a MAGNITUDE importa: as palmas (o `squeeze`), o apoio (a
     ponte do `unload` e o fecho do `botar`), a prateleira (o contato ilegal) e a
@@ -409,6 +416,17 @@ def sensores() -> tuple[ContactSensorCfg, ...]:
             (SENSOR_DORSO_PRATELEIRA, GRUPO_DORSO),
         )
     )
+    # ⚠ FATIAS, e não `netforce`: as duas palmas apertam em sentidos OPOSTOS e a soma
+    # vetorial se cancela. `maxforce` guarda os 12 contatos mais fortes (medido: até 8 ao
+    # mesmo tempo); a força de cada fatia sai no frame do CONTATO, componente 0 = normal.
+    caixa_robo = ContactSensorCfg(
+        name=SENSOR_CAIXA_ROBO,
+        primary=ContactMatch(mode="geom", pattern=BOX_GEOM, entity="box"),
+        secondary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        fields=("force", "found"),
+        reduce="maxforce",
+        num_slots=12,
+    )
     auto = ContactSensorCfg(
         name=SENSOR_AUTO_COLISAO,
         primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
@@ -434,7 +452,7 @@ def sensores() -> tuple[ContactSensorCfg, ...]:
         num_slots=1,
         track_air_time=True,
     )
-    return palmas + dorsos + mesa + (apoio, auto, pes)
+    return palmas + dorsos + mesa + (apoio, caixa_robo, auto, pes)
 
 
 # ===================================================================== smoke

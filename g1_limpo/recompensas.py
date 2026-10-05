@@ -25,7 +25,7 @@ __all__ = ["AlturaDeBalanco", "PosturaPorElo", "PesoPorEstado",
            "giro_sem_gingado",
            "velocidade_por_regime", "contato_mesa",
            "staged", "precise_pos", "precise_ori", "squeeze", "unload",
-           "postura_ereta", "load", "limite_de_pelve", "FormaPostural",
+           "postura_ereta", "load", "limite_de_pelve", "aperto_excessivo", "FormaPostural",
            "renda_congelada"]
 
 
@@ -744,6 +744,23 @@ def squeeze(env, nome_do_comando: str, sensores: tuple[str, ...],
     # ⚠ ZERO NO BOTAR (spec §6.6.2 item 2; g1_poc: "apertar durante o botar paga contra
     # soltar, −1,0/s medido"). Pagar por segurar é pagar contra a tarefa de largar.
     return torch.tanh(f / _forca_ref(env, mu)) * _fora_do_botar(env, nome_do_comando)
+
+
+def aperto_excessivo(env, nome_do_comando: str, sensor: str, mu: float,
+                     k: float) -> torch.Tensor:
+    """`relu(F_tot/(2·k·F_ref) − 1)²`. O PREÇO de apertar a caixa acima do que o atrito exige.
+
+    ⚠ TERMO SEPARADO do `squeeze` (que é congelável: mudar a forma dele muda o valor do
+    fecho num resume). `F_tot` é a soma das normais de TODOS os contatos robô → caixa
+    (sensor `caixa_robo`, `maxforce` em 12 fatias), e não o `min` das palmas: o
+    `shoulder_yaw` chegava a ±24–27 N·m (limite 25) com 230–250 N na caixa. A referência é
+    a do pior μ da faixa sorteada (`mu` = borda de baixo). Quadrático: derivada ZERO até o
+    teto, e crescente acima. Gate = `_fora_do_botar`, como o `squeeze`.
+    """
+    from g1_limpo.comando import forca_de_apoio
+    teto = 2.0 * k * _forca_ref(env, mu)
+    return (torch.relu(forca_de_apoio(env, sensor, eixo=0) / teto - 1.0) ** 2
+            * _fora_do_botar(env, nome_do_comando))
 
 
 def unload(env, nome_do_comando: str, sensor_apoio: str,

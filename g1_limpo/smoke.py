@@ -164,6 +164,16 @@ check("o APOIO pede `force` — é a ponte do `unload`",
       "force" in por_nome[C.SENSOR_APOIO].fields)
 check("os DORSOS são booleanos (magnitude não importa)",
       all("force" not in por_nome[n].fields for n in C.SENSOR_DORSO))
+# ⚠ O sensor do `aperto_excessivo` (05/10): FATIAS, e não `netforce` — as duas palmas
+# apertam em sentidos opostos e a soma vetorial se cancela. Medido: até 8 contatos.
+_cr = por_nome.get(C.SENSOR_CAIXA_ROBO)
+check("o sensor `caixa_robo` existe: 12 fatias `maxforce`, campos `force` e `found`, "
+      "caixa × robô inteiro",
+      _cr is not None and _cr.num_slots == 12 and _cr.reduce == "maxforce"
+      and set(_cr.fields) == {"force", "found"}
+      and (_cr.primary.mode, _cr.primary.pattern) == ("geom", C.BOX_GEOM)
+      and (_cr.secondary.mode, _cr.secondary.pattern) == ("subtree", "pelvis"),
+      str(_cr))
 
 # ⚠ TODO SENSOR PRECISA DE CONSUMIDOR, e esta é a checagem que faltava. O
 # `corpo_prateleira` existiu da reescrita até 27/08 SEM NENHUM LEITOR: a checagem de
@@ -334,8 +344,11 @@ check("o `forca_ref` fixo SAIU do knobs — a força de referência é derivada"
       not hasattr(k.tarefa, "forca_ref"),
       "um número sem derivação ao lado de uma conta é o segundo suspeito entrando "
       "pela porta de trás")
-check("`F_ref = m·g/(2μ)` dá 6,13 N, e é MENOS da metade do knob antigo",
-      abs(_f_ref_fisica - 6.13) < 0.01 and _f_ref_fisica < 12.0,
+# ⚠ 6,13 N -> 8,18 N em 05/10: `squeeze_mu` virou a borda de baixo de `atrito_caixa_faixa`
+# (0,8 -> 0,6), e a referência vale para o PIOR μ sorteado.
+check("`F_ref = m·g/(2μ)` dá 8,18 N (μ = borda de baixo da faixa), e é < 12,0 N do knob antigo",
+      abs(_f_ref_fisica - 8.18) < 0.01 and _f_ref_fisica < 12.0
+      and k.tarefa.squeeze_mu == k.tarefa.atrito_caixa_faixa[0] == 0.6,
       f"{_f_ref_fisica:.2f} N contra os 12,0 N fixos de antes")
 check("os três termos de força usam o MESMO μ",
       cfg.rewards["squeeze"].params["mu"]
@@ -379,7 +392,25 @@ check("os sensores do fabricante FICAM (os nossos são adição, não substitui�
 secao("5. física de manipulação")
 check("njmax", cfg.sim.njmax == c.njmax == 800)
 check("nconmax", cfg.sim.nconmax == c.nconmax == 300)
+# ⚠ 1.0 no cfg; o notebook `g1_limpo_zero_colab` põe 2.0 em RUNTIME (célula 8). O
+# `geom_priority` abaixo vale nos dois: ele não depende do impratio.
 check("impratio", cfg.sim.mujoco.impratio == 1.0)
+# ⚠ PRIORIDADE (05/10): caixa 2 e laje 3 acima do robô (0; pés 1) — todo contato
+# robô–caixa usa o μ, o condim e o solref DA CAIXA, e caixa–laje os da laje. Sem isso o
+# DR `atrito_caixa` valeria `max(μ_caixa, μ_pad)`. O robô é lido da ENTIDADE (as
+# prioridades dele vêm da `CollisionCfg`, aplicada no `Entity`); o `.mjb` do
+# `exporta_cena` sai do mesmo cfg, portanto herda estes valores.
+from mjlab.entity import Entity as _Ent5                                 # noqa: E402
+_m_rob = _Ent5(C.robot_cfg()).spec.compile()
+_nome5 = [mujoco.mj_id2name(_m_rob, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(_m_rob.ngeom)]
+_pes5 = [bool(n) and n.startswith(("left_foot", "right_foot")) and n.endswith("_collision")
+         for n in _nome5]
+check("`geom_priority`: caixa 2, laje 3, robô 0 (pés 1)",
+      int(m_caixa.geom_priority[mujoco.mj_name2id(m_caixa, mujoco.mjtObj.mjOBJ_GEOM, C.BOX_GEOM)]) == 2
+      and int(m_prat.geom_priority[mujoco.mj_name2id(m_prat, mujoco.mjtObj.mjOBJ_GEOM, C.TABLE_GEOM)]) == 3
+      and any(_pes5) and all(int(p) == (1 if pe else 0)
+                             for p, pe in zip(_m_rob.geom_priority, _pes5)),
+      f"robô {sorted({int(p) for p in _m_rob.geom_priority})}")
 check("cone é pyramidal",
       cfg.sim.mujoco.cone == "pyramidal",
       "elliptic com impratio=10 divergiu para NaN no reset parcial (15/07)")
@@ -408,6 +439,14 @@ check("UM evento só escreve a pose da mobília",
       str([e for e in cfg.events if "reset" in e]))
 check("o `push_robot` FICA no treino — resistir a empurrão é requisito",
       "push_robot" in cfg.events)
+# ⚠ DR do μ da caixa (05/10): por RESET, uniforme na faixa do knob, coluna 0 só.
+_atr = cfg.events.get("atrito_caixa")
+check("`atrito_caixa` existe: `mode == reset`, `ranges == (0.6, 1.0)`, na caixa",
+      _atr is not None and _atr.mode == "reset"
+      and tuple(_atr.params["ranges"]) == (0.6, 1.0) == k.tarefa.atrito_caixa_faixa
+      and _atr.params["asset_cfg"].name == "box"
+      and tuple(_atr.params["asset_cfg"].geom_names) == (C.BOX_GEOM,),
+      str(_atr))
 # ⚠ O `pose_range` único SAIU na F2: o reset da base virou despachante por elo, com
 # DUAS faixas. Quem confere as faixas é a seção 16.
 check("o reset da base não tem mais faixa única — ela é por elo desde a F2",
@@ -558,7 +597,7 @@ check("nenhum import de código do projeto (fora de paridade.py)",
       not _viola, "; ".join(_viola))
 
 # ------------------------------------------------------- 11. recompensa da F1
-secao("11. recompensa (a tabela do molde, menos um termo e mais dezesseis)")
+secao("11. recompensa (a tabela do molde, menos um termo e mais dezenove)")
 # ⚠ A divergência contra o molde é FECHADA em dois nomes, e o teste diz QUAIS. Um
 # `set(cfg.rewards) == set(fab.rewards)` deixaria de pegar um termo esquecido no dia
 # em que a F3 adicionar os sete incentivos; nomear a diferença não.
@@ -587,13 +626,16 @@ _NOSSOS = {"terminacao", "joint_acc", "staged", "precise_pos", "precise_ori",
            "limite_de_pelve",
            # 16/09: o INCENTIVO de forma contra a referência da IK, média de quatro
            # rampas, gateado pela tabela por estado nas idas da pega e do pouso.
-           "forma_postural"}
+           "forma_postural",
+           # 05/10: o PREÇO do aperto total robô → caixa. Fora da tabela por estado e
+           # de `TERMOS_CONGELAVEIS`, como o `limite_de_pelve`.
+           "aperto_excessivo"}
 # ⚠⚠ UM TERMO DO MOLDE SAI, e é o único até hoje. O `dof_pos_limits` e o
 # `limite_de_junta` cobram o MESMO excesso de curso, e mantê-los juntos seria
 # cobrança dupla. Declarar a remoção pelo NOME é o ponto: um `<=` solto deixaria de
 # pegar o dia em que um upgrade do mjlab apagar outro termo em silêncio.
 _REMOVIDOS = {"dof_pos_limits"}
-check("a tabela diverge do molde em exatamente DEZOITO termos, e são estes",
+check("a tabela diverge do molde em exatamente DEZENOVE termos, e são estes",
       set(cfg.rewards) - set(fab.rewards) == _NOSSOS,
       str(set(cfg.rewards) - set(fab.rewards) ^ _NOSSOS))
 check("do molde sai UM termo só, e é o `dof_pos_limits`",
@@ -753,6 +795,45 @@ check("7. `limite_de_pelve` NÃO é campo de `PesoPorEstado` — o gate é por d
       "tabela tem ONZE termos (os dez mais o `forma_postural`)",
       "limite_de_pelve" not in _campos_pelve and len(_campos_pelve) == 11,
       str(_campos_pelve))
+
+# ------------------------------------- o FREIO DO APERTO (05/10; spec
+# `g1-limpo-previa-freio-de-aperto.md`). Termo SEPARADO do `squeeze`, que é congelável.
+from g1_limpo.comando import BOTAR as _BOTAR_ap, PEGAR as _PEGAR_ap          # noqa: E402
+
+
+def _custo_de_aperto(f_total: float, massa: float = 1.0, elo: int = _PEGAR_ap) -> float:
+    """O termo cru, sem env: 2 fatias de sinais opostos somando `f_total` de normal."""
+    _s = _ty_pelve.SimpleNamespace(data=_ty_pelve.SimpleNamespace(
+        force=torch.tensor([[[f_total / 2, 0.0, 0.0], [-f_total / 2, 0.0, 0.0]]])))
+    _env = _ty_pelve.SimpleNamespace(
+        scene={"caixa_robo": _s}, limpo_massa=torch.tensor([massa]),
+        command_manager=_ty_pelve.SimpleNamespace(
+            get_term=lambda _n: _ty_pelve.SimpleNamespace(_elo=torch.tensor([elo]))))
+    return float(RC_.aperto_excessivo(_env, "alvo_caixa", "caixa_robo",
+                                      k.tarefa.squeeze_mu, k.tarefa.aperto_k))
+
+
+_ap = cfg.rewards["aperto_excessivo"]
+check("`aperto_excessivo`: o peso e o μ vêm do knob, e o sensor é o `caixa_robo`",
+      _ap.weight == k.tarefa.aperto_excessivo == -0.05
+      and _ap.params["mu"] == k.tarefa.squeeze_mu and _ap.params["k"] == k.tarefa.aperto_k
+      and _ap.params["sensor"] == C.SENSOR_CAIXA_ROBO,
+      str(_ap.params))
+check("`aperto_excessivo` NÃO é congelável, NÃO é campo da `PesoPorEstado` e vem ANTES "
+      "do `renda_congelada`",
+      "aperto_excessivo" not in EC_.TERMOS_CONGELAVEIS
+      and "aperto_excessivo" not in _campos_pelve
+      and list(cfg.rewards).index("aperto_excessivo") < list(cfg.rewards).index("renda_congelada")
+      and list(cfg.rewards)[-1] == "renda_congelada",
+      str(list(cfg.rewards)[-3:]))
+check("`aperto_excessivo` com F_tot = 240 N, 1 kg, μ 0,6: `relu(240/49 − 1)²` ≈ 15,2",
+      abs(_custo_de_aperto(240.0) - 15.2) < 0.1,
+      f"{_custo_de_aperto(240.0):.3f} (as duas fatias de sinais opostos SOMAM em módulo)")
+check("`aperto_excessivo`: zero ATÉ o teto (49 N) e zero no BOTAR; com 5 kg o teto sobe "
+      "a 245 N e os 240 N não custam",
+      _custo_de_aperto(49.0) == 0.0 and _custo_de_aperto(240.0, elo=_BOTAR_ap) == 0.0
+      and _custo_de_aperto(240.0, massa=5.0) == 0.0 and _custo_de_aperto(60.0) > 0.0,
+      f"49 N={_custo_de_aperto(49.0)} 5 kg={_custo_de_aperto(240.0, massa=5.0)}")
 
 # ================================================ 12. currículo e comando
 secao("12. currículo, eventos e comando")
@@ -6146,8 +6227,9 @@ except Exception as _ev19x:      # noqa: BLE001
 # ⚠ 29 -> 30 em 15/09: o `limite_de_pelve` (o `limite_de_junta` do mesmo bloco NÃO
 # mexeu no total — ele entrou no lugar do `dof_pos_limits`, que saiu no mesmo commit).
 # ⚠ 30 -> 31 em 16/09: o `forma_postural`, o incentivo contra a referência da IK.
-check("20. 31 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
-      len(cfg.rewards) == 31 and set(cfg.terminations)
+# ⚠ 31 -> 32 em 05/10: o `aperto_excessivo`, o preço do aperto total na caixa.
+check("20. 32 termos de recompensa, 3 terminações (time_out, fell_over, caixa_largada)",
+      len(cfg.rewards) == 32 and set(cfg.terminations)
       == {"time_out", "fell_over", "caixa_largada"},
       f"{len(cfg.rewards)} termos; terminações {sorted(cfg.terminations)}")
 

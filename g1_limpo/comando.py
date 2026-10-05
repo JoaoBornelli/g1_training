@@ -184,8 +184,11 @@ for _i, _c in enumerate(CADEIAS):
         _ELO_EM[_i, _j] = _e
 
 
-def forca_de_apoio(env, nome_sensor: str) -> torch.Tensor:
+def forca_de_apoio(env, nome_sensor: str, eixo: int = 2) -> torch.Tensor:
     """[n] — quanto a LAJE carrega da caixa, em newtons. Só a componente VERTICAL.
+
+    ⚠ `eixo=0` lê a NORMAL do contato (frame do contato, sensores `reduce="maxforce"`):
+    é como o `aperto_excessivo` soma a força robô → caixa. Só o `eixo=2` é o global.
 
     ⚠⚠ PROJEÇÃO NO EIXO VERTICAL, e não a norma. Decisão do dono em 2026-09-03, depois
     de um code review: a norma não tem direção, portanto prensar a caixa **de lado**
@@ -214,7 +217,7 @@ def forca_de_apoio(env, nome_sensor: str) -> torch.Tensor:
     """
     f = env.scene[nome_sensor].data.force
     assert f is not None, f"sensor '{nome_sensor}' precisa do field 'force'."
-    return f[..., 2].abs().sum(dim=-1)
+    return f[..., eixo].abs().sum(dim=-1)
 
 
 def elo_por_nome(nome: str) -> int:

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp import is_terminated, joint_acc_l2
+from mjlab.envs.mdp import dr, is_terminated, joint_acc_l2
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -364,7 +364,8 @@ def make_env_cfg(
     # O `mean_action_acc` do molde FICA: ele já é `MetricsTermCfg` e não depende de peso.
     cfg.metrics.update(MT.termos(C.SENSOR_PALMA, C.SENSOR_DORSO, C.SENSOR_APOIO,
                                  nome_do_comando="alvo_caixa",
-                                 termos_congelaveis=TERMOS_CONGELAVEIS))
+                                 termos_congelaveis=TERMOS_CONGELAVEIS,
+                                 sensor_caixa_robo=C.SENSOR_CAIXA_ROBO))
 
     # ------------------------------------------ 2d. a régua: `razao_marcha`
     # ⚠ O twist é RECONSTRUÍDO como subclasse, campo a campo por `dataclasses.fields`,
@@ -403,6 +404,15 @@ def make_env_cfg(
         func=EV.tamanho_caixa, mode="startup",
         params={"faixa": c.caixa_meia_aresta_faixa,
                 "n_variantes": c.caixa_n_variantes,
+                "asset_cfg": SceneEntityCfg("box", geom_names=(C.BOX_GEOM,))},
+    )
+    # ⚠ μ da caixa por env, a cada reset (coluna 0 = tangencial; a caixa tem condim 3). Só
+    # vale porque a caixa tem `priority` 2 (`cena._spec_box`): o contato com o robô usa o
+    # μ DELA. A referência do `aperto_excessivo` é a borda de baixo desta faixa.
+    cfg.events["atrito_caixa"] = EventTermCfg(
+        func=dr.geom_friction, mode="reset",
+        params={"ranges": tuple(k.tarefa.atrito_caixa_faixa), "operation": "abs",
+                "distribution": "uniform",
                 "asset_cfg": SceneEntityCfg("box", geom_names=(C.BOX_GEOM,))},
     )
     cfg.events["posiciona_cena"] = EventTermCfg(
@@ -769,6 +779,13 @@ def make_env_cfg(
     cfg.rewards["limite_de_pelve"] = RewardTermCfg(
         func=RC.limite_de_pelve, weight=tr.limite_de_pelve,
         params={"h_lim": tr.pelve_limiar, "d_ref": tr.pelve_ref})
+    # ⚠ PREÇO do aperto (05/10), IRMÃO do `limite_de_pelve`: fora da tabela por estado (o
+    # gate é por dentro, `_fora_do_botar`) e FORA de `TERMOS_CONGELAVEIS` — o `squeeze`
+    # não muda de forma, então o valor do fecho num resume fica intacto.
+    cfg.rewards["aperto_excessivo"] = RewardTermCfg(
+        func=RC.aperto_excessivo, weight=tr.aperto_excessivo,
+        params={"nome_do_comando": _cmd, "sensor": C.SENSOR_CAIXA_ROBO,
+                "mu": tr.squeeze_mu, "k": tr.aperto_k})
 
     # ------------------------------------------- 3i. a renda do BOTAR (spec §2.7)
     # ⚠⚠ `load` VOLTA (mudança v3->v3.1). `largou` SAIU: a cauda é ANDAR com twist, e

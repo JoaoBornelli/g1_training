@@ -943,7 +943,7 @@ class Tarefa:
 
     # --- squeeze: o μ que DERIVA a força de referência das palmas ---
     # ⚠ `F_ref = m·g/(2μ)` — a força de aperto que o atrito precisa para segurar a
-    # caixa. Com m = 1,0 kg e μ = 0,8 dá **6,13 N**.
+    # caixa. Com m = 1,0 kg e μ = 0,6 dá **8,18 N** (era 6,13 N com μ = 0,8, até 05/10).
     #
     # ⚠ ERA UM KNOB FIXO DE 12,0 N até 28/08, e o número não tinha derivação. Ele pedia
     # o DOBRO do que a física precisa e pagava METADE no primeiro newton — justo a faixa
@@ -954,14 +954,22 @@ class Tarefa:
     # primeira décima de newton — um limiar booleano é platô, e o platô travou o
     # `pegar` do g1_poc por 22k iterações.
     #
-    # ⚠ DÉBITO REGISTRADO, e NÃO consertado: o `squeeze` é CEGO AO ESMAGAMENTO. O
-    # `tanh` satura e nada cobra a força ACIMA do `F_ref` — medidos 68,9 N de aperto
-    # contra os 8,45 N de referência da medição (o `F_ref` deste módulo, com m = 1,0 kg
-    # e μ = 0,8, dá 6,13 N; a divergência está no número da medição, não na fórmula).
-    # Adiado DE PROPÓSITO: o `squeeze` é termo CONGELÁVEL, e mudar a forma dele mexe no
-    # valor do fecho às vésperas de um resume. E o simulador não pune esmagar — isto é
-    # dívida de sim-to-real, não defeito do treino de hoje.
-    squeeze_mu: float = 0.8              # μ pessimista da faixa de atrito da caixa
+    # ⚠ O `squeeze` é CEGO AO ESMAGAMENTO: o `tanh` satura e nada cobra a força ACIMA do
+    # `F_ref` (medidos 230–250 N robô → caixa, `model_24350`). A forma dele NÃO muda: é
+    # termo CONGELÁVEL, e mexer nela muda o valor do fecho num resume. O preço do excesso
+    # é o termo SEPARADO `aperto_excessivo` (05/10, spec `g1-limpo-previa-freio-de-aperto.md`),
+    # que NÃO entra em `TERMOS_CONGELAVEIS`.
+    # ⚠ O μ de `F_ref` é a borda de BAIXO do μ sorteado por env (DR `atrito_caixa`): uma
+    # fonte de verdade só, e a referência vale para o pior caso da faixa.
+    atrito_caixa_faixa: tuple[float, float] = (0.6, 1.0)
+    # ⚠ teto do aperto = `2·aperto_k·F_ref` (dois lados); acima dele o custo é quadrático.
+    # Peso −0,05: 240 N com 1 kg e μ 0,6 → razão 4,9 → custo 15,2 → −0,76/s; com 5 kg ≈ 0.
+    aperto_k: float = 3.0
+    aperto_excessivo: float = -0.05
+
+    @property
+    def squeeze_mu(self) -> float:
+        return self.atrito_caixa_faixa[0]
 
     # --- postura ereta: a rampa dupla na pelve ---
     # ⚠ Ela paga por erguer SEM agachar, e é o que impede o robô de satisfazer o alvo

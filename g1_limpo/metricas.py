@@ -74,6 +74,7 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
            sensor_apoio: str = "apoio_caixa",
            nome_do_comando: str = "alvo_caixa",
            termos_congelaveis: tuple[str, ...] = (),
+           sensor_caixa_robo: str = "caixa_robo",
            ) -> dict[str, MetricsTermCfg]:
     """Os termos, montados aqui e em nenhum outro lugar.
 
@@ -86,7 +87,7 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
     """
     # ⚠ import tardio: `comando` importa `cena`, e o ciclo fecharia no topo do módulo
     from g1_limpo.comando import (ESTADO_BOTAR, ESTADO_CARREGAR, ESTADO_PEGAR_COM,
-                                  ESTADO_PEGAR_SEM)
+                                  ESTADO_PEGAR_SEM, ESTADOS)
     pes = {"sensor_name": PES_NO_CHAO}
     return {
         "momento_angular": MetricsTermCfg(
@@ -197,6 +198,12 @@ def termos(sensores_palma: tuple[str, ...] = ("palma_E", "palma_D"),
             func=media_por_estado, reduce="last",
             params={"grandeza": "mao_vel",
                     "estados": (ESTADO_PEGAR_SEM, ESTADO_PEGAR_COM, ESTADO_BOTAR)}),
+        # ⚠ A RÉGUA DO `aperto_excessivo` (05/10): força normal TOTAL robô → caixa, em N,
+        # média nos passos com contato. Esperado: de ~240 N para 50–100 N.
+        "forca_total_na_caixa": MetricsTermCfg(
+            func=media_por_estado, reduce="last",
+            params={"grandeza": "forca_caixa", "estados": tuple(range(len(ESTADOS))),
+                    "sensor": sensor_caixa_robo}),
     }
 
 
@@ -484,6 +491,10 @@ class media_por_estado:
           `recompensas.velocidade_por_regime` (Lote B). ⚠ É MÉDIA sobre os passos: lê a
           TENDÊNCIA, e não o pulso — o pico de 2,58 m/s medido em 21/09 dura 0,62 s e
           aparece diluído aqui.
+      `forca_caixa`       força normal TOTAL robô → caixa, em N (`comando.forca_de_apoio`
+          com `eixo=0` no sensor `caixa_robo`), média nos passos COM contato — o gate aqui
+          é `found > 0` e não o estado (por isso `estados` = os dez). É a régua do
+          `recompensas.aperto_excessivo` (05/10).
 
     ⚠⚠ DESVIO DECLARADO CONTRA O PLANO, e ele é da API. O plano pede `reduce="mean"`
     gateado, e o `MetricsManager` não expressa isso: o `"mean"` dele é `soma /
@@ -520,9 +531,10 @@ class media_por_estado:
                                                         preserve_order=True)[0]
         self.ez = torch.tensor([0.0, 0.0, 1.0], device=env.device)
 
-    def __call__(self, env, grandeza: str, estados) -> torch.Tensor:
+    def __call__(self, env, grandeza: str, estados, sensor: str = "") -> torch.Tensor:
         del estados                                   # resolvido no `__init__`
         robot = env.scene["robot"].data
+        gate = 1.0
         if grandeza == "pelve_z":
             # ⚠ A MESMA leitura de `recompensas.limite_de_pelve` e `postura_ereta`: uma
             # segunda conta para a mesma altura é como um deslocamento de origem entra
@@ -546,9 +558,13 @@ class media_por_estado:
             # mão mais rápida das DUAS, em m/s. `amax`, e não média entre as mãos — é a
             # mão que arrisca mais que responde pela segurança do encontro.
             x = torch.norm(robot.site_lin_vel_w[:, self.id_palmas], dim=-1).amax(dim=-1)
+        elif grandeza == "forca_caixa":
+            from g1_limpo.comando import forca_de_apoio
+            x = forca_de_apoio(env, sensor, eixo=0)
+            gate = (env.scene[sensor].data.found > 0).any(dim=-1).float()
         else:
             raise ValueError(f"grandeza desconhecida: {grandeza}")
-        no_estado = torch.isin(env.limpo_estado, self.estados).float()
+        no_estado = torch.isin(env.limpo_estado, self.estados).float() * gate
         self.soma += x * no_estado
         self.passos += no_estado
         # ⚠ `clamp(min=1)` no denominador, e não `+1e−6`: sem nenhum passo no estado o
