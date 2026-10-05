@@ -20,7 +20,13 @@ passo, como no treino; antes o registrador o deixava em zero e o ator ficava ceg
                         de tombo da caixa, como o treino o mede) e a coluna `ckpt`
                         (nome do arquivo:sha256 de 10 dígitos do checkpoint)
                         + `a_<junta>` (a ação crua do ator) e `alvo_pd_<junta>` (o alvo do PD, rad)
+                        + a FORÇA NA CAIXA: `fn_E`, `fn_D` (normal de cada palma), `fn_tot`
+                        (soma das normais de todo contato robô→caixa), `fz_rob` (Fz que o
+                        robô sustenta), `n_rob` (nº de contatos) e `rel_x/y/z` (caixa menos
+                        o ponto médio dos pads)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
+
+`--mu-caixa μ` dá à caixa a PRIORIDADE do treino (caixa 2, laje 3) com este μ; 0 desliga.
 
 ⚠ A RAIZ E A CAIXA entraram em 15/09. Sem elas, uma sonda que queira a altura da pelve
 no mundo, a inclinação do tronco, o CoM ou a palma no frame da caixa tem de SUPOR pelve
@@ -268,6 +274,10 @@ def main() -> None:
     ap.add_argument("--atrito", type=float, default=1.0,
                     help="multiplica o atrito de escorrego da caixa e das palmas "
                          "(1,0 = o do modelo; tente 1,5)")
+    ap.add_argument("--mu-caixa", type=float, default=0.0,
+                    help="μ da caixa com PRIORIDADE: todo contato do robô com a caixa usa "
+                         "este μ, e a mesa (prioridade maior) fica no dela. É a física do "
+                         "treino desde 05/10 (`cena._spec_box`, caixa 2, laje 3). 0 = desliga")
     ap.add_argument("--impratio", type=float, default=0.0,
                     help="sobrepõe opt.impratio, o peso do atrito contra o normal no "
                          "solver (0 = o do modelo, que é 1,0; tente 10)")
@@ -320,6 +330,18 @@ def main() -> None:
             raise SystemExit(f"--atrito achou {len(alvos)} geoms de 3. Cena de outra versão?")
         for i in alvos:
             m.geom_friction[i, 0] *= args.atrito
+    if args.mu_caixa:
+        # ⚠ A MESMA prioridade do treino (`cena._spec_box`): a caixa (2) vence o robô (0) e os
+        # pés (1), e o contato robô–caixa usa o μ, o condim e o solref DELA; a laje (3) vence a
+        # caixa. Sem isso o MuJoCo usa o MAIOR μ do par, e a cápsula do pulso em 1,0 mascara
+        # qualquer μ baixo da caixa.
+        g_cx = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "box/box_geom")
+        g_ms = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table/table_geom")
+        if g_cx < 0 or g_ms < 0:
+            raise SystemExit("--mu-caixa não achou a caixa ou a mesa. Cena de outra versão?")
+        m.geom_priority[g_cx] = 2
+        m.geom_priority[g_ms] = 3
+        m.geom_friction[g_cx, 0] = args.mu_caixa
     if args.massa:
         # ⚠ MASSA E INÉRCIA JUNTAS. Escrever só `body_mass` reproduz o defeito do treino.
         # A caixa é um CUBO homogêneo, portanto `I = (2/3)·m·a²` com `a` a meia-aresta.
@@ -339,6 +361,12 @@ def main() -> None:
     # ⚠ RESOLVIDO UMA VEZ, fora do laço: `enderecos_da_caixa` varre as juntas do
     # modelo, e chamá-lo a 50 Hz é desperdício puro.
     adr_caixa, _ = enderecos_da_caixa(m, int(c.id_caixa))
+    # ⚠ A RÉGUA DO FREIO DE APERTO (05/10): as geoms que a força lê, resolvidas UMA vez.
+    g_caixa = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "box/box_geom")
+    g_pe = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "robot/left_palm_pad")
+    g_pd = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "robot/right_palm_pad")
+    robo_geom = np.array([m.geom(i).name.startswith("robot/") for i in range(m.ngeom)])
+    f6 = np.zeros(6)
     id_mocap_laje = int(m.body_mocapid[int(c.id_laje)])
     assert id_mocap_laje >= 0, "a laje não é mocap nesta cena; o CSV precisa da pose dela"
     ids_q = np.asarray(c.ids_junta_qpos, dtype=np.int64)
@@ -372,7 +400,7 @@ def main() -> None:
           f"solver {m.opt.iterations}/{m.opt.ls_iterations}  "
           f"topo {_topo_da_laje(m, d, c):.3f} m  "
           f"atrito x{args.atrito:g}  impratio {m.opt.impratio:g}  "
-          f"caixa {args.massa or 1.0:g} kg"
+          f"caixa {args.massa or 1.0:g} kg  mu_caixa {args.mu_caixa or '-'}"
           + ("   ⚠ CENA FORA DO PADRÃO DO TREINO"
              if args.atrito != 1.0 or args.impratio else ""))
     print(f"[registra] roteiro: " + "  ".join(
@@ -429,6 +457,35 @@ def main() -> None:
                     for i, eixo in enumerate("xyz"):
                         ln[f"alvo_{eixo}"] = float(alvo[i])
                     ln["giro_ang"] = giro_ang
+                    # ⚠ A FORÇA NA CAIXA, como o treino a mede (`aperto_excessivo`): soma das
+                    # NORMAIS de todo contato robô → caixa (`fn_tot`, a régua do
+                    # `forca_total_na_caixa`), as duas palmas em separado, e o Fz que o robô
+                    # sustenta. `rel_*` = caixa − ponto médio dos pads: `rel_z` caindo é a
+                    # caixa escorregando entre as mãos.
+                    fn_e = fn_d = fn_tot = fz_rob = 0.0
+                    n_rob = 0
+                    for k_ct in range(d.ncon):
+                        ct = d.contact[k_ct]
+                        g1, g2 = int(ct.geom1), int(ct.geom2)
+                        if g_caixa not in (g1, g2):
+                            continue
+                        outro = g2 if g1 == g_caixa else g1
+                        if not robo_geom[outro]:
+                            continue
+                        mujoco.mj_contactForce(m, d, k_ct, f6)
+                        fn_tot += abs(f6[0])
+                        n_rob += 1
+                        fw = ct.frame.reshape(3, 3).T @ f6[:3]
+                        fz_rob += float((fw if g2 == g_caixa else -fw)[2])
+                        if outro == g_pe:
+                            fn_e += abs(f6[0])
+                        elif outro == g_pd:
+                            fn_d += abs(f6[0])
+                    ln["fn_E"], ln["fn_D"], ln["fn_tot"] = fn_e, fn_d, fn_tot
+                    ln["fz_rob"], ln["n_rob"] = fz_rob, n_rob
+                    pm = 0.5 * (d.geom_xpos[g_pe] + d.geom_xpos[g_pd])
+                    rel = d.qpos[adr_caixa:adr_caixa + 3] - pm
+                    ln["rel_x"], ln["rel_y"], ln["rel_z"] = map(float, rel)
                     for k in range(len(ELOS)):
                         ln[f"oh_{ELOS[k].lower()}"] = int(k == fase.elo)
                     for i, nome in enumerate(nomes):
