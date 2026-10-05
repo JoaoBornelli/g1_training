@@ -815,7 +815,7 @@ def _custo_de_aperto(f_total: float, massa: float = 1.0, elo: int = _PEGAR_ap) -
 
 _ap = cfg.rewards["aperto_excessivo"]
 check("`aperto_excessivo`: o peso e o μ vêm do knob, e o sensor é o `caixa_robo`",
-      _ap.weight == k.tarefa.aperto_excessivo == -0.05
+      _ap.weight == k.tarefa.aperto_excessivo == -0.15
       and _ap.params["mu"] == k.tarefa.squeeze_mu and _ap.params["k"] == k.tarefa.aperto_k
       and _ap.params["sensor"] == C.SENSOR_CAIXA_ROBO,
       str(_ap.params))

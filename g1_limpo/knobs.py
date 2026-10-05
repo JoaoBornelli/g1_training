@@ -963,9 +963,10 @@ class Tarefa:
     # fonte de verdade só, e a referência vale para o pior caso da faixa.
     atrito_caixa_faixa: tuple[float, float] = (0.6, 1.0)
     # ⚠ teto do aperto = `2·aperto_k·F_ref` (dois lados); acima dele o custo é quadrático.
-    # Peso −0,05: 240 N com 1 kg e μ 0,6 → razão 4,9 → custo 15,2 → −0,76/s; com 5 kg ≈ 0.
+    # Peso −0,15 (05/10, era −0,05): 240 N com 1 kg e μ 0,6 → razão 4,9 → custo 15,2 → −2,3/s;
+    # com 5 kg ≈ 0. Com −0,05 a força ficou em 215–260 N sem modular pela massa (24350→24800).
     aperto_k: float = 3.0
-    aperto_excessivo: float = -0.05
+    aperto_excessivo: float = -0.15
 
     @property
     def squeeze_mu(self) -> float:
