@@ -1,0 +1,822 @@
+From 090ec3a314d556e497a15c4d9249896264e8fe1d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 21 Aug 2026 16:37:23 +0000
+Subject: [PATCH 1/3] =?UTF-8?q?fix(poc):=20o=20bloco=202=20colapsou=20por?=
+ =?UTF-8?q?=20giro=20=E2=80=94=20os=20quatro=20consertos?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Diagnostico, medido na it 1216 do bloco 2 (`2026-08-21_12-25-03_bloco2`):
+
+    fell_over            95,2% das terminacoes
+    dur_loco_ema         10,7 passos = 0,21 s
+    caixa_largada        0,0 em 1216 iteracoes -> `pegou` NUNCA cruzou 0,5
+    track_ang/track_lin  0,0199, com PESO IGUAL (2,0) e sigma MAIOR no giro
+    wz real              ~1,5 rad/s no play com `--vx 0 --giro 0`
+
+O robo nao aprendeu a cair. Ele aprendeu a GIRAR, e cair e a consequencia. Um
+robo que gira nao fica de pe estavel, portanto nunca satisfaz `de_pe`, que e
+condicao do fecho do `pegar` — e por isso o `caixa_largada` e exatamente zero.
+
+Cair E penalizado (`fell_over` recebe bootstrap V=0; conferido no
+`TerminationManager` e no `vecenv_wrapper` do mjlab). Girar TAMBEM e (a 1,5 rad/s
+o `track_ang` deixa de pagar 0,040/passo). Mas o retorno descontado mostra que a
+troca foi um otimo LOCAL: 200 passos a 0,085/passo valem 7,35, contra 4,65 de 41
+passos a 0,138/passo. A politica subiu a taxa e perdeu 37% do retorno, e nao sai
+porque sair exige parar de girar E recuperar a marcha ao mesmo tempo.
+
+Quatro causas, e as quatro estao consertadas aqui.
+
+1. O YAW ERA O UNICO EIXO SEM CERCA.
+
+O `body_angular_velocity_penalty` do fabricante exclui o z de proposito — o
+comentario no fonte e literal: `# Don't penalize z-angular velocity.` A razao e
+boa (o yaw e o eixo comandado), mas o efeito colateral e que o yaw fica com UM
+guardiao so, contra dois ou tres em todos os outros eixos da base.
+
+`recompensas.giro_indevido` fecha a cerca onde nao ha conflito: quando
+|wz_cmd| < 0,05 ninguem pediu giro, portanto girar e erro puro. Isso cobre a
+janela de espera, os envs `standing` e todo env de manipulacao.
+
+2. O CANAL DE YAW NUNCA FOI EXERCITADO.
+
+O fabricante sorteia `yaw: (-3.14, 3.14)` no reset — o circulo inteiro. Com
+`heading_command=True` e `rel_heading=0,30`, o wz comandado vem do erro de rumo;
+com o circulo inteiro o robo TEM de aprender a girar desde a iteracao 0.
+
+Nos sortiavamos +-0,2 rad, porque a mobilia tem pose absoluta. Portanto o erro de
+rumo era sempre minusculo e o `track_angular_velocity` era satisfeito sem fazer
+nada. `eventos.reset_base_por_forma` chama o `reset_root_state_uniform` do
+fabricante DUAS vezes, em subconjuntos disjuntos: +-3,14 na locomocao (a mobilia
+esta a 5 m, nao ha com que alinhar o rumo) e +-0,2 na manipulacao.
+
+3. NINGUEM ERA OBRIGADO A FICAR PARADO.
+
+O `rel_standing_envs = 0,10` escolhe 10% dos envs e da comando zero pelo episodio
+INTEIRO. Logo 10% treinam "parado para sempre", 90% treinam "mover desde o passo
+0", e a transicao parado->mover nao existe no dado.
+
+A janela de espera (§11.2) poe "parado" em 100% dos episodios, e sempre no
+comeco. A duracao e sorteada em U(0,3; 1,0) s de proposito: fixa seria aprendivel
+como "conte N passos e depois mova", o que funciona no treino e falha no deploy.
+
+Ela nao gastou canal novo. Durante a espera o BIT vai a 0 — e ja o canal que
+significa "nao existe tarefa", e os nove termos de caixa multiplicam por ele,
+portanto se desligam sozinhos. `OBS_ATOR` fica em 118. O fecho e o cronometro do
+elo tambem congelam.
+
+⚠ O divisor da desdiluicao mudou junto: `frac_manipula` passou de
+`self.manipula` para `v` (o bit). Ele TEM de ser a mesma mascara que multiplica os
+outros metrics, senao a divisao nao condiciona nada — e com a janela os dois
+deixaram de coincidir.
+
+4. A MANIPULACAO GANHOU O LEILAO ANTES DE EXISTIR MARCHA.
+
+Com `frac_locomocao = 0,30` fixo desde a iteracao 0, as duas formas competiram por
+uma MLP so antes de haver locomocao. A `dur_loco_ema` subiu a 65 na it 260 e caiu
+a 11 na it 700, e NADA devolveu chao para a locomocao.
+
+`curriculo._alvo_locomocao` transforma a fatia em ESTADO: piso em 1,0 (locomocao
+pura, a caixa nao existe), descida de 0,02 a cada 12 iteracoes ate 0,30, e SUBIDA
+de volta com histerese. Dois sinais conjuntivos para descer (`dur_loco_ema >= 600`
+E `erro_giro_ema <= 0,30`), um so para subir. Assimetrico de proposito: lento para
+avancar, rapido para defender.
+
+O valor do balanco nao e chegar na manipulacao. E nao perder a marcha quando ela
+chegar.
+
+⚠ A carencia de 200 iteracoes antes do primeiro degrau nao e enfeite: a
+`dur_loco_ema` nasce NEUTRA em 1000 passos, portanto ela ja passa o limiar de 600
+na iteracao 0 com dado que nao existe. Pelo mesmo motivo o `erro_giro_ema` nasce
+pessimista.
+
+E a volta aos numeros do fabricante, onde nao havia motivo medido para divergir:
+
+    dof_pos_limits   -10,0 -> -1,0   (10x o `velocity_env_cfg.py:317`; achata o balanco)
+    lin_vel_x   (-0,5; 1,0) -> (-1,0; 1,0)
+    lin_vel_y   (-0,3; 0,3) -> (-1,0; 1,0)
+    cronograma do twist: os tres degraus viram os do fabricante
+
+⚠ Mudar so o knob `Comando.lin_vel_y` nao teria efeito nenhum: a tabela do
+`twist_por_competencia` sobrescreve a faixa em todo reset.
+
+O `play` desliga o balanco e a janela nos dois modos (`--pegar` e `--andar`),
+senao eles deixariam de ser deterministicos. E o texto do `--geometria` foi
+corrigido: acao zero com PD de angulo fixo NAO equilibra um bipede, portanto
+"mole e cai" ali e o esperado, e nao indica cena quebrada. O que aquele modo prova
+e outra coisa — sem seta de wz, a cena nao injeta giro, e um giro visto no
+`--andar` e da politica.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NaZfUhy5QAUfwkvZ9JqyN8
+---
+ g1_poc/comando.py     |  69 +++++++++++++++++++++---
+ g1_poc/curriculo.py   |  75 ++++++++++++++++++++++++++-
+ g1_poc/env_cfg.py     |  48 +++++++++++++++--
+ g1_poc/eventos.py     |  48 +++++++++++++++++
+ g1_poc/knobs.py       | 118 +++++++++++++++++++++++++++++++++++++++---
+ g1_poc/play.py        |  31 ++++++++++-
+ g1_poc/recompensas.py |  66 +++++++++++++++++++++++
+ 7 files changed, 435 insertions(+), 20 deletions(-)
+
+diff --git a/g1_poc/comando.py b/g1_poc/comando.py
+index b903c8d..12dccce 100644
+--- a/g1_poc/comando.py
++++ b/g1_poc/comando.py
+@@ -103,6 +103,11 @@ class CaixaAlvoCommand(CommandTerm):
+         # a forma do episódio. `manipula` é o inverso de `locomocao`.
+         self.manipula = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+ 
++        # §11.2 — a JANELA DE ESPERA, em segundos restantes. Nasce em zero: antes do
++        # primeiro resample nenhum episódio existe, e um valor positivo aqui faria
++        # o passo 0 nascer aguardando sem ter sorteado nada.
++        self._espera = torch.zeros(self.num_envs, device=self.device)
++
+         # --- a máquina de elo (§7) ---
+         self._cadeia = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+         self._elo_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+@@ -135,12 +140,18 @@ class CaixaAlvoCommand(CommandTerm):
+         env.poc_dist_inicial = self.dist_inicial
+         env.poc_reach_inicial = self.reach_inicial
+         env.poc_success = self.episode_success
++        # §11.2 — quem está na janela de espera. Publicado UMA vez, atualizado
++        # in-place (a lição do alias `poc_success`).
++        env.poc_aguardando = torch.zeros(
++            self.num_envs, dtype=torch.bool, device=self.device)
+ 
+         self.metrics["erro_posicao"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["erro_angulo_deg"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["no_alvo"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["episode_success"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["frac_manipula"] = torch.zeros(self.num_envs, device=self.device)
++        self.metrics["aguardando"] = torch.zeros(self.num_envs, device=self.device)
++        self.metrics["espera_s"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["cadeia"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["elo"] = torch.zeros(self.num_envs, device=self.device)
+         self.metrics["pegou"] = torch.zeros(self.num_envs, device=self.device)
+@@ -259,6 +270,12 @@ class CaixaAlvoCommand(CommandTerm):
+         # --- o bit ---
+         self._command[env_ids, 9] = manipula.float()
+ 
++        # --- §11.2 — a janela de espera, SORTEADA ---
++        # Fixa seria aprendível como "conte N passos e depois mova". Sorteada, a
++        # política tem de LER o canal de comando — que é o que o deploy exige.
++        lo, hi = self.cfg.espera_s
++        self._espera[env_ids] = lo + (hi - lo) * torch.rand(n, device=self.device)
++
+         # zera o sucesso e o cronômetro de sustentação
+         self.episode_success[env_ids] = 0.0
+         self._sustenta[env_ids] = 0.0
+@@ -313,6 +330,28 @@ class CaixaAlvoCommand(CommandTerm):
+     def _update_command(self) -> None:
+         self._resolver()
+ 
++        # --- §11.2 — a janela de espera ---
++        #
++        # O contrato durante a espera é UM: "fique parado, e não existe tarefa".
++        # Ele é entregue pelo BIT em zero, que já é o canal que significa isso.
++        # Com o bit em zero as três fatias de caixa são zeradas pelo bloco logo
++        # abaixo, e os NOVE termos de tarefa se desligam sozinhos — todos eles
++        # multiplicam por `caixa_valida` (ver o docstring de `recompensas`).
++        # Portanto a janela custa uma linha e não um canal novo: o contrato de
++        # observação fica em 118 e o `expande_checkpoint` não é necessário.
++        #
++        # ⚠ O invariante "bit 0 ⟺ caixa a 5 m" fica RELAXADO durante a espera: nos
++        # envs de manipulação a mobília já está posicionada. Isto é seguro porque
++        # nada depende do invariante nesse intervalo — o twist é zero (o robô não
++        # anda para dentro da mesa) e o `reaching` está desligado (não há prêmio de
++        # graça). Na borda da espera o bit vai 0→1 com a caixa já no lugar, e essa
++        # descontinuidade É o sinal de "o objetivo chegou".
++        dt = self._env.step_dt
++        self._espera.sub_(dt).clamp_(min=0.0)
++        aguardando = self._espera > 0.0
++        self._env.poc_aguardando.copy_(aguardando)
++        self._command[:, 9] = (self.manipula & ~aguardando).float()
++
+         # `dir_alvo` da OBS: o alvo vive em MUNDO e a obs é egocêntrica, portanto
+         # a conversão é por passo. Sem isto a política veria o vetor do spawn, que
+         # deixa de apontar para o lugar certo assim que o robô gira.
+@@ -337,8 +376,12 @@ class CaixaAlvoCommand(CommandTerm):
+ 
+         # o twist é zero nos elos de manipulação, EXCETO no `carregar` e nos envs
+         # "segure e ande" (frac_twist_livre)
++        # ⚠ O `aguardando` entra com OR, e vence o `carrega` e o `twist_livre`: na
++        # janela de espera "parado" quer dizer velocidade linear E angular zero, sem
++        # exceção. O `TwistPoc._update_command` aplica isto DEPOIS do `super()`,
++        # portanto vence também o `heading_command`.
+         self._env.poc_twist_zero.copy_(
+-            self.manipula & ~carrega & ~self._twist_livre)
++            (self.manipula & ~carrega & ~self._twist_livre) | aguardando)
+ 
+         # --- o fecho, condição a condição, POR ELO (§7.2) ---
+         perto = self.erro_pos() < self.cfg.raio_sucesso
+@@ -359,10 +402,14 @@ class CaixaAlvoCommand(CommandTerm):
+         fecha |= (e == REORIENTAR) & perto & alinhado
+         fecha |= (e == CARREGAR) & perto
+         fecha |= (e == BOTAR) & perto & alinhado & apoiada
+-        fecha &= self.manipula
+-
+-        dt = self._env.step_dt
+-        self._elo_t += dt
++        # ⚠ o fecho é CONGELADO na janela de espera. Sem isto o `pegar` poderia
++        # fechar antes de ser pedido, e o `sustenta` acumularia contra um objetivo
++        # que a política nem viu.
++        fecha &= self.manipula & ~aguardando
++
++        # o cronômetro do elo também não corre na espera: o `carregar` fecha por
++        # TEMPO (`elo_t >= carregar_s`), e contar a espera ali daria 1 s de graça.
++        self._elo_t += dt * (~aguardando).float()
+         # ⚠ copy_, nunca atribuição: env.poc_success/poc_pegou são aliases in-place
+         self._sustenta.copy_(torch.where(fecha, self._sustenta + dt,
+                                          torch.zeros_like(self._sustenta)))
+@@ -513,7 +560,15 @@ class CaixaAlvoCommand(CommandTerm):
+         # ler o metric apagava o sucesso do log (foi o rastro que denunciou o wipe
+         # do resample na it 5306: `pegou` 0,97 com `episode_success` 0,00).
+         self.metrics["episode_success"] = self.episode_success.clone()
+-        self.metrics["frac_manipula"] = self.manipula.float()
++        # ⚠ 21/08: o divisor da desdiluição é `v`, e NÃO `self.manipula`. Ele tem de
++        # ser EXATAMENTE a máscara que multiplica os outros metrics, senão a divisão
++        # não condiciona nada. Com a janela de espera (§11.2) os dois deixaram de
++        # coincidir: durante a espera `manipula` é 1 e `valida` é 0, e um episódio
++        # que morre dentro da janela entraria no divisor sem entrar no numerador —
++        # puxando todo número desdiluído para baixo.
++        self.metrics["frac_manipula"] = v
++        self.metrics["aguardando"] = self._env.poc_aguardando.float()
++        self.metrics["espera_s"] = self._espera.clone()
+ 
+         # os três fatores que faltavam, cada um como FRAÇÃO
+         self.metrics["fecha_angulo"] = alinhado.float() * v
+@@ -582,6 +637,8 @@ class CaixaAlvoCommandCfg(CommandTermCfg):
+     cadeia_forcada: int | None = None
+     # fração dos envs de manipulação com o twist LIBERADO ("segure e ande")
+     frac_twist_livre: float = 0.0
++    # §11.2 — a janela de espera, em segundos. Sorteada por episódio.
++    espera_s: tuple[float, float] = (0.3, 1.0)
+     # o "segure e ande" só liga a partir deste nível (um antes do `carregar`)
+     twist_livre_nivel_min: int = 3
+ 
+diff --git a/g1_poc/curriculo.py b/g1_poc/curriculo.py
+index 8e048ec..873fcd8 100644
+--- a/g1_poc/curriculo.py
++++ b/g1_poc/curriculo.py
+@@ -34,6 +34,71 @@ if TYPE_CHECKING:
+ NIVEL_MAX = 6
+ 
+ 
++def _alvo_locomocao(
++    env: ManagerBasedRlEnv,
++    piso_inicial: float,
++    balanco: dict | None,
++) -> float:
++    """A fatia de locomoção alvo, como ESTADO (§10.4).
++
++    Sem `balanco` ela é a constante de antes — é o modo que o `play` usa para pinar
++    0,0 (`--pegar`) ou 1,0 (`--andar`).
++
++    Com `balanco` ela começa em `piso_inicial` (1,0 = locomoção pura, a caixa não
++    existe) e desce até `alvo_min` por competência. E SOBE de volta quando a
++    competência cai.
++
++    A assimetria é o ponto. O bloco 2 mediu `dur_loco_ema` subindo a 65 na it 260 e
++    caindo a 11 na it 700, com `peak_height_mean` indo de 0,024 a 0,0069 no mesmo
++    intervalo — e nada devolveu chão para a locomoção. Aqui devolve.
++
++    Dois sinais, e os DOIS têm de passar para descer:
++
++        dur_loco_ema     >= dur_loco_alvo      (sobrevive ao episódio)
++        erro_giro_ema    <= erro_giro_alvo     (controla o próprio yaw)
++
++    Basta UM piorar além da histerese para subir. O `erro_giro_ema` é mantido pela
++    recompensa `giro_indevido`, que roda todo passo; o `getattr` pessimista de 1e3
++    cobre o primeiro reset, onde ela ainda não escreveu nada.
++
++    ⚠ A carência `iters_min` não é opcional. A `dur_loco_ema` nasce NEUTRA em
++    `max_episode_length` (1000 passos, ver `sorteia_forma`), portanto ela já passa o
++    limiar de 600 na iteração 0 com dado que não existe. Sem carência o balanço
++    desceria 12 degraus antes da primeira medida real.
++    """
++    if balanco is None:
++        return piso_inicial
++
++    if not hasattr(env, "poc_alvo_loco"):
++        env.poc_alvo_loco = float(piso_inicial)
++        # o relógio começa na carência, e não em zero
++        env.poc_alvo_ultimo = int(balanco["iters_min"]) * 24
++
++    passo_g = int(env.common_step_counter)
++    if passo_g - env.poc_alvo_ultimo < int(balanco["iters_entre_degraus"]) * 24:
++        return env.poc_alvo_loco
++
++    dur = float(env.poc_dur_loco)
++    giro = float(getattr(env, "poc_erro_giro_ema", 1e3))
++    dur_alvo = float(balanco["dur_loco_alvo"])
++    giro_alvo = float(balanco["erro_giro_alvo"])
++    frac = float(balanco["desce_frac"])
++    mn, mx = float(balanco["alvo_min"]), float(balanco["alvo_max"])
++    passo = float(balanco["passo"])
++
++    apto = (dur >= dur_alvo) and (giro <= giro_alvo)
++    # histerese: o retorno exige piorar 25% além do limiar (1/0,8), e não só cruzá-lo
++    caiu = (dur < frac * dur_alvo) or (giro > giro_alvo / frac)
++
++    if apto and env.poc_alvo_loco > mn:
++        env.poc_alvo_loco = max(mn, env.poc_alvo_loco - passo)
++        env.poc_alvo_ultimo = passo_g
++    elif caiu and env.poc_alvo_loco < mx:
++        env.poc_alvo_loco = min(mx, env.poc_alvo_loco + passo)
++        env.poc_alvo_ultimo = passo_g
++    return env.poc_alvo_loco
++
++
+ def sorteia_forma(
+     env: ManagerBasedRlEnv,
+     env_ids: torch.Tensor,
+@@ -41,6 +106,7 @@ def sorteia_forma(
+     frac_loco_min: float,
+     frac_loco_max: float,
+     ema: float,
++    balanco: dict | None = None,
+ ) -> dict[str, torch.Tensor]:
+     """Sorteia a forma do episódio e escreve `env.poc_manipula`.
+ 
+@@ -98,7 +164,9 @@ def sorteia_forma(
+     # Fixa a FATIA DE TRANSIÇÕES em `frac_locomocao` resolvendo o sorteio a partir
+     # das durações medidas. Tl = 24 e Tm = 961 dão f = 0,945; Tl = Tm dá f = alvo.
+     # Sem integrador: o mapa é estático e as EMAs dão a inércia — não oscila.
+-    alvo = frac_locomocao
++    # ⚠ o alvo é ESTADO desde 21/08 (§10.4), e é resolvido DEPOIS das EMAs deste
++    # passo — o balanço lê `poc_dur_loco` acabado de atualizar.
++    alvo = _alvo_locomocao(env, frac_locomocao, balanco)
+     tl = float(env.poc_dur_loco)
+     tm = float(env.poc_dur_manip)
+     f = alvo * tm / max(tl * (1.0 - alvo) + alvo * tm, 1e-6)
+@@ -116,6 +184,11 @@ def sorteia_forma(
+         "frac_loco_sorteio": torch.tensor(f, device=dev),
+         "dur_loco_ema": torch.tensor(tl, device=dev),
+         "dur_manip_ema": torch.tensor(tm, device=dev),
++        # o alvo é o número que o balanço move. Sem ele no log não há como saber se
++        # a rampa andou, e foi essa cegueira que custou o bloco 2.
++        "alvo_loco": torch.tensor(alvo, device=dev),
++        "erro_giro_ema": torch.tensor(
++            float(getattr(env, "poc_erro_giro_ema", 0.0)), device=dev),
+     }
+ 
+ 
+diff --git a/g1_poc/env_cfg.py b/g1_poc/env_cfg.py
+index eb8c49d..f5c0db4 100644
+--- a/g1_poc/env_cfg.py
++++ b/g1_poc/env_cfg.py
+@@ -163,6 +163,8 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+             precise_ori_std_piso=kr.precise_ori_std,
+             frac_twist_livre=ke.frac_twist_livre_manipula,
+             twist_livre_nivel_min=ke.twist_livre_nivel_min,
++            # §11.2 — a janela de espera. Todo episódio começa PARADO.
++            espera_s=kcm.espera_s,
+         ),
+         CMD_TWIST: TwistPocCfg(
+             entity_name="robot",
+@@ -377,6 +379,21 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+     )
+ 
++    # §8.3 — o giro indevido. O fabricante exclui o z do `body_ang_vel` DE
++    # PROPÓSITO (`# Don't penalize z-angular velocity.`), porque o yaw é o eixo
++    # comandado. O efeito colateral é que o yaw fica com UM guardião só, e foi por
++    # ali que o bloco 2 escapou: ωz real de ~1,5 rad/s com comando ZERO.
++    #
++    # Este termo fecha a cerca apenas onde não há conflito — quando ninguém pediu
++    # giro. E é o único produtor de `env.poc_erro_giro_ema`, que o balanço de forma
++    # lê como segundo sinal de competência (§10.4).
++    cfg.rewards["giro_indevido"] = RewardTermCfg(
++        func=R.giro_indevido, weight=kr.giro_indevido,
++        params={"twist_command_name": CMD_TWIST,
++                "limiar_cmd": kr.giro_limiar_cmd,
++                "ema": kr.giro_ema},
++    )
++
+     # -------------------------------------------------- 8. terminações
+     cfg.terminations.pop("out_of_terrain_bounds", None)
+     cfg.terminations["fell_over"].params["limit_angle"] = k.term.fell_over_rad
+@@ -397,14 +414,27 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+     # em GPU). Perde-se ±2,5 cm de CoM no torso — gap declarado.
+     if not kd.base_com:
+         cfg.events.pop("base_com", None)
+-    cfg.events["reset_base"].params["pose_range"] = kc.reset_base_pose
++    # ⚠ 21/08: o `reset_base` passa a ser POR FORMA. Na locomoção o yaw volta ao
++    # ±3,14 do fabricante (a mobília está a 5 m, não há com que alinhar o rumo); na
++    # manipulação ele fica em ±0,2, porque a mobília tem pose absoluta. O ±0,2
++    # global era o motivo de o canal de yaw nunca ser exercitado — ver o docstring
++    # de `EV.reset_base_por_forma`.
++    #
++    # A função troca (não é mais `mdp.reset_root_state_uniform` direto), mas ela
++    # chama o do fabricante duas vezes em subconjuntos disjuntos. A matemática é a
++    # mesma.
++    cfg.events["reset_base"] = EventTermCfg(
++        func=EV.reset_base_por_forma, mode="reset",
++        params={"faixa_loco": kc.reset_base_pose_loco,
++                "faixa_manipula": kc.reset_base_pose_manipula},
++    )
+     # ⚠ O `reset_base` é GLOBAL, portanto a velocidade residual NÃO vai aqui. Ela
+     # existe para treinar a entrega do navegador, que só antecede um elo de
+     # manipulação (§11.1). Até 21/08 ela era global: TODO episódio nascia com um
+     # empurrão, inclusive os de locomoção, e o controlador de forma sorteia 91% de
+     # locomoção quando ela está morrendo — o empurrão caía 91% das vezes na
+     # habilidade que não funcionava. Ver o evento `entrega_do_navegador`.
+-    cfg.events["reset_base"].params["velocity_range"] = {}
++    # (a `velocity_range` já é `{}` dentro do `reset_base_por_forma`, por assinatura)
+     # ⚠ O `push_robot` NÃO existe no modo play: o próprio cfg do G1 o remove
+     # (`config/g1/env_cfgs.py:169`). Portanto ele precisa de guarda — sem ela o
+     # registro da task quebra, porque o `__init__` monta o cfg de play também.
+@@ -487,7 +517,19 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+             params={"frac_locomocao": ke.frac_locomocao,
+                     "frac_loco_min": ke.frac_loco_min,
+                     "frac_loco_max": ke.frac_loco_max,
+-                    "ema": ke.forma_ema},
++                    "ema": ke.forma_ema,
++                    # §10.4 — o balanço automático. `None` devolve a fatia fixa de
++                    # antes, e é o que o `play` usa para pinar 0,0 ou 1,0.
++                    "balanco": None if not ke.auto_balanco else {
++                        "alvo_min": ke.alvo_loco_min,
++                        "alvo_max": ke.alvo_loco_max,
++                        "passo": ke.alvo_passo,
++                        "iters_entre_degraus": ke.alvo_iters_entre_degraus,
++                        "iters_min": ke.alvo_iters_min,
++                        "dur_loco_alvo": ke.dur_loco_alvo,
++                        "erro_giro_alvo": ke.erro_giro_alvo,
++                        "desce_frac": ke.alvo_desce_frac,
++                    }},
+         ),
+         # C — os dois freios de movimento. Gate por COMPETÊNCIA, e não por passo
+         # global (§10.3). ⚠ Vêm DEPOIS de `twist_ranges` e de `nivel`: o
+diff --git a/g1_poc/eventos.py b/g1_poc/eventos.py
+index 949c93c..991b913 100644
+--- a/g1_poc/eventos.py
++++ b/g1_poc/eventos.py
+@@ -26,8 +26,12 @@ from typing import TYPE_CHECKING
+ import torch
+ 
+ from mjlab.entity import Entity
++from mjlab.envs import mdp as envs_mdp
++from mjlab.managers.scene_entity_config import SceneEntityCfg
+ from mjlab.utils.lab_api.math import quat_from_euler_xyz
+ 
++_ROBOT_CFG = SceneEntityCfg("robot")
++
+ if TYPE_CHECKING:
+     from mjlab.envs import ManagerBasedRlEnv
+ 
+@@ -244,3 +248,47 @@ def entrega_do_navegador(
+         lo, hi = faixa.get(chave, (0.0, 0.0))
+         vel[:, 3 + i] = lo + (hi - lo) * torch.rand(n, device=dev)
+     robot.write_root_link_velocity_to_sim(vel, env_ids=ids)
++
++
++def reset_base_por_forma(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    faixa_loco: dict,
++    faixa_manipula: dict,
++    asset_cfg: SceneEntityCfg = _ROBOT_CFG,
++) -> None:
++    """O `reset_base` do fabricante, com faixa de pose POR FORMA (21/08).
++
++    Substitui `cfg.events["reset_base"]`. Ele não reimplementa nada: chama o
++    `reset_root_state_uniform` do mjlab DUAS vezes, em subconjuntos disjuntos, com
++    faixas diferentes. Portanto a matemática, a soma de `env_origins` e o
++    tratamento de base flutuante continuam sendo os do fabricante.
++
++    Motivo, e é o defeito central do bloco 2:
++
++    O fabricante sorteia `yaw: (-3.14, 3.14)` — o CÍRCULO INTEIRO. Com
++    `heading_command=True` e `rel_heading_envs = 0,30`, o ωz comandado vem do erro
++    de rumo. Com ±3,14 esse erro cobre toda a faixa, e o robô TEM de aprender a
++    girar desde a iteração 0.
++
++    Nós sorteávamos ±0,2 rad, porque a mobília tem pose ABSOLUTA e o robô precisa
++    nascer olhando para ela. Consequência: o erro de rumo era sempre minúsculo, o
++    `track_angular_velocity` era satisfeito sem fazer nada, e o canal de yaw nunca
++    foi exercitado. Medido na it 1216: ωz real de ~1,5 rad/s com comando ZERO, e
++    `track_angular_velocity` 51× abaixo do linear COM PESO IGUAL.
++
++    Na LOCOMOÇÃO o `afasta_cena` sobe a mobília 5 m. Não existe nada com que
++    alinhar o rumo. Portanto ali o ±3,14 é de graça — e é a receita do fabricante,
++    que já está comprovada.
++
++    ⚠ Este termo tem de vir ANTES do `entrega_do_navegador` no dict de eventos. O
++    `reset_root_state_uniform` zera a velocidade da base, e a entrega a reescreve.
++    Trocar a ordem apagaria a entrega em silêncio.
++    """
++    manipula = _forma(env, env_ids)
++    for ids, faixa in ((env_ids[~manipula], faixa_loco),
++                       (env_ids[manipula], faixa_manipula)):
++        if len(ids) == 0:
++            continue
++        envs_mdp.reset_root_state_uniform(
++            env, ids, pose_range=faixa, velocity_range={}, asset_cfg=asset_cfg)
+diff --git a/g1_poc/knobs.py b/g1_poc/knobs.py
+index 05bed37..f3b1cc6 100644
+--- a/g1_poc/knobs.py
++++ b/g1_poc/knobs.py
+@@ -42,9 +42,29 @@ class Cena:
+     escala_acao_mult: float = 0.8
+ 
+     # --- reset da base ---
+-    reset_base_pose: dict = field(default_factory=lambda: {
++    # A pose de reset é POR FORMA desde 21/08, e o motivo é o defeito central do
++    # bloco 2.
++    #
++    # O fabricante sorteia `yaw: (-3.14, 3.14)` — o CÍRCULO INTEIRO
++    # (`velocity_env_cfg.py:209`). Com `heading_command=True` e
++    # `rel_heading = 0,30`, o ωz comandado vem do erro de rumo. Com ±3,14 esse erro
++    # cobre toda a faixa e o robô TEM de aprender a girar desde a iteração 0.
++    #
++    # Nós sorteávamos ±0,2 rad, porque a mobília tem pose ABSOLUTA e o robô precisa
++    # nascer olhando para ela. Consequência: o erro de rumo era sempre minúsculo, o
++    # `track_angular_velocity` era satisfeito sem fazer nada, e o canal de yaw
++    # nunca foi exercitado. Quando a política derivou para o giro, ela não tinha
++    # autoridade nenhuma para sair.
++    #
++    # Na LOCOMOÇÃO a mobília sobe 5 m (`afasta_cena`). Não existe nada com que
++    # alinhar o rumo. Portanto ali o ±3,14 é de graça, e é a receita do fabricante.
++    reset_base_pose_manipula: dict = field(default_factory=lambda: {
+         "x": (-0.10, 0.00), "y": (-0.10, 0.10), "z": (0.01, 0.05), "yaw": (-0.2, 0.2),
+     })
++    reset_base_pose_loco: dict = field(default_factory=lambda: {
++        "x": (-0.50, 0.50), "y": (-0.50, 0.50), "z": (0.01, 0.05),
++        "yaw": (-3.14159, 3.14159),
++    })
+     # §11.1 — a entrega do navegador: o robô chega andando, não parado.
+     reset_base_vel_manipulacao: dict = field(default_factory=lambda: {
+         "x": (-0.25, 0.25), "y": (-0.25, 0.25), "yaw": (-0.4, 0.4),
+@@ -155,7 +175,31 @@ class Recompensa:
+     body_ang_vel: float = -0.05
+     angular_momentum: float = -0.02
+     action_rate: float = -0.10           # cronograma o leva a -0.25
+-    dof_pos_limits: float = -10.0        # valor de `manipulation` e `tracking`
++    # ⚠ 21/08: VOLTOU ao valor do fabricante (−1,0). O −10,0 vinha de
++    # `manipulation`/`tracking` e é dez vezes o `velocity_env_cfg.py:317`. Andar
++    # precisa de amplitude no quadril e no joelho; uma penalidade forte de limite
++    # empurra as juntas para o meio da faixa e ACHATA o balanço. O
++    # `peak_height_mean` entre 0,007 e 0,023 é consistente com isso.
++    dof_pos_limits: float = -1.0
++    # §8.3 — GIRO INDEVIDO (21/08). Penaliza ωz² quando ninguém pediu giro.
++    #
++    # O `body_angular_velocity_penalty` do fabricante exclui o z DE PROPÓSITO — o
++    # comentário no fonte é literal: `# Don't penalize z-angular velocity.` A razão
++    # é boa: o yaw é o eixo COMANDADO. Consequência não intencional: o yaw fica com
++    # UM único guardião (`track_angular_velocity`, peso 2,0, σ 0,707). Os outros
++    # eixos da base têm dois ou três termos.
++    #
++    # Foi por ali que o bloco 2 escapou: ωz real ~1,5 rad/s com comando ZERO. Este
++    # termo fecha a cerca só onde é seguro — quando |ωz_cmd| < limiar ninguém pediu
++    # giro, portanto girar é erro puro. Cobre a janela de espera, os envs
++    # `standing` e TODO env de manipulação (twist forçado a zero).
++    #
++    # Dimensionamento: a ωz = 1,5 rad/s custa 0,5·2,25·0,02 = 0,0225/passo, contra
++    # 0,040/passo que o `track_ang` deixa de pagar. Mesma ordem. A ωz = 0,2 (ruído
++    # normal) custa 0,0004/passo — desprezível, como um quadrático deve ser.
++    giro_indevido: float = -0.5
++    giro_limiar_cmd: float = 0.05        # |ωz_cmd| abaixo disto = "ninguém pediu"
++    giro_ema: float = 0.99               # τ ≈ 100 amostras, igual às outras EMAs
+     self_collisions: float = -1.0
+ 
+     # --- tarefa ---
+@@ -305,12 +349,33 @@ class Comando:
+     rel_heading: float = 0.30
+     rel_forward: float = 0.20
+     heading_stiffness: float = 0.5
+-    lin_vel_x: tuple[float, float] = (-0.5, 1.0)
+-    lin_vel_y: tuple[float, float] = (-0.3, 0.3)
++    # ±1,0 é o valor do fabricante (`velocity_env_cfg.py:188`)
++    lin_vel_x: tuple[float, float] = (-1.0, 1.0)
++    # ±1,0 é o valor do fabricante (`velocity_env_cfg.py:189`). O ±0,3 daqui saiu
++    # em 21/08: ele estreitava o comando lateral sem nenhum motivo medido, e a
++    # marcha lateral é parte do que o `velocity` treina.
++    lin_vel_y: tuple[float, float] = (-1.0, 1.0)
+     ang_vel_z: tuple[float, float] = (-0.5, 0.5)
+     # metade dos envs PARADOS recebe giro no lugar; sem isto eles nunca giram
+     frac_giro_no_standing: float = 0.5
+     piso_giro_rad_s: float = 0.15
++    # §11.2 — A JANELA DE ESPERA (21/08). Todo episódio começa PARADO, e o
++    # objetivo chega depois.
++    #
++    # Motivo medido: o `rel_standing_envs = 0,10` do fabricante escolhe 10% dos
++    # envs e dá comando zero pelo EPISÓDIO INTEIRO. Portanto 10% das amostras
++    # treinam "parado para sempre", 90% treinam "mover desde o passo 0", e a
++    # TRANSIÇÃO parado→mover não existe no dado. No bloco 2 o robô girava a
++    # ~1,5 rad/s COM COMANDO ZERO — ele nunca foi obrigado a ficar parado.
++    #
++    # A janela põe "parado" em 100% dos episódios, e sempre no começo. Ficar de
++    # pé deixa de ser caso especial e passa a ser a base.
++    #
++    # A duração é SORTEADA de propósito: uma janela fixa é aprendível como "conte
++    # 25 passos e depois mova", o que funciona no treino e falha no deploy, onde a
++    # ordem chega em tempo arbitrário. Sorteada, a política tem de LER o canal de
++    # comando.
++    espera_s: tuple[float, float] = (0.3, 1.0)
+ 
+ 
+ @dataclass
+@@ -323,11 +388,44 @@ class Episodio:
+     # bloco manual de "frac 0,85" que consertava isso era exatamente a configuração
+     # manual que o usuário vetou. O controlador despeja episódios de andar enquanto
+     # eles são curtos e relaxa sozinho para ~0,30 quando a marcha amadurece.
+-    frac_locomocao: float = 0.30
++    # ⚠ 21/08: isto virou o PISO INICIAL do balanço automático, e não mais a fatia
++    # fixa. Com `auto_balanco = True` ele começa em 1,0 (locomoção pura, a caixa
++    # não existe) e DESCE por competência até `alvo_loco_min`. Com
++    # `auto_balanco = False` ele é a fatia fixa de antes — é o modo que o `play`
++    # usa para pinar 0,0 (`--pegar`) ou 1,0 (`--andar`).
++    frac_locomocao: float = 1.00
+     # clamps do sorteio: nunca menos de 10% nem mais de 95% de locomoção
+     frac_loco_min: float = 0.10
+     frac_loco_max: float = 0.95
+     forma_ema: float = 0.99
++
++    # --- §10.4 — O BALANÇO AUTOMÁTICO DE FORMA (21/08) ---
++    #
++    # O problema medido no bloco 2: com 0,30 fixo desde a iteração 0, a locomoção
++    # e a manipulação competiram por uma MLP só antes de existir marcha. A
++    # `dur_loco_ema` subiu a 65 na it 260 e caiu a 11 na it 700, e NADA reagiu. O
++    # `peak_height_mean` foi de 0,024 a 0,0069 no mesmo intervalo.
++    #
++    # O balanço não serve para CHEGAR na manipulação. Serve para NÃO PERDER a
++    # marcha quando ela chegar. Por isso ele é assimétrico: lento para avançar,
++    # rápido para defender.
++    auto_balanco: bool = True
++    alvo_loco_min: float = 0.30          # o destino: 30% de locomoção
++    alvo_loco_max: float = 1.00          # o teto: locomoção pura
++    alvo_passo: float = 0.02             # 1,00 -> 0,30 são 35 degraus
++    alvo_iters_entre_degraus: int = 12   # >= 420 iterações na rampa inteira
++    # ⚠ Carência antes do PRIMEIRO degrau. Sem ela o balanço desceria na iteração
++    # 12: a `dur_loco_ema` nasce NEUTRA em 1000 passos (ver `sorteia_forma`) e o
++    # limiar é 600, portanto o portão abre com dado que ainda não existe.
++    alvo_iters_min: int = 200
++    # os dois sinais de competência da locomoção. Os DOIS têm de passar.
++    dur_loco_alvo: float = 600.0         # passos: sobreviver 12 s dos 20 s
++    # `|ωz − ωz_cmd|` médio, em rad/s. É o sinal que o bloco 2 não tinha: o
++    # `track_angular_velocity` marcou 0,0054 contra 0,275 do linear — 51× de
++    # diferença COM PESO IGUAL — desde a it 187, e ninguém olhou.
++    erro_giro_alvo: float = 0.30
++    # histerese: desce com sinal >= limiar; sobe com sinal < 0,8·limiar
++    alvo_desce_frac: float = 0.80
+     # "segure e ande": fração dos envs de manipulação com o twist LIBERADO, ATIVA
+     # SÓ a partir de `twist_livre_nivel_min`. Automático: o env começa a treinar
+     # andar-segurando um nível ANTES de o `carregar` abrir (nível 4), fechando o
+@@ -389,9 +487,13 @@ class Cronograma:
+     # que não aconteceu. Dois dos três cronogramas já saíram de fase — ver a dívida do
+     # gate por competência na §10.3.
+     locomocao: list = field(default_factory=lambda: [
+-        {"step": 0,           "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.3, 0.3), "ang_vel_z": (-0.5, 0.5)},
+-        {"step": 8000 * 24,   "lin_vel_x": (-0.8, 1.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
+-        {"step": 12000 * 24,  "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-1.5, 1.5)},
++        # ⚠ O `lin_vel_y` do degrau 0 subiu de ±0,3 para ±1,0 em 21/08: é o valor do
++        # fabricante (`velocity_env_cfg.py:189`), e a tabela SOBRESCREVE a faixa do
++        # cfg em todo reset — portanto mudar só o knob `Comando.lin_vel_y` não teria
++        # efeito nenhum no treino.
++        {"step": 0,           "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.5, 0.5)},
++        {"step": 8000 * 24,   "lin_vel_x": (-1.5, 2.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
++        {"step": 12000 * 24,  "lin_vel_x": (-2.0, 3.0), "lin_vel_y": (-1.0, 1.0), "ang_vel_z": (-0.7, 0.7)},
+     ])
+     # ⚠ O degrau de −1,00 estava em 3000 e foi para 10000 em 19/08, medido.
+     # Na iteração 3080 ele bateu e o `joint_vel_hinge` + `action_rate_l2` passaram a
+diff --git a/g1_poc/play.py b/g1_poc/play.py
+index 3e1b7e7..2b56a46 100644
+--- a/g1_poc/play.py
++++ b/g1_poc/play.py
+@@ -128,6 +128,10 @@ def _ajusta_manipula(sem_jitter: bool):
+     ⚠ O jitter x vem da CÉLULA desde 20/08; o campo `cena.caixa_jitter_x` foi removido.
+     """
+     def ajusta(k: Knobs) -> None:
++        # ⚠ `auto_balanco = False` é obrigatório desde 21/08. Com ele ligado o
++        # `frac_locomocao` é só o PISO INICIAL de um controlador (§10.4) e o alvo
++        # andaria durante o play — o modo deixaria de ser determinístico.
++        k.episodio.auto_balanco = False
+         k.episodio.frac_locomocao = 0.0
+         if sem_jitter:
+             k.celulas.jitter_x_max = (0.0,) * 7
+@@ -152,8 +156,14 @@ def _ajusta_andar(vx: float | None, giro: float | None):
+        pedida. É o que faria um `--giro` fixo não girar.
+     """
+     def ajusta(k: Knobs) -> None:
++        # ver a nota do `_ajusta_manipula`: o balanço automático sai no play
++        k.episodio.auto_balanco = False
+         k.episodio.frac_locomocao = 1.0
+         k.comando.rel_standing = 0.0
++        # ⚠ A janela de espera (§11.2) SAI do play. Ela existe para o treino; num
++        # viewer de 1 env ela é 1 s de robô imóvel antes de qualquer coisa
++        # acontecer, e o `--vx` pinado pareceria não funcionar.
++        k.comando.espera_s = (0.0, 0.0)
+         if vx is not None or giro is not None:
+             k.comando.lin_vel_x = (vx or 0.0, vx or 0.0)
+             k.comando.lin_vel_y = (0.0, 0.0)
+@@ -166,7 +176,7 @@ def _ajusta_andar(vx: float | None, giro: float | None):
+ def main() -> None:
+     p = argparse.ArgumentParser()
+     p.add_argument("--geometria", action="store_true",
+-                   help="imprime os números da §18 e abre a cena, sem política")
++                   help="imprime os números da §18 e abre a cena, com AÇÃO ZERO")
+     p.add_argument("--pegar", action="store_true",
+                    help="só a forma de manipulação: a caixa está lá e o twist é zero")
+     p.add_argument("--andar", action="store_true",
+@@ -247,7 +257,24 @@ def main() -> None:
+ 
+     print(f"[PLAY] task {task_id}")
+     if args.geometria:
+-        print("[PLAY] GEOMETRIA — ação zero; o que você vê é a pose padrão no PD")
++        # ⚠ Texto corrigido em 21/08. O anterior dizia "o que você vê é a pose
++        # padrão no PD", e isso sugeria que o robô deveria ficar DE PÉ. Não deveria.
++        #
++        # Ação zero com `use_default_offset=True` dá alvo = pose padrão. Mas um PD
++        # de ÂNGULO FIXO não equilibra um bípede: equilibrar exige modular o torque
++        # de tornozelo em resposta ao CoM, e um alvo fixo não modula nada. Somado ao
++        # reset, que nasce o robô 1 a 5 cm acima do chão, o impulso do pouso
++        # inclina e não há recuperação.
++        #
++        # Portanto "mole e cai" aqui é o ESPERADO, e não indica cena quebrada. O que
++        # este modo prova é outra coisa, e ela é útil: se NÃO houver seta de ωz, a
++        # cena não injeta giro — atrito assimétrico, qvel de keyframe e wrench
++        # desbalanceado ficam descartados, e um giro observado no `--andar` é da
++        # POLÍTICA. Foi assim que o giro do bloco 2 foi isolado em 21/08.
++        print("[PLAY] GEOMETRIA — ação zero (alvo = pose padrão).")
++        print("[PLAY]   Cair aqui é ESPERADO: PD de ângulo fixo não equilibra.")
++        print("[PLAY]   O que se mede aqui é se a CENA injeta giro. Sem seta de ωz,")
++        print("[PLAY]   qualquer giro visto no --andar é da política.")
+     if args.geometria or args.pegar:
+         print("[PLAY] frac_locomocao = 0 — a cena NUNCA é afastada, o twist é zero")
+         print("[PLAY] caixa em x = 0,32 FIXO (caso nominal)" if args.sem_jitter
+diff --git a/g1_poc/recompensas.py b/g1_poc/recompensas.py
+index 01a4c23..5220712 100644
+--- a/g1_poc/recompensas.py
++++ b/g1_poc/recompensas.py
+@@ -454,3 +454,69 @@ class hinge_por_forma:  # noqa: N801 (idioma do mjlab)
+         env.extras["log"]["Metrics/hinge_excesso_manip"] = (
+             excesso.sum(dim=-1) * bit).mean()
+         return custo * bit
++
++
++def giro_indevido(
++    env: ManagerBasedRlEnv,
++    twist_command_name: str,
++    limiar_cmd: float,
++    ema: float,
++    asset_cfg: SceneEntityCfg = _ROBOT,
++) -> torch.Tensor:
++    """ωz² onde NINGUÉM pediu giro (§8.3). E mantém a EMA do erro de giro.
++
++    O fabricante exclui o z do `body_angular_velocity_penalty` DE PROPÓSITO. O
++    comentário no fonte dele é literal:
++
++        ang_vel_xy = ang_vel[:, :2]  # Don't penalize z-angular velocity.
++
++    A razão é boa: o yaw é o eixo COMANDADO, e penalizá-lo brigaria com o
++    `track_angular_velocity`. A consequência não intencional é que o yaw fica com
++    UM guardião só, contra dois ou três em todos os outros eixos da base.
++
++    Foi por ali que o bloco 2 escapou. Medido no play da it 1216: ωz real de
++    ~1,5 rad/s com o comando pinado em ZERO, e `track_angular_velocity` a 0,0054
++    contra 0,275 do linear — 51× de diferença COM PESO IGUAL (2,0 nos dois) e com
++    tolerância MAIOR no giro (σ 0,707 contra 0,500). Só um erro grande e permanente
++    produz isso.
++
++    O gate resolve o conflito: quando `|ωz_cmd| < limiar` ninguém pediu giro,
++    portanto girar é erro puro e penalizar não briga com nada. Isso cobre
++
++        · a janela de espera (§11.2), onde o twist é zerado por construção;
++        · os envs `standing` do fabricante (`rel_standing_envs`);
++        · TODO env de manipulação, onde `poc_twist_zero` força o twist a zero.
++
++    ⚠ Este termo também é o ÚNICO produtor de `env.poc_erro_giro_ema`, que o
++    balanço automático de forma lê como segundo sinal de competência (§10.4). A EMA
++    é do erro de RASTREIO (`|ωz − ωz_cmd|`), e não do gate — ela tem de medir a
++    autoridade de yaw também quando o giro É pedido. Ela é filtrada nos envs de
++    LOCOMOÇÃO: nos de manipulação o comando é zero por construção, e incluí-los
++    misturaria duas perguntas.
++    """
++    robot: Entity = env.scene[asset_cfg.name]
++    wz = robot.data.root_link_ang_vel_b[:, 2]
++    cmd_wz = env.command_manager.get_term(twist_command_name).command[:, 2]
++
++    erro = (wz - cmd_wz).abs()
++    manipula = getattr(env, "poc_manipula", None)
++    if manipula is None:
++        loco = torch.ones_like(erro, dtype=torch.bool)
++    else:
++        loco = ~manipula
++    if bool(loco.any()):
++        amostra = erro[loco].mean()
++        anterior = getattr(env, "poc_erro_giro_ema", None)
++        if anterior is None:
++            # nasce PESSIMISTA: o balanço só desce com dado medido, nunca com o
++            # otimismo do primeiro passo
++            env.poc_erro_giro_ema = float(amostra)
++        else:
++            env.poc_erro_giro_ema = ema * anterior + (1.0 - ema) * float(amostra)
++
++    livre = (cmd_wz.abs() < limiar_cmd).float()
++    env.extras["log"]["Metrics/erro_giro_ema"] = torch.tensor(
++        float(getattr(env, "poc_erro_giro_ema", 0.0)), device=env.device)
++    env.extras["log"]["Metrics/giro_frac_sem_comando"] = livre.mean()
++    env.extras["log"]["Metrics/giro_wz_abs"] = wz.abs().mean()
++    return torch.square(wz) * livre

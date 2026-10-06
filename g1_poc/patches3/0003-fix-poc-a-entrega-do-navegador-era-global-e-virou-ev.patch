@@ -1,0 +1,122 @@
+From fe6934af69ff17b797294ec05d2190502ccbe94e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 21 Aug 2026 11:44:59 +0000
+Subject: [PATCH 3/3] fix(poc): a entrega do navegador era global, e virou
+ evento so da manipulacao
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A velocidade residual de base existe para treinar a ENTREGA DO NAVEGADOR: no robo
+real o navegador entrega um robo com velocidade e com erro de rumo (§11.1). Ela vivia
+no `velocity_range` do `reset_base`, que e GLOBAL.
+
+Portanto TODO episodio nascia com um empurrao — inclusive os de locomocao, desde a
+iteracao 0, com uma politica que ainda nao anda.
+
+E o controlador de forma amplifica o erro. Com a locomocao morrendo em 35 passos, ele
+sorteia 91% de locomocao para equalizar a fatia de transicoes — isso esta CORRETO, e
+foi medido (`frac_loco_sorteio: 0,9128`). A consequencia e que o empurrao caia 91%
+das vezes justamente na habilidade que nao funcionava.
+
+Um episodio de locomocao passa a comecar do zero, como no `velocity` do fabricante.
+
+Ordem no dict: `reset_base` poe a pose e zera a velocidade; `entrega_do_navegador`
+a reescreve onde e devido, antes dos eventos de cena.
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NaZfUhy5QAUfwkvZ9JqyN8
+---
+ g1_poc/env_cfg.py | 19 ++++++++++++++++---
+ g1_poc/eventos.py | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 58 insertions(+), 3 deletions(-)
+
+diff --git a/g1_poc/env_cfg.py b/g1_poc/env_cfg.py
+index 4b58f25..eb8c49d 100644
+--- a/g1_poc/env_cfg.py
++++ b/g1_poc/env_cfg.py
+@@ -398,8 +398,13 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+     if not kd.base_com:
+         cfg.events.pop("base_com", None)
+     cfg.events["reset_base"].params["pose_range"] = kc.reset_base_pose
+-    # §11.1 — a entrega do navegador: o robô chega andando, não parado.
+-    cfg.events["reset_base"].params["velocity_range"] = kc.reset_base_vel_manipulacao
++    # ⚠ O `reset_base` é GLOBAL, portanto a velocidade residual NÃO vai aqui. Ela
++    # existe para treinar a entrega do navegador, que só antecede um elo de
++    # manipulação (§11.1). Até 21/08 ela era global: TODO episódio nascia com um
++    # empurrão, inclusive os de locomoção, e o controlador de forma sorteia 91% de
++    # locomoção quando ela está morrendo — o empurrão caía 91% das vezes na
++    # habilidade que não funcionava. Ver o evento `entrega_do_navegador`.
++    cfg.events["reset_base"].params["velocity_range"] = {}
+     # ⚠ O `push_robot` NÃO existe no modo play: o próprio cfg do G1 o remove
+     # (`config/g1/env_cfgs.py:169`). Portanto ele precisa de guarda — sem ela o
+     # registro da task quebra, porque o `__init__` monta o cfg de play também.
+@@ -421,7 +426,15 @@ def make_g1_poc_env_cfg(k: Knobs | None = None, play: bool = False) -> ManagerBa
+         },
+     )
+ 
+-    # ordem: cena -> carga -> afasta. O `afasta` tem de vir por último.
++    # §11.1 — a entrega do navegador, SÓ na forma de manipulação. No robô real o
++    # navegador entrega um robô com velocidade e com erro de rumo; um episódio de
++    # locomoção começa do zero, como no `velocity` do fabricante.
++    cfg.events["entrega_do_navegador"] = EventTermCfg(
++        func=EV.entrega_do_navegador, mode="reset",
++        params={"faixa": kc.reset_base_vel_manipulacao},
++    )
++
++    # ordem: entrega -> cena -> carga -> afasta. O `afasta` tem de vir por último.
+     cfg.events["reset_cena"] = EventTermCfg(
+         func=EV.reset_cena, mode="reset",
+         params={
+diff --git a/g1_poc/eventos.py b/g1_poc/eventos.py
+index 47c08c0..949c93c 100644
+--- a/g1_poc/eventos.py
++++ b/g1_poc/eventos.py
+@@ -202,3 +202,45 @@ def afasta_cena(
+     pose_caixa[:, 3] = 1.0
+     caixa.write_root_link_pose_to_sim(pose_caixa, env_ids=ids)
+     caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev), env_ids=ids)
++
++
++def entrega_do_navegador(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    faixa: dict,
++) -> None:
++    """Dá velocidade residual de base SÓ aos envs da forma de manipulação (§11.1).
++
++    ⚠ Antes de 21/08 isto vivia no `velocity_range` do `reset_base`, que é GLOBAL.
++    Portanto TODO episódio nascia com um empurrão, inclusive os de locomoção, e
++    desde a iteração 0, com uma política que ainda não anda.
++
++    E o controlador de forma amplifica o erro: com a locomoção morrendo em 35
++    passos, ele sorteia 91% de locomoção para equalizar a fatia de transições
++    (correto, e medido: `frac_loco_sorteio = 0,9128`). Portanto o empurrão caía 91%
++    das vezes justamente na habilidade que não funcionava.
++
++    A §11.1 sempre pediu o contrário: a velocidade residual existe para treinar a
++    ENTREGA DO NAVEGADOR, que só acontece antes de um elo de manipulação. No robô
++    real o navegador entrega um robô com velocidade e com erro de rumo; um episódio
++    de locomoção começa do zero, como no `velocity` do fabricante.
++
++    Roda DEPOIS do `reset_base` (ordem do dict): ele põe a pose e zera a velocidade,
++    e este termo a reescreve onde é devido.
++    """
++    manipula = _forma(env, env_ids)
++    ids = env_ids[manipula]
++    if len(ids) == 0:
++        return
++    n = len(ids)
++    dev = env.device
++    robot: Entity = env.scene["robot"]
++
++    vel = torch.zeros(n, 6, device=dev)
++    for i, chave in enumerate(("x", "y", "z")):
++        lo, hi = faixa.get(chave, (0.0, 0.0))
++        vel[:, i] = lo + (hi - lo) * torch.rand(n, device=dev)
++    for i, chave in enumerate(("roll", "pitch", "yaw")):
++        lo, hi = faixa.get(chave, (0.0, 0.0))
++        vel[:, 3 + i] = lo + (hi - lo) * torch.rand(n, device=dev)
++    robot.write_root_link_velocity_to_sim(vel, env_ids=ids)
+-- 
+2.43.0
+
