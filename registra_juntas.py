@@ -87,7 +87,7 @@ ROTEIROS = {
     "carregar": ("espera:ANDAR:1.0,"
                  "pegar:PEGAR:7.0,"
                  "espera:CARREGAR:1.0,"
-                 "carregar:CARREGAR:10.0:0.5"),
+                 "carregar:CARREGAR:10.0:0.8"),
 }
 
 
