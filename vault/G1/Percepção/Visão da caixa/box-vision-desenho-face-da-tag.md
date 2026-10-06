@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1-box-vision etapa 1 travada 2026-09-17: duas CNNs em série estimam orientação da caixa só por RGB"
+cluster: percepcao
 ---
 A hipótese: **uma rede leve infere a orientação da caixa a partir de RGB**. Etapas:
 simulador → webcam → G1. Duas CNNs em série: detector (regressa `u,v,lado`) →

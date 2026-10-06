@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o knobs.py documentava 1-exp para velocidade_por_regime mas o codigo roda um clamp; comentario corrigido em 2026-09-11, peso -2,0 mantido, clamp segue como licenca acima do teto"
+cluster: c3
 ---
 ACHADO 2026-09-10, CORRIGIDO 2026-09-11 (`exp/g1-limpo-v2`, commit `a6259fe`) — so o comentario; nenhuma linha de codigo mudou.
 

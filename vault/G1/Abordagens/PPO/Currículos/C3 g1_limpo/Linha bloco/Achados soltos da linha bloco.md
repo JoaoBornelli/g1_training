@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 26/08–16/09/26
 resumo: "Achados datados que não pertencem a um run: Entity.data obsoleto, diluição do Episode_Reward, unload quase booleano, alcance refutado, escorar compra o fecho."
+cluster: c3-bloco
 ---
 ### 26/08–04/09
 - **26/08 — `Entity.data.*` obsoleto no reset e no resample do comando** (caixa sem origem do env, topo do BOTAR 0,300 nos 8 envs, alvo do ANDAR 0,000); conserto pelo `_pendente` transcrito do g1_poc [a1c19d9]. Ler `.data` depois de `write_mocap_pose_to_sim` sem passo devolve buffer velho [81c87f2].

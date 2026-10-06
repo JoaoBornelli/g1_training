@@ -4,6 +4,7 @@ pai: "[[Controle determinístico]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "G1 da UDESC simulado local — MuJoCo porque a máquina não tem NVIDIA; no robô real equilíbrio e marcha são serviço embutido, e os atuadores são torque puro"
+cluster: controle
 ---
 Projeto do G1 da UDESC em `~/Documents/unitree-g1-sim/`. A máquina do user tem iGPU Intel e zero NVIDIA, então Isaac Sim é inviável e o caminho é MuJoCo em CPU.
 

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 30/09/26
 resumo: "Plano de resume do 4650 (sorteio de twist, pose, contato com a laje, teto do p_C); nunca implementado, trocado pelo lote K1b + R1 + K12."
+cluster: c3-zero
 ---
 - **Plano:** resume do `model_4650` com o sorteio do twist (30% parado, 30% girando), `pose` ×4 no ANDAR e ×8 na ESP_SEM, contato com a laje de 5 a 30 N, teto 0,30 do `p_C`, postura de pé com IK e métricas (PLANO-Z18).
 - **Decisões do dono:** D-A2a, D-A2b (pose do molde), D-B1, D-E (um resume só).

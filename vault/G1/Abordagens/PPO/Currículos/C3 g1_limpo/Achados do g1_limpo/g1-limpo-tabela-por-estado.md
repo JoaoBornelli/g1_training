@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Desenho da recompensa sequencial do g1_limpo: teto do presente >= piso do passado; tabela peso[estado][termo] em 10 estados; renda_congelada fica como piso; a orientação paga em toda tarefa de manipulação"
+cluster: c3
 ---
 Spec `specs/g1-limpo-tabela-por-estado.md` (2026-09-11).
 

@@ -4,6 +4,7 @@ pai: "[[C4 v3]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Decisões da v3 com motivo e fonte: alvos macro de IK, locomoção da Unitree, palma de plástico com 5 kg, soltar exige afrouxar, Isaac Lab."
+cluster: c4
 ---
 # G1 v3 — decisões e propostas da discussão de 01/10
 

@@ -6,6 +6,7 @@ superada_por: C3 g1_limpo
 verificado: 2026-10-06
 periodo: 18/08–25/08/26
 resumo: "Uma tarefa, dois comandos; o alvo da caixa define o comportamento. Pegou e reorientou SEM ANDAR; portão do balanço media sobrevivência. Superado pelo C3."
+cluster: c2
 ---
 ## Hipótese
 Uma tarefa só, com dois comandos (`twist(3)` e `caixa_alvo(10)`), e o ALVO da caixa define o comportamento. "Pegar", "carregar", "botar" e "reorientar" não são tarefas: são posições de alvo. Sem one-hot, sem orçamento equalizado, sem gate por tarefa.

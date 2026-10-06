@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 30/07/26
 resumo: "Ator do BFM em lote no mjlab, validado contra o fabricante (erro 1e-6); registra 7 armadilhas silenciosas da obs."
+cluster: bfm
 ---
 ## Hipótese
 Dá para rodar o ator do BFM em lote na GPU dentro do mjlab, com a obs idêntica à do fabricante.

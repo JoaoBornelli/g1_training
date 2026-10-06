@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o robô mergulha atrás da caixa caída porque perder a caixa custa o mesmo que cair; v3 02/10: a perda troca para ANDAR parado (teste com volta atrás), trecho pobre"
+cluster: c3
 ---
 O mergulho atrás da caixa caída é resposta ÓTIMA: o elo não muda quando a caixa cai, `precise_pos` segue pagando, e `caixa_largada` termina com o mesmo custo da queda.
 

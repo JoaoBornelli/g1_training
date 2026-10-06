@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 28/09/26
 resumo: "precise_ori híbrido e ANG pelo eixo de cima: erguia a caixa tombando com o cotovelo (17° → 60°)."
+cluster: c3-zero
 ---
 - **Commits:** `ff5ac85` e `04e99ca` (RUN zero10).
 - **Hipótese:** a orientação não tinha gradiente longe do alvo, e o `ANG` não via o tombo.

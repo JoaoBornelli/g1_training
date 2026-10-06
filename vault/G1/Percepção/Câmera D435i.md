@@ -4,6 +4,7 @@ pai: "[[Percepção]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "G1 usa RealSense D435i na cabeça; FOV do RGB e do depth diferem; câmera fixa a 47,6° para baixo, sem pescoço"
+cluster: percepcao
 ---
 Fixa, 47,6° para baixo, vê o chão até 2,4 m.
 

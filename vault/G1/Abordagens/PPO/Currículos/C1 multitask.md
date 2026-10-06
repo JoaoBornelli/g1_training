@@ -6,6 +6,7 @@ superada_por: C2 g1_poc
 verificado: 2026-10-06
 periodo: 30/07–18/08/26
 resumo: "Uma política com one-hot e orquestrador por célula. Andou e pegou SEPARADO; o pegar parou em 3 cm e o std fugiu. Superado pelo C2."
+cluster: c1
 ---
 ## Hipótese
 Uma política só, condicionada a comando (one-hot da tarefa dentro do vetor de comando), aprende todas as tarefas da cadeia se um orquestrador abrir cada tarefa quando a anterior atinge competência.

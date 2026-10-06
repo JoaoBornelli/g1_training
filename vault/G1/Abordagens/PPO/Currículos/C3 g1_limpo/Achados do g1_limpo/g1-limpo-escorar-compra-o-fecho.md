@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o robô se apoia na caixa porque isso dispara o `apoiada` e abre a CAUDA, que paga 58/s contra 35/s do BOTAR"
+cluster: c3
 ---
 `apoiada = forca >= 0,5 × m·g` (`comando.py:1303`) tem limiar de **4,9 N** com a
 caixa de 1 kg. O robô pesa ~343 N: apoiar 1,5% do peso do corpo já dispara.

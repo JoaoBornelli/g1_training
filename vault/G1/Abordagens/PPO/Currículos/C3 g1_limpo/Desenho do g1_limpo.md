@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 25/08–04/09/26
 resumo: "Fases F0–F6, cinco estados com one-hot, cadeias de dois elos, currículo de três relógios, sete incentivos; depois o contrato de troca v2 e os gradientes v2.1."
+cluster: c3
 ---
 #### Por que ele existe (25/08)
 

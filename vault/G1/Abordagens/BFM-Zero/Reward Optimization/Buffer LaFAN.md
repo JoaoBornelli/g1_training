@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 22/07/26
 resumo: "Buffer de 264k frames do LaFAN para o reward inference; com suporte máximo o alvo baixo continua fora, então a causa é o dataset."
+cluster: bfm
 ---
 ## Fato
 O buffer de reward inference precisa de ~100k+ frames diversos; o `sample_data.npz` tem só 1000.

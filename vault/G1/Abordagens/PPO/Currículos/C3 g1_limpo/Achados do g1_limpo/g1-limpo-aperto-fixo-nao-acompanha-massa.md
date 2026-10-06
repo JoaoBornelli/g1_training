@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "MEDIDO 05/10 (model_24350): o aperto é o LIMITE DO MOTOR (shoulder_yaw ±25 N·m, wrist_yaw ±5), força total 230–250 N com qualquer μ e massa; pads 37–40 N; nada cobra o excesso; DR de atrito sozinha reforça o esmagar"
+cluster: c3
 ---
 MEDIDO 05/10 (laje 0,45): pads 37–40 N com 1, 3 e 5 kg. O aperto vem do `shoulder_yaw` em ±24–27 N·m (limite 25) e do `wrist_yaw` em ±5, nos dois braços; força total na caixa 230–250 N com qualquer μ e massa. O `squeeze` satura, e não existe termo de torque: apertar no máximo é grátis.
 

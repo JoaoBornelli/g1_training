@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Auditoria de todos os gradientes do g1_limpo (2026-09-04): 10 buracos, ranqueados; o relatório está em docs/planos"
+cluster: c3
 ---
 Relatório: `g1_training/docs/planos/2026-09-04-auditoria-gradientes-g1-limpo.md`. Só leitura. Nenhum código mudou.
 

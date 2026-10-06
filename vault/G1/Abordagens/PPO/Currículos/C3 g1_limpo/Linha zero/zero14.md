@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 29/09/26
 resumo: "unload × _trazer e pose pelo estado; nasce o enunciado do comportamento; ergue, mas a caixa deita 90°."
+cluster: c3-zero
 ---
 - **Commit:** `2b35d61`.
 - **Mudanças:**

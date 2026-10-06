@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 30/09/26
 resumo: "Reverte a âncora; play do 3300 mostra pelve 0,717 e tronco 22° pela forma presa na laje 0,55; substituída 2 h depois."
+cluster: c3-zero
 ---
 - **Commit:** `b2909e9` (08:27).
 - **Mudanças:** a âncora volta a 0,85–0,95; `altura_carregar` 0,90; `peito_b.z` 0,102; o fecho do PEGAR perde o `~apoiada`, que só agia com o piso abaixo de 0,80. A reta que zera a 90° FICA.

@@ -4,6 +4,7 @@ pai: "[[Transversais]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o que falta para o treino do g1_limpo rodar no G1 físico — lidar, mãos Dex3 e DR agressiva; anotado pelo dono em 2026-09-16"
+cluster: transversais
 ---
 Como está hoje (bloco 21, 2026-09-16) o treino NÃO roda no robô real. Três frentes obrigatórias antes do modelo que vai para o físico:
 

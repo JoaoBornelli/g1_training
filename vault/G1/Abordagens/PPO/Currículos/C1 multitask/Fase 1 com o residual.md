@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 30/07–03/08/26
 resumo: "Env de 7 tarefas usado pelo residual e pela monolítica; consertos de cena e critério; hack de sentar."
+cluster: c1
 ---
 ## Hipótese
 O env multitask com 7 tarefas serve de base para o Residual PPO sobre o BFM e para a política monolítica.

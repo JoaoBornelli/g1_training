@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O gate do g1_multitask carrega escala por tarefa (não máscara 0/1) para igualar o sinal de tarefa em 4.0 — alvo derivado do cfg do fabricante"
+cluster: c1
 ---
 # g1-multitask-orcamento-igual-por-tarefa (original)
 

@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 15–16/07/26
 resumo: "Ficar de pé e recuperar de empurrão (Stand e Stand-Step); fundação para o Lift."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 Uma política que só fica de pé e recupera de empurrão serve de fundação de equilíbrio e de warm-start para o Lift.

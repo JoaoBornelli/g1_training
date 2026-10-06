@@ -4,6 +4,7 @@ pai: "[[Controle determinístico]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "G1 em agosto/26 (relato do usuário 2026-08-25): treino preliminar dá andar E pegar a caixa SEPARADAMENTE, não encadeado; frente nova = abordagens determinísticas de controle; orçamento de GPU levantado no RunPods"
+cluster: controle
 ---
 Estado da frente de robótica no fechamento de agosto/26, relatado pelo usuário em 2026-08-25:
 

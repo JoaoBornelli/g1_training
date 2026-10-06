@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 26/08–18/09/26
 resumo: "Um treino do zero e ~21 blocos em resume encadeado, cada um mudando a recompensa sobre uma política que já andava; termina no model_21700, base do melhor modelo."
+cluster: c3-bloco
 ---
 ## Mapa da linha
 | run | its | código (spec / commit) | o que testou | desfecho |

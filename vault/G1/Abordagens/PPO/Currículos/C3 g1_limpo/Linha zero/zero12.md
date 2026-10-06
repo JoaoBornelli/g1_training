@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 29/09/26
 resumo: "S1–S5 (renda pós-fecho, _alinha, σ fixo), do zero: a pega parou na mesa e depois deitou a caixa a 90°."
+cluster: c3-zero
 ---
 - **Commit:** `7d4be42`. Plano: PLANO-S ("RUN nova: zero12, do zero"). Regra do plano: alterar código existente, nenhum termo novo, nenhum peso subido.
 - **Mudanças:**

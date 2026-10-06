@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 29/09/26
 resumo: "Reta zera a 90° e âncora baixa 0,75–0,85: fecho forçado do PEGAR mata 28 de 28 episódios; o CARREGAR nunca foi praticado."
+cluster: c3-zero
 ---
 - **Commit:** `ce3d460`.
 - **Mudanças:**

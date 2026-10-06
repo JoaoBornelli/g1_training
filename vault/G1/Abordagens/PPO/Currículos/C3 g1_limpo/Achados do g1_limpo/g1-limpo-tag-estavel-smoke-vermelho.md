@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "a tag estavel-bloco17 nasce com 2 falhas no smoke; as duas são contadores que não subiram com o faixa_de_pose, não defeito de código"
+cluster: c3
 ---
 A tag `estavel-bloco17` — o commit que produziu o `model_14000` — roda o smoke com
 **636 ok / 2 falhas** (medido 2026-09-14). Nenhuma das duas é defeito de código.

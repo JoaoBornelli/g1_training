@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 20–22/09/26
 resumo: "Cintura em família própria e NoBatente, na Kaggle: chegou à it ~11191 com s_B 0,32; a caixa tomba na descida; trocada quando a recompensa mudou."
+cluster: c3-zero
 ---
 - **Datas e lugar:** nasce em 20/09 na Kaggle, 4096 envs, notebook `g1_limpo_zero.ipynb`;
   "linhagem nova", continuação pelo notebook de resume `g1_limpo_kaggle.ipynb` `[d4e5e4e]`.

@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 26/08/26
 resumo: "No mjlab o G1 fica de pé sem aprender; de pé no play não prova aprendizado."
+cluster: tarefas-isoladas
 ---
 ## Fato
 No mjlab o G1 fica de pé sem aprender nada.

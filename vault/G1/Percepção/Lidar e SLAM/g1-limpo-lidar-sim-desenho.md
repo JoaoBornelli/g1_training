@@ -4,6 +4,7 @@ pai: "[[Lidar e SLAM]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "desenho do lidar simulado para o g1_limpo — requisitos e decisões; brainstorming iniciado 2026-09-22"
+cluster: percepcao
 ---
 O lidar (MID-360 na cabeça) entra na observação do G1 físico. Dono (22/09): a política vê o chão nos pés e as superfícies à frente (1 a 3 m). Dono (02/10): a grade fica na v3 por chave, DESLIGADA na primeira v3 (com só a laje, a cena vira atalho para a tarefa); entra por append quando o suporte variar. Exigência central: a mesma grade no sim do real e no robô real.
 

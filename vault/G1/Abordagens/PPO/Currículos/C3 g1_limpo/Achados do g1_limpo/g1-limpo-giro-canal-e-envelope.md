@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O robo nao girava por dois motivos somados: o termo de guinada media o gingado nao comandado, e o envelope era lento demais; o sigma tem de acompanhar o envelope"
+cluster: c3
 ---
 O `g1_limpo` nao girava. Duas causas, ambas medidas em 2026-09-10.
 

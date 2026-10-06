@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 10/09/26
 resumo: "BOTAR sem de_pe e cauda parada de pé: o BOTAR fecha pela primeira vez (s_C 0 → 0,195); parada pelo 3º estágio de velocidade."
+cluster: c3-bloco
 ---
 - **Datas:** 10/09 (notebook `e63e92e`, META 11500).
 - **O que mudou antes:**

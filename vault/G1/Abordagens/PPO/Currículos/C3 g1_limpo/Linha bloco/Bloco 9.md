@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 04–08/09/26
 resumo: "Gradientes v2.1 em warm-start: o PEGAR fecha pela primeira vez na it 2616 e o sucesso chega a 0,574 na it 5000."
+cluster: c3-bloco
 ---
 ### Início (relatório A)
 - **Datas:** 04/09 [specs/g1-limpo-curriculo-de-cadeia.md §2].

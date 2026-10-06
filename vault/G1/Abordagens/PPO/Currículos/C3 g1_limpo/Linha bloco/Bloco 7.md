@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 31/08–02/09/26
 resumo: "Mesa vira multa em rampa e vantagem normalizada por elo: postura_ereta sai do zero e a queda cai de 51,9% para 0,9%."
+cluster: c3-bloco
 ---
 - **Datas:** os dois patches "rodaram como célula no bloco 7" e entraram no repo em 02/09 08:22 [8c2c929]. Em 02/09 a run "segue rodando com o código antigo"; o dono decidiu não esperar o veredito [handoff]. Última iteração citada: ~2514 [contrato §2].
 - **O que mudou antes (patches de célula, depois [8c2c929]):**

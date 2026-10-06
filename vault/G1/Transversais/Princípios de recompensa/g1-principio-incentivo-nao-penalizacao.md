@@ -4,6 +4,7 @@ pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "principio de desenho de recompensa no g1_training, dado pelo usuario em 2026-08-25: toda acao precisa de INCENTIVO proprio, senao ficar parado custa menos que explorar; e nao se controla por PENALIZACAO — incentiva-se a acao correta em vez de punir a transgressao"
+cluster: transversais
 ---
 # g1-principio-incentivo-nao-penalizacao (original)
 

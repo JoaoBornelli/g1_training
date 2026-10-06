@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Auditoria de incentivos do g1_poc (20/08): reaching sem σ variável = sorte do nível 3+; postura_ereta subcalibrada 3×; botar sem termo que pague por soltar"
+cluster: c2
 ---
 # g1-poc-auditoria-incentivos (original)
 

@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "SPEC S0-S15 do g1_multitask implementada 05/08 — as 4 decisões que divergiram da spec e os 2 números que ela não deu"
+cluster: c1
 ---
 # g1-multitask-spec-validacao-2026-08 (original)
 

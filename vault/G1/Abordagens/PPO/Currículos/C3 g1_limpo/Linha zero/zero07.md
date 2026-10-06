@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 23–24/09/26
 resumo: "Freio em currículo por degrau de competência: pernas comprimidas e travou na pega com a pelve a 59°."
+cluster: c3-zero
 ---
 - **O que mudou (hipótese: o freio sobe com a competência, como no YAM do mjlab):**
   `velocidade_por_regime` troca a MÉDIA pela SOMA das dobradiças (uma junta sozinha paga o

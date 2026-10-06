@@ -4,6 +4,7 @@ pai: "[[Abordagens]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Treino por PPO no mjlab: Tarefas isoladas (superada), Currículos C1–C4 e Estudos. Ativo: C3 g1_limpo (model_23250) e C4 v3 em desenho."
+cluster: ppo
 ---
 Treino por PPO no mjlab (MuJoCo Warp).
 

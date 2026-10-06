@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "zero12 parou na pega: tira o peso da mesa e não leva ao peito; o tombo é cinemático (eixos coaxiais) e só o punho desfaz; zero14 = unload × _trazer + pose pelo estado"
+cluster: c3
 ---
 `model_1750` (zero12, nível 0): força 4,9× `F_ref`, subida 8 mm p50, caixa a 0,29 m do alvo. O robô tira o peso da mesa, mas nenhum PEGAR fecha: `unload` e `postura_ereta` saturavam em 2 mm. Da mesa à âncora a mão gira −7° a −45° (eixos coaxiais), e só o punho desfaz.
 

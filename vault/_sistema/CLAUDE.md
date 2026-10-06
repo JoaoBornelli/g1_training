@@ -40,3 +40,4 @@ Spec: `../specs/2026-10-05-vault-g1-design.md`.
 - A lista `## Filhos` de cada nota pai é gerada por `python vault/_sistema/indexa.py`, entre os marcadores `filhos:inicio`/`filhos:fim`. Não edite a lista à mão; edite o `resumo` do filho e rode o script.
 - Para percorrer o vault: comece em `G1.md`, leia a lista de filhos e desça só pelos ramos que interessam.
 - Ordem depois de criar ou mudar notas: `indexa.py`, depois `checa.py`.
+- A property `cluster` (pela pasta) é escrita pelo `indexa.py` e é o que o grafo usa para pintar (`[cluster:c3-bloco]` em `.obsidian/graph.json`). Cluster novo: acrescente em `CLUSTERS` no `indexa.py` e um grupo de cor no `graph.json`.

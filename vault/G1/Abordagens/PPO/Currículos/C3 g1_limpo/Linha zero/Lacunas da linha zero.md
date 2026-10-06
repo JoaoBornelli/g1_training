@@ -5,6 +5,7 @@ estado: aberta
 verificado: 2026-10-06
 periodo: 06/10/26
 resumo: "O que as fontes não confirmam: fim da zero01 piramidal, zero02 × NoBatente, model_9100, linhagem do model_3100 e do 3450."
+cluster: c3-zero
 ---
 ### zero01–zero08
 1. **O destino da zero01 piramidal e a frase "a zero01 andou e pegou".** O único registro da

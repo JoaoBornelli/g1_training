@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "No g1-box-vision o RANSAC de planos no depth dá o frame da caixa sem erro grosseiro mesmo amassada; o que quebra é o rótulo do eixo por tamanho"
+cluster: percepcao
 ---
 Medido 2026-09-10 no worktree `orca/workspaces/box-vision/g1-box-vision`. RANSAC de
 planos no depth recupera o frame da caixa. Sob degradação (ruído estéreo até 1%,

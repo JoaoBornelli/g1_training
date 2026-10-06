@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o laço de rumo tirava a manipulação do regime standing e afrouxava o freio de velocidade em 2,7x; corrigido em 21/09 mas ainda não treinado"
+cluster: c3
 ---
 `velocidade_por_regime` escolhia a tabela de limite pelo COMANDO, e o laço de rumo de
 17/09 punha a manipulação no regime `walking`, 2,7× mais frouxo, em 31,3% dos passos da

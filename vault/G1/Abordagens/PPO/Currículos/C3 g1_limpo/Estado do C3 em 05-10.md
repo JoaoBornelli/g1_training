@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 05/10/26
 resumo: "O que funciona (model_23250, 24350/24800), as 12 pendências abertas e o que motivou a v3."
+cluster: c3
 ---
 ## O que funciona
 - **`model_23250`** (21700 refinado, `39b8b82`): ciclo completo andar → pegar → carregar → botar em lajes de 0,55 a 0,15 m com 1 e 3 kg, levantando sem derrubar. Funil da C de 44–65% (V-CKPT; REL-APR §5).

@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Duas armadilhas de medição no mjlab — Entity.data.* está obsoleto dentro do reset, e limiar de check abaixo de 5 mm acusa a própria gravidade"
+cluster: transversais
 ---
 `Entity.data.*` está OBSOLETO dentro de um evento de reset e no resample do comando. A escrita vai para a simulação, mas os buffers de `data` só recompõem no forward seguinte. Nenhuma leitura errada levanta erro.
 

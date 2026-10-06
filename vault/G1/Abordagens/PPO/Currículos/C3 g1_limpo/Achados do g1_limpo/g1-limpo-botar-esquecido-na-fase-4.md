@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "MEDIDO por sonda de rede (30/09 e 01/10): o crítico desvaloriza descer e fechar no BOTAR e o ator manda subir a caixa; o resume K1b + R1 levou 48% das C ao BOTAR sem nenhum fecho; o fecho não exige de pé"
+cluster: c3
 ---
 Sondas de rede, sem simulador, nos estados do play antigo. V(alvo) − V(congelado) no BOTAR: +15 (model_4000), +4,7 (4650), −8,7 (5000 de 30/09), −3,1 (5000 do resume de 01/10). O ator comanda subir as palmas em todo ponto da descida (+20 cm no alvo). V_CAUDA − V_BOTAR no alvo: +14,7 (4650), −3,6 (agora). O fecho é `perto ∧ alinhado ∧ apoiada`; de pé NÃO entra (comando.py:1559-1560).
 

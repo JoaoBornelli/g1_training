@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "No g1_limpo, ficar parado no elo de manipulacao pagava mais que tentar (31/08, consertado); em 23/09 o forma_postural paga 0,81/s a estatua"
+cluster: c3
 ---
 **VALIDADO em 2026-08-31.** No elo `PEGAR` o twist e zero, e os dois `track_*` pagavam
 4,0/s por rastrear nada. Piso da estatua: PEGAR 8,265/s contra ANDAR 3,863/s; parado

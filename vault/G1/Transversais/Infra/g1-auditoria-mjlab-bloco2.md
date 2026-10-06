@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Bloco 2 da auditoria do g1_multitask contra o mjlab — 2 dos 4 itens rejeitados com razão medida, A11 (pé no table_contact) era real"
+cluster: transversais
 ---
 # g1-auditoria-mjlab-bloco2 (original)
 

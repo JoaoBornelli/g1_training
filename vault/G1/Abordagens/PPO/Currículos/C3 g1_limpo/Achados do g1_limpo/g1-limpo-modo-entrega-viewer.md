@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: rejeitada
 verificado: 2026-10-06
 resumo: "entrega de tarefa por evento no viewer foi REJEITADA; a task de entrega é PEGAR com espera alongada"
+cluster: c3
 ---
 A task `Mjlab-G1-Limpo-Entrega` do `g1_limpo` é `PEGAR` forçado com `espera_s` alongada. Verificado 2026-09-02.
 

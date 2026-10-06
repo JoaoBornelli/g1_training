@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o robo pega de pe e anda agachado com a caixa porque o postura_ereta esta zerado na coluna CARREGAR e a justificativa do zero caducou"
+cluster: c3
 ---
 Medido no `model_15200` (`carregar_15200_055.csv`): a pelve cai de **0,748** na pega
 para **0,564** ao carregar, com joelho +1,718. Andar VAZIO fica em 0,726 com o mesmo

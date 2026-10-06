@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 28/09/26
 resumo: "precise_ori ×4 no PEGAR_COM: fechos aparecem e somem; fechar paga menos que pairar e o crítico foge do fecho."
+cluster: c3-zero
 ---
 - **Commit:** `829ee03`: `precise_ori` vale 4 no PEGAR_COM. A 60° a derivada vai de 0,18 a 0,72/rad. "Nenhum outro termo vê o tombo."
 - **Retomada da zero10 na it ~1300** (REL-TOMBO §1).

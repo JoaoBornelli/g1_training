@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Anatomia da tarefa de caminhada do mjlab (tasks/velocity, G1) — só 2 eixos de currículo, 1 falha, peso×dt"
+cluster: transversais
 ---
 # g1-mjlab-velocity-anatomia (original)
 

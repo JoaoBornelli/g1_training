@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Fatos de API do mjlab que enganam — root_com_pos_w não é o CoM, entidade fixed-base vira mocap; a corrupção de heap do dr.body_mass ACABOU no 1.5.3"
+cluster: transversais
 ---
 # g1-mjlab-api-armadilhas (original)
 

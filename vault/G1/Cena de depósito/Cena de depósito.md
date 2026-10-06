@@ -4,6 +4,7 @@ pai: "[[G1]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Cena realista do G1 no MuJoCo clássico, em 4 subprojetos: depósito, sensores (lidar, IMU, D435i com a política carregada), políticas e controlador autônomo."
+cluster: cena
 ---
 Projeto de cena realista para testar o G1 fora do treino: um depósito no MuJoCo clássico com prateleiras, caixas e sensores.
 

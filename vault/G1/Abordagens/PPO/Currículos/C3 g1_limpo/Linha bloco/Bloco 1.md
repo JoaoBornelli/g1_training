@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 27/08/26
 resumo: "Locomoção primeiro com fatia 0,95: razão de marcha 0,553 e portão aberto na it ~963; o PEGAR não fecha e o robô escora na mesa no play."
+cluster: c3-bloco
 ---
 - **Datas:** treino sobre o código de 26/08 (todas as fases F0–F6 ativas, fatia 0,95); log lido em 27/08 no Kaggle [vault:g1-limpo-bloco1-marcha-formou]. Do zero. 5000 iterações (até a it 4999) [vault:g1-limpo-bloco1-marcha-formou].
 - **Hipótese:** com a manipulação limitada a 5% e um portão que mede MARCHA (`razao_marcha`, adimensional, nasce 0 para a estátua) a locomoção forma como no multitask [24121d7; f84f9d5; plano].

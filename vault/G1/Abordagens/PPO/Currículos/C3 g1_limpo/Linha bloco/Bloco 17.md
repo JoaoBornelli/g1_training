@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 11–14/09/26
 resumo: "faixa_de_pose: model_14000, tag estavel-bloco17, roda a cadeia inteira com três defeitos (juntas rápidas, escora na caixa, mãos tortas)."
+cluster: c3-bloco
 ---
 - **Datas:** 11/09 → ~14/09 (notebook `d74b93f`, META 14000). Tag `estavel-bloco17` = `d74b93f`.
 - **O que mudou antes:** `faixa_de_pose` (`c9578ae`): soma por junta de `exp(relu(|q−q_def|−tol)/1,5)−1`,

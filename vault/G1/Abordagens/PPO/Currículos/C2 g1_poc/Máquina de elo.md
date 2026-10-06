@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 20/08/26
 resumo: "Cadeias de elos sem reset entre eles, σ por elo e load no botar; pegar e reorientar fecharam."
+cluster: c2
 ---
 ## Hipótese
 Cadeias de elos (pegar → carregar → botar, pegar → reorientar) treinam a sequência sem reset entre elos.

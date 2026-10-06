@@ -4,6 +4,7 @@ pai: "[[IK + PD do braço]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Controle do braço do G1 no unitree-g1-sim: IK numérica + PD; travar mão foi ganho, não método"
+cluster: controle
 ---
 # g1-arm-ik-pd-control (original)
 

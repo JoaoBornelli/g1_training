@@ -4,6 +4,7 @@ pai: "[[Transversais]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "mjlab, Warp, Kaggle/Colab, gargalo de banda."
+cluster: transversais
 ---
 mjlab, Warp, Kaggle/Colab, gargalo de banda.
 

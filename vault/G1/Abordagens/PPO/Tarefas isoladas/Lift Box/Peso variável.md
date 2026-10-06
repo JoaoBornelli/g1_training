@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 17/07/26
 resumo: "DR de massa corrompe a heap; peso por força externa (payload) de 0,5 a 5 kg."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 A pega fica robusta a caixas de 0,5 a 5 kg.

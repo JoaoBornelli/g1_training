@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Quem escora na mesa no g1_limpo e o que a particao das tres terminacoes mediu"
+cluster: c3
 ---
 A particao da terminacao da mesa em tres (commit `ac93fce`) respondeu. Medido no bloco 6,
 iteracao 493 com 8192 envs (988 equivalentes de 4096), com `fell_over` em 1% das

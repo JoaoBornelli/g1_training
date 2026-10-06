@@ -4,6 +4,7 @@ pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "air_time é o único termo POSITIVO de marcha do mjlab e o cfg do G1 o zera — mas ele NÃO é o diferenciador: o módulo que andou também o tinha desligado"
+cluster: transversais
 ---
 `air_time` é o único termo positivo de marcha do mjlab e o único com derivada não-nula no repouso. O cfg do G1 o zera (`config/g1/env_cfgs.py:155`). Os quatro freios de passada valem zero com o pé plantado: eles moldam o passo depois que ele existe, e nenhum o cria.
 

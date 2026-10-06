@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Como ler o log do mjlab sem inverter o diagnóstico, e as três armadilhas operacionais do treino no Kaggle"
+cluster: transversais
 ---
 # g1-leitura-log-e-kaggle (original)
 

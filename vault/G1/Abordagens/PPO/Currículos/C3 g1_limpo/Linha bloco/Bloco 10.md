@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 05–08/09/26
 resumo: "Continuação até a it 6999; os checkpoints 5950 e 6999 alimentam as sondas: 0 de 190 BOTAR fecham, caixa no hold a 1,025 m."
+cluster: c3-bloco
 ---
 - **Datas:** entre ~05/09 e 08/09. Nenhum commit em `g1_limpo/` entre 05/09 e 07/09 (git log).
 - **O que mudou antes:** nada confirmado em git. O código provável é o v2.1 (a sonda de 08/09 roda

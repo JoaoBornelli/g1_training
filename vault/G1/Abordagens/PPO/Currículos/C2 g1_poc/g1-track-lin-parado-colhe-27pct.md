@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "track_linear_velocity: um robô IMÓVEL colhe 0,275 (27%) do termo, só pela geometria da caixa de comando ±1,0 — ler o valor bruto como progresso é armadilha"
+cluster: c2
 ---
 # g1-track-lin-parado-colhe-27pct (original)
 

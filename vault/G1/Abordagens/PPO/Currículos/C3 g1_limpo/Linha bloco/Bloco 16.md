@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 11/09/26
 resumo: "Tabela por estado, dobradiça de velocidade e punho σ 1,0; braço D no batente; morreu na ~11322 sem causa registrada."
+cluster: c3-bloco
 ---
 - **Datas:** 11/09 (notebook `dbcc299`).
 - **O que mudou antes:** `limpo_estado` com 10 estados (`ec03b44`); `PesoPorEstado` substitui `VALIDA`

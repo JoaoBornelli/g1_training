@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o BOTAR do model_13999 e bang-bang; o alvo e alcancavel ate a laje no chao, e agachar troca inclinacao de tronco por 0,05 de margem"
+cluster: c3
 ---
 Medido em `carrega085.csv` (`model_13999`): BOTAR tem p50 de 0,02 rad/s e pico de
 11,58 — o pico não passa o do ANDAR (10,40). Difere o ciclo: 84% dos passos

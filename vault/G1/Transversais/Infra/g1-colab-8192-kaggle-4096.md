@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O Colab roda 8192 envs do g1_limpo numa GPU de 16 GB; a Kaggle, tambem com 16 GB, so roda 4096. O discriminador e o hospedeiro, nao a VRAM"
+cluster: transversais
 ---
 Fato do dono, 2026-09-11, medido nas duas plataformas.
 

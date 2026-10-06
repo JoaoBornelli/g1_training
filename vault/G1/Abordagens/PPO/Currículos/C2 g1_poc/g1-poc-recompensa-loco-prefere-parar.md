@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1_poc bloco4: em locomoção PURA a recompensa por passo caiu ~6x enquanto a duração subiu 50x e o pico do pé caiu 15x — alongar o episódio paga mais que andar"
+cluster: c2
 ---
 # g1-poc-recompensa-loco-prefere-parar (original)
 

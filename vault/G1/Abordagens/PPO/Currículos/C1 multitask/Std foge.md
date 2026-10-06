@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 17–18/08/26
 resumo: "O std sobe de 0,43 a 0,98 por entropia ∝ 1/σ e zera todas as tarefas acima de ~0,50."
+cluster: c1
 ---
 ## Fato
 O `std` da política sobe sozinho (0,43 → 0,98; 0,43 → 0,70 em 300 iterações) e, acima de ~0,50, nenhuma tarefa pontua.

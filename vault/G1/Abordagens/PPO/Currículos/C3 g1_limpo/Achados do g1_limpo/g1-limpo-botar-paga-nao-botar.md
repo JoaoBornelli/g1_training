@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "no g1_limpo o BOTAR nunca fecha; a politica achou duas fugas em sequencia — arremessar e segurar para sempre — e as duas vinham do _alcancar identico a 1"
+cluster: c3
 ---
 `BOTAR` é ALCANÇADO e nunca FECHA. A política achou duas fugas em sequência.
 

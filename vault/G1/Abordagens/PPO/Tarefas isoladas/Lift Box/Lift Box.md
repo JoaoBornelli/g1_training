@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 15–24/07/26
 resumo: "Pegar e sustentar a caixa parado, agachar emergente. Validado até prateleira baixa e 5 kg; superado porque não encadeia."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 O robô parado prensa a caixa entre as mãos e a sustenta na altura comandada. Agachar EMERGE de ter que alcançar a caixa mais baixo; não é prescrito.

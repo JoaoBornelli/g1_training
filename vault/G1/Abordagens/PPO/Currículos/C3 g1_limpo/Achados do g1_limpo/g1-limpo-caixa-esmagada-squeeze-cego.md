@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O robo aperta a caixa com 8x a forca necessaria e nenhum termo cobra por isso: squeeze satura em 1/8 da forca aplicada"
+cluster: c3
 ---
 MEDIDO 2026-09-10, `model_10200`, cauda `CARREGAR`, n = 25 852.
 

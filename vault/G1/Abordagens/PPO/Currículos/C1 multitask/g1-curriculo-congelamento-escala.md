@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "congelamento espúrio do currículo multitask some com num_envs; a célula de push media população mista e travava no limiar absoluto — corrigido 05/08 medindo só o `parado`"
+cluster: c1
 ---
 # g1-curriculo-congelamento-escala (original)
 

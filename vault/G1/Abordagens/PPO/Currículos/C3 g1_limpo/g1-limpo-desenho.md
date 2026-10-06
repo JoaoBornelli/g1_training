@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1_limpo é o módulo ativo do G1 — o desenho vive na spec e no plano do repo; aqui ficam as âncoras que não se derivam do código"
+cluster: c3
 ---
 # g1_limpo: âncoras de desenho e estado das fases F1 a F6
 

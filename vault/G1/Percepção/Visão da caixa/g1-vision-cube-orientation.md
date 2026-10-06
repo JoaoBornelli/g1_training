@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Experimento de visão (Vision_training/) — imagem RGB do cubo → CNN regride orientação (gizmo); loss simétrico octaédrico; tag adiada"
+cluster: percepcao
 ---
 # g1-vision-cube-orientation (original)
 

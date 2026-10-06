@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O robo nao anda carregando a caixa por INCENTIVO, nao por capacidade: andar acrescenta 5,2% a uma renda que ja e 94% ligada a caixa"
+cluster: c3
 ---
 MEDIDO 2026-09-10, `model_10200`, cauda `CARREGAR` com a caixa, n = 16 663.
 

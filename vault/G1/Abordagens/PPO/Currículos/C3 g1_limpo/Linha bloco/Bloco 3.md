@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 28/08/26
 resumo: "Do zero com terminação de corpo inteiro: ~75% da manipulação morre na mesa; a auditoria achou três anti-hacks de geometria perdidos na reescrita."
+cluster: c3-bloco
 ---
 - **Datas:** 28/08; medido na it 4251 em 28/08 [vault:g1-limpo-mesa-contato-zero; 917bf38].
 - **O que mudou:** treino do zero com `contato_ilegal` de corpo inteiro (50 N) [vault:g1-limpo-mesa-contato-zero].

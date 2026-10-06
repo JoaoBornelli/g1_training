@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "CÓDIGO 01/10: a cauda CARREGAR que anda herda vx = vy = 0 do regime parado por ~2,9 s, e o rastreio ×3,5 paga a estátua nesse trecho"
+cluster: c3
 ---
 CÓDIGO 01/10 (verificador do workflow): `_zera_twist_nos_parados` escreve vx = vy = 0 nos envs parados (comando.py:1501-1502), e nada re-sorteia o twist quando o env passa de parado a andando. A cauda CARREGAR andando (fase ≥ 3, e 10% na fase 2) fica ~2,9 s com comando linear zero, até o re-sorteio do fabricante (segmentos de 3 a 8 s). Nesse trecho o rastreio ×3,5 paga a estátua.
 

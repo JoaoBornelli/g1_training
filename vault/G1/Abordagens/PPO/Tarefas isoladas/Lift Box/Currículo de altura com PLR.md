@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 16–17/07/26
 resumo: "Prateleira mocap e PLR de altura 0,55 → 0,25; nível inalcançável colapsa o currículo."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 Baixar a prateleira por degraus, mantendo as alturas já dominadas no sorteio, leva a pega até perto do chão.

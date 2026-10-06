@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "altura_carregar 1,02 vinha de medir onde a caixa JÁ estava; o piso real do alvo é 0,80 e vem do tol_pos, não da anatomia"
+cluster: c3
 ---
 `altura_carregar = 1,02` foi derivado de uma sonda no `model_6999` — `caixa_b.z`
 no HOLD, p50 1,025. Medir onde a caixa repousa e mover o alvo para lá é circular:

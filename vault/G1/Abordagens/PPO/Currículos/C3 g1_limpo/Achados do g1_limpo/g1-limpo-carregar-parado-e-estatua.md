@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "No CARREGAR parado o rastreio ×3,5 pagava 14/s por ficar; o R2 criou desvio pago e multiplicador inobservável; o K1b (×1 no regime parado, em toda cadeia) o substitui, commitado e em treino"
+cluster: c3
 ---
 MEDIDO 30/09: no CARREGAR com twist zero, o rastreio ×3,5 (knobs.py:1311-1312) paga 14/s por ficar parado; fechar vale ≈ 0. O R2 (×1 só no elo aberto da C) criou um desvio pago (a cauda desviada ficava em ×3,5) e um multiplicador inobservável, que o §6 rejeita. VERIFICADO 01/10.
 

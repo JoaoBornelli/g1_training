@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 05/10/26
 resumo: "aperto_excessivo −0,15 e forma_postural ponderada: a força não saiu de ~200 N em ~300 its; parado pelo dono, tema vai para a v3."
+cluster: c3-refino
 ---
 - **Commits:**
   - `79b6afc`: `aperto_excessivo` −0,05 → −0,15, preço inicial com 1 kg ~−2,3/s.

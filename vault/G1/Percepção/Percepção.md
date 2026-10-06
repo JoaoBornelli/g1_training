@@ -4,6 +4,7 @@ pai: "[[G1]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Ver a caixa e o ambiente: visão da caixa por RGB/depth (RANSAC dispensa a rede), câmera D435i fixa, lidar MID-360 simulado e SLAM por KISS-ICP + Kalman."
+cluster: percepcao
 ---
 Sensores e estimação do que o robô precisa saber sem oráculo: onde está a caixa, como ela está orientada, onde está o robô.
 

@@ -4,6 +4,7 @@ pai: "[[Percepção]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "RANSAC dispensa a rede."
+cluster: percepcao
 ---
 ## Hipótese
 CNN em RGB dá a orientação da caixa.

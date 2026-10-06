@@ -4,6 +4,7 @@ pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O 4º regime da postura cobra 0,93/s por TERMINAR a tarefa: std_standing=0,05 zera `pose` com os braços erguidos"
+cluster: transversais
 ---
 # g1-postura-penhasco-std-standing (original)
 

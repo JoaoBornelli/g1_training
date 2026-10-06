@@ -4,6 +4,7 @@ pai: "[[PPO]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Um modelo só para várias tarefas: C1 multitask, C2 g1_poc (superados), C3 g1_limpo (ativo), C4 v3 (em desenho)."
+cluster: ppo
 ---
 Um modelo para várias tarefas, com currículo.
 

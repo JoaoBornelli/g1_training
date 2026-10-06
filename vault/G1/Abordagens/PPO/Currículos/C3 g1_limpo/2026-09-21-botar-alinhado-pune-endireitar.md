@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "No BOTAR o alinhado congelado punia ENDIREITAR a caixa (chega tombada 30–52°); σ_ori preso no piso; levou ao FACE_DE_PE."
+cluster: c3
 ---
 # O `alinhado` do BOTAR pune a caixa ficar direita
 

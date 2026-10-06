@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Repo g1-box-vision refaz visão caixa→orientação do zero; user proíbe ancorar no box_scene.py de julho"
+cluster: percepcao
 ---
 O worktree `orca/workspaces/box-vision/g1-box-vision` refaz a percepção da caixa do
 zero (verificado 2026-09-03). O escopo novo tem duas partes: detectar a caixa E

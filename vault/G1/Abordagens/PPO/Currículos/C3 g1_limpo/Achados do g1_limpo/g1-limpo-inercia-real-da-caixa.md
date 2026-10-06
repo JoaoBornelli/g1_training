@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "a inércia real da caixa é gravável nos dois caminhos: mj_setConst no MuJoCo clássico, e o dr de massa do mjlab parou de corromper no 1.5.3"
+cluster: c3
 ---
 **MuJoCo clássico** (`pilota.py`, `registra_juntas.py`): `m.body_mass` e
 `m.body_inertia` são arrays numpy graváveis, e `mujoco.mj_setConst(m, d)` depois é

@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 05/10/26
 resumo: "Sem treino: punho E gira 44° na pega, o aperto é ~240 N fixo (limite do motor, não acompanha a massa), contato pelas cápsulas do pulso e tronco."
+cluster: c3-refino
 ---
 Fontes: REL-APR §3b; REL-DR §1–§2; MEM:g1-limpo-aperto-fixo-nao-acompanha-massa; MEM:g1-limpo-caixa-presa-pelo-pulso.
 

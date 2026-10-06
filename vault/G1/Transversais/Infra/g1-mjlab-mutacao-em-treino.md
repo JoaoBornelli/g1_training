@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "mjlab: o que pode mudar em tempo de treino/episódio — deepcopy assimétrico, currículo só no reset, sem duração por env, sem bootstrap em falha"
+cluster: transversais
 ---
 # g1-mjlab-mutacao-em-treino (original)
 

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/07/26
 resumo: "Recompensa de alcance vira z por reward inference. Rejeitada: z não tem magnitude e o punho não desce abaixo de ~0,54 m."
+cluster: bfm
 ---
 ## Hipótese
 Uma recompensa de alcance (mãos num alvo) inferida pelo BFM dá o `z` da tarefa, e o robô executa zero-shot.

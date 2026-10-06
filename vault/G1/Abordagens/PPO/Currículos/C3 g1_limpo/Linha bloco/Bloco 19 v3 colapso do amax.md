@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 14/09/26
 resumo: "Freio por amax em vez de mean: colapso em 472 its; o limiar carrega a redução para a qual foi calibrado."
+cluster: c3-bloco
 ---
 - **O que mudou antes:** `7d481d8` (14/09): `velocidade_por_regime` reduz por `amax` em vez de `mean`
   (troca multiplicava o custo da manipulação 15,5× na gravação, 0,11 → 1,78/s).

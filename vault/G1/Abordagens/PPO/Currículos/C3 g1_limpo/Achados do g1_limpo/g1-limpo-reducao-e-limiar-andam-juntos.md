@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o amax no velocidade_por_regime matou a movimentacao do G1 e foi REMOVIDO; o codigo roda mean nos tres regimes e quem protege o batente e o limite_de_junta"
+cluster: c3
 ---
 `torch.amax` no `velocidade_por_regime` colapsou duas runs. A `bloco19` morreu em 472
 iterações (episódio de 136 passos contra 1000, `razao_marcha` 0,055). A `zero01` morreu

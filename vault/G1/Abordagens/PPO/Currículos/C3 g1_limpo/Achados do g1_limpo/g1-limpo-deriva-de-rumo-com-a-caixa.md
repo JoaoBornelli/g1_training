@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "deriva de rumo sem comando; 17/09 laço de rumo aplicado; MEDIDO 02/10: com k = 0,5 a marcha reta assenta 6–13° fora do rumo (erro = viés/k); kernel de rumo efetivo 81°; proposta k = 2"
+cluster: c3
 ---
 MEDIDO 17/09 (19300): marcha reta +4,4 °/s; a política (MLP sem memória) não observa o rumo.
 

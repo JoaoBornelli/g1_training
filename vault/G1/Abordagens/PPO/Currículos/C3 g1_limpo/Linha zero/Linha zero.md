@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 14/09–01/10/26
 resumo: "~12 recomeços do zero (zero01–zero17), cada um com todas as restrições desde a it 0; nenhum produziu política competente; a zero17 trouxe o currículo de cadeia."
+cluster: c3-zero
 ---
 ## Resumo em tabela (zero01–zero08)
 | run | datas | hospedeiro | mudança-chave antes dele | fim | causa do fim |

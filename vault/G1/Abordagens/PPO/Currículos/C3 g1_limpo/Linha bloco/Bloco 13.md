@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 09–10/09/26
 resumo: "Mão no alcançar: o robô apoia (load 0 → 0,44/s), mas o BOTAR não fecha porque o de_pe reprova pelo joelho em 99,975%."
+cluster: c3-bloco
 ---
 - **Datas:** 09/09 → 10/09 (notebook `1dbfa06`, META 9500).
 - **O que mudou antes:** v3.3 (`206070b`, spec `mao-no-alcancar`): `_alcancar` perde os ramos que

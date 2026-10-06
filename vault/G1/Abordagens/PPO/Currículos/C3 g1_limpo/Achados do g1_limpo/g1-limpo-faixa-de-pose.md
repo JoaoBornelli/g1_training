@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "braço direito no batente em TODA fase, inclusive antes da pega; o pose não corrige porque é exp(−média) de 21 juntas"
+cluster: c3
 ---
 Medido em `model_11322` (`registra_juntas --topo 0.15`): `right_shoulder_yaw`
 2,63 (curso 2,62), `right_wrist_roll` 2,11 (curso 1,97), `wrist_pitch` e

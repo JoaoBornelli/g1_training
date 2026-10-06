@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 23/07–06/08/26
 resumo: "Entregar a pose alvo por goal_inference, em 6 experimentos. Rejeitada: o BFM passa pela pose profunda e não a segura."
+cluster: bfm
 ---
 ## Hipótese
 Entregar a pose alvo (ângulos de junta) em vez de uma recompensa: `goal_inference` mapeia a pose direto para `z = project_z(B(pose))`, sem buffer, e o BFM cuida do equilíbrio.

@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 16/07/26
 resumo: "Caixa no centro da mesa era inalcançável em pé; mover para a borda resolveu sem penalidade nova."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 O robô se escora e abre um espacate porque a caixa no centro da mesa é fisicamente inalcançável em pé.

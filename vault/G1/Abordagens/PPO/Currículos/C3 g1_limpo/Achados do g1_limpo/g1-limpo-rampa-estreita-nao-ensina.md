@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "no comando PARADO (v=0) a ação MÉDIA leva o waist_pitch ao batente em 7 passos; com NoBatente todo episódio de manipulação morre ali e PEGAR nunca treina; a terminação (−4) esconde a rampa (−53,6/s)"
+cluster: c3
 ---
 MEDIDO (`zero04`, 22/09): parado, o `waist_pitch` vai a 1,1 do curso em 7 passos; o PEGAR derruba o robô em 0,8 s, e o treino nunca passou do passo 7 em manipulação.
 

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22–23/09/26
 resumo: "Sem NoBatente: o freio −15 custava −14,8/s com o std perto de 1 e comprimiu o std a 0,45; freio forte corta a exploração."
+cluster: c3-zero
 ---
 - **Lugar:** Colab (`[9b7dfba]`) e um notebook só-Kaggle novo (`[350ce87]`, dataset
   `g1-limpo-zero`), os dois com `RUN = zero05`, sem `NoBatente`, cintura (40; 0,10; 0,90).

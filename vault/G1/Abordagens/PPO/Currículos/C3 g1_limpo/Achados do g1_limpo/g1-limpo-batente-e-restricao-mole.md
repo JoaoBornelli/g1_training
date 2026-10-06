@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o limite de junta do MJCF é restrição mole e o ankle_roll sai 50% do curso; a rampa que cobra tem de acabar ALÉM de onde a junta vive"
+cluster: c3
 ---
 MEDIDO no MuJoCo clássico (`carrega085.csv`, 1250 passos): o `ankle_roll` chega a
 **150% do curso** do MJCF e o `ankle_pitch` a 120%, empurrados pelo contato com o

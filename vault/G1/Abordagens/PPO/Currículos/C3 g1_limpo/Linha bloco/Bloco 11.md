@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 09/09/26
 resumo: "Dois bits v3.1 (cadeias B, R, C, alvo congelado): o robô ATIRA a caixa no BOTAR; termo que paga estado da caixa tem de exigir a mão."
+cluster: c3-bloco
 ---
 - **Datas:** 09/09 (notebook `c1801ea` com `RUN=bloco11`).
 - **O que mudou antes (08/09):**

@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "fração do curso não é limite em junta de curso largo (hip_yaw 316°): o hip_yaw foi a 151° no BOTAR; a rampa em 40° virou preço pago; do zero só o clip da ação impede"
+cluster: c3
 ---
 MEDIDO 2026-09-17. `hip_yaw` no BOTAR: −144° (laje 0,25) e −96° (laje 0,53), onde a IK quer ±9°.
 

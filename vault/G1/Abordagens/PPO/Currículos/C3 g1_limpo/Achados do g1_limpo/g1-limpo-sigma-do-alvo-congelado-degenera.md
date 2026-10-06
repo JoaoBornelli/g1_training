@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "σ = erro inicial é incompatível com alvo = atitude atual; no PEGAR isso deixava tombar a caixa de graça, medido em 53 a 59 graus"
+cluster: c3
 ---
 REGRA: `σ = erro inicial` só funciona com alvo INDEPENDENTE do robô. Alvo capturado da
 pose corrente tem erro inicial zero por definição, então o σ cai no piso (0,20 rad) e o

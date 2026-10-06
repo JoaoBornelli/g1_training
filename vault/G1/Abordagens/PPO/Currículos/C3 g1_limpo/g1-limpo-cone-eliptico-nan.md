@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Cone elíptico + impratio 10 diverge para NaN: Hessiano indefinido (mujoco_warp #1657), busca de linha esgotada (#3628) e warm-start; usar pirâmide."
+cluster: c3
 ---
 # Por que o cone elíptico diverge para NaN
 

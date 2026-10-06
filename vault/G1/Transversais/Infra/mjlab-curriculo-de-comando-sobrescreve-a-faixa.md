@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o commands_vel do mjlab escreve cfg.ranges a cada tique, entao ler a faixa do twist antes do launch mostra um numero que o robo nao recebe no passo 0"
+cluster: transversais
 ---
 `mdp.commands_vel` (`velocity/mdp/curriculums.py:99-108`) **escreve**
 `cfg.ranges.lin_vel_x/lin_vel_y/ang_vel_z` a cada tique, varrendo a tabela de estágios.

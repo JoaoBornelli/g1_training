@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 30–31/08/26
 resumo: "Partição da mesa (94,7% é o tronco), piso da estátua (parado rendia 145 contra 102) e portão diluído; os consertos destravaram a pega."
+cluster: c3-bloco
 ---
 - **Datas:** medido na it 493 e na it 785 antes de [ac93fce] (31/08 07:46, partição já ativa no run) e de [369af74]/[0b7d925] (31/08 10:30 e 11:28) [mem: g1-limpo-escoro-e-o-tronco; 369af74; 0b7d925].
 - **Escala:** 8192 envs; it 493 = 988 equivalentes de 4096; it 785 = 1571 equivalentes [mem: g1-limpo-escoro-e-o-tronco; 369af74].

@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O portao da forma no g1_limpo lia media diluida pela fatia de manipulacao, e isso tinha teto fechado"
+cluster: c3
 ---
 O portao da `forma` lia `eficiencia_min.mean()` sobre TODOS os envs. Nos elos de
 manipulacao o twist e forcado a zero, portanto nenhum segmento valido fecha e

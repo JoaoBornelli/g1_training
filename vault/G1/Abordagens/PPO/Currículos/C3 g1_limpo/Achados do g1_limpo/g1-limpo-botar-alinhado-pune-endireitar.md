@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o alinhado do BOTAR congela a normal da caixa TOMBADA nas mãos e passa a exigir que ela mantenha o tombo; o sigma_ori trava no piso e o gradiente morre"
+cluster: c3
 ---
 MEDIDO 2026-09-21, `model_9100`, três alturas de laje. A caixa chega ao BOTAR tombada
 29,7° (laje 0,55) e 52,2° (laje 0,35) e termina a 0,0°: a laje a nivela. O

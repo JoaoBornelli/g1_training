@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 17–24/07/26
 resumo: "Corre, bate, abre espacate e rebola; amortecer por escala de ação e gate, nunca penalidade sempre ligada."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 O robô corre, bate na mesa, abre espacate e rebola; amortecimento estrutural e gateado resolve sem brigar com a tarefa.

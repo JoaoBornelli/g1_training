@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 14/09–06/10/26
 resumo: "Achados datados: escorar compra o fecho, alvo 1,02 circular, curso largo do hip_yaw, deriva de rumo, caixa_na_pega diluída, maior μ do par, NaN do cone."
+cluster: c3-zero
 ---
 ### 14/09–23/09
 - **14/09, escorar compra o fecho.** `apoiada = forca >= 0,5·m·g` dispara a 4,9 N com caixa de

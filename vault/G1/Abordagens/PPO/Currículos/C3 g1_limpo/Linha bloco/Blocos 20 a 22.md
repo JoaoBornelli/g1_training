@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 16–18/09/26
 resumo: "Limite de pelve, forma_postural contra a IK, sola e quadril; chegam ao model_21700, que faz tudo menos um BOTAR bom (tronco 65°, perna virada)."
+cluster: c3-bloco
 ---
 - **bloco20:** `limite_de_pelve` no CARREGAR (`c1a5266`, 16/09, META 18000).
 - **bloco21:** `forma_postural` contra a referência de IK, retomada do 15999 (`a4fbd43`/`46dea30`) → `model_17999`.

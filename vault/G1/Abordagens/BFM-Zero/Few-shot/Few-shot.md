@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/07/26
 resumo: "Few-shot do paper: CEM sobre z em 3 alvos. Rejeitado: a mão se aproxima do chão mas não o bastante; fica meio abaixado ou deita."
+cluster: bfm
 ---
 ## Hipótese
 A few-shot adaptation do paper (single-pose) atinge um alvo de mão preciso que o reward inference zero-shot não atinge: otimizar só o `z`, com F, B e o ator congelados.

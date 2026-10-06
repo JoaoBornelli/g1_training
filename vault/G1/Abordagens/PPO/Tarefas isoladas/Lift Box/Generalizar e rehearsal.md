@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 16/07/26
 resumo: "Variar a caixa e empurrar sob carga; rehearsal de 20% contra o esquecimento do Stand."
+cluster: tarefas-isoladas
 ---
 ## Hipótese
 Com a pega dominada, variar a posição da caixa e empurrar sob carga endurece a skill; misturar ficar de pé impede o esquecimento.

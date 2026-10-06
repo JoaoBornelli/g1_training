@@ -4,6 +4,7 @@ pai: "[[Cena de depósito]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "projeto de cena realista para o G1 no MuJoCo clássico: depósito, sensores, políticas e controlador autônomo; spec e plano da parte 1 escritos 2026-09-24"
+cluster: cena
 ---
 O dono quer (2026-09-24), em ordem: (1) cena de DEPÓSITO genérico (estantes, paletes, mesas, obstáculos, caixas, AprilTags); (2) lidar MID-360 + IMU no robô da cena; (3) os checkpoints de loco-manipulação na cena, com física; (4) o controlador autônomo.
 

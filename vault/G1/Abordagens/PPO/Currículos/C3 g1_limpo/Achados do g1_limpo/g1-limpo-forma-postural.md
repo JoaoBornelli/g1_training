@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o termo `forma_postural` — incentivo de forma contra a referência da IK, seis grandezas, média simples; a média simples dilui o quadril a 6% da renda do BOTAR e a torção da perna piora a cada bloco"
+cluster: c3
 ---
 `recompensas.FormaPostural` paga `média_i(1 − min(erro_i/escala_i, 1)) × alcancar` sobre SEIS grandezas: pelve, tronco, separação dos pés, pad, sola e `|hip_yaw|`. Referência `ik/ref_botar.npz` pela altura do alvo; `PesoPorEstado` 1 na pega, 2 no BOTAR.
 

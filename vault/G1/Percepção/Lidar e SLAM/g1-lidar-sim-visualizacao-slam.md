@@ -4,6 +4,7 @@ pai: "[[Lidar e SLAM]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "estudo do lidar: script linear que simula uma leitura do MID-360 no G1 parado; a borda do FOV do padrão da Livox não é círculo"
+cluster: percepcao
 ---
 Objetivo do dono (2026-09-23): simular o MID-360 de forma simples para aprender e depois estudar SLAM. Feito: `estudo_lidar/lidar_parado.py` no worktree `lidar_sim` (não commitado). Robô parado, sala com caixas e coluna mocap que o mouse arrasta, `mj_multiRay` a 10 Hz no viewer passivo (35–55 ms por leitura de 20 mil), grava `nuvem.npz` ao fechar.
 

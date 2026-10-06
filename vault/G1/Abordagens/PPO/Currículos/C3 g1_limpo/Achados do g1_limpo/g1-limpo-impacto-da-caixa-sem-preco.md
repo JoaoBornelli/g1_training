@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o impacto da caixa nunca foi cobrado; MEDIDO 01/10: a métrica impacto_da_caixa (pico de força por passo de controle) é ALIASADA e não diz a altura da queda; v3 mede a velocidade de chegada (limiar 0,99 m/s = queda de 5 cm)"
+cluster: c3
 ---
 `metricas.impacto_da_caixa` publica o pico de `|F_apoio_z| / (m·g)` por episódio e nunca foi cobrada; ficou em 6–9 por 25 mil its.
 

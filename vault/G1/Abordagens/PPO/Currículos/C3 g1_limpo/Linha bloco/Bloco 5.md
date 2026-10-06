@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: —
 resumo: "Sem nenhum registro em git, specs, docs ou memória; talvez a sessão perdida ou a queda de internet de 1500 iterações."
+cluster: c3-bloco
 ---
 Nenhuma fonte primária lida cita um "bloco 5" do g1_limpo. Os "bloco5" encontrados são do g1_poc (24/08). Ver Lacunas.
 

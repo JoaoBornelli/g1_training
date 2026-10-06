@@ -6,6 +6,7 @@ superada_por: Currículos
 verificado: 2026-10-06
 periodo: 15/07–24/07/26
 resumo: "Uma política por skill (Stand, Lift Box). Funcionou isolado, mas não encadeia: esqueceu o Stand e não anda. Superada pelos currículos."
+cluster: tarefas-isoladas
 ---
 Uma política por skill, no módulo `g1_training/` (pasta `skills/`: `stand`, `lift`, `place`). Cada skill tem `knobs.py` versionado e configs datados em `configs/`, com warm-start de uma para a outra. `place` ficou só como stub (fase 1 do comando reservada).
 

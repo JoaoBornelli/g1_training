@@ -5,101 +5,115 @@
   "showAttachments": false,
   "hideUnresolved": false,
   "showOrphans": false,
-  "collapse-color-groups": true,
+  "collapse-color-groups": false,
   "colorGroups": [
     {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco\"",
+      "query": "[cluster:raiz]",
       "color": {
         "a": 1,
-        "rgb": 2600544
+        "rgb": 16777215
       }
     },
     {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero\"",
+      "query": "[cluster:abordagens]",
       "color": {
         "a": 1,
-        "rgb": 12597547
+        "rgb": 12436423
       }
     },
     {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2\"",
-      "color": {
-        "a": 1,
-        "rgb": 15844367
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo\"",
-      "color": {
-        "a": 1,
-        "rgb": 1482885
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C4 v3\"",
-      "color": {
-        "a": 1,
-        "rgb": 48340
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C2 g1_poc\"",
-      "color": {
-        "a": 1,
-        "rgb": 10181046
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO/Currículos/C1 multitask\"",
-      "color": {
-        "a": 1,
-        "rgb": 4149685
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO/Tarefas isoladas\"",
-      "color": {
-        "a": 1,
-        "rgb": 9159498
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/PPO\"",
-      "color": {
-        "a": 1,
-        "rgb": 3066993
-      }
-    },
-    {
-      "query": "path:\"G1/Abordagens/BFM-Zero\"",
+      "query": "[cluster:bfm]",
       "color": {
         "a": 1,
         "rgb": 15105570
       }
     },
     {
-      "query": "path:\"G1/Abordagens/Controle determinístico\"",
+      "query": "[cluster:tarefas-isoladas]",
+      "color": {
+        "a": 1,
+        "rgb": 9159498
+      }
+    },
+    {
+      "query": "[cluster:c1]",
+      "color": {
+        "a": 1,
+        "rgb": 4149685
+      }
+    },
+    {
+      "query": "[cluster:c2]",
+      "color": {
+        "a": 1,
+        "rgb": 10181046
+      }
+    },
+    {
+      "query": "[cluster:c3-bloco]",
+      "color": {
+        "a": 1,
+        "rgb": 2600544
+      }
+    },
+    {
+      "query": "[cluster:c3-zero]",
+      "color": {
+        "a": 1,
+        "rgb": 12597547
+      }
+    },
+    {
+      "query": "[cluster:c3-refino]",
+      "color": {
+        "a": 1,
+        "rgb": 15844367
+      }
+    },
+    {
+      "query": "[cluster:c3]",
+      "color": {
+        "a": 1,
+        "rgb": 1482885
+      }
+    },
+    {
+      "query": "[cluster:c4]",
+      "color": {
+        "a": 1,
+        "rgb": 48340
+      }
+    },
+    {
+      "query": "[cluster:ppo]",
+      "color": {
+        "a": 1,
+        "rgb": 3066993
+      }
+    },
+    {
+      "query": "[cluster:controle]",
       "color": {
         "a": 1,
         "rgb": 3113197
       }
     },
     {
-      "query": "path:\"G1/Percepção\"",
+      "query": "[cluster:percepcao]",
       "color": {
         "a": 1,
         "rgb": 15277667
       }
     },
     {
-      "query": "path:\"G1/Cena de depósito\"",
+      "query": "[cluster:cena]",
       "color": {
         "a": 1,
         "rgb": 16733986
       }
     },
     {
-      "query": "path:\"G1/Transversais\"",
+      "query": "[cluster:transversais]",
       "color": {
         "a": 1,
         "rgb": 9807270
@@ -111,11 +125,11 @@
   "textFadeMultiplier": 0,
   "nodeSizeMultiplier": 1,
   "lineSizeMultiplier": 1,
-  "collapse-forces": false,
-  "centerStrength": 0.506838531929548,
-  "repelStrength": 20,
+  "collapse-forces": true,
+  "centerStrength": 0.518713248970312,
+  "repelStrength": 10,
   "linkStrength": 1,
-  "linkDistance": 215,
-  "scale": 0.09248815955110722,
+  "linkDistance": 250,
+  "scale": 0.3121475384849869,
   "close": false
 }

@@ -4,6 +4,7 @@ pai: "[[G1]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Macro das formas de controlar o G1: BFM-Zero (rejeitada), PPO (ativa, C3 g1_limpo e C4 v3) e Controle determinístico (IK + PD)."
+cluster: abordagens
 ---
 Macro das abordagens de controle do G1: BFM-Zero, PPO, controle determinístico.
 

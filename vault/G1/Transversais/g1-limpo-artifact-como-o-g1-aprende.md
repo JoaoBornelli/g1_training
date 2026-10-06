@@ -4,6 +4,7 @@ pai: "[[Transversais]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o artifact público 'Como o G1 Aprende' — endereço, o fio condutor do depósito e o problema central em dois lados"
+cluster: transversais
 ---
 Explica o treino do `g1_limpo` para leitor de fora. Fonte: `como_o_g1_aprende.html` no
 scratchpad. https://claude.ai/artifact/KC6N2b3hRGpt35Q9nxJU2t

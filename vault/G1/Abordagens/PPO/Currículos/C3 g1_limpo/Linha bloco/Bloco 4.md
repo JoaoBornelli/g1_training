@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 28–30/08/26
 resumo: "Cadeia da pega consertada; ~46% da manipulação ainda termina na mesa; o run se perdeu com a sessão da Kaggle."
+cluster: c3-bloco
 ---
 - **Datas:** depois de [917bf38] (28/08 16:37) e antes de [ac93fce] (31/08 07:46), que cita seu número.
 - **O que mudou:** os consertos de [917bf38].

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 06/08/26
 resumo: "Ferramenta de pose por slider com erro por bloco agora × melhor; mostrou que o robô passa pela pose e vai embora."
+cluster: bfm
 ---
 ## Hipótese
 Com uma ferramenta que mede o erro por bloco, dá para achar uma pose de pega que o BFM reproduz.

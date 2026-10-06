@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 09/09/26
 resumo: "Soltar fora do alvo termina: o arremesso some e o robô segura a caixa até o time_out; fechar não ganha nada."
+cluster: c3-bloco
 ---
 - **Datas:** 09/09 (notebook `17ae885`).
 - **O que mudou antes:** v3.2 (`88fe9b5`, spec `soltar-termina`): soltar a caixa fora do alvo é

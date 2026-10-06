@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 14–17/09/26
 resumo: "Três lançamentos com o mesmo nome: colapso pelo amax (it 113), NaN do cone elíptico (it ~755) e pirâmide com impratio 2 sem fim registrado."
+cluster: c3-zero
 ---
 São três lançamentos com o mesmo nome. Os documentos os misturam.
 

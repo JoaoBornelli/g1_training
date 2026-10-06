@@ -4,6 +4,7 @@ pai: "[[Controle determinístico]]"
 estado: validada
 verificado: 2026-10-06
 resumo: "Travar a mão foi ganho, não método."
+cluster: controle
 ---
 ## Hipótese
 IK numérica + PD controla o braço.

@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 30/09–01/10/26
 resumo: "Currículo de cadeia por fases, one-hot fora da normalização e R4/R4b: s_C 0,004 → 0,20 e BOTAR resolvido, mas agachado, CARREGAR ruim e quedas; o 21700 no mesmo código superou."
+cluster: c3-zero
 ---
 ### Desenho
 Fontes: `git:c0352b0`, `git:a96039a`, `git:b919e32`, SPEC-CADEIA.

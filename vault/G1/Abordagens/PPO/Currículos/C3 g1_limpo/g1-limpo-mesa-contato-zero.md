@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Contato do corpo com a mesa: terminação (28/08) REVERTIDA em 01/09 para multa em RAMPA (−2, 50→100 N, 3 sensores); a terminação matava 76% da manipulação por ruído de exploração; v3 baixa o joelho para 10 N (dono, 01/10)"
+cluster: c3
 ---
 # g1-limpo-mesa-contato-zero (original)
 

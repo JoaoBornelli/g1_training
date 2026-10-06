@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Episode_Metrics/pico_de_altura do g1_limpo é diluído ~3,6×; o número físico é o Metrics/peak_height_mean do fabricante"
+cluster: c3
 ---
 O `pico_de_altura` do `g1_limpo/metricas.py` **subestima a folga do pé por ~3,6×**.
 Verificado 2026-08-27 lendo os dois códigos.

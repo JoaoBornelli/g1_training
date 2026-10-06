@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "60% da renda viva da cauda CARREGAR e piso sem derivada, e a cauda nao tem destino no mundo: o alvo e ancorado no peito"
+cluster: c3
 ---
 MEDIDO 2026-09-10, `model_10200`, n = 25 852. Renda viva da cauda `CARREGAR`, 13,20/s:
 

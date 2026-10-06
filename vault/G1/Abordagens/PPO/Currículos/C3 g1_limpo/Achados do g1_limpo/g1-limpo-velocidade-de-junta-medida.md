@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "medição de velocidade de junta no bloco9: a manipulação parada é mais rápida que correr, e a causa é o rastreio desligado (P4)"
+cluster: c3
 ---
 **MEDIDO 2026-09-10 (`model_10200`, bloco15), `|qd|` p90 em rad/s:**
 

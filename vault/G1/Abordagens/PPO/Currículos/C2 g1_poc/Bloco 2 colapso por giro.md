@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 21/08/26
 resumo: "O robô aprendeu a girar e caía; o termo giro_indevido foi criado e apagado no mesmo dia."
+cluster: c2
 ---
 ## Hipótese
 Fechar o yaw (único eixo sem cerca) e consertar a entrega do navegador estabilizam a locomoção.

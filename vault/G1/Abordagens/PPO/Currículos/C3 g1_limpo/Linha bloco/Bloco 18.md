@@ -5,6 +5,7 @@ estado: validada
 verificado: 2026-10-06
 periodo: 15–16/09/26
 resumo: "v2 refeita da tag: alvo 0,85–0,95, inércia real e limite_de_junta exponencial; model_15200 anda agachado com a caixa (pelve 0,564)."
+cluster: c3-bloco
 ---
 - **O que mudou antes (`9b6cc8f`, sobre a tag `estavel-bloco17`, retomada do `model_13999`/`14000`):**
   1. Alvo do PEGAR sorteado em 0,85–0,95 por episódio (o 1,02 era circular: altura do ombro 1,074;

@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 26/08–02/10/26
 resumo: "Tabela dos checkpoints da linha bloco (4999 a 23250): origem, o que cada um faz no play e a fonte."
+cluster: c3-bloco
 ---
 | checkpoint | origem | o que faz | fonte |
 |---|---|---|---|

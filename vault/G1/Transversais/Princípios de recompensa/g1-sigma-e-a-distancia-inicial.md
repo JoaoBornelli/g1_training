@@ -4,6 +4,7 @@ pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O sigma do kernel de alcance tem de ser a distancia inicial daquele env, nao um numero fixo -- com sigma fixo pequeno a derivada no repouso e ZERO e o robo nao tem pista de onde ir"
+cluster: transversais
 ---
 # g1-sigma-e-a-distancia-inicial (original)
 

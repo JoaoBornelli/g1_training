@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 15/07/26
 resumo: "Com a mesa ao alcance o robô se escora para satisfazer o upright; mesa fora de alcance no Stand."
+cluster: tarefas-isoladas
 ---
 ## Fato
 Com a mesa ao alcance, o robô aprende a se ESCORAR nela (mãos e coxas) para satisfazer o `upright` sem equilibrar.

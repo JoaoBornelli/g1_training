@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "A escala da ação do wrist_pitch/yaw é 0,075 rad por unidade (6x menor que o braço): a política não explora nem aprende o giro do punho que mantém a caixa reta ao erguer"
+cluster: c3
 ---
 `G1_ACTION_SCALE` do mjlab = 0,25 × torque_limite ÷ rigidez. Para o punho (motor 4010, 5 N·m) dá **0,075 rad** por unidade; para ombro, cotovelo e wrist_roll dá 0,439. Ruído de exploração no punho: 2° (std 0,49), contra 12° no cotovelo.
 

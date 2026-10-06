@@ -4,6 +4,7 @@ pai: "[[C4 v3]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "DECISÃO DO DONO 05/10: o robô real fica com a palma de plástico (μ 0,3–0,5 contra papelão), a massa máxima continua 5 kg, e o robô tem de aprender outro jeito de segurar quando o atrito lateral não basta; a recompensa da v3 paga o resultado, não o aperto lateral"
+cluster: c4
 ---
 DECISÃO DO DONO (05/10): palma de plástico (μ 0,3–0,5 contra papelão), massa até 5 kg. Com μ 0,3, 5 kg pedem 82 N por palma e o braço entrega ~100 N; o robô pode apoiar a caixa nivelada no tronco (enunciado §3). REJEITADO pelo dono (05/10): caixa inclinada contra o peito e apoio no antebraço; a caixa fica a 15° no fim do treino em toda etapa, porque o conteúdo não pode sofrer impacto.
 

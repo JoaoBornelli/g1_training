@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o PPO do fabricante do G1 declara max_iterations=30_000; runs de 3000-5000 do g1_poc são 10-17% do orçamento e terminam ANTES do 1º degrau do currículo de comando"
+cluster: c2
 ---
 # g1-poc-orcamento-30k-iteracoes (original)
 

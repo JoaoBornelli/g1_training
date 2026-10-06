@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 27–28/08/26
 resumo: "Multa −1,5 por tocar a mesa: o contato caiu e a manipulação caiu junto; multa que o robô pode pagar ele orça."
+cluster: c3-bloco
 ---
 - **Datas:** 27/08 → 28/08 manhã (o commit seguinte, 08:39 de 28/08, já cita o resultado) [6c6a5f8].
 - **O que mudou antes:** `contato_prateleira = −1,5`, booleano, sobre o sensor `corpo_prateleira` (6 geoms: pelve, tronco, quadril, coxa) [f4ccb6c; 6c6a5f8]; portão por `eficiencia_min` [7607d8b]. Ponto de partida: resume do fim do bloco 1, inferido de "Retomar do `model_5000.pt` (fim do bloco 1), não do checkpoint do bloco 2" [vault:g1-limpo-mesa-contato-zero] (ver Lacunas).

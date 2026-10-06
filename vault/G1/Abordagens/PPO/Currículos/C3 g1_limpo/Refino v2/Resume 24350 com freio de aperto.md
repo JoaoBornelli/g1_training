@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 05/10/26
 resumo: "priority, DR de μ [0,6; 1,0] e aperto_excessivo −0,05: a força fica em ~200 N e nível e s_C caem; o 24800 anda mais com a caixa."
+cluster: c3-refino
 ---
 - **Commits:** `0912915` (código; spec SPEC-APERTO), clone `025a9d6`.
 - **Mudanças:**

@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Auditoria de travas g1_poc (20/08): nivel lia a forma do episódio SEGUINTE (p_up=0,7·p); Risco 3 invertido (pico a 0,30 m); T1 da caixa caindo REFUTADA por mim"
+cluster: c2
 ---
 # g1-poc-auditoria-travas (original)
 

@@ -4,6 +4,7 @@ pai: "[[C4 v3]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "DECISÃO 01/10: treino v3, refeito simples só com o que funcionou; um modelo só é DURO; IK como alvo macro (sem mímica); cadeias com transição ficam (o ganho do g1_limpo sobre o multitask); nenhum episódio nasce com a caixa; cada tarefa com seu nível e fatia parecida de envs, giro no lugar incluso"
+cluster: c4
 ---
 DECISÃO DO DONO (01/10): v3 refeito simples, só com o que funcionou. "Um modelo só" é duro. Poses de IK viram alvos macro, sem mímica. Ficam as cadeias B (PEGAR → CARREGAR) e C (PEGAR → CARREGAR parado → BOTAR), após ANDAR parado. Nenhum episódio nasce com a caixa. Refino (02/10): primeiro pega e bota em todas as alturas, depois as restrições apertam aos poucos.
 

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 24/07/26
 resumo: "Goal em malha fechada com overdrive integral. Rejeitado: mover o alvo gira o z em vez de empurrar mais."
+cluster: bfm
 ---
 ## Hipótese
 Como não dá para pedir "mais forte", pedir "mais longe": um goal que anda em malha fechada, mais uma ação integral (overdrive), destrava o alvo baixo.

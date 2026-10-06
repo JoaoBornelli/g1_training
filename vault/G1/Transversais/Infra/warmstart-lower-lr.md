@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Ao warm-startar um treino RL num degrau/distribuição mais difícil, BAIXAR a learning_rate inicial (5e-4 vs 1e-3) pra não destruir o checkpoint nos primeiros updates"
+cluster: transversais
 ---
 # warmstart-lower-lr (original, com evidência do g1 lift)
 

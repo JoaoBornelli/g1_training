@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Um achado por memória g1-limpo-*: o fato medido, o porquê e como aplicar. Complementa as notas por run das três linhas."
+cluster: c3
 ---
 Corpo original de cada memória `g1-limpo-*`, copiado em 06/10/2026. A memória do Claude guarda só a linha do fato e aponta para cá.
 

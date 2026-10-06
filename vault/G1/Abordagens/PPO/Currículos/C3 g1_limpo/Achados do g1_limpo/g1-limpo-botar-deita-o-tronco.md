@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "BOTAR é a única tarefa reprovada pelo dono (18/09): tronco deitado demais, braço dobrado em 55% do alcance, perna ainda virando; hipótese de hábito do resume, a testar no treino do zero"
+cluster: c3
 ---
 VEREDITO DO DONO, 2026-09-18, no `model_21700` (resume com terminação): todas as tarefas
 satisfatórias, em toda altura, MENOS o BOTAR. Ele bota, mas "inclina o tronco demais sem

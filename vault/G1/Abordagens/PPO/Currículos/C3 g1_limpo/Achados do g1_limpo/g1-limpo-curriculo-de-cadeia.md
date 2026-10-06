@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "DECISÃO 30/09 (zero17): a manipulação abre por fase — PEGAR (90% SEGURA), CARREGAR parado, CARREGAR andando, BOTAR — com troca por s_B e s_cauda; C = (PEGAR, CARREGAR parado, BOTAR); sucesso = fecho E time_out; o dono retoma do model_3100"
+cluster: c3
 ---
 DECISÃO 30/09 (zero17): dentro da manipulação, as tarefas abrem por fase. Fase 1: 90% dos fechos B/R SEGURAM no PEGAR até o fim, 10% vão à cauda CARREGAR parada. Fase 2: 100% à cauda, 90% parada. Fase 3: a cauda anda. Fase 4: o balanceador de hoje; `p_C` = 0,05 antes. A cadeia C é PEGAR → CARREGAR parado (fecho pela régua do PEGAR, 0,5 s) → BOTAR. O sucesso que move o nível e `s_B`/`s_C` é `concluiu ∧ time_out`.
 

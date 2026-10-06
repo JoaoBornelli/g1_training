@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o std cai rápido no começo em toda run desta pilha (fábrica 1,0→0,61 na it 200); na g1_limpo o freio −15 aprofunda a queda até ~0,45, onde a dobradiça desliga; o LR da config não importa"
+cluster: c3
 ---
 - A queda é mecânica do PPO: `std_param` sem piso, entropia 0,01. O std de uma junta cai quando ruído²×vantagem fica abaixo de −0,7%. LR da config e `PPOPorElo` não pesam.
 - As runs do zero comprimem as PERNAS: 0,32–0,43, contra 0,51 no bloco 1 e 0,65 nos blocos. A zero01, com freio −2, também.

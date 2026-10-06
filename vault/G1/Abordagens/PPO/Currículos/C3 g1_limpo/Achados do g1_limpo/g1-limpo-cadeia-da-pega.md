@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "A cadeia mao->laterais->preensao->unload->alvo do g1_limpo: onde ela quebrava e o que a consertou"
+cluster: c3
 ---
 O g1_limpo travou a pega por TRES anti-hacks perdidos na reescrita do g1_poc. Os tres
 sao geometria, e nenhum e peso. Consertados em 2026-08-28, commit `917bf38`.

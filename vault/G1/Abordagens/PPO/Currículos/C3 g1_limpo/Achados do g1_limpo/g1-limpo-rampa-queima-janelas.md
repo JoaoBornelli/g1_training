@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "A rampa de fatia do g1_limpo avança 22x mais devagar que o desenho: ela queima as janelas puladas quando o sinal fica na banda morta"
+cluster: c3
 ---
 O controlador de forma do `g1_limpo/curriculo.py` avança a rampa **uma vez por travessia do
 limiar**, não uma vez por `iters_entre_degraus`. Medido 2026-08-27: `Curriculum/forma` foi de

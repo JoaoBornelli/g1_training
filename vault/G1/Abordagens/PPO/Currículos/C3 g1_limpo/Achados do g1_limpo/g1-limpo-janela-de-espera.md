@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1_limpo tem a janela de espera do g1_poc; decisão de 2026-09-02: ela passa a publicar ANDAR e o VALIDA sai da observação"
+cluster: c3
 ---
 O `g1_limpo` tem a janela de espera desde 2026-09-02. Ela sorteia 0,3 a 1,0 s por episódio de manipulação e mantém o objetivo desligado. No `ANDAR` ela é zero. O rastreio de velocidade paga durante a janela; medido 3,816/s na janela e 0,000/s depois.
 

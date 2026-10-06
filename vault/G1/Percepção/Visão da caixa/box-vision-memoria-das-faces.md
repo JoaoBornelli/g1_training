@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1-box-vision etapa 3: vetor de 6 faces com 4 estados; ver a tag encerra a busca, dedução vira provável"
+cluster: percepcao
 ---
 Vetor de 6 faces: `-1` não vi, `0` vi sem tag, `1` tag, `2` provável. Marca com
 ângulo abaixo de 65° (era 60°). Cinco `0` deduzem a sexta como `2`. Ver a tag

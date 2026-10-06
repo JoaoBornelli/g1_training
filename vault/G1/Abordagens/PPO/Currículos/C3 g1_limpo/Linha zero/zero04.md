@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/09/26
 resumo: "Rampa da cintura a 0,90: morreu na it 650; terminação por junta num treino do zero vira a saída barata."
+cluster: c3-zero
 ---
 - **O que mudou:** rampa da cintura no zero de 0,95 para **0,90** (3,0° de largura, cai na
   referência de IK, frac 0,899, que segue de graça); pico igual, `expm1(40 × 0,10) =

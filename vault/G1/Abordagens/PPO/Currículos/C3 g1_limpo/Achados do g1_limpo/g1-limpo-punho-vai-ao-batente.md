@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "no g1_limpo apertar o std do punho no `pose` matou o termo em vez de discipliná-lo; revertido para 1,00 em 2026-09-11"
+cluster: c3
 ---
 A v3.5 pôs os 6 punhos na média do `pose` e apertou `std_standing[".*wrist.*"]` de 1,00 para 0,30. **Não disciplinou: matou o termo.** REVERTIDO para 1,00 em 2026-09-11 (`exp/g1-limpo-v2`, commit `bcd0e84`). O punho FICA na média; a máscara do `PosturaPorElo` não muda — era o σ que estava errado.
 

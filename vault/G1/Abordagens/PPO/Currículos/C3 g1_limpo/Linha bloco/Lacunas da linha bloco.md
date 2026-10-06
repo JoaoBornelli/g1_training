@@ -5,6 +5,7 @@ estado: aberta
 verificado: 2026-10-06
 periodo: 06/10/26
 resumo: "O que as fontes não confirmam: bloco 5, limites dos blocos 2, 6, 7, 10, 15, 16, nome bloco18 × bloco19, origem do ckp9100."
+cluster: c3-bloco
 ---
 ### Blocos 1–9
 1. **Bloco 5 não tem registro** em nenhuma fonte lida (git, specs, docs, vault, memória, comentários de código). Não há transcrição de sessão do Claude nesta janela em `~/.claude/projects` (a mais antiga é de 11/09). Pode ser a sessão perdida do bloco 4, a "queda de internet que levou 1500 iterações" do notebook, ou um run sem diagnóstico escrito.

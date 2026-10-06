@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "no mjlab uma pose escrita em corpo livre no meio do episodio e re-aplicada a cada passo; o corpo nao cai e a forca de contato vem so da penetracao"
+cluster: transversais
 ---
 No mjlab, `write_root_link_pose_to_sim` num corpo LIVRE, chamada no meio do episódio, **persiste**: a pose volta a ser aplicada a cada passo. Medido 2026-09-03 no `g1_limpo`: a caixa solta 20 cm acima da laje fica 25 passos a 20 cm, e a força de apoio é zero. Em queda livre ela cairia 1,2 m.
 

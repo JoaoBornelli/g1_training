@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Bloco 3 da auditoria do g1_multitask — condim, histórico de obs, sensores e terreno TODOS rejeitados com medição; só a colisão de chave de log era real"
+cluster: transversais
 ---
 # g1-auditoria-mjlab-bloco3 (original)
 

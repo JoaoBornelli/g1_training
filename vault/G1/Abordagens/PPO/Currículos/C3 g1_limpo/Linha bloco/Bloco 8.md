@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 03–04/09/26
 resumo: "Contrato de troca v2 do zero: marcha madura na it 1503, mas a manipulação regride; a auditoria achou 10 buracos de gradiente."
+cluster: c3-bloco
 ---
 - **Datas:** desde 03/09 [mem: g1-limpo-contrato-de-troca-de-tarefa; `specs/g1-limpo-curriculo-de-cadeia.md` §2 "03/09 bloco8 treina do zero com a observação v2"]. Auditoria na it 1503 em 04/09 [auditoria].
 - **Plataforma:** Colab com 8192 envs a 8,54 s/iter (lote 196 608 transições, minilote 49 152) [specs/g1-limpo-notebook-colab.md]; seguiu na Kaggle a partir da it 1050 com 4096 envs e 4,8 s/iter [mem: g1-limpo-contrato-de-troca-de-tarefa].

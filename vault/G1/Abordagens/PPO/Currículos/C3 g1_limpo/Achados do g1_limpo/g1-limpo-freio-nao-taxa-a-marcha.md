@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o velocidade_por_regime a −15 cobra ~0 de uma marcha treinada (0,0003/s a 1 m/s), mas custa −14,8/s com o ruído do começo do treino (σ 0,96)"
+cluster: c3
 ---
 MEDIDO 22/09 (`registra_juntas`, velocidade por diferença finita a 50 Hz, peso −15):
 marcha do `model_22300` custa 0,0000/s a 0,5 m/s, 0,0000/s a 0,8 e 0,0003/s a 1,0 na

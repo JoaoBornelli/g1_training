@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "A renda_congelada ACUMULA por fecho; o desperdicio e o empilhamento, nao o fecho isolado. Sobrepaga 10,3x na cadeia B e so 1,2x por fecho na C"
+cluster: c3
 ---
 MEDIDO 2026-09-10/11 em `model_10200`. Cadeia B: 25 852 amostras, 32 fechos. Cadeia C: 192 000 amostras, 215+135 fechos.
 

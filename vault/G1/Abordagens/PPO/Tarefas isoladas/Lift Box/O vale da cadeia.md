@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 15/07/26
 resumo: "reaching × (1 − contato) zerava no toque; a cadeia de recompensa tem de ser monotônica."
+cluster: tarefas-isoladas
 ---
 ## Fato
 `reaching × (1 − contato)` zerava no toque: "pegar mas não erguer" rendia zero, e pairar garantia 0,48.

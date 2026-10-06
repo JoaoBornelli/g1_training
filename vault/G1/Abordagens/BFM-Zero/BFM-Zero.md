@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/07–06/08/26
 resumo: "Usar o BFM-Zero pré-treinado como controlador. 6 abordagens, todas rejeitadas: o LaFAN não tem pose de agachamento parado; a mão para em ~0,54 m ou o robô deita."
+cluster: bfm
 ---
 ## Objetivo
 

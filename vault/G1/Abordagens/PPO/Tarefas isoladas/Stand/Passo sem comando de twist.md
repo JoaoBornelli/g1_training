@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 15/07/26
 resumo: "Termos de marcha do mjlab dependem do comando twist; andar não emerge de alvo longe."
+cluster: tarefas-isoladas
 ---
 ## Fato
 Os 4 termos de marcha do mjlab (`foot_clearance`, `air_time`, `foot_slip`, `soft_landing`) são gateados pelo comando `twist`: sem comando de velocidade eles dão KeyError ou ficam inertes.

@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "decisao do dono em 2026-09-08 para o g1_limpo: fechar o BOTAR primeiro; depois reestruturar em A/B/C/R com um so comportamento ANDAR e balanceamento por sucesso; gatilhos definidos"
+cluster: c3
 ---
 **Estado (2026-09-11):** v3.4 fechou o BOTAR (`s_C` 0 → 0,34). A bloco15 mostrou três defeitos com a mesma raiz — o passado paga mais que o presente: não anda com a caixa, não levanta depois de botar, corre na pega. Resposta: a TABELA POR ESTADO (`peso[estado][termo]`, 10 estados), `renda_congelada` fica como piso, dobradiça de velocidade sem clamp, punho no `pose` com std 1,00 (0,30 matava o canal). Ver g1-limpo-tabela-por-estado. A treinar como `bloco16` no COLAB com 8192 envs, META 12500, LR 5e-4 (warm-start: o crítico refaz a escala). Smoke: 627 ok / 0 falhas (12 checks velhos consertados, nenhum defeito real). O dono fecha a arquitetura aqui para o treino final em GPU boa.
 

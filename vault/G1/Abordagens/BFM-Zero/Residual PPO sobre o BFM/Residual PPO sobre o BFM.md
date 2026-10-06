@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 30/07–03/08/26
 resumo: "PPO residual sobre o BFM congelado, com busca de z. Rejeitado: o BFM não estabiliza o agachamento e o residual teria de fazer todo o equilíbrio."
+cluster: bfm
 ---
 ## Hipótese
 Um PPO residual sobre o BFM congelado aprende a habilidade e o BFM dá o equilíbrio: `alvo = a_BFM(obs, z)·escala + pose_BFM + clamp(Δ)`. A RL também procura o `z` numa base de 20 direções.

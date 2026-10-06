@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 14/09/26
 resumo: "Correções M2–M6 sobre o 13999: s_B 0,62 → 0,86 mas s_C 0,484 → 0,002; reaprender por warm-start não aconteceu."
+cluster: c3-bloco
 ---
 - **O que mudou antes:** correções M2–M6 sobre o `model_13999` (`f1e4e22`, `f7ae0f6`): `upright` na
   tabela (BOTAR 4, CAUDA 1); `faixa_de_pose` na tabela (BOTAR 2); `FaixaDePose.perna[BOTAR]` 1,3 → 0;

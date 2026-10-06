@@ -4,6 +4,7 @@ pai: "[[G1]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Conhecimento que várias frentes usam."
+cluster: transversais
 ---
 Conhecimento que várias frentes usam.
 

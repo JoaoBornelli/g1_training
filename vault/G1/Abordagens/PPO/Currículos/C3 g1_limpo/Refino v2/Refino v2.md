@@ -5,6 +5,7 @@ estado: ativa
 verificado: 2026-10-06
 periodo: 01–05/10/26
 resumo: "Resume do model_21700 com o código da zero17: model_23250 é o MELHOR modelo; as continuações e os resumes do 24350 (freio em catraca, preço do aperto) não melhoraram."
+cluster: c3-refino
 ---
 ## Configuração
 Fontes: V-CKPT; REL-APR §5; SESS-01/10.

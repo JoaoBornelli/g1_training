@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 23/09/26
 resumo: "Freio −6 só no zero: a marcha avança, mas na pega a pressa volta a compensar; nenhum peso fixo serve."
+cluster: c3-zero
 ---
 - **O que mudou:** `velocidade_por_regime` a −6 nos dois notebooks do zero; o knob segue em
   −15 e as retomadas da linha bloco também `[65072eb] [8e405db]`. "O −2 da zero01 deixava o

@@ -4,6 +4,7 @@ pai: "[[Abordagens]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Controle sem RL no MuJoCo clássico (unitree-g1-sim, lidar_sim): IK + PD segura a pega; o autônomo fase 1 executa a missão A com oráculo e a política 24350."
+cluster: controle
 ---
 Controle sem aprendizado por reforço, no MuJoCo clássico. Nasceu do BFM-Zero (o `ik_control.py` segurava a pega onde o BFM não segurava) e do relato do dono em 25/08: o treino entregava andar e pegar SEPARADOS, e a frente nova eram abordagens determinísticas de controle.
 

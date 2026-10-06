@@ -4,6 +4,7 @@ pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "O ANG do PEGAR media uma face lateral e era cego ao tombo palma-a-palma; desde 28/09 mede o eixo de cima; MEDIDO 01/10 nos plays: a subida tomba 42° a 59° (5800, 6050) contra ≤ 24° no 5350; o log caixa_na_pega (8–9°) dilui"
+cluster: c3
 ---
 # O `ANG` do PEGAR era cego ao tombo (28/09)
 

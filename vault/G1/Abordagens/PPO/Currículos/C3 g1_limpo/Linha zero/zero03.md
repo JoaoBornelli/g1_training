@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/09/26
 resumo: "Freio −15 e regime pelo estado: o batente da cintura domina (46,6 das terminações); rampa mais estreita que o ruído não dá gradiente."
+cluster: c3-zero
 ---
 - **Lugar:** Colab, notebook enxuto `g1_limpo_zero_colab.ipynb` (9 células, 15 KB),
   `NUM_ENVS = 8192`, `SEG_POR_ITER = 9,0` `[0682e6e]`.

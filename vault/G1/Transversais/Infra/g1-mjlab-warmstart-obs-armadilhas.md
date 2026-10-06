@@ -4,6 +4,7 @@ pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "Cinco armadilhas medidas de warm-start e observação no mjlab/rsl_rl — enxerto de entrada, normalizador de canal constante, register_buffer, seed e índice de obs"
+cluster: transversais
 ---
 Cinco armadilhas medidas em 07/2026 contra as classes reais do rsl_rl. Todas falham em silêncio.
 

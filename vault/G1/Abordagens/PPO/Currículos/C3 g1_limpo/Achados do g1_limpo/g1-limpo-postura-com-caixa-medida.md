@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "como a politica model_6999 do g1_limpo segura a caixa, medido em CPU em 2026-09-08 — altura 1,02 m, x 0,25, postura assimetrica na perna esquerda; e a sonda de nivel forcado que nao agiu"
+cluster: c3
 ---
 Medido 2026-09-08, `model_6999`, 64 envs, CPU, no hold com a caixa.
 

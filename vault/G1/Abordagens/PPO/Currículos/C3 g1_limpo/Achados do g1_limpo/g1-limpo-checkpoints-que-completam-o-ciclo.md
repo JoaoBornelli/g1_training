@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "MEDIDO 01–02/10 nos plays + veredito do dono: quais checkpoints pegam, botam e saem andando; MELHOR até 02/10 = model_23250 (21700 refinado no v2)"
+cluster: c3
 ---
 MELHOR MODELO (dono, 02/10): `model_23250` (sha 7967fa59d9b4), o `model_21700` da linha bloco refinado no `exp/g1-limpo-v2` (`39b8b82`, config do zero17), run `21700_zero_teste`. Bota em 0,55, 0,35 e 0,15 m com 1 e 3 kg.
 

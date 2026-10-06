@@ -5,6 +5,7 @@ estado: parada
 verificado: 2026-10-06
 periodo: 10–11/09/26
 resumo: "Giro sem gingado e envelope ±1,6 rad/s; o model_10200 gera a tabela por estado (teto do que falta ≥ piso do feito)."
+cluster: c3-bloco
 ---
 - **Datas:** 10/09 → 11/09 (notebook em `d2ac2ac`: `RUN=bloco15`, META 12500).
 - **O que mudou antes:** `giro_sem_gingado` (`d2ac2ac`) tira `wx² + wy²` do erro de guinada; o 3º

@@ -5,6 +5,7 @@ estado: rejeitada
 verificado: 2026-10-06
 periodo: 24–28/09/26
 resumo: "Freio zero no ANDAR: fechos até s_B 0,115 e depois a caixa tomba a 78° na pega."
+cluster: c3-zero
 ---
 - **O que mudou:** `velocidade_por_regime` vale ZERO no estado ANDAR; fora dele nada muda
   (piso −6/29 por junta e fator ** degrau) `[6ab0258]`. O notebook Colab mantém 8192 envs e

@@ -13,6 +13,24 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 INI, FIM = "<!-- filhos:inicio -->", "<!-- filhos:fim -->"
 QUERY = re.compile(r"```dataview\n.*?```\n?", re.S)
+# property `cluster` pela pasta: o grafo pinta por ela. Do mais especifico ao mais geral.
+CLUSTERS = [
+    ("G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco", "c3-bloco"),
+    ("G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero", "c3-zero"),
+    ("G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2", "c3-refino"),
+    ("G1/Abordagens/PPO/Currículos/C3 g1_limpo", "c3"),
+    ("G1/Abordagens/PPO/Currículos/C4 v3", "c4"),
+    ("G1/Abordagens/PPO/Currículos/C2 g1_poc", "c2"),
+    ("G1/Abordagens/PPO/Currículos/C1 multitask", "c1"),
+    ("G1/Abordagens/PPO/Tarefas isoladas", "tarefas-isoladas"),
+    ("G1/Abordagens/PPO", "ppo"),
+    ("G1/Abordagens/BFM-Zero", "bfm"),
+    ("G1/Abordagens/Controle determinístico", "controle"),
+    ("G1/Abordagens", "abordagens"),
+    ("G1/Percepção", "percepcao"),
+    ("G1/Cena de depósito", "cena"),
+    ("G1/Transversais", "transversais"),
+]
 SECAO_RESUMO = ("Resultado", "Fato", "Decisão", "Objetivo", "Veredito da frente", "Veredito")
 
 
@@ -55,6 +73,29 @@ def _resumo_do_corpo(corpo):
     return ""
 
 
+def _cluster(p):
+    rel = p.relative_to(RAIZ).with_suffix("").as_posix()
+    for pre, nome in CLUSTERS:
+        if rel == pre or rel.startswith(pre + "/") or rel + ".md" == pre + ".md":
+            return nome
+    return "raiz"
+
+
+def clusteriza():
+    """Escreve `cluster:` no frontmatter de cada nota, pela pasta. Nota nova recebe sozinha."""
+    n = 0
+    for p in _notas():
+        t = p.read_text()
+        fm, corpo = _partes(t)
+        if not fm:
+            continue
+        c = _cluster(p)
+        fm2 = re.sub(r"^cluster:.*$", f"cluster: {c}", fm, flags=re.M) if re.search(r"^cluster:", fm, re.M) else fm + f"\ncluster: {c}"
+        if fm2 != fm:
+            p.write_text(f"---\n{fm2}\n---\n{corpo}"); n += 1
+    return n
+
+
 def semear():
     n = 0
     for p in _notas():
@@ -68,6 +109,7 @@ def semear():
 
 
 def indexa():
+    print(f"cluster escrito em {clusteriza()} notas")
     info = {}
     for p in _notas():
         fm, _ = _partes(p.read_text())

@@ -4,6 +4,7 @@ pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "g1-box-vision: continuidade da orientação entre quadros — HMM sobre as 24 respostas é o melhor (70% só transição, 85% com ORB/SIFT, 78% com histograma); rejeição de 45° é a pior peça (medido 2026-09-28)"
+cluster: percepcao
 ---
 Medido 2026-09-28 numa sonda de tombos por roteiro, caixa decorada: associação de hoje 45% dos quadros com nomes certos; HMM só transição 70% (0,6 ms); HMM + NCC de histograma 78% (1 ms); HMM + ORB/SIFT 85% (11 a 17 ms). NCC de pixels REJEITADO (exige recorte exato). No papelão liso todos ficam em 79% a 82%; com decisão rígida a aparência piorava. A rejeição de 45° é a pior peça: o buffer envelhece.
 

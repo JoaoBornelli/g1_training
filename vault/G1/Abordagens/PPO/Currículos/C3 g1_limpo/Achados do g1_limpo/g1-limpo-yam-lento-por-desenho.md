@@ -4,6 +4,7 @@ pai: "[[Achados do g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
 resumo: "o exemplo YAM do mjlab (levantar cubo) é lento por servo de 2 Hz, freio em currículo e recompensa sem prêmio de tempo; na g1_limpo a pressa é paga pela renda_congelada (6,9 por 0,5 s)"
+cluster: c3
 ---
 LIDO 23/09 no mjlab 1.5.3 (`tasks/manipulation/lift_cube_env_cfg.py`, `asset_zoo/robots/i2rt_yam/yam_constants.py`):
 - Servo PD a 2 Hz no braço e 1 Hz na garra, ζ = 2: constante de tempo ~0,30 s. O G1 usa 10 Hz.
