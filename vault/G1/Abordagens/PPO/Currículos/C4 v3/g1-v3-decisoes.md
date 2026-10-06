@@ -306,6 +306,19 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
   alvo corrente, mirando o alvo, SEM zona morta (REJEITADA a zona morta proposta). EM ABERTO, a
   discutir antes da implementação: como incentivar sem quebrar a tarefa (spec §11.5). RISCO
   registrado (avaliação R13): pagar a proximidade por passo reabre a renda por estado.
+- **Terreno e mapa de elevação** (dono, 06/10): generalizar a locomoção para rampas e degraus. A
+  receita da Unitree é cega (o `height_scanner` existe na cena, mas o termo está comentado) e só
+  tem chão plano. DECIDIDO: a política vê um mapa de elevação 2,5D (2 × 2 m, 10 cm, altura e
+  confiança), montado pelo MESMO filtro (Kalman por célula + transporte pela odometria) no treino e
+  no real; no treino os pontos vêm de um lidar simplificado na pose do MID-360. A zona cega não é
+  desenhada: ela aparece pelos raios e pelo filtro. Substitui a grade 3D de ocupação na entrada da
+  política (`docs/planos/2026-10-02-percepcao-lidar-na-v3.md` §0). DECIDIDO (06/10): o mapa entra
+  DESDE O COMEÇO, ligado em todos os envs e tarefas; o terreno é um nível a mais do ANDAR, com os
+  obstáculos de `mjlab/terrains/config.py` (no Isaac Lab, o equivalente, que pode mudar); o
+  CARREGAR fica no plano. A zona cega e a altura: medida no ponto de contato do raio, zero no pé.
+  CARREGAR no terreno: nível futuro (dono, 06/10). MEDIDO: a caixa no peito faz sombra no chão à
+  frente de ~1,1 m até 1,4 m (14 cm), 1,8 m (20 cm) ou 2,2 m (26 cm); lados e trás não mudam. A
+  memória do mapa cobre, se a variância crescer com o deslocamento e devagar com o tempo.
 - **Respostas de 02/10 à §18 da spec:** branch `g1_v3`; a faixa inclui o CoM centrado nos pés;
   Φ como proposto; `hip_yaw` e batente virtual no refino; massa da C da faixa dominada; altura
   de transporte fixa em 0,90 m; CARREGAR da B com reto nas 4 direções, giro no lugar e arco.

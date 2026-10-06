@@ -117,6 +117,7 @@ Antes de mexer num termo, knob ou arquivo, faça grep nele aqui.
 - `descarga` (7): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 7 · Bloco 9 · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes · g1-limpo-escorar-compra-o-fecho
 - `docs/planos/2026-09-21-aborto-por-perda-de-preensao.md` (2): Comportamento esperado da v3 · g1-limpo-aborto-por-perda-de-preensao
 - `docs/planos/2026-09-24-grade-de-ocupacao-lidar.md` (2): g1-limpo-oraculo-da-caixa-no-real · zero07
+- `docs/planos/2026-10-02-percepcao-lidar-na-v3.md` (2): Comportamento esperado da v3 · g1-v3-decisoes
 - `docs/planos/2026-10-05-autonomo-do-sim-ao-real.md` (2): Autônomo fase 1 · g1-autonomo-fase1
 - `docs/relatorios/2026-10-01-aprendizados-zero17-para-v3.md` (3): Linha bloco · Linha zero · Pendências do C3
 - `docs/relatorios/2026-10-01-inventario-v3.md` (4): Bloco 1 · Comportamento esperado da v3 · Estado do C3 em 05-10 · g1-v3-decisoes
@@ -203,6 +204,7 @@ Antes de mexer num termo, knob ou arquivo, faça grep nele aqui.
 - `giro_w` (4): Estado do C3 em 05-10 · g1-limpo-registrador-cego-ao-giro · g1-limpo-registro-de-checkpoints · zero17
 - `goal_inference` (5): BFM só equilíbrio · Goal Reaching · IK gera pose · Tracking · Tracking do 24800
 - `grasp` (3): Residual PPO sobre o BFM · g1-principio-incentivo-nao-penalizacao · warmstart-lower-lr
+- `height_scanner` (2): g1-limpo-lidar-sim-desenho · g1-v3-decisoes
 - `hip_pitch` (8): BFM só equilíbrio · Bloco 16 · Bloco 18 · Montagem e portão · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-velocidade-de-junta-medida · g1-v3-decisoes · zero15
 - `hip_roll` (4): Bloco 10 · Montagem e portão · Movimento suave · g1-limpo-plano-tres-tarefas
 - `hip_yaw` (16): Achados soltos da linha zero · Bloco 10 · Blocos 20 a 22 · Checkpoints da linha bloco · Estado do C3 em 05-10 · Linha zero · Perna virada no BOTAR · g1-limpo-botar-deita-o-tronco · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-limite-de-junta-nao-morde-no-curso-largo · g1-limpo-plano-tres-tarefas · g1-limpo-registro-de-checkpoints · g1-v3-decisoes · model_23250 · zero01 · zero02
@@ -404,7 +406,6 @@ Antes de mexer num termo, knob ou arquivo, faça grep nele aqui.
 - `table_contact` (6): Currículo de altura com PLR · Desenho de uma tarefa · Lift Box · Specs e auditoria · g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3
 - `tanh` (2): Sonda do pegar · g1-limpo-caixa-esmagada-squeeze-cego
 - `tempo_de_voo` (3): Bloco 1 · g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou
-- `terrain_scan` (2): g1-auditoria-mjlab-bloco3 · g1-limpo-lidar-sim-desenho
 - `theta-30` (3): C4 v3 · Punho esquerdo gira na pega · g1-v3-decisoes
 - `time_out` (13): Achados soltos da linha zero · Bloco 12 · Bloco 13 · Bloco 19 v3 colapso do amax · Comportamento esperado da v3 · Desenho do currículo · Resample zerava o sucesso · g1-limpo-botar-paga-nao-botar · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-mjlab-velocity-anatomia · zero01 · zero03 · zero15
 - `tol_ang_deg` (4): g1-limpo-ang-cego-ao-tombo · g1-limpo-sigma-do-alvo-congelado-degenera · zero03 · zero10
