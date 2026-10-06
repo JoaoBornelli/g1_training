@@ -6,7 +6,11 @@ verificado: 2026-10-06
 resumo: "As 12 pendências abertas do C3 em 05/10; cada uma é uma nota pendencia que sai da Home quando fecha."
 cluster: c3
 ---
-Pendências abertas do C3 em 05/10/2026, do `model_23250` e dos testes do 24350/24800. Fonte: Estado do C3 em 05-10 e `docs/relatorios/2026-10-01-aprendizados-zero17-para-v3.md` §8. Ao resolver uma, mude `estado: fechada` e diga onde foi resolvida.
+Pendências abertas do C3 em 05/10/2026, levantadas no `model_23250` e nos testes do 24350 e do 24800. Fonte: Estado do C3 em 05-10 e `docs/relatorios/2026-10-01-aprendizados-zero17-para-v3.md` §8.
+
+Elas se agrupam em três famílias: a **pega** (PEGAR tomba a caixa, punho esquerdo gira, aperto no limite do motor), a **postura** (agachado na espera, perna virada no BOTAR, forma postural longe da IK, fecho do BOTAR sem de pé) e o **currículo** (freio em catraca, R4b sem prioridade, giro no lugar estranho). O CARREGAR lento e os abertos não medidos atravessam as três.
+
+A maior parte delas é o motivo direto de uma decisão da v3. Ao resolver uma, mude `estado: fechada` e escreva onde e como foi resolvida; ela sai da lista de pendências da Home.
 
 ## Filhos
 <!-- filhos:inicio -->

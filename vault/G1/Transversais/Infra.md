@@ -6,7 +6,13 @@ verificado: 2026-10-06
 resumo: "mjlab, Warp, Kaggle/Colab, gargalo de banda."
 cluster: transversais
 ---
-mjlab, Warp, Kaggle/Colab, gargalo de banda.
+Ferramentas e plataforma do treino, e as armadilhas medidas nelas:
+
+- **mjlab:** anatomia da tarefa `velocity` (2 eixos de currículo, pesos do G1), fatos de API que enganam (`root_com_pos_w` não é o CoM; entidade fixed-base vira mocap), o que pode mudar em treino (deepcopy assimétrico, currículo só no reset), `Entity.data` obsoleto dentro do reset, pose escrita em corpo livre persiste, o currículo de comando sobrescreve a faixa a cada tique.
+- **MuJoCo Warp:** sem noslip; `priority` estático decide o par de contato; cone elíptico com impratio 10 diverge para NaN (use pirâmide).
+- **rsl_rl e warm-start:** enxerto de entrada, normalizador, baixar a LR no resume; `Episode_Reward` dividido pela duração máxima do episódio.
+- **Plataforma:** 89% do tempo é física, a GPU só ajuda por banda; Colab roda 8192 envs e a Kaggle 4096 na mesma VRAM; como ler o log sem inverter o diagnóstico.
+- **Auditorias** do g1_multitask contra o mjlab (blocos 2 e 3).
 
 ## Filhos
 <!-- filhos:inicio -->

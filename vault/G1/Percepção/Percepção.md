@@ -16,8 +16,8 @@ Sensores e estimação do que o robô precisa saber sem oráculo: onde está a c
 
 ## Filhos
 <!-- filhos:inicio -->
-- **Lidar e SLAM** (abordagem · ativa) — Lidar simulado com o mesmo código no sim e no real; SLAM por KISS-ICP + Kalman com a IMU do MID-360.
-- **Visão da caixa** (abordagem · ativa) — RANSAC dispensa a rede.
+- **Lidar e SLAM** (abordagem · ativa) — MID-360 simulado com o padrão real da Livox e SLAM por KISS-ICP + ESKF com a IMU: σ de 1 cm com deskew; o 24999 não gira no lugar, roteiro usa curva.
+- **Visão da caixa** (abordagem · ativa) — Orientação da caixa por RGB: duas CNNs, memória das faces e HMM (85% com ORB); o RANSAC de planos no depth dá o frame da caixa sem a rede.
 - **Câmera D435i** (achado · ativa) — G1 usa RealSense D435i na cabeça; FOV do RGB e do depth diferem; câmera fixa a 47,6° para baixo, sem pescoço
 - **g1-limpo-oraculo-da-caixa-no-real** (decisao · ativa) — o ator recebe a caixa exata (oráculo); DECISÃO 02/10: a v3 treina com estimador simulado (forma desde o começo, erro em quase tudo crescendo no refino); caixa no real por câmera RGB sem marcador + depth
 - **g1-mjcf-vem-do-urdf-rev-1-0** (achado · ativa) — o g1.xml do mjlab é conversão exata do URDF g1_29dof_rev_1_0 da Unitree; os frames do MID-360 e da D435 foram descartados

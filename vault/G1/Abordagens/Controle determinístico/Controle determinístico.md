@@ -14,8 +14,8 @@ Controle sem aprendizado por reforço, no MuJoCo clássico. Nasceu do BFM-Zero (
 
 ## Filhos
 <!-- filhos:inicio -->
-- **Autônomo fase 1** (abordagem · ativa) — O 24350 pega e pousa.
-- **IK + PD do braço** (abordagem · validada) — Travar a mão foi ganho, não método.
+- **Autônomo fase 1** (abordagem · ativa) — Controlador do depósito sem RL que chama a política como executor; missão A com oráculo; o 24350 pega em 1,8 s, carrega e pousa; comando baixo exige camada de rastreio.
+- **IK + PD do braço** (abordagem · validada) — IK numérica (DLS) + servo de posição com os ganhos oficiais do G1 e integrador implicitfast: mão no alvo sem oscilação; base dos alvos de IK do C3 e do C4.
 - **g1-anda-e-pega-separado-controle-deterministico** (achado · ativa) — G1 em agosto/26 (relato do usuário 2026-08-25): treino preliminar dá andar E pegar a caixa SEPARADAMENTE, não encadeado; frente nova = abordagens determinísticas de controle; orçamento de GPU levantado no RunPods
 - **unitree-g1-sim-mujoco-not-isaac** (achado · ativa) — G1 da UDESC simulado local — MuJoCo porque a máquina não tem NVIDIA; no robô real equilíbrio e marcha são serviço embutido, e os atuadores são torque puro
 <!-- filhos:fim -->

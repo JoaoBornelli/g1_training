@@ -6,7 +6,9 @@ verificado: 2026-10-06
 resumo: "Um achado por memória g1-limpo-*: o fato medido, o porquê e como aplicar. Complementa as notas por run das três linhas."
 cluster: c3
 ---
-Corpo original de cada memória `g1-limpo-*`, copiado em 06/10/2026. A memória do Claude guarda só a linha do fato e aponta para cá.
+Corpo original de cada memória `g1-limpo-*`, copiado em 06/10/2026: um achado medido por nota, com o porquê e como aplicar. A memória do Claude guarda só a linha do fato e aponta para cá.
+
+Estes achados complementam as notas por run (Linha bloco, Linha zero, Refino v2): a nota de run conta o que aconteceu naquele treino, o achado guarda a regra que sobreviveu. Para achar um tema, leia os resumos abaixo; os principais grupos são a pega (cadeia da pega, escorar compra o fecho, caixa esmagada, aperto fixo), o BOTAR (paga não botar, bang-bang, esquecido na fase 4), a renda (piso da estátua, renda congelada, fechar paga menos que pairar), a locomoção e o giro, e o simulador (inércia real, batente mole, pose persiste).
 
 ## Filhos
 <!-- filhos:inicio -->
