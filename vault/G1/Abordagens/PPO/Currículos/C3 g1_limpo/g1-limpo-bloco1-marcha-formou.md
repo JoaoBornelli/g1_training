@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "O g1_limpo andou no bloco 1."
+resumo: "g1_limpo bloco 1: a marcha formou na it 800 com razao_marcha 0,468; e o portao da forma abre logo depois"
 ---
 # g1-limpo-bloco1-marcha-formou (original)
 

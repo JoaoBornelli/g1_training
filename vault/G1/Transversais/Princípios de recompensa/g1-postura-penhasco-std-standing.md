@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Medido/derivado em 2026-08-20 no g1_poc, lendo o código (não é hipótese de log)."
+resumo: "O 4º regime da postura cobra 0,93/s por TERMINAR a tarefa: std_standing=0,05 zera `pose` com os braços erguidos"
 ---
 # g1-postura-penhasco-std-standing (original)
 

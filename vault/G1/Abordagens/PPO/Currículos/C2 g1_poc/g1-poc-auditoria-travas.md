@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Auditoria por subagente em 2026-08-20 (passeio aleatório do nível simulado, FK sobre o modelo real do G1, matriz gate×gate)."
+resumo: "Auditoria de travas g1_poc (20/08): nivel lia a forma do episódio SEGUINTE (p_up=0,7·p); Risco 3 invertido (pico a 0,30 m); T1 da caixa caindo REFUTADA por mim"
 ---
 # g1-poc-auditoria-travas (original)
 

@@ -21,5 +21,5 @@ RANSAC dispensa a rede.
 
 ## Filhos
 <!-- filhos:inicio -->
-- **g1-vision-cube-orientation** (achado · ativa) — Sub-projeto de percepção em unitree-g1-sim/Vision_training/ (decidido 2026-07-14).
+- **g1-vision-cube-orientation** (achado · ativa) — Experimento de visão (Vision_training/) — imagem RGB do cubo → CNN regride orientação (gizmo); loss simétrico octaédrico; tag adiada
 <!-- filhos:fim -->

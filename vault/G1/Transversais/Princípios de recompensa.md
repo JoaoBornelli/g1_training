@@ -9,7 +9,7 @@ Incentivo, não penalização; σ = distância inicial; gradiente no ponto de op
 
 ## Filhos
 <!-- filhos:inicio -->
-- **g1-postura-penhasco-std-standing** (achado · ativa) — Medido/derivado em 2026-08-20 no g1_poc, lendo o código (não é hipótese de log).
-- **g1-principio-incentivo-nao-penalizacao** (achado · ativa) — Enunciado pelo usuario em 2026-08-25 como aprendizado do g1_multitask, ao desenhar o g1_limpo.
-- **g1-sigma-e-a-distancia-inicial** (achado · ativa) — Medido 2026-08-26 no g1_limpo, respondendo a pergunta do dono: 'a recompensa por nao se mover na manipulacao nao pode ser maior que a de executar as acoes com a caixa'.
+- **g1-postura-penhasco-std-standing** (achado · ativa) — O 4º regime da postura cobra 0,93/s por TERMINAR a tarefa: std_standing=0,05 zera `pose` com os braços erguidos
+- **g1-principio-incentivo-nao-penalizacao** (achado · ativa) — principio de desenho de recompensa no g1_training, dado pelo usuario em 2026-08-25: toda acao precisa de INCENTIVO proprio, senao ficar parado custa menos que explorar; e nao se controla por PENALIZACAO — incentiva-se a acao correta em vez de punir a transgressao
+- **g1-sigma-e-a-distancia-inicial** (achado · ativa) — O sigma do kernel de alcance tem de ser a distancia inicial daquele env, nao um numero fixo -- com sigma fixo pequeno a derivada no repouso e ZERO e o robo nao tem pista de onde ir
 <!-- filhos:fim -->

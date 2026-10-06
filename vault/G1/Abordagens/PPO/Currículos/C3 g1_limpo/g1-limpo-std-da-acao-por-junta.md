@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Fonte: actor_state_dict['distribution.std_param'] dos .pt em ~/Downloads."
+resumo: "o std da ação do g1_limpo é UM vetor de 29, sem estado; parou em 0,78 por 2800 iterações e caiu para 0,67 quando o ruído passou a custar renda proporcional"
 ---
 # Desvio da ação por junta — lido nos checkpoints
 

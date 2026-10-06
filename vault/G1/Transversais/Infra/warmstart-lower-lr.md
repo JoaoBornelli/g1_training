@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "REGRA: ao warm-startar um treino (RL/PPO) numa distribuição NOVA/mais difícil (novo degrau de currículo — altura adicionada, payload, etc.), baixar a learning_rate inicial de 1e-3 (default) pra 5e-4 (ou 1e-4/2e-4 se aind"
+resumo: "Ao warm-startar um treino RL num degrau/distribuição mais difícil, BAIXAR a learning_rate inicial (5e-4 vs 1e-3) pra não destruir o checkpoint nos primeiros updates"
 ---
 # warmstart-lower-lr (original, com evidência do g1 lift)
 

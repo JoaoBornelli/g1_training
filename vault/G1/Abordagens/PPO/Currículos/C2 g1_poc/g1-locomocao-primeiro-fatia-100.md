@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Estabelecido em 2026-08-25, conferido por mim no codigo."
+resumo: "por que o g1_multitask andou e o g1_poc nao: o multitask treinou locomocao SOZINHA com 100% dos dados (abertas=[LOCOMOVER]) por dezenas de milhares de iteracoes antes de abrir manipulacao; o poc entregou 70% das transicoes a manipulacao na it ~420"
 ---
 # g1-locomocao-primeiro-fatia-100 (original)
 

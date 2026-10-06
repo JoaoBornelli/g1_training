@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Confirmado 2026-08-10 (play do model_7299 + evidência em código)."
+resumo: "Bug raiz do bloco 1: multitask recombinou box_xy=0.50 (o 'longe demais' que a Lift abandonou 16/07) com o jitter do config ativo — caixa fisicamente fora de alcance em ~81% dos episódios; explica pegar=0.0 e o teto 0.17 do reorientar"
 ---
 # g1-multitask-caixa-fora-de-alcance (original)
 

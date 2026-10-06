@@ -45,8 +45,8 @@ O gargalo `pegar` (pai de `locomover_carregando` e `botar`) não fechou em 22 mi
 - **Desenho do currículo** (decisao · superada · 30/07–18/08/26) — Orquestrador de células (tarefa, eixo), regra do evento a 0,90 e tabela de tarefas e eixos do C1.
 - **Gargalo é banda** (achado · ativa · 18/08/26) — 89% do tempo é física; GPU só ajuda por banda (A100 é o salto; L4 não).
 - **Std foge** (achado · ativa · 17–18/08/26) — O std sobe de 0,43 a 0,98 por entropia ∝ 1/σ e zera todas as tarefas acima de ~0,50.
-- **g1-curriculo-congelamento-escala** (achado · ativa) — Medido 2026-08-05 com o harness ruidoso da S0 (g1_multitask/sim_curriculo.py --ruido, p por célula constante no tempo, Bernoulli).
-- **g1-multitask-caixa-fora-de-alcance** (achado · ativa) — Confirmado 2026-08-10 (play do model_7299 + evidência em código).
-- **g1-multitask-orcamento-igual-por-tarefa** (achado · ativa) — Decidido e implementado em 2026-08-06, branch exp/curriculo-teste (commits ee83202 + 0126410).
-- **g1-multitask-spec-validacao-2026-08** (achado · ativa) — SPEC de 16 itens (S0–S15) para a rodada de validação do currículo, implementada em 2026-08-05.
+- **g1-curriculo-congelamento-escala** (achado · ativa) — congelamento espúrio do currículo multitask some com num_envs; a célula de push media população mista e travava no limiar absoluto — corrigido 05/08 medindo só o `parado`
+- **g1-multitask-caixa-fora-de-alcance** (achado · ativa) — Bug raiz do bloco 1: multitask recombinou box_xy=0.50 (o 'longe demais' que a Lift abandonou 16/07) com o jitter do config ativo — caixa fisicamente fora de alcance em ~81% dos episódios; explica pegar=0.0 e o teto 0.17 do reorientar
+- **g1-multitask-orcamento-igual-por-tarefa** (achado · ativa) — O gate do g1_multitask carrega escala por tarefa (não máscara 0/1) para igualar o sinal de tarefa em 4.0 — alvo derivado do cfg do fabricante
+- **g1-multitask-spec-validacao-2026-08** (achado · ativa) — SPEC S0-S15 do g1_multitask implementada 05/08 — as 4 decisões que divergiram da spec e os 2 números que ela não deu
 <!-- filhos:fim -->

@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "robot.data.root_com_pos_w NÃO é o centro de massa do robô."
+resumo: "Fatos de API do mjlab que enganam — root_com_pos_w não é o CoM, entidade fixed-base vira mocap; a corrupção de heap do dr.body_mass ACABOU no 1.5.3"
 ---
 # g1-mjlab-api-armadilhas (original)
 

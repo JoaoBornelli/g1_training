@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Auditoria por subagente em 2026-08-20, com medição em CPU (16 envs) + cálculo sobre os 21 termos propostos."
+resumo: "Auditoria de incentivos do g1_poc (20/08): reaching sem σ variável = sorte do nível 3+; postura_ereta subcalibrada 3×; botar sem termo que pague por soltar"
 ---
 # g1-poc-auditoria-incentivos (original)
 

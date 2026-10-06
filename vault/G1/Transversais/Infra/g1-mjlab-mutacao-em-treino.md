@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Auditoria de código do mjlab 1.5.1 (subagente, 2026-08-20), com file:line conferidos."
+resumo: "mjlab: o que pode mudar em tempo de treino/episódio — deepcopy assimétrico, currículo só no reset, sem duração por env, sem bootstrap em falha"
 ---
 # g1-mjlab-mutacao-em-treino (original)
 

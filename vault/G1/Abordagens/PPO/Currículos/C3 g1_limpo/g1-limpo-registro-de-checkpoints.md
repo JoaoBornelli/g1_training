@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Registrado em 01/10 a pedido do dono, para reusar ou comparar."
+resumo: "Registro dos checkpoints que completam o ciclo, com sha256, commit provável e veredito do dono: 5800, 9100, 17999, 20500, 21700, 23250 (melhor)."
 ---
 # G1 limpo — registro de checkpoints que completam o ciclo
 

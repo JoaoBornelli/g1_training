@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Memória: ~/.claude/memory/g1-limpo-piso-da-estatua-travava-a-pega.md."
+resumo: "Ficar parado rendia 145 contra 102 de explorar no PEGAR (rastreio pagava comando nulo); rastreio por elo destravou a pega. VALIDADO."
 ---
 # Piso da estátua no elo de manipulação
 

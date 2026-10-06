@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Normalize antes de comparar qualquer número do log do mjlab."
+resumo: "Como ler o log do mjlab sem inverter o diagnóstico, e as três armadilhas operacionais do treino no Kaggle"
 ---
 # g1-leitura-log-e-kaggle (original)
 

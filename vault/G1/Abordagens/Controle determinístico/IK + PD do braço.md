@@ -21,5 +21,5 @@ Travar a mão foi ganho, não método.
 
 ## Filhos
 <!-- filhos:inicio -->
-- **g1-arm-ik-pd-control** (achado · ativa) — Projeto pessoal unitree-g1-sim (MuJoCo), src/sim.py: mover a mão do G1 até um ponto XYZ.
+- **g1-arm-ik-pd-control** (achado · ativa) — Controle do braço do G1 no unitree-g1-sim: IK numérica + PD; travar mão foi ganho, não método
 <!-- filhos:fim -->

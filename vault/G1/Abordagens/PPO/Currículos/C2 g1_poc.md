@@ -43,10 +43,10 @@ O portão do balanço entregava as transições da locomoção para a manipulaç
 - **Sonda do pegar** (abordagem · validada · 19–20/08/26) — Mede força em vez de recompensa no play; três erros de agregação em que um extremo mascarava a distribuição.
 - **Desenho de uma tarefa** (decisao · superada · 18/08/26) — twist + caixa_alvo de 10 números com bit caixa_valida; terminar em vez de penalizar; currículo por env de 90 linhas.
 - **Resample zerava o sucesso** (achado · ativa · 20/08/26) — O comando resampleava um passo antes do time_out e zerava o sucesso; explica a diferença treino × sonda.
-- **g1-locomocao-primeiro-fatia-100** (achado · ativa) — Estabelecido em 2026-08-25, conferido por mim no codigo.
-- **g1-poc-auditoria-incentivos** (achado · ativa) — Auditoria por subagente em 2026-08-20, com medição em CPU (16 envs) + cálculo sobre os 21 termos propostos.
-- **g1-poc-auditoria-travas** (achado · ativa) — Auditoria por subagente em 2026-08-20 (passeio aleatório do nível simulado, FK sobre o modelo real do G1, matriz gate×gate).
-- **g1-poc-orcamento-30k-iteracoes** (achado · ativa) — Verificado no código em 2026-08-24.
-- **g1-poc-recompensa-loco-prefere-parar** (achado · ativa) — Medido no bloco4 (g1_poc/2026-08-24_15-16-11_bloco4), lido dos gráficos do TensorBoard em 2026-08-24.
-- **g1-track-lin-parado-colhe-27pct** (achado · ativa) — Calculado e conferido contra medição em 2026-08-24 (g1_poc bloco5, it 440).
+- **g1-locomocao-primeiro-fatia-100** (achado · ativa) — por que o g1_multitask andou e o g1_poc nao: o multitask treinou locomocao SOZINHA com 100% dos dados (abertas=[LOCOMOVER]) por dezenas de milhares de iteracoes antes de abrir manipulacao; o poc entregou 70% das transicoes a manipulacao na it ~420
+- **g1-poc-auditoria-incentivos** (achado · ativa) — Auditoria de incentivos do g1_poc (20/08): reaching sem σ variável = sorte do nível 3+; postura_ereta subcalibrada 3×; botar sem termo que pague por soltar
+- **g1-poc-auditoria-travas** (achado · ativa) — Auditoria de travas g1_poc (20/08): nivel lia a forma do episódio SEGUINTE (p_up=0,7·p); Risco 3 invertido (pico a 0,30 m); T1 da caixa caindo REFUTADA por mim
+- **g1-poc-orcamento-30k-iteracoes** (achado · ativa) — o PPO do fabricante do G1 declara max_iterations=30_000; runs de 3000-5000 do g1_poc são 10-17% do orçamento e terminam ANTES do 1º degrau do currículo de comando
+- **g1-poc-recompensa-loco-prefere-parar** (achado · ativa) — g1_poc bloco4: em locomoção PURA a recompensa por passo caiu ~6x enquanto a duração subiu 50x e o pico do pé caiu 15x — alongar o episódio paga mais que andar
+- **g1-track-lin-parado-colhe-27pct** (achado · ativa) — track_linear_velocity: um robô IMÓVEL colhe 0,275 (27%) do termo, só pela geometria da caixa de comando ±1,0 — ler o valor bruto como progresso é armadilha
 <!-- filhos:fim -->

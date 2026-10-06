@@ -3,7 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
-resumo: "Registrado em 2026-09-18."
+resumo: "Veredito do dono no model_21700 (18/09): tudo satisfatório menos o BOTAR — tronco 65°, braço a 55% do alcance, hip_yaw E −34°; hipótese de hábito herdado do resume."
 ---
 # BOTAR: o veredito do dono no `model_21700` e a medição que o sustenta
 

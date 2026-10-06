@@ -9,11 +9,11 @@ mjlab, Warp, Kaggle/Colab, gargalo de banda.
 
 ## Filhos
 <!-- filhos:inicio -->
-- **g1-auditoria-mjlab-bloco2** (achado · ativa) — Verificado 2026-08-06, branch exp/curriculo-teste.
-- **g1-auditoria-mjlab-bloco3** (achado · ativa) — Verificado 2026-08-06, branch exp/curriculo-teste.
-- **g1-leitura-log-e-kaggle** (achado · ativa) — Normalize antes de comparar qualquer número do log do mjlab.
-- **g1-mjlab-api-armadilhas** (achado · ativa) — robot.data.root_com_pos_w NÃO é o centro de massa do robô.
-- **g1-mjlab-mutacao-em-treino** (achado · ativa) — Auditoria de código do mjlab 1.5.1 (subagente, 2026-08-20), com file:line conferidos.
-- **g1-mjlab-velocity-anatomia** (achado · ativa) — Levantamento completo de mjlab/tasks/velocity (mjlab 1.5.1, rsl_rl_lib 5.4.0) feito 2026-08-06 por 5 agentes de leitura.
-- **warmstart-lower-lr** (achado · ativa) — REGRA: ao warm-startar um treino (RL/PPO) numa distribuição NOVA/mais difícil (novo degrau de currículo — altura adicionada, payload, etc.), baixar a learning_rate inicial de 1e-3 (default) pra 5e-4 (ou 1e-4/2e-4 se aind
+- **g1-auditoria-mjlab-bloco2** (achado · ativa) — Bloco 2 da auditoria do g1_multitask contra o mjlab — 2 dos 4 itens rejeitados com razão medida, A11 (pé no table_contact) era real
+- **g1-auditoria-mjlab-bloco3** (achado · ativa) — Bloco 3 da auditoria do g1_multitask — condim, histórico de obs, sensores e terreno TODOS rejeitados com medição; só a colisão de chave de log era real
+- **g1-leitura-log-e-kaggle** (achado · ativa) — Como ler o log do mjlab sem inverter o diagnóstico, e as três armadilhas operacionais do treino no Kaggle
+- **g1-mjlab-api-armadilhas** (achado · ativa) — Fatos de API do mjlab que enganam — root_com_pos_w não é o CoM, entidade fixed-base vira mocap; a corrupção de heap do dr.body_mass ACABOU no 1.5.3
+- **g1-mjlab-mutacao-em-treino** (achado · ativa) — mjlab: o que pode mudar em tempo de treino/episódio — deepcopy assimétrico, currículo só no reset, sem duração por env, sem bootstrap em falha
+- **g1-mjlab-velocity-anatomia** (achado · ativa) — Anatomia da tarefa de caminhada do mjlab (tasks/velocity, G1) — só 2 eixos de currículo, 1 falha, peso×dt
+- **warmstart-lower-lr** (achado · ativa) — Ao warm-startar um treino RL num degrau/distribuição mais difícil, BAIXAR a learning_rate inicial (5e-4 vs 1e-3) pra não destruir o checkpoint nos primeiros updates
 <!-- filhos:fim -->
