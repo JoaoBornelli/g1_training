@@ -1,12 +1,15 @@
 ---
 tipo: abordagem
 pai: "[[Currículos]]"
+deriva_de: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 25/08–05/10/26
 resumo: "Máquina de elo com locomoção primeiro, em duas linhas: a linha bloco (resume encadeado) gerou o 21700, e o refino v2 dele deu o model_23250, MELHOR modelo; a linha zero (12 recomeços) não produziu política competente."
 cluster: c3
 ---
+> **Deriva de C2 g1_poc:** o C2 pegou e reorientou mas nunca andou, porque o portão do balanço media sobrevivência e entregou a fatia da locomoção à manipulação. O C3 põe a locomoção PRIMEIRO, com fatia de 95% e portão que mede marcha, e mantém a máquina de elo do C2.
+
 ## Hipótese
 Refazer limpo, sem importar código dos módulos anteriores, preservando os dois resultados medidos (o C2 pegava e reorientava; o C1 andava e resistia a empurrão): locomoção PRIMEIRO com fatia de 95%, um objetivo na manipulação, cadeias de elos que trocam dentro do episódio, incentivo e não penalização.
 

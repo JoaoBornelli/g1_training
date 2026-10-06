@@ -1,6 +1,7 @@
 ---
 tipo: abordagem
 pai: "[[Currículos]]"
+deriva_de: "[[C1 multitask]]"
 estado: superada
 superada_por: C3 g1_limpo
 verificado: 2026-10-06
@@ -8,6 +9,8 @@ periodo: 18/08–25/08/26
 resumo: "Uma tarefa, dois comandos; o alvo da caixa define o comportamento. Pegou e reorientou SEM ANDAR; portão do balanço media sobrevivência. Superado pelo C3."
 cluster: c2
 ---
+> **Deriva de C1 multitask:** o C1 andou e pegou SEPARADO, com uma maquinaria de currículo (células, orçamento por tarefa, congelamento) maior que o resultado, e o pegar travou em 3 cm sem gradiente no aperto. O C2 colapsa tudo em UMA tarefa definida pelo alvo da caixa e põe o `squeeze`/`unload` na coordenada do aperto.
+
 ## Hipótese
 Uma tarefa só, com dois comandos (`twist(3)` e `caixa_alvo(10)`), e o ALVO da caixa define o comportamento. "Pegar", "carregar", "botar" e "reorientar" não são tarefas: são posições de alvo. Sem one-hot, sem orçamento equalizado, sem gate por tarefa.
 

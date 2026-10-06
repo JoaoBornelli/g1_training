@@ -53,6 +53,8 @@ def checa(raiz: Path) -> list[str]:
             erros.append(f"{n}: sem conteudo (menos de {MIN_PALAVRAS} palavras)")
         if not fm.get("resumo", "").strip().strip('"'):
             erros.append(f"{n}: sem resumo")
+        if fm.get("deriva_de") and _alvo(fm["deriva_de"]) not in nomes:
+            erros.append(f"{n}: deriva_de inexistente {fm['deriva_de']}")
         if n == RAIZ and p.parent == raiz:
             continue
         pai = _alvo(fm.get("pai"))
