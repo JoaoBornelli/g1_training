@@ -55,8 +55,8 @@ superada_por: "[[nota]]"   # só quando estado = superada
 G1
 ├── BFM-Zero
 │   ├── Goal Reaching            (overdrive por alvo → rejeitado)
-│   ├── Reward Optimization      (z é direção sem magnitude → parada)
-│   ├── Few-shot (do paper)      (resultado a registrar)
+│   ├── Reward Optimization      (z é direção sem magnitude → rejeitado)
+│   ├── Few-shot (do paper)      (mão perto do chão, não o bastante → rejeitado)
 │   └── Residual PPO sobre o BFM (pose → z → rejeitado)
 ├── PPO
 │   ├── Tarefas isoladas
