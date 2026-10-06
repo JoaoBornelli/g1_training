@@ -1,0 +1,453 @@
+# Índice por termo de código (gerado por indexa.py — não edite)
+
+Cada identificador entre crases que aparece em 2 ou mais notas, e as notas que falam dele.
+Antes de mexer num termo, knob ou arquivo, faça grep nele aqui.
+
+- `__init__` (2): g1-leitura-log-e-kaggle · g1-mjlab-mutacao-em-treino
+- `_alcancar` (3): Bloco 13 · Linha bloco · g1-limpo-botar-paga-nao-botar
+- `_alinha` (2): Linha zero · zero12
+- `_alvo_locomocao` (2): Portão do balanço · g1-locomocao-primeiro-fatia-100
+- `_captura_cima` (2): g1-limpo-ang-cego-ao-tombo · zero10
+- `_congela_face` (2): 2026-09-21-botar-alinhado-pune-endireitar · g1-limpo-botar-alinhado-pune-endireitar
+- `_create_observation_backward` (2): Buffer LaFAN · IK gera pose
+- `_elo` (2): Desenho do g1_limpo · g1-limpo-freio-nao-taxa-a-marcha
+- `_pad` (2): g1-limpo-cadeia-da-pega · g1-limpo-mesa-contato-zero
+- `_pendente` (3): Achados soltos da linha bloco · g1-limpo-desenho · g1-sigma-e-a-distancia-inicial
+- `_reset_idx` (2): g1-mjlab-api-armadilhas · g1-mjlab-mutacao-em-treino
+- `_sust` (2): Desenho do g1_limpo · g1-limpo-auditoria-gradientes
+- `_update_command` (5): g1-limpo-desenho · g1-mjlab-mutacao-em-treino · g1-mjlab-reset-buffers-obsoletos · g1-multitask-spec-validacao-2026-08 · g1-poc-auditoria-incentivos
+- `a37300c` (3): Linha zero · g1-limpo-registro-de-checkpoints · zero01
+- `a4fbd43` (4): Bloco 18 · Blocos 20 a 22 · Checkpoints da linha bloco · g1-limpo-registro-de-checkpoints
+- `a6259fe` (3): Achados soltos da linha bloco · Bloco 15 · g1-limpo-velocidade-por-regime-formula-obsoleta
+- `action_rate` (9): Bloco 1 · Bloco 1 a pega · Bloco 2 colapso por giro · Bloco 4 do pegar · Comportamento esperado da v3 · Paridade com o fabricante · g1-limpo-auditoria-gradientes · g1-limpo-bloco1-marcha-formou · g1-v3-decisoes
+- `action_rate_l2` (6): Achados soltos da linha bloco · Bloco 10 · Bloco 8 · Locomoção por rastreio · Orientação da caixa · g1-sigma-e-a-distancia-inicial
+- `add_pads_de_palma` (3): Bloco 3 · g1-limpo-cadeia-da-pega · g1-limpo-mesa-contato-zero
+- `af97a5a` (2): Linha zero · Resume 24350 com preço 3x e forma ponderada
+- `air_time` (8): Comportamento esperado da v3 · Desenho do g1_limpo · Enunciado do comportamento · Passo sem comando de twist · Princípios de recompensa · g1-air-time-o-incentivo-desligado · g1-limpo-desenho · g1-v3-decisoes
+- `ALARME_estagnacao` (2): C1 multitask · Std foge
+- `alcancar` (3): Bloco 9 · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes
+- `alinhado` (7): 2026-09-21-botar-alinhado-pune-endireitar · Bloco 13 · Enunciado do comportamento · g1-limpo-ang-cego-ao-tombo · g1-limpo-botar-alinhado-pune-endireitar · g1-limpo-contrato-de-troca-de-tarefa · zero02
+- `alive` (2): g1-v3-decisoes · g1-v3-locomocao-unitree
+- `altura` (2): g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3
+- `altura_carregar` (4): Autônomo fase 1 · Bloco 10 · g1-autonomo-fase1 · zero16
+- `alvo` (4): Bloco 4 do pegar · Bloco 6 · Desenho do currículo · Estado do C3 em 05-10
+- `amax` (4): Bloco 19 v3 colapso do amax · Linha bloco · Linha zero · zero01
+- `andar` (3): C1 multitask · Locomoção por rastreio · Treino com busca de z
+- `ANDAR` (6): Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-limpo-janela-de-espera · g1-limpo-modo-entrega-viewer · g1-locomocao-primeiro-fatia-100
+- `ang_vel_z` (4): Bloco 9 · g1-mjlab-velocity-anatomia · g1-poc-orcamento-30k-iteracoes · mjlab-curriculo-de-comando-sobrescreve-a-faixa
+- `ankle_pitch` (6): Achados soltos da linha zero · BFM só equilíbrio · Comportamento esperado da v3 · g1-limpo-batente-e-restricao-mole · g1-v3-decisoes · zero02
+- `ankle_roll` (6): Achados soltos da linha zero · Bloco 18 · g1-limpo-batente-e-restricao-mole · g1-limpo-faixa-de-pose · g1-v3-decisoes · zero02
+- `ao_vivo.py` (2): box-vision-continuidade-por-aparencia · box-vision-desenho-face-da-tag
+- `aperto_excessivo` (3): Linha zero · Resume 24350 com freio de aperto · Resume 24350 com preço 3x e forma ponderada
+- `apoiada` (11): Achados do g1_limpo · Achados soltos da linha bloco · Autônomo fase 1 · Bloco 13 · Bloco 20 v3 sonda · Lacunas da linha zero · Linha zero · g1-auditoria-mjlab-bloco3 · g1-autonomo-fase1 · g1-limpo-ang-cego-ao-tombo · g1-limpo-escorar-compra-o-fecho
+- `apoio_caixa` (3): Achados soltos da linha bloco · g1-limpo-postura-com-caixa-medida · g1-poc-auditoria-travas
+- `aproxima_caixa` (2): Bloco 9 · g1-limpo-auditoria-gradientes
+- `arm_vel` (2): Currículo de altura com PLR · g1-auditoria-mjlab-bloco3
+- `auto_colisao` (3): Achados soltos da linha bloco · g1-limpo-bloco1-marcha-formou · g1-limpo-postura-com-caixa-medida
+- `autonomo/` (2): Autônomo fase 1 · g1-autonomo-fase1
+- `avancos` (7): Achados soltos da linha bloco · Bloco 1 · Bloco 11 · Bloco 7 · Lacunas da linha zero · g1-limpo-bloco1-marcha-formou · zero01
+- `avancou` (2): Bloco 8 · g1-limpo-auditoria-gradientes
+- `b226853` (2): Linha zero · g1-limpo-registro-de-checkpoints
+- `b2909e9` (2): Linha zero · zero16
+- `b2cba3e` (2): Bloco 10 · Bloco 11
+- `b919e32` (2): Linha zero · zero17
+- `b99947bca7a3` (2): g1-limpo-registro-de-checkpoints · zero17
+- `back_penalty` (2): Lift Box · g1-limpo-bloco1-marcha-formou
+- `base_com` (2): Fase 1 com o residual · g1-auditoria-mjlab-bloco2
+- `base_lin_vel` (3): Desenho de uma tarefa · Paridade com o fabricante · g1-poc-auditoria-incentivos
+- `batente_da_cintura` (3): Linha zero · zero03 · zero04
+- `bcd0e84` (4): Bloco 15 · Bloco 16 · Linha bloco · g1-limpo-punho-vai-ao-batente
+- `bloco19` (4): Bloco 18 · Lacunas da linha bloco · g1-limpo-reducao-e-limiar-andam-juntos · zero01
+- `bloco20` (4): Bloco 18 · Linha bloco · Linha zero · zero01
+- `bloco22` (3): Bloco 18 · Refino v2 · g1-limpo-botar-veredito-do-dono-21700
+- `bloco7` (3): Bloco 7 · Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa
+- `bloco8` (2): g1-colab-8192-kaggle-4096 · g1-limpo-contrato-de-troca-de-tarefa
+- `bloco9` (2): g1-limpo-auditoria-gradientes · g1-limpo-velocidade-de-junta-medida
+- `botar` (11): C1 multitask · Desenho do currículo · Máquina de elo · Specs e auditoria · g1-limpo-checkpoints-que-completam-o-ciclo · g1-limpo-registro-de-checkpoints · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08 · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas · g1-principio-incentivo-nao-penalizacao
+- `BOTAR` (5): Desenho do g1_limpo · g1-limpo-botar-paga-nao-botar · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho
+- `botar-fecha-e-para` (2): Bloco 14 · Checkpoints da linha bloco
+- `box_at_peito` (4): Residual PPO sobre o BFM · g1-multitask-caixa-fora-de-alcance · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08
+- `box_at_prateleira` (4): Residual PPO sobre o BFM · Specs e auditoria · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08
+- `box_scene.py` (3): Visão da caixa · g1-box-vision-redesenho · g1-vision-cube-orientation
+- `box_shake` (2): Desenho de uma tarefa · Orientação da caixa
+- `c0352b0` (2): Linha zero · zero16
+- `c1801ea` (4): Achados soltos da linha bloco · Bloco 10 · Bloco 11 · Checkpoints da linha bloco
+- `c1a5266` (3): Bloco 18 · Blocos 20 a 22 · Linha zero
+- `c3c9d08` (2): Achados soltos da linha bloco · Bloco 11
+- `c4835ca` (3): Linha zero · g1-limpo-registro-de-checkpoints · zero17
+- `c64ee98` (2): Bloco 16 · Linha bloco
+- `c9578ae` (4): Bloco 16 · Bloco 17 · Linha bloco · g1-limpo-tag-estavel-smoke-vermelho
+- `caiu` (4): Bloco 9 · C4 v3 · Desenho do g1_limpo · g1-limpo-auditoria-gradientes
+- `caixa_b.z` (3): Achados soltos da linha zero · Bloco 10 · g1-limpo-alvo-da-pega-era-circular
+- `caixa_largada` (26): Abertos não medidos · Bloco 11 · Bloco 12 · Bloco 14 · Bloco 3 · Bloco 6 · Bloco 7 · Bloco 8 · Bloco 9 · C4 v3 · Estado do C3 em 05-10 · Lacunas da linha zero · Resume 24350 com freio de aperto · Resume 24350 com preço 3x e forma ponderada · g1-limpo-aborto-por-perda-de-preensao · g1-limpo-auditoria-gradientes · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-limpo-piso-da-estatua · g1-limpo-teleporte-da-laje-no-corpo · g1-mjlab-mutacao-em-treino · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas · model_23250 · zero15 · zero17
+- `caixa_na_pega` (6): Achados soltos da linha zero · zero02 · zero08 · zero09 · zero10 · zero12
+- `caixa_valida` (3): Desenho de uma tarefa · g1-locomocao-primeiro-fatia-100 · g1-postura-penhasco-std-standing
+- `carga_caixa` (3): Bloco 18 · g1-limpo-inercia-real-da-caixa · mjlab-warp-contato-e-dr
+- `carrega085.csv` (6): Achados soltos da linha zero · Bloco 17 · Bloco 18 · Linha zero · g1-limpo-batente-e-restricao-mole · g1-limpo-botar-e-bang-bang-nao-pressa
+- `carregar` (8): Máquina de elo · Paridade com o fabricante · Resume 24350 com freio de aperto · Testes do model_24350 · g1-limpo-desenho · g1-limpo-punho-esquerdo-empurrado-pela-caixa · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas
+- `CARREGAR` (6): Desenho do g1_limpo · g1-limpo-caixa-esmagada-squeeze-cego · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-limpo-nao-anda-com-a-caixa
+- `cauda-parada-de-pe` (2): Bloco 13 · Bloco 14
+- `ce3d460` (2): Linha zero · zero15
+- `cena.npz` (4): Autônomo fase 1 · Comportamento esperado da v3 · g1-autonomo-fase1 · g1-limpo-rampa-estreita-nao-ensina
+- `check_nan` (2): Linha zero · g1-limpo-cone-eliptico-nan
+- `ckp9100` (5): Checkpoints da linha bloco · Lacunas da linha bloco · Lacunas da linha zero · g1-limpo-checkpoints-que-completam-o-ciclo · g1-limpo-registro-de-checkpoints
+- `ckpt` (3): Achados soltos da linha zero · Estado do C3 em 05-10 · Lacunas da linha zero
+- `clamp` (2): g1-limpo-postura-de-pe · zero16
+- `CLAUDE.md` (4): 2026-09-21-botar-alinhado-pune-endireitar · Achados soltos da linha bloco · Achados soltos da linha zero · Princípios de recompensa
+- `com_balance` (3): Desenho de uma tarefa · Fase 1 com o residual · Lift Box
+- `command_vel` (4): Achados soltos da linha zero · Desenho do g1_limpo · g1-mjlab-velocity-anatomia · zero18
+- `commands_vel` (4): Paridade com o fabricante · g1-mjlab-mutacao-em-treino · g1-poc-orcamento-30k-iteracoes · g1-track-lin-parado-colhe-27pct
+- `common_step_counter` (3): g1-mjlab-api-armadilhas · g1-poc-auditoria-travas · mjlab-curriculo-de-comando-sobrescreve-a-faixa
+- `cond_fisica` (3): Bloco 4 do pegar · C1 multitask · g1-multitask-caixa-fora-de-alcance
+- `confere` (2): g1-cena-deposito-sim · g1-cena-sensores-parte2
+- `contato_dorso` (3): Bloco 4 · Bloco 6 · g1-limpo-escoro-e-o-tronco
+- `contato_ilegal` (8): Bloco 1 a pega · Bloco 2 · Bloco 3 · Bloco 4 · Desenho de uma tarefa · Resume com terminação de corpo inteiro · g1-limpo-mesa-contato-zero · g1-poc-auditoria-travas
+- `contato_palma` (3): Bloco 4 · Bloco 6 · g1-limpo-caixa-esmagada-squeeze-cego
+- `contato_tronco` (3): Bloco 4 · Bloco 6 · g1-limpo-piso-da-estatua
+- `corpo_prateleira` (4): Bloco 1 · Bloco 2 · g1-limpo-bloco1-marcha-formou · g1-limpo-mesa-contato-zero
+- `Curriculum/elo` (5): Bloco 7 · g1-leitura-log-e-kaggle · g1-limpo-portao-diluido-pela-fatia · zero01 · zero03
+- `Curriculum/forma` (4): Bloco 1 · g1-limpo-bloco1-marcha-formou · g1-limpo-portao-diluido-pela-fatia · g1-limpo-rampa-queima-janelas
+- `Curriculum/nivel` (3): Bloco 9 · g1-limpo-curriculo-de-cadeia · g1-limpo-piso-segura-o-s-b
+- `d117342` (3): Achados soltos da linha bloco · Bloco 18 · Checkpoints da linha bloco
+- `d2ac2ac` (3): Bloco 14 · Bloco 15 · Linha bloco
+- `d74b93f` (4): Bloco 16 · Bloco 17 · Linha bloco · Linha zero
+- `dbcc299` (4): Achados soltos da linha bloco · Bloco 15 · Bloco 16 · Linha bloco
+- `de_pe` (11): Bloco 13 · Bloco 14 · Bloco 8 · Checkpoints da linha bloco · Enunciado do comportamento · Fecho do BOTAR sem de pé nem caixa nivelada · Linha bloco · g1-limpo-botar-paga-nao-botar · g1-limpo-espera-sem-agacha-o-andar-parado · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-plano-tres-tarefas
+- `de_pe_tol_rad` (2): Bloco 10 · g1-limpo-postura-com-caixa-medida
+- `descarga` (7): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 7 · Bloco 9 · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes · g1-limpo-escorar-compra-o-fecho
+- `docs/planos/2026-09-21-aborto-por-perda-de-preensao.md` (2): Comportamento esperado da v3 · g1-limpo-aborto-por-perda-de-preensao
+- `docs/planos/2026-09-24-grade-de-ocupacao-lidar.md` (2): g1-limpo-oraculo-da-caixa-no-real · zero07
+- `docs/planos/2026-10-05-autonomo-do-sim-ao-real.md` (2): Autônomo fase 1 · g1-autonomo-fase1
+- `docs/relatorios/2026-10-01-aprendizados-zero17-para-v3.md` (3): Linha bloco · Linha zero · Pendências do C3
+- `docs/relatorios/2026-10-01-inventario-v3.md` (4): Bloco 1 · Comportamento esperado da v3 · Estado do C3 em 05-10 · g1-v3-decisoes
+- `docs/relatorios/2026-10-02-avaliacao-v3.md` (2): Comportamento esperado da v3 · zero01
+- `dof_pos_limits` (6): Bloco 18 · Bloco 4 do pegar · Linha zero · g1-limpo-faixa-de-pose · g1-limpo-reducao-e-limiar-andam-juntos · g1-locomocao-primeiro-fatia-100
+- `dorso_em_contato` (2): Bloco 3 · g1-limpo-escoro-e-o-tronco
+- `dr.body_mass` (2): Peso variável · g1-mjlab-api-armadilhas
+- `dr.geom_friction` (2): g1-auditoria-mjlab-bloco2 · mjlab-warp-contato-e-dr
+- `dr.pseudo_inertia` (5): Achados soltos da linha zero · Bloco 18 · Peso variável · g1-limpo-inercia-real-da-caixa · g1-mjlab-api-armadilhas
+- `dur_loco_ema` (2): g1-poc-auditoria-incentivos · g1-poc-recompensa-loco-prefere-parar
+- `eficiencia_min` (8): Bloco 1 · Bloco 2 · Bloco 6 · Desenho do g1_limpo · Lacunas da linha bloco · Resume com terminação de corpo inteiro · g1-limpo-mesa-contato-zero · g1-limpo-portao-diluido-pela-fatia
+- `elliptic` (3): g1-limpo-cone-eliptico-diverge-para-nan · g1-limpo-cone-eliptico-nan · g1-mjlab-reset-buffers-obsoletos
+- `entropy_coef` (2): g1-leitura-log-e-kaggle · g1-mjlab-api-armadilhas
+- `env.limpo_twist_zerado` (2): g1-limpo-regime-vem-do-estado · zero03
+- `env.py` (3): Lift Box · g1-auditoria-mjlab-bloco2 · g1-multitask-orcamento-igual-por-tarefa
+- `env_ids` (2): g1-auditoria-mjlab-bloco2 · g1-mjlab-mutacao-em-treino
+- `Episode_Reward` (3): Achados soltos da linha bloco · Infra · g1-limpo-mesa-contato-zero
+- `Episode_Reward/track_linear_velocity` (2): g1-poc-recompensa-loco-prefere-parar · g1-track-lin-parado-colhe-27pct
+- `episode_success` (3): Bloco 1 a pega · C2 g1_poc · Sonda do pegar
+- `escala_c` (2): BFM só equilíbrio · Treino com busca de z
+- `escapou` (2): Achados soltos da linha bloco · g1-limpo-contrato-de-troca-de-tarefa
+- `estavel-bloco17` (6): Bloco 17 · Bloco 18 · Checkpoints da linha bloco · Linha bloco · Linha zero · g1-limpo-tag-estavel-smoke-vermelho
+- `estudo_lidar/lidar_parado.py` (2): Lidar e SLAM · g1-lidar-sim-visualizacao-slam
+- `exp/curriculo-teste` (4): g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3 · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08
+- `exp/g1-limpo` (5): Bloco 7 · C3 g1_limpo · Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho
+- `exp/g1-limpo-v2` (12): C3 g1_limpo · Desenho do g1_limpo · Linha zero · Refino v2 · g1-limpo-auditoria-gradientes · g1-limpo-checkpoints-que-completam-o-ciclo · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-punho-vai-ao-batente · g1-limpo-registro-de-checkpoints · g1-limpo-velocidade-por-regime-formula-obsoleta · g1-v3-decisoes · zero01
+- `exp/g1-limpo-v3` (5): C3 g1_limpo · Lacunas da linha zero · Linha bloco · Linha zero · zero01
+- `exp/locomocao-velocidade` (2): C1 multitask · g1-multitask-caixa-fora-de-alcance
+- `exp/residual-bfm` (2): BFM-Zero · Residual PPO sobre o BFM
+- `f1e4e22` (3): Bloco 17 · Bloco 20 v3 sonda · Linha bloco
+- `f7ae0f6` (2): Bloco 20 v3 sonda · Linha bloco
+- `F_ref` (8): Bloco 1 a pega · Bloco 15 · Bloco 4 do pegar · Comportamento esperado da v3 · Testes do model_24350 · g1-limpo-pega-parada-na-mesa · g1-v3-decisoes · zero12
+- `FACE_CONGELADA` (3): g1-limpo-ang-cego-ao-tombo · zero03 · zero10
+- `FACE_DE_PE` (4): Linha zero · g1-limpo-ang-cego-ao-tombo · zero02 · zero03
+- `face_normal_b` (2): Máquina de elo · g1-poc-auditoria-travas
+- `faixa_de_pose` (7): Bloco 17 · Bloco 20 v3 sonda · Linha bloco · Linha zero · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-faixa-de-pose · g1-limpo-tag-estavel-smoke-vermelho
+- `fatia_cadeia` (4): Achados soltos da linha bloco · Bloco 1 · g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou
+- `feet_clearance` (2): g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct
+- `feet_ground_contact` (2): g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3
+- `feet_swing_height` (6): Achados soltos da linha bloco · g1-limpo-pico-altura-diluido · g1-mjlab-api-armadilhas · g1-mjlab-velocity-anatomia · g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct
+- `fell_over` (34): Abertos não medidos · Achados soltos da linha bloco · Bloco 1 · Bloco 11 · Bloco 19 v3 colapso do amax · Bloco 2 colapso por giro · Bloco 6 · Bloco 7 · Bloco 9 · Comportamento esperado da v3 · Continuação 23250 a 24393 · Desenho de uma tarefa · Estado do C3 em 05-10 · Fase 1 com o residual · Lacunas da linha bloco · Lacunas da linha zero · Locomoção por rastreio · Treino com busca de z · g1-auditoria-mjlab-bloco3 · g1-limpo-bloco1-marcha-formou · g1-limpo-botar-e-bang-bang-nao-pressa · g1-limpo-escoro-e-o-tronco · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-limpo-pico-altura-diluido · g1-limpo-plano-tres-tarefas · g1-mjlab-velocity-anatomia · g1-poc-orcamento-30k-iteracoes · g1-poc-recompensa-loco-prefere-parar · model_23250 · warmstart-lower-lr · zero01 · zero03 · zero15 · zero17
+- `ff5ac85` (2): Linha zero · zero10
+- `find_pose.py` (2): BFM-Zero · Viabilidade da pose
+- `first_contact` (2): g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct
+- `foot_clearance` (4): Comportamento esperado da v3 · Passo sem comando de twist · g1-poc-recompensa-loco-prefere-parar · g1-track-lin-parado-colhe-27pct
+- `foot_friction` (2): g1-auditoria-mjlab-bloco2 · g1-limpo-contrato-de-troca-de-tarefa
+- `foot_slip` (5): Comportamento esperado da v3 · Passo sem comando de twist · g1-poc-recompensa-loco-prefere-parar · g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct
+- `forma` (8): Bloco 1 · Bloco 6 · Desenho do g1_limpo · g1-limpo-bloco1-marcha-formou · g1-limpo-desenho · g1-limpo-piso-da-estatua · g1-limpo-portao-diluido-pela-fatia · g1-poc-auditoria-travas
+- `forma_postural` (21): Achados do g1_limpo · Achados soltos da linha zero · Bloco 18 · Blocos 20 a 22 · Enunciado do comportamento · Forma postural longe da IK em laje baixa · Linha bloco · Linha zero · Perna virada no BOTAR · Resume 24350 com preço 3x e forma ponderada · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-limite-de-junta-curso-largo · g1-limpo-piso-da-estatua · g1-limpo-piso-da-estatua-travava-a-pega · g1-limpo-postura-de-pe · g1-limpo-registro-de-checkpoints · g1-limpo-std-da-acao-por-junta · zero01 · zero07 · zero16
+- `fracao_do_curso` (2): Bloco 18 · zero01
+- `freio_degrau` (2): Continuação 23250 a 24393 · zero07
+- `g1-box-vision` (3): Comportamento esperado da v3 · Visão da caixa · g1-cena-deposito-sim
+- `g1-box-vision/CLAUDE.md` (2): box-vision-desenho-face-da-tag · box-vision-skin-procedural
+- `g1-limpo-botar-e-bang-bang-nao-pressa` (3): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 17
+- `g1-limpo-botar-paga-nao-botar` (2): Bloco 11 · Bloco 14
+- `g1-limpo-botar-veredito-do-dono-21700` (2): Checkpoints da linha bloco · Linha bloco
+- `g1-limpo-contrato-de-troca-de-tarefa` (2): Bloco 9 · g1-limpo-contrato-de-troca-de-tarefa
+- `g1-limpo-dois-bits.md` (2): Bloco 10 · Bloco 11
+- `g1-limpo-faixa-de-pose` (2): Bloco 16 · Checkpoints da linha bloco
+- `g1-limpo-mesa-contato-zero` (2): Linha bloco · g1-limpo-mesa-contato-zero
+- `g1-limpo-rampa-estreita-nao-ensina` (2): zero01 · zero04
+- `g1-limpo-reducao-e-limiar-andam-juntos` (2): Bloco 19 v3 colapso do amax · Linha zero
+- `g1-limpo-std-cai-cedo` (2): zero01 · zero07
+- `g1-limpo-tabela-por-estado` (2): Bloco 16 · Checkpoints da linha bloco
+- `g1-limpo-zero` (3): Achados soltos da linha bloco · Linha zero · zero05
+- `g1.xml` (5): Achados soltos da linha bloco · Percepção · g1-cena-deposito-sim · g1-limpo-std-da-acao-por-junta · zero12
+- `g1_29dof_rev_1_0.urdf` (2): Câmera D435i · g1-mjcf-vem-do-urdf-rev-1-0
+- `g1_limpo` (21): C4 v3 · Comportamento esperado da v3 · Enunciado do comportamento · Lift Box · Residual PPO sobre o BFM · g1-cena-deposito-sim · g1-cena-sensores-parte2 · g1-limpo-artifact-como-o-g1-aprende · g1-limpo-desenho · g1-limpo-giro-canal-e-envelope · g1-limpo-giro-no-lugar-empata-no-estagio-0 · g1-limpo-inercia-real-da-caixa · g1-limpo-janela-de-espera · g1-limpo-modo-entrega-viewer · g1-mjcf-vem-do-urdf-rev-1-0 · g1-mjlab-api-armadilhas · g1-principio-incentivo-nao-penalizacao · g1-sigma-e-a-distancia-inicial · g1-v3-decisoes · g1-v3-ik-mao-gira-entre-pega-e-transporte · mjlab-pose-escrita-persiste
+- `g1_limpo/` (3): Bloco 10 · C3 g1_limpo · zero18
+- `g1_limpo/ik/ref_v3_de_pe.npz` (2): Comportamento esperado da v3 · g1-v3-decisoes
+- `g1_limpo/ik/ref_v3_manipulacao.npz` (3): Comportamento esperado da v3 · g1-limpo-ik-referencia-botar · g1-v3-decisoes
+- `g1_limpo_zero.ipynb` (2): g1-limpo-botar-veredito-do-dono-21700 · zero02
+- `g1_limpo_zero_colab.ipynb` (2): zero01 · zero03
+- `g1_multitask` (8): Desenho do g1_limpo · Lift Box · Lift não mede erguer · Residual PPO sobre o BFM · g1-air-time-o-incentivo-desligado · g1-locomocao-primeiro-fatia-100 · g1-principio-incentivo-nao-penalizacao · g1-v3-decisoes
+- `g1_poc` (7): Desenho do g1_limpo · g1-locomocao-primeiro-fatia-100 · g1-mjlab-api-armadilhas · g1-mjlab-mutacao-em-treino · g1-poc-orcamento-30k-iteracoes · g1-postura-penhasco-std-standing · g1-sigma-e-a-distancia-inicial
+- `g1_poc/expande_checkpoint.py` (2): g1-poc-auditoria-travas · g1-v3-decisoes
+- `g1_training` (2): Desenho do g1_limpo · O vale da cadeia
+- `g1_training/` (2): Tarefas isoladas · g1-auditoria-mjlab-bloco2
+- `geom_size` (2): Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa
+- `giro-e-teclas` (2): Bloco 14 · Bloco 15
+- `giro_b` (3): Bloco 8 · Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa
+- `giro_indevido` (2): Bloco 2 colapso por giro · Paridade com o fabricante
+- `giro_sem_gingado` (3): Bloco 15 · Comportamento esperado da v3 · g1-v3-decisoes
+- `giro_w` (4): Estado do C3 em 05-10 · g1-limpo-registrador-cego-ao-giro · g1-limpo-registro-de-checkpoints · zero17
+- `goal_inference` (5): BFM só equilíbrio · Goal Reaching · IK gera pose · Tracking · Tracking do 24800
+- `grasp` (3): Residual PPO sobre o BFM · g1-principio-incentivo-nao-penalizacao · warmstart-lower-lr
+- `hip_pitch` (8): BFM só equilíbrio · Bloco 16 · Bloco 18 · Montagem e portão · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-velocidade-de-junta-medida · g1-v3-decisoes · zero15
+- `hip_roll` (4): Bloco 10 · Montagem e portão · Movimento suave · g1-limpo-plano-tres-tarefas
+- `hip_yaw` (16): Achados soltos da linha zero · Bloco 10 · Blocos 20 a 22 · Checkpoints da linha bloco · Estado do C3 em 05-10 · Linha zero · Perna virada no BOTAR · g1-limpo-botar-deita-o-tronco · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-limite-de-junta-nao-morde-no-curso-largo · g1-limpo-plano-tres-tarefas · g1-limpo-registro-de-checkpoints · g1-v3-decisoes · model_23250 · zero01 · zero02
+- `history_length` (2): g1-auditoria-mjlab-bloco3 · g1-mjlab-velocity-anatomia
+- `hold_still` (3): Movimento suave · Residual PPO sobre o BFM · g1-multitask-orcamento-igual-por-tarefa
+- `ik/ref_botar.npz` (4): Linha zero · g1-limpo-forma-postural · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-limite-de-junta-curso-largo
+- `ik_control.py` (4): BFM-Zero · Controle determinístico · IK + PD do braço · IK gera pose
+- `impacto_da_caixa` (4): Bloco 11 · Desenho do g1_limpo · g1-leitura-log-e-kaggle · zero02
+- `implicitfast` (2): IK + PD do braço · g1-limpo-cone-eliptico-nan
+- `impratio` (2): Achados soltos da linha bloco · g1-limpo-cone-eliptico-nan
+- `iter` (2): g1-leitura-log-e-kaggle · g1-limpo-registro-de-checkpoints
+- `joint_acc` (4): Comportamento esperado da v3 · Movimento suave · g1-locomocao-primeiro-fatia-100 · g1-sigma-e-a-distancia-inicial
+- `joint_pos` (2): Montagem e portão · g1-auditoria-mjlab-bloco3
+- `joint_vel_hinge` (2): Bloco 1 a pega · Paridade com o fabricante
+- `juntas.csv` (3): g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-forma-postural-agacha-no-alvo · zero12
+- `knee` (4): BFM só equilíbrio · g1-limpo-tag-estavel-smoke-vermelho · g1-limpo-velocidade-de-junta-medida · g1-mjlab-velocity-anatomia
+- `knobs.py` (6): Desenho do g1_limpo · Lift Box · Tarefas isoladas · g1-limpo-tag-estavel-smoke-vermelho · g1-limpo-velocidade-por-regime-formula-obsoleta · g1-multitask-caixa-fora-de-alcance
+- `largou` (6): Bloco 11 · Bloco 8 · Bloco 9 · Desenho do g1_limpo · Enunciado do comportamento · g1-limpo-contrato-de-troca-de-tarefa
+- `launch_training` (2): g1-leitura-log-e-kaggle · mjlab-curriculo-de-comando-sobrescreve-a-faixa
+- `leitura.py` (2): C2 g1_poc · g1-track-lin-parado-colhe-27pct
+- `lento-e-estavel` (2): Bloco 10 · Checkpoints da linha bloco
+- `lidar_sim` (9): Autônomo fase 1 · Comportamento esperado da v3 · Lidar e SLAM · g1-autonomo-fase1 · g1-cena-deposito-sim · g1-cena-sensores-parte2 · g1-lidar-sim-visualizacao-slam · g1-slam-percepcao-desenho · pupil-apriltags-del-corrompe-heap
+- `lift` (8): Bloco 1 a pega · Bloco 4 do pegar · Lift Box · Lift não mede erguer · Orientação da caixa · Residual PPO sobre o BFM · Specs e auditoria · Tarefas isoladas
+- `lift_ao_peito` (2): Specs e auditoria · g1-multitask-caixa-fora-de-alcance
+- `limiar` (2): g1-limpo-rampa-queima-janelas · g1-postura-penhasco-std-standing
+- `limite_de_junta` (13): Achados soltos da linha bloco · Bloco 18 · Comportamento esperado da v3 · Linha bloco · Linha zero · Perna virada no BOTAR · g1-limpo-batente-e-restricao-mole · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-limite-de-junta-curso-largo · g1-limpo-limite-de-junta-nao-morde-no-curso-largo · g1-limpo-reducao-e-limiar-andam-juntos · g1-limpo-std-da-acao-por-junta · zero01
+- `limite_de_pelve` (3): Blocos 20 a 22 · Linha zero · zero01
+- `limpo_pegou` (3): Bloco 11 · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-velocidade-de-junta-medida
+- `limpo_topo` (2): Achados soltos da linha bloco · g1-limpo-postura-com-caixa-medida
+- `limpo_twist_zerado` (4): Bloco 9 · Desenho do g1_limpo · g1-limpo-auditoria-gradientes · zero14
+- `lin_vel_x` (6): Bloco 14 · Bloco 9 · Locomoção por rastreio · g1-mjlab-velocity-anatomia · g1-track-lin-parado-colhe-27pct · mjlab-curriculo-de-comando-sobrescreve-a-faixa
+- `lin_vel_y` (3): g1-mjlab-velocity-anatomia · g1-poc-orcamento-30k-iteracoes · mjlab-curriculo-de-comando-sobrescreve-a-faixa
+- `Livox-SDK/livox_laser_simulation` (2): Lidar e SLAM · g1-lidar-sim-visualizacao-slam
+- `load` (16): Bloco 11 · Bloco 12 · Bloco 13 · Bloco 14 · Bloco 8 · Desenho do g1_limpo · Estado do C3 em 05-10 · Linha bloco · Máquina de elo · g1-limpo-auditoria-gradientes · g1-limpo-botar-paga-nao-botar · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-escorar-compra-o-fecho · g1-limpo-one-hot-normalizado-amplifica-slot-raro · g1-poc-auditoria-travas · zero17
+- `locomover_carregando` (3): C1 multitask · Desenho do currículo · g1-multitask-caixa-fora-de-alcance
+- `ls_iterations` (2): g1-limpo-cone-eliptico-diverge-para-nan · g1-limpo-cone-eliptico-nan
+- `mao-no-alcancar` (3): Bloco 12 · Bloco 13 · Checkpoints da linha bloco
+- `mao_na_pega` (2): Continuação 23250 a 24393 · zero07
+- `max_episode_length_s` (3): Achados soltos da linha bloco · g1-leitura-log-e-kaggle · g1-mjlab-mutacao-em-treino
+- `max_iterations` (3): Paridade com o fabricante · g1-leitura-log-e-kaggle · g1-poc-orcamento-30k-iteracoes
+- `mean` (2): Bloco 19 v3 colapso do amax · zero01
+- `Metrics/air_time_mean` (2): Achados soltos da linha bloco · g1-limpo-desenho
+- `Metrics/peak_height_mean` (4): Bloco 1 · g1-limpo-bloco1-marcha-formou · g1-limpo-pico-altura-diluido · g1-poc-recompensa-loco-prefere-parar
+- `Metrics/slip_velocity_mean` (2): g1-leitura-log-e-kaggle · g1-poc-recompensa-loco-prefere-parar
+- `MetricsTermCfg` (3): Achados soltos da linha bloco · g1-leitura-log-e-kaggle · g1-limpo-desenho
+- `mj_forward` (3): IK + PD do braço · g1-arm-ik-pd-control · g1-limpo-botar-veredito-do-dono-21700
+- `mj_multiRay` (2): Lidar e SLAM · g1-lidar-sim-visualizacao-slam
+- `model_10200` (12): Achados soltos da linha bloco · Bloco 15 · Checkpoints da linha bloco · Lacunas da linha bloco · Linha bloco · g1-limpo-caixa-esmagada-squeeze-cego · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-nao-anda-com-a-caixa · g1-limpo-punho-vai-ao-batente · g1-limpo-renda-congelada-paga-10x-o-deficit · g1-limpo-tabela-por-estado · g1-limpo-velocidade-de-junta-medida
+- `model_10500` (4): Bloco 16 · Checkpoints da linha bloco · Lacunas da linha bloco · g1-limpo-tabela-por-estado
+- `model_11322` (3): Bloco 16 · Checkpoints da linha bloco · g1-limpo-faixa-de-pose
+- `model_13999` (8): Achados soltos da linha zero · Bloco 17 · Bloco 18 · Bloco 20 v3 sonda · Checkpoints da linha bloco · Lacunas da linha bloco · Linha zero · g1-limpo-botar-e-bang-bang-nao-pressa
+- `model_14000` (5): Bloco 17 · Checkpoints da linha bloco · Linha bloco · Linha zero · g1-limpo-tag-estavel-smoke-vermelho
+- `model_15200` (5): Bloco 18 · Checkpoints da linha bloco · Lacunas da linha bloco · Linha bloco · g1-limpo-anda-agachado-com-a-caixa
+- `model_15700` (2): Lift Box · Movimento suave
+- `model_15999` (2): Checkpoints da linha bloco · Linha bloco
+- `model_1600` (3): g1-limpo-escala-da-acao-do-punho · g1-limpo-fechar-paga-menos-que-pairar · zero11
+- `model_1750` (4): g1-limpo-pega-parada-na-mesa · zero09 · zero12 · zero14
+- `model_17999` (2): Blocos 20 a 22 · Checkpoints da linha bloco
+- `model_1800` (4): Bloco 8 · Bloco 9 · Lacunas da linha bloco · g1-limpo-auditoria-gradientes
+- `model_19300` (2): Achados soltos da linha zero · Linha zero
+- `model_2000` (2): g1-limpo-ang-cego-ao-tombo · zero09
+- `model_20500` (4): Achados soltos da linha zero · Blocos 20 a 22 · Checkpoints da linha bloco · Perna virada no BOTAR
+- `model_20900` (3): Checkpoints da linha bloco · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-registro-de-checkpoints
+- `model_21700` (14): Bloco 18 · Blocos 20 a 22 · C3 g1_limpo · Checkpoints da linha bloco · Linha bloco · Linha zero · PPO · Perna virada no BOTAR · Refino v2 · g1-limpo-botar-deita-o-tronco · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-checkpoints-que-completam-o-ciclo · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-limpo-registro-de-checkpoints
+- `model_21850` (2): Perna virada no BOTAR · model_23250
+- `model_22300` (2): g1-limpo-freio-nao-taxa-a-marcha · zero05
+- `model_23250` (11): Abordagens · C3 g1_limpo · Checkpoints da linha bloco · Currículos · Estado do C3 em 05-10 · G1 · Linha bloco · Linha zero · PPO · Pendências do C3 · g1-limpo-checkpoints-que-completam-o-ciclo
+- `model_23700` (2): Continuação 23250 a 24393 · Lacunas da linha zero
+- `model_23800` (2): Continuação 23250 a 24393 · Lacunas da linha zero
+- `model_24350` (8): Autônomo fase 1 · Continuação 23250 a 24393 · Controle determinístico · Estado do C3 em 05-10 · Lacunas da linha zero · Punho esquerdo gira na pega · g1-autonomo-fase1 · g1-limpo-punho-esquerdo-empurrado-pela-caixa
+- `model_24999` (5): Achados soltos da linha zero · Lidar e SLAM · Linha bloco · g1-slam-percepcao-desenho · zero02
+- `model_24999.pt` (2): g1-cena-sensores-parte2 · g1-limpo-registro-de-checkpoints
+- `model_2562` (2): Bloco 8 · Lacunas da linha bloco
+- `model_2562.pt` (2): Bloco 9 · g1-limpo-auditoria-gradientes
+- `model_3100` (3): Lacunas da linha zero · Linha zero · zero17
+- `model_3150` (2): g1-limpo-std-cai-cedo · zero07
+- `model_3300` (3): Lacunas da linha zero · g1-limpo-postura-de-pe · zero16
+- `model_3450` (6): Lacunas da linha zero · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-one-hot-normalizado-amplifica-slot-raro · zero15 · zero17
+- `model_3800` (2): Bloco 1 · g1-limpo-bloco1-marcha-formou
+- `model_4650` (3): g1-limpo-carregar-parado-e-estatua · zero17 · zero18
+- `model_4999` (3): Bloco 9 · Checkpoints da linha bloco · g1-limpo-velocidade-de-junta-medida
+- `model_4999.pt` (2): Resume com terminação de corpo inteiro · g1-limpo-mesa-contato-zero
+- `model_5000.pt` (3): Achados soltos da linha zero · Bloco 2 · g1-limpo-mesa-contato-zero
+- `model_5100` (3): Bloco 1 a pega · C2 g1_poc · Sonda do pegar
+- `model_5200` (2): g1-limpo-registrador-cego-ao-giro · zero17
+- `model_5800` (2): g1-limpo-botar-esquecido-na-fase-4 · zero17
+- `model_5950` (3): Bloco 10 · Checkpoints da linha bloco · Linha bloco
+- `model_6050` (2): Fecho do BOTAR sem de pé nem caixa nivelada · zero17
+- `model_6999` (7): Achados soltos da linha zero · Bloco 10 · Bloco 13 · Checkpoints da linha bloco · Linha bloco · g1-limpo-alvo-da-pega-era-circular · g1-limpo-postura-com-caixa-medida
+- `model_7300` (2): Currículo de altura com PLR · Lift Box
+- `model_9100` (5): 2026-09-21-botar-alinhado-pune-endireitar · Lacunas da linha bloco · Lacunas da linha zero · g1-limpo-botar-alinhado-pune-endireitar · zero02
+- `model_9499` (3): Bloco 13 · Checkpoints da linha bloco · g1-limpo-botar-paga-nao-botar
+- `move-ego-0-0` (3): BFM só equilíbrio · Montagem e portão · Treino com busca de z
+- `nan_guard` (3): Estado do C3 em 05-10 · g1-limpo-cone-eliptico-diverge-para-nan · g1-limpo-cone-eliptico-nan
+- `nivel` (7): Desenho do g1_limpo · g1-limpo-desenho · g1-limpo-freio-nao-taxa-a-marcha · g1-limpo-postura-com-caixa-medida · g1-poc-auditoria-travas · zero06 · zero07
+- `NoBatente` (8): Lacunas da linha zero · Linha zero · g1-limpo-rampa-estreita-nao-ensina · g1-v3-decisoes · zero02 · zero03 · zero04 · zero05
+- `nonfinite` (2): g1-mjlab-reset-buffers-obsoletos · g1-mjlab-velocity-anatomia
+- `NotImplementedError` (2): Achados soltos da linha zero · mjlab-warp-contato-e-dr
+- `num_envs` (2): g1-curriculo-congelamento-escala · g1-poc-orcamento-30k-iteracoes
+- `orca/workspaces/box-vision/g1-box-vision` (2): box-vision-ransac-dispensa-a-rede · g1-box-vision-redesenho
+- `out_of_terrain_bounds` (2): g1-auditoria-mjlab-bloco3 · g1-mjlab-velocity-anatomia
+- `palmas_em_contato` (4): Bloco 3 · Bloco 6 · Bloco 7 · g1-limpo-piso-da-estatua
+- `parado` (6): C1 multitask · Fase 1 com o residual · Residual PPO sobre o BFM · Treino com busca de z · g1-curriculo-congelamento-escala · g1-multitask-spec-validacao-2026-08
+- `params` (2): g1-mjlab-api-armadilhas · g1-mjlab-mutacao-em-treino
+- `paridade` (2): g1-leitura-log-e-kaggle · g1-limpo-desenho
+- `peak_height_mean` (5): C2 g1_poc · Portão do balanço · g1-poc-orcamento-30k-iteracoes · g1-poc-recompensa-loco-prefere-parar · g1-track-lin-parado-colhe-27pct
+- `pegar` (19): Bloco 4 do pegar · C1 multitask · C2 g1_poc · Desenho do currículo · Desenho do g1_limpo · Fase 1 com o residual · Locomoção por rastreio · Máquina de elo · Residual PPO sobre o BFM · Sonda do pegar · Teste de goal · Treino com busca de z · g1-limpo-desenho · g1-multitask-caixa-fora-de-alcance · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08 · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas · g1-principio-incentivo-nao-penalizacao
+- `PEGAR` (10): Desenho do g1_limpo · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-limpo-janela-de-espera · g1-limpo-modo-entrega-viewer · g1-limpo-piso-da-estatua · g1-limpo-piso-da-estatua-travava-a-pega · g1-limpo-renda-congelada-paga-10x-o-deficit · g1-limpo-velocidade-por-regime-formula-obsoleta · g1-sigma-e-a-distancia-inicial
+- `pegou` (5): Bloco 9 · Comportamento esperado da v3 · Desenho do g1_limpo · Resample zerava o sucesso · g1-limpo-oraculo-da-caixa-no-real
+- `peito_b.z` (5): Bloco 10 · g1-limpo-alvo-da-pega-era-circular · g1-limpo-forma-postural-agacha-no-alvo · zero15 · zero16
+- `pelve_alvo` (3): Bloco 8 · g1-limpo-anda-agachado-com-a-caixa · g1-limpo-cauda-carregar-piso-sem-derivada
+- `PERCEPCAO_LIDAR` (2): Comportamento esperado da v3 · g1-v3-decisoes
+- `perf` (2): C1 multitask · g1-locomocao-primeiro-fatia-100
+- `perto` (9): Achados soltos da linha bloco · Bloco 10 · Bloco 13 · Desenho do g1_limpo · g1-limpo-desenho · g1-limpo-fechar-paga-menos-que-pairar · g1-limpo-plano-tres-tarefas · g1-limpo-postura-com-caixa-medida · zero12
+- `PesoPorEstado` (2): Bloco 16 · g1-limpo-forma-postural
+- `pico_de_altura` (4): Achados soltos da linha bloco · Bloco 1 · g1-limpo-bloco1-marcha-formou · g1-limpo-pico-altura-diluido
+- `pilota` (2): Achados soltos da linha bloco · Bloco 14
+- `pilota.py` (2): g1-cena-sensores-parte2 · g1-limpo-inercia-real-da-caixa
+- `play` (11): Achados soltos da linha bloco · Bloco 9 · Enunciado do comportamento · Sonda do pegar · Stand de graça no mjlab · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes · g1-limpo-bloco1-marcha-formou · g1-limpo-mesa-contato-zero · g1-limpo-piso-da-estatua · g1-limpo-tabela-por-estado
+- `Policy/mean_noise_std` (2): Achados soltos da linha bloco · g1-mjlab-api-armadilhas
+- `Policy/mean_std` (2): Achados soltos da linha bloco · g1-mjlab-api-armadilhas
+- `pose` (29): Achados do g1_limpo · Bloco 14 · Bloco 15 · Bloco 16 · Bloco 8 · Comportamento esperado da v3 · Linha zero · Princípios de recompensa · g1-limpo-auditoria-gradientes · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-escala-da-acao-do-punho · g1-limpo-escorar-compra-o-fecho · g1-limpo-espera-sem-agacha-o-andar-parado · g1-limpo-faixa-de-pose · g1-limpo-fechar-paga-menos-que-pairar · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-pega-parada-na-mesa · g1-limpo-plano-tres-tarefas · g1-limpo-postura-de-pe · g1-limpo-punho-vai-ao-batente · g1-limpo-regime-vem-do-estado · g1-limpo-tabela-por-estado · g1-poc-recompensa-loco-prefere-parar · g1-postura-penhasco-std-standing · g1-sigma-e-a-distancia-inicial · zero12 · zero17 · zero18
+- `pose_check.py` (3): BFM-Zero · Goal track · Viabilidade da pose
+- `pose_de_braco` (2): Bloco 11 · g1-limpo-plano-tres-tarefas
+- `postura_ereta` (20): Bloco 1 · Bloco 11 · Bloco 14 · Bloco 16 · Bloco 18 · Bloco 7 · Bloco 8 · Resume com terminação de corpo inteiro · g1-leitura-log-e-kaggle · g1-limpo-anda-agachado-com-a-caixa · g1-limpo-bloco1-marcha-formou · g1-limpo-desenho · g1-limpo-escorar-compra-o-fecho · g1-limpo-forma-postural-agacha-no-alvo · g1-limpo-mesa-contato-zero · g1-limpo-pega-parada-na-mesa · g1-limpo-tabela-por-estado · g1-poc-auditoria-incentivos · g1-principio-incentivo-nao-penalizacao · zero14
+- `PosturaPorElo` (4): Bloco 11 · Desenho do g1_limpo · g1-limpo-punho-vai-ao-batente · zero14
+- `PPOPorElo` (5): Achados soltos da linha zero · Bloco 11 · Bloco 7 · g1-limpo-one-hot-normalizado-amplifica-slot-raro · g1-limpo-std-cai-cedo
+- `precise_ori` (27): 2026-09-21-botar-alinhado-pune-endireitar · Bloco 11 · Bloco 12 · Bloco 3 · Desenho de uma tarefa · Desenho do g1_limpo · Enunciado do comportamento · Linha zero · Máquina de elo · g1-limpo-ang-cego-ao-tombo · g1-limpo-botar-alinhado-pune-endireitar · g1-limpo-botar-paga-nao-botar · g1-limpo-cadeia-da-pega · g1-limpo-pega-parada-na-mesa · g1-limpo-tabela-por-estado · g1-poc-auditoria-incentivos · g1-principio-incentivo-nao-penalizacao · model_23250 · zero02 · zero03 · zero08 · zero09 · zero10 · zero11 · zero13 · zero14 · zero17
+- `precise_pos` (20): Achados soltos da linha bloco · Bloco 11 · Bloco 12 · Bloco 13 · Bloco 14 · Bloco 18 · Bloco 7 · Bloco 8 · Bloco 9 · Desenho do g1_limpo · g1-limpo-aborto-por-perda-de-preensao · g1-limpo-anda-agachado-com-a-caixa · g1-limpo-auditoria-gradientes · g1-limpo-botar-paga-nao-botar · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-desenho · g1-poc-auditoria-incentivos · zero10 · zero12 · zero13
+- `precise_pos_sigma` (2): Bloco 8 · g1-limpo-auditoria-gradientes
+- `priority` (9): Achados do g1_limpo · Achados soltos da linha zero · Infra · Linha zero · Resume 24350 com freio de aperto · Testes do model_24350 · g1-limpo-caixa-presa-pelo-pulso · g1-v3-palma-de-plastico-5kg · mjlab-warp-contato-e-dr
+- `prob_por_nivel` (2): Bloco 11 · Desenho do g1_limpo
+- `progress` (2): Lift Box · Lift não mede erguer
+- `pupil-apriltags` (2): Visão da caixa · pupil-apriltags-del-corrompe-heap
+- `push_robot` (4): Comportamento esperado da v3 · Generalizar e rehearsal · g1-leitura-log-e-kaggle · g1-locomocao-primeiro-fatia-100
+- `qacc_warmstart` (2): g1-limpo-cone-eliptico-diverge-para-nan · g1-limpo-cone-eliptico-nan
+- `qpos` (4): Tracking do 24800 · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-cone-eliptico-nan · g1-limpo-forma-postural
+- `qvel` (2): Tracking do 24800 · g1-limpo-cone-eliptico-nan
+- `rastreio_por_elo` (5): Bloco 16 · Bloco 6 · g1-limpo-piso-da-estatua · g1-limpo-piso-da-estatua-travava-a-pega · g1-limpo-velocidade-de-junta-medida
+- `razao_marcha` (14): Bloco 1 · Bloco 19 v3 colapso do amax · Bloco 8 · Comportamento esperado da v3 · Desenho do g1_limpo · g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-limpo-rampa-queima-janelas · g1-limpo-reducao-e-limiar-andam-juntos · g1-track-lin-parado-colhe-27pct · g1-v3-decisoes · zero01
+- `reaching` (7): Desenho de uma tarefa · Máquina de elo · Specs e auditoria · g1-multitask-orcamento-igual-por-tarefa · g1-multitask-spec-validacao-2026-08 · g1-poc-auditoria-incentivos · g1-principio-incentivo-nao-penalizacao
+- `ref_botar.npz` (3): g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-ik-referencia-botar · g1-v3-decisoes
+- `ref_v3_de_pe.npz` (2): Comportamento esperado da v3 · g1-limpo-ik-referencia-botar
+- `registra_juntas` (8): 2026-09-21-botar-alinhado-pune-endireitar · Achados soltos da linha bloco · g1-limpo-botar-deita-o-tronco · g1-limpo-botar-veredito-do-dono-21700 · g1-limpo-freio-nao-taxa-a-marcha · g1-limpo-limite-de-junta-curso-largo · g1-v3-decisoes · zero02
+- `registra_juntas.py` (3): g1-limpo-inercia-real-da-caixa · g1-limpo-registrador-cego-ao-giro · g1-limpo-registro-de-checkpoints
+- `rel_heading_envs` (2): Linha zero · g1-limpo-deriva-de-rumo-com-a-caixa
+- `rel_standing_envs` (4): C1 multitask · Portão do balanço · g1-locomocao-primeiro-fatia-100 · zero18
+- `renda_congelada` (12): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 15 · Bloco 9 · Desenho do g1_limpo · g1-limpo-auditoria-gradientes · g1-limpo-fechar-paga-menos-que-pairar · g1-limpo-plano-tres-tarefas · g1-limpo-renda-congelada-paga-10x-o-deficit · g1-limpo-tabela-por-estado · g1-limpo-yam-lento-por-desenho · zero12
+- `reorientar` (12): C1 multitask · C2 g1_poc · Desenho do currículo · Desenho do g1_limpo · Fase 1 com o residual · g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3 · g1-limpo-desenho · g1-multitask-caixa-fora-de-alcance · g1-multitask-orcamento-igual-por-tarefa · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas
+- `REORIENTAR` (5): Desenho do g1_limpo · g1-leitura-log-e-kaggle · g1-limpo-cadeia-da-pega · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-janela-de-espera
+- `reset` (3): g1-auditoria-mjlab-bloco2 · g1-limpo-desenho · g1-mjlab-api-armadilhas
+- `reset_base` (2): g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3
+- `resolve_sorteio` (2): g1-leitura-log-e-kaggle · g1-limpo-desenho
+- `rest_z` (2): Currículo de altura com PLR · Lift não mede erguer
+- `reward_curriculum` (3): Achados soltos da linha zero · g1-limpo-yam-lento-por-desenho · g1-mjlab-velocity-anatomia
+- `RewardManager` (2): g1-auditoria-mjlab-bloco3 · g1-mjlab-velocity-anatomia
+- `rewards.py` (3): Lift Box · Lift não mede erguer · g1-multitask-orcamento-igual-por-tarefa
+- `rglob` (3): Achados soltos da linha bloco · Linha zero · g1-leitura-log-e-kaggle
+- `right_shoulder_yaw` (4): Bloco 16 · Bloco 17 · g1-limpo-ang-cego-ao-tombo · g1-limpo-faixa-de-pose
+- `right_wrist_roll` (5): Bloco 15 · Bloco 16 · Bloco 18 · g1-limpo-faixa-de-pose · g1-limpo-punho-vai-ao-batente
+- `rt/arm_sdk` (3): IK + PD do braço · g1-arm-ik-pd-control · unitree-g1-sim-mujoco-not-isaac
+- `runner_cls` (2): Desenho do g1_limpo · g1-limpo-desenho
+- `s_cauda` (5): Continuação 23250 a 24393 · Resume 24350 com freio de aperto · Resume 24350 com preço 3x e forma ponderada · g1-limpo-curriculo-de-cadeia · zero17
+- `SceneEntityCfg` (2): g1-mjlab-api-armadilhas · g1-mjlab-velocity-anatomia
+- `SEG_POR_ITER` (3): Achados soltos da linha bloco · zero04 · zero08
+- `seg_proj/seg_pedido` (3): Bloco 6 · Bloco 7 · g1-mjlab-velocity-anatomia
+- `select_gpus` (2): Desenho do g1_limpo · g1-leitura-log-e-kaggle
+- `self_collisions` (4): Bloco 9 · C2 g1_poc · g1-limpo-auditoria-gradientes · g1-mjlab-velocity-anatomia
+- `seq_length` (2): Tracking · Tracking do 24800
+- `SESS` (55): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 1 · Bloco 10 · Bloco 11 · Bloco 12 · Bloco 13 · Bloco 14 · Bloco 15 · Bloco 16 · Bloco 17 · Bloco 18 · Bloco 19 v3 colapso do amax · Bloco 2 · Bloco 20 v3 sonda · Bloco 3 · Bloco 4 · Bloco 5 · Bloco 6 · Bloco 7 · Bloco 8 · Bloco 9 · Blocos 20 a 22 · Checkpoints da linha bloco · Continuação 23250 a 24393 · Desenho do g1_limpo · Estado do C3 em 05-10 · Lacunas da linha bloco · Lacunas da linha zero · Linha bloco · Linha zero · Refino v2 · Resume 24350 com freio de aperto · Resume 24350 com preço 3x e forma ponderada · Resume com terminação de corpo inteiro · Testes do model_24350 · model_23250 · zero01 · zero02 · zero03 · zero04 · zero05 · zero06 · zero07 · zero08 · zero09 · zero10 · zero11 · zero12 · zero13 · zero14 · zero15 · zero16 · zero17 · zero18
+- `shoulder_yaw` (6): Bloco 16 · Checkpoints da linha bloco · Testes do model_24350 · g1-limpo-aperto-fixo-nao-acompanha-massa · g1-limpo-faixa-de-pose · g1-limpo-mesa-contato-zero
+- `sigma_ori` (3): 2026-09-21-botar-alinhado-pune-endireitar · g1-limpo-botar-alinhado-pune-endireitar · zero02
+- `smoke` (3): g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou · g1-limpo-desenho
+- `soft_landing` (3): Movimento suave · Passo sem comando de twist · g1-auditoria-mjlab-bloco3
+- `sorteia_forma` (2): g1-locomocao-primeiro-fatia-100 · g1-poc-auditoria-travas
+- `specs/2026-09-30-slam-percepcao.md` (2): Lidar e SLAM · g1-slam-percepcao-desenho
+- `specs/2026-10-05-autonomo-fase1.md` (2): Autônomo fase 1 · g1-autonomo-fase1
+- `specs/g1-limpo-comportamento.md` (2): Comportamento esperado da v3 · zero14
+- `specs/g1-limpo-curriculo-de-cadeia.md` (2): Bloco 8 · Enunciado do comportamento
+- `specs/g1-v3-comportamento.md` (3): C4 v3 · g1-limpo-aborto-por-perda-de-preensao · g1-v3-decisoes
+- `specs/g1-v3.md` (5): C4 v3 · Enunciado do comportamento · g1-limpo-v3-alvos-macro · g1-v3-decisoes · g1-v3-soltar-exige-afrouxar
+- `squeeze` (29): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 1 · Bloco 1 a pega · Bloco 11 · Bloco 3 · Bloco 4 do pegar · Bloco 6 · Bloco 8 · C2 g1_poc · Resume com terminação de corpo inteiro · Testes do model_24350 · g1-leitura-log-e-kaggle · g1-limpo-aperto-fixo-nao-acompanha-massa · g1-limpo-bloco1-marcha-formou · g1-limpo-cadeia-da-pega · g1-limpo-caixa-esmagada-squeeze-cego · g1-limpo-caixa-presa-pelo-pulso · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-limpo-mesa-contato-zero · g1-limpo-piso-da-estatua · g1-poc-auditoria-incentivos · g1-poc-auditoria-travas · g1-principio-incentivo-nao-penalizacao · g1-sigma-e-a-distancia-inicial · g1-track-lin-parado-colhe-27pct · zero14
+- `src/G1_lifting_box` (2): O vale da cadeia · Stand
+- `src/sim.py` (2): IK + PD do braço · g1-arm-ik-pd-control
+- `staged` (20): Bloco 1 · Bloco 11 · Bloco 12 · Bloco 2 · Bloco 3 · Bloco 6 · Bloco 8 · Desenho do g1_limpo · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes · g1-limpo-bloco1-marcha-formou · g1-limpo-botar-paga-nao-botar · g1-limpo-cauda-carregar-piso-sem-derivada · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-mesa-contato-zero · g1-limpo-piso-da-estatua · g1-principio-incentivo-nao-penalizacao · g1-sigma-e-a-distancia-inicial · zero12 · zero13
+- `standing` (8): Linha zero · g1-limpo-janela-de-espera · g1-limpo-velocidade-de-junta-medida · g1-mjlab-velocity-anatomia · g1-postura-penhasco-std-standing · g1-track-lin-parado-colhe-27pct · zero01 · zero03
+- `startup` (2): g1-auditoria-mjlab-bloco2 · g1-mjlab-velocity-anatomia
+- `state_dict` (2): g1-mjlab-api-armadilhas · g1-mjlab-warmstart-obs-armadilhas
+- `std_manipulando` (2): g1-poc-auditoria-incentivos · g1-postura-penhasco-std-standing
+- `std_param` (3): Std foge · g1-limpo-std-cai-cedo · g1-mjlab-api-armadilhas
+- `std_range` (2): g1-limpo-std-da-acao-por-junta · g1-mjlab-api-armadilhas
+- `std_standing` (2): Desenho de uma tarefa · g1-postura-penhasco-std-standing
+- `std_walking` (2): g1-auditoria-mjlab-bloco2 · g1-poc-auditoria-incentivos
+- `success_buf` (2): g1-auditoria-mjlab-bloco2 · g1-multitask-spec-validacao-2026-08
+- `sucesso` (19): Bloco 1 · Bloco 14 · Bloco 19 v3 colapso do amax · Bloco 7 · Bloco 8 · Bloco 9 · C1 multitask · Lacunas da linha bloco · Linha bloco · Locomoção por rastreio · Resample zerava o sucesso · Std foge · g1-limpo-auditoria-gradientes · g1-limpo-bloco1-marcha-formou · g1-limpo-botar-paga-nao-botar · g1-limpo-contrato-de-troca-de-tarefa · g1-multitask-caixa-fora-de-alcance · zero01 · zero12
+- `sucesso_denso` (2): Bloco 4 do pegar · C1 multitask
+- `sustentacao` (12): Achados soltos da linha bloco · Bloco 1 · Bloco 11 · Bloco 7 · Bloco 8 · Bloco 9 · Desenho do g1_limpo · g1-leitura-log-e-kaggle · g1-limpo-auditoria-gradientes · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-desenho · g1-principio-incentivo-nao-penalizacao
+- `tabela-por-estado` (2): Bloco 15 · Checkpoints da linha bloco
+- `table_contact` (6): Currículo de altura com PLR · Desenho de uma tarefa · Lift Box · Specs e auditoria · g1-auditoria-mjlab-bloco2 · g1-auditoria-mjlab-bloco3
+- `tanh` (2): Sonda do pegar · g1-limpo-caixa-esmagada-squeeze-cego
+- `tempo_de_voo` (3): Bloco 1 · g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou
+- `terrain_scan` (2): g1-auditoria-mjlab-bloco3 · g1-limpo-lidar-sim-desenho
+- `theta-30` (3): C4 v3 · Punho esquerdo gira na pega · g1-v3-decisoes
+- `time_out` (13): Achados soltos da linha zero · Bloco 12 · Bloco 13 · Bloco 19 v3 colapso do amax · Comportamento esperado da v3 · Desenho do currículo · Resample zerava o sucesso · g1-limpo-botar-paga-nao-botar · g1-limpo-fechar-o-pegar-mata-o-episodio · g1-mjlab-velocity-anatomia · zero01 · zero03 · zero15
+- `tol_ang_deg` (4): g1-limpo-ang-cego-ao-tombo · g1-limpo-sigma-do-alvo-congelado-degenera · zero03 · zero10
+- `tol_pos` (5): 2026-09-21-botar-alinhado-pune-endireitar · Achados soltos da linha zero · Bloco 7 · Bloco 8 · g1-limpo-auditoria-gradientes
+- `tol_w` (4): C1 multitask · Locomoção por rastreio · Std foge · g1-multitask-caixa-fora-de-alcance
+- `topo_min` (2): Desenho do g1_limpo · g1-limpo-mesa-contato-zero
+- `torch` (2): g1-leitura-log-e-kaggle · g1-treino-vai-para-isaac-lab
+- `torso` (2): g1-limpo-mesa-contato-zero · g1-mjlab-velocity-anatomia
+- `torso_link` (4): Câmera D435i · Lidar e SLAM · g1-lidar-sim-visualizacao-slam · g1-mjcf-vem-do-urdf-rev-1-0
+- `track_angular_velocity` (5): Bloco 14 · Std foge · g1-limpo-giro-canal-e-envelope · g1-poc-recompensa-loco-prefere-parar · g1-sigma-e-a-distancia-inicial
+- `track_lin` (4): Enunciado do comportamento · g1-limpo-nao-anda-com-a-caixa · g1-poc-orcamento-30k-iteracoes · g1-sigma-e-a-distancia-inicial
+- `track_linear_velocity` (4): Bloco 14 · g1-locomocao-primeiro-fatia-100 · g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct
+- `tracking_inference` (2): Tracking · Tracking do 24800
+- `trazer` (4): Bloco 8 · g1-limpo-auditoria-gradientes · g1-limpo-contrato-de-troca-de-tarefa · zero12
+- `turning` (2): g1-v3-decisoes · model_23250
+- `twist` (2): Achados soltos da linha zero · Passo sem comando de twist
+- `unitree-g1-sim` (2): IK + PD do braço · g1-arm-ik-pd-control
+- `unitree_g1_flat_env_cfg` (3): Specs e auditoria · g1-auditoria-mjlab-bloco2 · g1-multitask-orcamento-igual-por-tarefa
+- `unitree_g1_rough_env_cfg` (2): Desenho do g1_limpo · g1-auditoria-mjlab-bloco3
+- `unitree_rl_lab` (2): g1-v3-decisoes · g1-v3-locomocao-unitree
+- `unitree_ros` (2): Câmera D435i · g1-mjcf-vem-do-urdf-rev-1-0
+- `unload` (21): Achados soltos da linha bloco · Bloco 1 · Bloco 1 a pega · Bloco 11 · Bloco 3 · Bloco 4 do pegar · C1 multitask · C2 g1_poc · Currículos · Desenho do g1_limpo · Máquina de elo · g1-leitura-log-e-kaggle · g1-limpo-bloco1-marcha-formou · g1-limpo-escorar-compra-o-fecho · g1-limpo-mesa-contato-zero · g1-limpo-pega-parada-na-mesa · g1-poc-auditoria-incentivos · g1-postura-penhasco-std-standing · g1-principio-incentivo-nao-penalizacao · g1-track-lin-parado-colhe-27pct · zero14
+- `upright` (23): Achados soltos da linha bloco · Achados soltos da linha zero · Bloco 20 v3 sonda · Bloco 6 · Bloco 9 · Comportamento esperado da v3 · Desenho de uma tarefa · Enunciado do comportamento · Lacunas da linha zero · Lift Box · Linha zero · Muleta na mesa · Passo sem comando de twist · Resume com terminação de corpo inteiro · g1-limpo-escorar-compra-o-fecho · g1-limpo-mesa-contato-zero · g1-limpo-piso-da-estatua · g1-limpo-postura-de-pe · g1-poc-recompensa-loco-prefere-parar · g1-postura-penhasco-std-standing · g1-sigma-e-a-distancia-inicial · zero16 · zero17
+- `upright_std` (2): Orientação da caixa · g1-locomocao-primeiro-fatia-100
+- `VALIDA` (5): Bloco 14 · Bloco 16 · g1-limpo-botar-paga-nao-botar · g1-limpo-contrato-de-troca-de-tarefa · g1-limpo-janela-de-espera
+- `ValueError` (2): g1-mjlab-mutacao-em-treino · g1-mjlab-velocity-anatomia
+- `variable_posture` (2): Desenho do g1_limpo · g1-limpo-velocidade-de-junta-medida
+- `vel_max_standing` (2): Bloco 16 · g1-limpo-velocidade-por-regime-formula-obsoleta
+- `vel_max_walking` (2): Bloco 19 v3 colapso do amax · g1-limpo-reducao-e-limiar-andam-juntos
+- `velocidade_de_junta` (3): Continuação 23250 a 24393 · g1-limpo-velocidade-de-junta-medida · zero02
+- `velocidade_por_regime` (14): Achados soltos da linha zero · Bloco 11 · Bloco 16 · Bloco 19 v3 colapso do amax · Linha bloco · g1-limpo-piso-da-estatua · g1-limpo-reducao-e-limiar-andam-juntos · g1-limpo-regime-vem-do-estado · g1-limpo-velocidade-de-junta-medida · zero01 · zero06 · zero07 · zero08 · zero09
+- `velocity` (5): C2 g1_poc · Infra · Paridade com o fabricante · Passo sem comando de twist · g1-track-lin-parado-colhe-27pct
+- `waist_pitch` (9): BFM só equilíbrio · Bloco 18 · Comportamento esperado da v3 · Câmera D435i · Linha zero · g1-limpo-rampa-estreita-nao-ensina · g1-v3-decisoes · zero02 · zero04
+- `weight` (2): g1-arm-ik-pd-control · g1-mjlab-mutacao-em-treino
+- `wrist` (2): g1-limpo-mesa-contato-zero · g1-limpo-velocidade-de-junta-medida
+- `wrist_pitch` (7): Bloco 16 · PEGAR tomba a caixa ao erguer · g1-limpo-ang-cego-ao-tombo · g1-limpo-escala-da-acao-do-punho · g1-limpo-faixa-de-pose · g1-limpo-forma-postural-agacha-no-alvo · zero11
+- `wrist_roll` (4): Bloco 16 · IK + PD do braço · g1-limpo-ang-cego-ao-tombo · g1-limpo-faixa-de-pose
+- `wrist_yaw` (8): Bloco 16 · Punho esquerdo gira na pega · Resume 24350 com freio de aperto · Testes do model_24350 · g1-limpo-aperto-fixo-nao-acompanha-massa · g1-limpo-faixa-de-pose · g1-limpo-punho-esquerdo-empurrado-pela-caixa · g1-limpo-punho-vai-ao-batente
+- `write_external_wrench_to_sim` (3): Peso variável · g1-mjlab-api-armadilhas · g1-mjlab-mutacao-em-treino
+- `write_mocap_pose_to_sim` (4): Achados soltos da linha bloco · g1-limpo-desenho · g1-mjlab-api-armadilhas · g1-mjlab-mutacao-em-treino
+- `zero01` (5): Linha bloco · g1-limpo-rampa-estreita-nao-ensina · g1-limpo-reducao-e-limiar-andam-juntos · g1-v3-decisoes · zero01
+- `zero02` (6): 2026-09-21-botar-alinhado-pune-endireitar · Lacunas da linha bloco · Lacunas da linha zero · g1-limpo-sigma-do-alvo-congelado-degenera · zero01 · zero02
+- `zero04` (3): Comportamento esperado da v3 · g1-limpo-rampa-estreita-nao-ensina · g1-v3-decisoes
+- `zero07` (2): g1-limpo-freio-nao-taxa-a-marcha · g1-limpo-std-cai-cedo
+- `zero08` (3): g1-limpo-ang-cego-ao-tombo · g1-limpo-sigma-do-alvo-congelado-degenera · g1-limpo-std-cai-cedo
+- `zero11` (2): g1-limpo-escala-da-acao-do-punho · g1-limpo-fechar-paga-menos-que-pairar
