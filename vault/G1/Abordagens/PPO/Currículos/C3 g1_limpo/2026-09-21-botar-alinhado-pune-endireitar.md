@@ -1,3 +1,9 @@
+---
+tipo: achado
+pai: "[[C3 g1_limpo]]"
+estado: ativa
+verificado: 2026-10-06
+---
 # O `alinhado` do BOTAR pune a caixa ficar direita
 
 Medido em 2026-09-21 no `model_9100` da run `zero02`, com `registra_juntas` em três

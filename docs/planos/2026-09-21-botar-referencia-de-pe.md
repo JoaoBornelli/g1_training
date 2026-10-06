@@ -1,7 +1,7 @@
 # BOTAR: a referência de orientação passa a ser a vertical
 
 Plano escrito em 2026-09-21. Nada implementado. Ele sai da medição em
-`docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`, feita no `model_9100` da run
+`vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/2026-09-21-botar-alinhado-pune-endireitar.md`, feita no `model_9100` da run
 `zero02` com `registra_juntas` em três alturas de laje.
 
 ## O defeito, em uma frase

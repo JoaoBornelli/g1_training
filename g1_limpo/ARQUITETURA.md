@@ -1072,7 +1072,7 @@ def _atualiza_face(self, ids):
 > lado de cima para cima já é o resultado bom. O requisito de orientação pré-determinada
 > entra quando o `REORIENTAR` sair de inerte, e entra por este **mesmo campo**. Ver
 > `docs/planos/2026-09-21-botar-referencia-de-pe.md` e
-> `docs/memoria/2026-09-21-botar-alinhado-pune-endireitar.md`.
+> `vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/2026-09-21-botar-alinhado-pune-endireitar.md`.
 
 > ⚠ Até 28/08 a direção era **viva em todo elo**, e o `precise_ori` (peso 1,0) ficava
 > **inerte**: no nível 0 a caixa nasce alinhada (`voltas_max = 0`, desalinho ≤ 15°) e

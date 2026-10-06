@@ -1,3 +1,9 @@
+---
+tipo: achado
+pai: "[[C3 g1_limpo]]"
+estado: ativa
+verificado: 2026-10-06
+---
 # O `ANG` do PEGAR era cego ao tombo (28/09)
 
 ## O defeito

@@ -1,3 +1,9 @@
+---
+tipo: achado
+pai: "[[C3 g1_limpo]]"
+estado: ativa
+verificado: 2026-10-06
+---
 # Por que o cone elíptico diverge para NaN
 
 Investigado em 05/10/2026, só leitura de código e de issues públicas. Nenhum teste rodado.

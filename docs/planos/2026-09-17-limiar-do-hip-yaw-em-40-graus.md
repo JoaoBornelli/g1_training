@@ -1,6 +1,6 @@
 # O `limite_de_junta` ganha limiar POR FAMÍLIA, e o `hip_yaw` começa a pagar a 40°
 
-Data: 2026-09-17. Medição: `docs/memoria/g1-limpo-limite-de-junta-curso-largo.md`.
+Data: 2026-09-17. Medição: `vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-limite-de-junta-curso-largo.md`.
 
 ## O defeito
 

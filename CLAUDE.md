@@ -38,3 +38,8 @@ comportamento desejado não funciona.
 Consequência prática: um termo com derivada zero na região onde o robô está hoje é um
 canal morto, por mais alto que seja o peso dele. Meça a derivada no ponto de operação
 real antes de propor o peso.
+
+## Vault
+
+O conhecimento do projeto vive em `vault/` (árvore de abordagens). Leia `vault/_sistema/CLAUDE.md`
+antes de propor uma abordagem. Anotação solta vai para `vault/_sistema/inbox.md` na mesma resposta.
