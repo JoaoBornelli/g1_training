@@ -44,4 +44,13 @@ Spec: `../specs/2026-10-05-vault-g1-design.md`.
 
 ## CodeGraph no vault
 
-O `.codegraph/` do vault indexa só o código de `_sistema/` (`indexa.py`, `checa.py`); ele NÃO indexa o conteúdo das notas. Para achar conhecimento, percorra as listas `## Filhos` a partir de `G1.md` e use grep nos `resumo:`; use o CodeGraph só para mexer nos scripts.
+O `.codegraph/` do vault indexa só o código de `_sistema/` (`indexa.py`, `checa.py`); ele NÃO indexa o conteúdo das notas. Use o CodeGraph só para mexer nos scripts.
+
+## Como achar conhecimento (em ordem)
+
+1. **Por termo de código** (knob, termo de recompensa, terminação, arquivo): grep em `_sistema/por-termo.md`.
+2. **Por assunto:** grep em `_sistema/indice.md` (uma linha por nota: caminho, tipo, estado, período, resumo).
+3. **Pendências e abordagens ativas:** a lista estática no fim de `_sistema/Home.md`.
+4. **Contexto de um ramo:** desça pelas listas `## Filhos` a partir de `G1.md`.
+
+Os três arquivos são gerados por `indexa.py`; não edite à mão. Rode `indexa.py` e depois `checa.py` sempre que criar ou mudar nota.

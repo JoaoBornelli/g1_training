@@ -43,3 +43,8 @@ real antes de propor o peso.
 
 O conhecimento do projeto vive em `vault/` (árvore de abordagens). Leia `vault/_sistema/CLAUDE.md`
 antes de propor uma abordagem. Anotação solta vai para `vault/_sistema/inbox.md` na mesma resposta.
+
+Antes de mexer num termo de recompensa, knob, terminação ou arquivo, faça grep no nome dele em
+`vault/_sistema/por-termo.md`: a linha lista as notas que já mediram aquele termo. Para achar uma
+abordagem ou achado por assunto, faça grep em `vault/_sistema/indice.md` (uma linha por nota, com o
+resumo). As pendências abertas estão na lista estática de `vault/_sistema/Home.md`.
