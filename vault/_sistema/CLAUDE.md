@@ -25,7 +25,7 @@ Spec: `../specs/2026-10-05-vault-g1-design.md`.
 ## Grafo
 
 - Na raiz fica só `G1.md`. Cada seção é uma pasta em `G1/` e forma um cluster.
-- Só o `pai` e o `deriva_de` (frontmatter) criam aresta. `deriva_de: "[[anterior]]"` liga uma abordagem à que ela tentou consertar (C1 → C2 → C3 → C4). No corpo, cite outra nota pelo nome em texto, sem `[[link]]`.
+- Só o `pai` (frontmatter) cria aresta. Abordagens feitas em sequência, cada uma para consertar a anterior, ficam em SÉRIE: a seguinte é filha da anterior (Currículos → C1 → C2 → C3 → C4); o corpo abre com "Deriva de X: motivo". `deriva_de` fica para ligar uma abordagem a outra fora da série. No corpo, cite outra nota pelo nome em texto, sem `[[link]]`.
 - Seção nova = pasta nova em `G1/` + uma cor nova em `.obsidian/graph.json`.
 
 ## Fonte das notas

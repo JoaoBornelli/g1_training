@@ -1,7 +1,6 @@
 ---
 tipo: abordagem
-pai: "[[Currículos]]"
-deriva_de: "[[C2 g1_poc]]"
+pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 25/08–05/10/26
@@ -33,6 +32,7 @@ Máquina de elo, currículo de cadeia, one-hot fora da normalização, R4/R4b (d
 
 ## Filhos
 <!-- filhos:inicio -->
+- PRÓXIMA NA SÉRIE: **C4 v3** (abordagem · em-desenho) — Quarta abordagem, em desenho: pacote g1_v3 treinado do zero só com as peças que funcionaram — potencial de progresso em alvos macro de IK, dois balanceadores, refino em degraus, locomoção da Unitree; mjlab primeiro, Isaac Lab depois.
 - **Achados do g1_limpo** (frente · ativa) — Um achado por memória g1-limpo-*: o fato medido, o porquê e como aplicar. Complementa as notas por run das três linhas.
 - **Pendências do C3** (frente · ativa) — As 12 pendências abertas do C3 em 05/10; cada uma é uma nota pendencia que sai da Home quando fecha.
 - **Linha bloco** (abordagem · validada · 26/08–18/09/26) — Um treino do zero e ~21 blocos em resume encadeado, cada um mudando a recompensa sobre uma política que já andava; termina no model_21700, base do melhor modelo.

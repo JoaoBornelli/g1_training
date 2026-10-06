@@ -1,7 +1,6 @@
 ---
 tipo: abordagem
-pai: "[[Currículos]]"
-deriva_de: "[[C1 multitask]]"
+pai: "[[C1 multitask]]"
 estado: superada
 superada_por: C3 g1_limpo
 verificado: 2026-10-06
@@ -39,6 +38,7 @@ O portão do balanço entregava as transições da locomoção para a manipulaç
 
 ## Filhos
 <!-- filhos:inicio -->
+- PRÓXIMA NA SÉRIE: **C3 g1_limpo** (abordagem · ativa · 25/08–05/10/26) — Máquina de elo com locomoção primeiro, em duas linhas: a linha bloco (resume encadeado) gerou o 21700, e o refino v2 dele deu o model_23250, MELHOR modelo; a linha zero (12 recomeços) não produziu política competente.
 - **Bloco 1 a pega** (abordagem · validada · 18–20/08/26) — squeeze saturou e o robô prensava a caixa; unload deu o 1º sucesso do projeto (it 3080) e a caixa subiu 16,5 cm no model_5100.
 - **Bloco 2 colapso por giro** (abordagem · rejeitada · 21/08/26) — O robô aprendeu a girar e caía; o termo giro_indevido foi criado e apagado no mesmo dia.
 - **Máquina de elo** (abordagem · validada · 20/08/26) — Cadeias de elos sem reset entre eles, σ por elo e load no botar; pegar e reorientar fecharam.

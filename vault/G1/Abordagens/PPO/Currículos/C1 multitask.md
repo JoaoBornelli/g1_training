@@ -39,6 +39,7 @@ O gargalo `pegar` (pai de `locomover_carregando` e `botar`) não fechou em 22 mi
 
 ## Filhos
 <!-- filhos:inicio -->
+- PRÓXIMA NA SÉRIE: **C2 g1_poc** (abordagem · superada · 18/08–25/08/26) — Uma tarefa, dois comandos; o alvo da caixa define o comportamento. Pegou e reorientou SEM ANDAR; portão do balanço media sobrevivência. Superado pelo C3.
 - **Bloco 4 do pegar** (abordagem · rejeitada · 10–18/08/26) — Rampa de altura, unload e sucesso denso: lift cru 0,06 → 0,39, mas ergue 3,0 cm de 3,5 exigidos.
 - **Fase 1 com o residual** (abordagem · rejeitada · 30/07–03/08/26) — Env de 7 tarefas usado pelo residual e pela monolítica; consertos de cena e critério; hack de sentar.
 - **Locomoção por rastreio** (abordagem · validada · 07–11/08/26) — Andar como rastreio de velocidade funcionou; a régua angular sem recompensa travou o currículo 4931 iterações.

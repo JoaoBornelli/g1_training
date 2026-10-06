@@ -112,8 +112,8 @@ def indexa():
     print(f"cluster escrito em {clusteriza()} notas")
     info = {}
     for p in _notas():
-        fm, _ = _partes(p.read_text())
-        info[p.stem] = dict(p=p, pai=_pai(fm), tipo=_campo(fm, "tipo"), estado=_campo(fm, "estado"),
+        fm, corpo = _partes(p.read_text())
+        info[p.stem] = dict(p=p, pai=_pai(fm), serie=corpo.lstrip().startswith("> **Deriva de"), tipo=_campo(fm, "tipo"), estado=_campo(fm, "estado"),
                             periodo=_campo(fm, "periodo"), resumo=_campo(fm, "resumo"))
     filhos = {}
     for nome, i in info.items():
@@ -127,10 +127,11 @@ def indexa():
         t2 = re.sub(r"\n*## Filhos\s*\Z", "\n", t2)
         if nome in filhos:
             linhas = []
-            for f in sorted(filhos[nome], key=lambda k: (info[k]["tipo"] != "frente", info[k]["tipo"] != "abordagem", k)):
+            for f in sorted(filhos[nome], key=lambda k: (not info[k]["serie"], info[k]["tipo"] != "frente", info[k]["tipo"] != "abordagem", k)):
                 c = info[f]
                 meta = " · ".join(x for x in (c["tipo"], c["estado"], c["periodo"]) if x)
-                linhas.append(f"- **{f}** ({meta}) — {c['resumo'] or 'sem resumo'}")
+                marca = "PRÓXIMA NA SÉRIE: " if c["serie"] else ""
+                linhas.append(f"- {marca}**{f}** ({meta}) — {c['resumo'] or 'sem resumo'}")
             t2 = t2.rstrip() + f"\n\n## Filhos\n{INI}\n" + "\n".join(linhas) + f"\n{FIM}\n"
         else:
             t2 = t2.rstrip() + "\n"
