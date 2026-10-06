@@ -8,6 +8,14 @@ TIPOS = {"frente", "abordagem", "achado", "decisao", "pendencia", "estudo"}
 ESTADOS = {"em-desenho", "ativa", "validada", "rejeitada", "parada",
            "superada", "aberta", "fechada"}
 RAIZ = "G1"
+MIN_PALAVRAS = 40  # corpo sem frontmatter, titulos e lista de filhos
+
+
+def _palavras(texto):
+    corpo = re.sub(r"^---\n.*?\n---\n", "", texto, flags=re.S)
+    corpo = re.sub(r"<!-- filhos:inicio -->.*?<!-- filhos:fim -->", "", corpo, flags=re.S)
+    corpo = re.sub(r"^#+ .*$", "", corpo, flags=re.M)
+    return len(corpo.split())
 IGNORA = {".obsidian", "_sistema"}
 
 
@@ -41,6 +49,8 @@ def checa(raiz: Path) -> list[str]:
                 erros.append(f"{n}: superada sem superada_por")
             elif alvo not in nomes:
                 erros.append(f"{n}: superada_por inexistente {alvo}")
+        if _palavras(p.read_text()) < MIN_PALAVRAS:
+            erros.append(f"{n}: sem conteudo (menos de {MIN_PALAVRAS} palavras)")
         if not fm.get("resumo", "").strip().strip('"'):
             erros.append(f"{n}: sem resumo")
         if n == RAIZ and p.parent == raiz:
