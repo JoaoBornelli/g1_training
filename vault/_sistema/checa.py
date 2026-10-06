@@ -41,6 +41,8 @@ def checa(raiz: Path) -> list[str]:
                 erros.append(f"{n}: superada sem superada_por")
             elif alvo not in nomes:
                 erros.append(f"{n}: superada_por inexistente {alvo}")
+        if not fm.get("resumo", "").strip().strip('"'):
+            erros.append(f"{n}: sem resumo")
         if n == RAIZ and p.parent == raiz:
             continue
         pai = _alvo(fm.get("pai"))

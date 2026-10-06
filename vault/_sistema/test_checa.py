@@ -5,8 +5,8 @@ def _nota(d, nome, fm):
     (d / f"{nome}.md").write_text("---\n" + fm + "\n---\ncorpo\n")
 
 def test_vault_valido(tmp_path):
-    _nota(tmp_path, "G1", "tipo: frente\nestado: ativa\nverificado: 2026-10-06")
-    _nota(tmp_path, "PPO", 'tipo: frente\npai: "[[G1]]"\nestado: ativa\nverificado: 2026-10-06')
+    _nota(tmp_path, "G1", "tipo: frente\nestado: ativa\nverificado: 2026-10-06\nresumo: raiz")
+    _nota(tmp_path, "PPO", 'tipo: frente\npai: "[[G1]]"\nestado: ativa\nverificado: 2026-10-06\nresumo: x')
     assert checa(tmp_path) == []
 
 def test_erros(tmp_path):
@@ -19,7 +19,7 @@ def test_erros(tmp_path):
     _nota(tmp_path / "sub", "G1", 'tipo: frente\npai: "[[G1]]"\nestado: ativa\nverificado: 2026-10-06')
     erros = "\n".join(checa(tmp_path))
     for trecho in ["solta: sem pai", "orfa: pai inexistente", "velha: superada sem superada_por",
-                   "rara: tipo", "rara: estado", "nome duplicado: G1"]:
+                   "rara: tipo", "rara: estado", "nome duplicado: G1", "solta: sem resumo"]:
         assert trecho in erros
 
 

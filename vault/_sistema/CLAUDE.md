@@ -33,3 +33,10 @@ Spec: `../specs/2026-10-05-vault-g1-design.md`.
 - A memória do Claude NÃO é fonte para o vault: o teto de 150 palavras corta o estudo.
 - Escreva a partir das fontes primárias: código e docstrings, corpos de commit, `.npz`/logs com números, specs, relatórios e o relato do usuário.
 - Cada experimento vira uma nota filha (Hipótese, Método com arquivos, Resultado com números, Por que parou, O que herda). O relato do usuário prevalece sobre a memória.
+
+## Resumo e lista de filhos
+
+- Toda nota tem `resumo:` no frontmatter: uma linha com o que foi testado e o veredito. O `checa.py` acusa a falta.
+- A lista `## Filhos` de cada nota pai é gerada por `python vault/_sistema/indexa.py`, entre os marcadores `filhos:inicio`/`filhos:fim`. Não edite a lista à mão; edite o `resumo` do filho e rode o script.
+- Para percorrer o vault: comece em `G1.md`, leia a lista de filhos e desça só pelos ramos que interessam.
+- Ordem depois de criar ou mudar notas: `indexa.py`, depois `checa.py`.
