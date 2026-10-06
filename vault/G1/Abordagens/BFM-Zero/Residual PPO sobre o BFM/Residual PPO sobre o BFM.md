@@ -4,6 +4,7 @@ pai: "[[BFM-Zero]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 30/07–03/08/26
+resumo: "PPO residual sobre o BFM congelado, com busca de z. Rejeitado: o BFM não estabiliza o agachamento e o residual teria de fazer todo o equilíbrio."
 ---
 ## Hipótese
 Um PPO residual sobre o BFM congelado aprende a habilidade e o BFM dá o equilíbrio: `alvo = a_BFM(obs, z)·escala + pose_BFM + clamp(Δ)`. A RL também procura o `z` numa base de 20 direções.
@@ -21,6 +22,8 @@ O BFM não estabiliza o agachamento, então o residual teria de fazer o equilíb
 Ver os filhos: portão de referência, terminação × hack de sentar, canal inerte como poço de entropia, clamp que escala a exploração.
 
 ## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT file.name
-```
+<!-- filhos:inicio -->
+- **BFM só equilíbrio** (abordagem · rejeitada · 03/08/26) — BFM fixo em ficar de pé, todo o resto no residual; autoridade medida e pose → z rejeitado; linha parada em 03/08.
+- **Montagem e portão** (abordagem · validada · 30/07/26) — Ator do BFM em lote no mjlab, validado contra o fabricante (erro 1e-6); registra 7 armadilhas silenciosas da obs.
+- **Treino com busca de z** (abordagem · rejeitada · 30–31/07/26) — RL emite 29 residuais + 20 coeficientes de z; parado funcionou, pegar nunca agachou; escala_c engolia o gradiente.
+<!-- filhos:fim -->

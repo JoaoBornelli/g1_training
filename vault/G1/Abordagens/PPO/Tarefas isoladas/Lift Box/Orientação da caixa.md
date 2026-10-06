@@ -4,6 +4,7 @@ pai: "[[Lift Box]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 15–16/07/26
+resumo: "Deitar a caixa pagava altura de graça; gate de 10° e depois kernel suave de orientação."
 ---
 ## Hipótese
 Medir a altura do centro de uma caixa que pode tombar é gameável; um fator de orientação fecha o hack.

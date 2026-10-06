@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Até 28/09 o PEGAR e o CARREGAR usavam o regime FACE_CONGELADA: o ANG comparava a normal de UMA face lateral (−x) com a normal dela na abertura."
 ---
 # O `ANG` do PEGAR era cego ao tombo (28/09)
 

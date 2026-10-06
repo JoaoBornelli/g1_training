@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Medido 2026-08-05 com o harness ruidoso da S0 (g1_multitask/sim_curriculo.py --ruido, p por célula constante no tempo, Bernoulli)."
 ---
 # g1-curriculo-congelamento-escala (original)
 

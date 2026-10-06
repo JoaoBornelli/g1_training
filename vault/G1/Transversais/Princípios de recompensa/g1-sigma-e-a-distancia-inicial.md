@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Medido 2026-08-26 no g1_limpo, respondendo a pergunta do dono: 'a recompensa por nao se mover na manipulacao nao pode ser maior que a de executar as acoes com a caixa'."
 ---
 # g1-sigma-e-a-distancia-inicial (original)
 

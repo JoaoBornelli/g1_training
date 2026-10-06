@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Verificado no código em 2026-08-24."
 ---
 # g1-poc-orcamento-30k-iteracoes (original)
 

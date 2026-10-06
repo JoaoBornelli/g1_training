@@ -5,6 +5,7 @@ estado: superada
 superada_por: C2 g1_poc
 verificado: 2026-10-06
 periodo: 30/07–18/08/26
+resumo: "Orquestrador de células (tarefa, eixo), regra do evento a 0,90 e tabela de tarefas e eixos do C1."
 ---
 ## Decisão
 Uma política, um orquestrador que é termo de currículo e roda no reset antes de eventos e comando. Estado em grade de células `(tarefa, eixo)`, cada uma com níveis, EMA de sucesso (`alpha` 0,03) e contagem de amostras.

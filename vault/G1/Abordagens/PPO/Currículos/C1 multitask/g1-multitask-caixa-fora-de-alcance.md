@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Confirmado 2026-08-10 (play do model_7299 + evidência em código)."
 ---
 # g1-multitask-caixa-fora-de-alcance (original)
 

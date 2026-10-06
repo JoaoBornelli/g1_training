@@ -3,6 +3,7 @@ tipo: abordagem
 pai: "[[Controle determinístico]]"
 estado: validada
 verificado: 2026-10-06
+resumo: "Travar a mão foi ganho, não método."
 ---
 ## Hipótese
 IK numérica + PD controla o braço.
@@ -18,8 +19,7 @@ Travar a mão foi ganho, não método.
 
 ## O que herda
 
-
 ## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT tipo
-```
+<!-- filhos:inicio -->
+- **g1-arm-ik-pd-control** (achado · ativa) — Projeto pessoal unitree-g1-sim (MuJoCo), src/sim.py: mover a mão do G1 até um ponto XYZ.
+<!-- filhos:fim -->

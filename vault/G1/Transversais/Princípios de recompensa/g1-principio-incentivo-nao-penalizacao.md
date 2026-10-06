@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Enunciado pelo usuario em 2026-08-25 como aprendizado do g1_multitask, ao desenhar o g1_limpo."
 ---
 # g1-principio-incentivo-nao-penalizacao (original)
 

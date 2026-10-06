@@ -5,6 +5,7 @@ estado: superada
 superada_por: C3 g1_limpo
 verificado: 2026-10-06
 periodo: 18/08/26
+resumo: "twist + caixa_alvo de 10 números com bit caixa_valida; terminar em vez de penalizar; currículo por env de 90 linhas."
 ---
 ## Decisão
 Uma tarefa, dois comandos. `caixa_alvo` tem 10 números: posição, (face, direção da normal) — a caixa é cubo, quaternião daria ambiguidade de 90° — e o bit `caixa_valida`. Sem o bit, "não existe caixa" e "a caixa está no alvo" dão a mesma obs (erro zero).

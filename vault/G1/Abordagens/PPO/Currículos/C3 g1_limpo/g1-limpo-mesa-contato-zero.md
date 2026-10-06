@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "IMPLEMENTADO em 2026-08-28, commit 6c6a5f8."
 ---
 # g1-limpo-mesa-contato-zero (original)
 

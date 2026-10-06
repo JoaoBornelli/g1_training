@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[IK + PD do braço]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Projeto pessoal unitree-g1-sim (MuJoCo), src/sim.py: mover a mão do G1 até um ponto XYZ."
 ---
 # g1-arm-ik-pd-control (original)
 

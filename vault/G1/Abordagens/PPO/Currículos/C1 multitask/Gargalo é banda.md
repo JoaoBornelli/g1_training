@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 18/08/26
+resumo: "89% do tempo é física; GPU só ajuda por banda (A100 é o salto; L4 não)."
 ---
 ## Fato
 89% do tempo de iteração é física (`Collection` 4,558 s contra `Learning` 0,533 s); GPU melhor só ajuda por banda de memória.

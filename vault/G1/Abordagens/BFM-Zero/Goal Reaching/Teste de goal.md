@@ -4,6 +4,7 @@ pai: "[[Goal Reaching]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 23–24/07/26
+resumo: "Poses montadas à mão viram z; braços e frames do dataset funcionam, agachar não (a pose 6 era impossível)."
 ---
 ## Hipótese
 Poses montadas à mão (braços, agachar) viram `z` e o BFM as executa.

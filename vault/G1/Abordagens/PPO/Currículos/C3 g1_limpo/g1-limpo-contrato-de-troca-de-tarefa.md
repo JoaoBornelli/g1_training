@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "A spec está em g1_training/docs/planos/2026-09-02-contrato-de-troca-de-tarefa.md, na branch exp/g1-limpo-v2."
 ---
 # g1-limpo-contrato-de-troca-de-tarefa (original)
 

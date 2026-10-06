@@ -4,6 +4,7 @@ pai: "[[BFM-Zero]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 23/07/26
+resumo: "BFM nas pernas e cintura, IK nos braços. Rejeitado: o alcance baixo fica preso ao envelope do BFM em pé; cintura no IK deixa o tronco mole."
 ---
 ## Hipótese
 Dividir o corpo: o BFM controla pernas e cintura (equilíbrio), o IK controla só os braços (alcance), os dois todo passo.

@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Auditoria de código do mjlab 1.5.1 (subagente, 2026-08-20), com file:line conferidos."
 ---
 # g1-mjlab-mutacao-em-treino (original)
 

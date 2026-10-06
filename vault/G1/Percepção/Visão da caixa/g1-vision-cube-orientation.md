@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Visão da caixa]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Sub-projeto de percepção em unitree-g1-sim/Vision_training/ (decidido 2026-07-14)."
 ---
 # g1-vision-cube-orientation (original)
 

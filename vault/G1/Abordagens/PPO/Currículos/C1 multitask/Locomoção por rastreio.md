@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 07–11/08/26
+resumo: "Andar como rastreio de velocidade funcionou; a régua angular sem recompensa travou o currículo 4931 iterações."
 ---
 ## Hipótese
 Andar e ficar parado são a mesma tarefa: rastreio de velocidade com o `UniformVelocityCommand` do fabricante.

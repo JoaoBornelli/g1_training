@@ -4,6 +4,7 @@ pai: "[[Lift Box]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 06/08/26
+resumo: "Com alvo = caixa o progress do lift vale sempre 1 e dá NaN; separar alvo de navegação e de tarefa."
 ---
 ## Fato
 Quando o alvo do comando é a própria caixa, o `progress` do `lift` vale sempre 1: o `lift` (peso 2,0) paga encostar as palmas com a caixa nivelada, não erguer.

@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 10–18/08/26
+resumo: "Rampa de altura, unload e sucesso denso: lift cru 0,06 → 0,39, mas ergue 3,0 cm de 3,5 exigidos."
 ---
 ## Hipótese
 O `pegar` travou 22 mil iterações por seis defeitos estruturais; consertá-los (rampa de altura, ponte de carga, bônus denso) fecha a pega.

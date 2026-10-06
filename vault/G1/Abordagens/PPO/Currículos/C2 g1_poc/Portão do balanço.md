@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 20–24/08/26
+resumo: "O controlador de forma passava a fatia de andar à manipulação ao medir sobrevivência; o robô nunca andou."
 ---
 ## Hipótese
 Um controlador automático de forma passa a fatia de locomoção para a manipulação quando a locomoção estiver apta.

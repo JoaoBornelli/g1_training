@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "robot.data.root_com_pos_w NÃO é o centro de massa do robô."
 ---
 # g1-mjlab-api-armadilhas (original)
 

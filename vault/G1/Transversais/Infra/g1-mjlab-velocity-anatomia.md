@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Levantamento completo de mjlab/tasks/velocity (mjlab 1.5.1, rsl_rl_lib 5.4.0) feito 2026-08-06 por 5 agentes de leitura."
 ---
 # g1-mjlab-velocity-anatomia (original)
 

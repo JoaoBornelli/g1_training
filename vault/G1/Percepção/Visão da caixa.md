@@ -3,6 +3,7 @@ tipo: abordagem
 pai: "[[Percepção]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "RANSAC dispensa a rede."
 ---
 ## Hipótese
 CNN em RGB dá a orientação da caixa.
@@ -18,8 +19,7 @@ RANSAC dispensa a rede.
 
 ## O que herda
 
-
 ## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT tipo
-```
+<!-- filhos:inicio -->
+- **g1-vision-cube-orientation** (achado · ativa) — Sub-projeto de percepção em unitree-g1-sim/Vision_training/ (decidido 2026-07-14).
+<!-- filhos:fim -->

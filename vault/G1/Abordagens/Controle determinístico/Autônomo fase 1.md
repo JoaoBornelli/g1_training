@@ -3,6 +3,7 @@ tipo: abordagem
 pai: "[[Controle determinístico]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "O 24350 pega e pousa."
 ---
 ## Hipótese
 Missão A com oráculo, MuJoCo puro.
@@ -17,9 +18,3 @@ O 24350 pega e pousa.
 
 
 ## O que herda
-
-
-## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT tipo
-```

@@ -4,6 +4,7 @@ pai: "[[Goal Reaching]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 24/07–06/08/26
+resumo: "A pose 6 tinha o CoM 5,4 cm fora do apoio; ferramentas find_pose, pose_check, pose6_reach, reach10 separam falha de controle de pose impossível."
 ---
 ## Fato
 A pose 6 do Teste de goal tinha o CoM 5,4 cm FORA do polígono de apoio: era estaticamente impossível para qualquer controlador.

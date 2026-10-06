@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 18–20/08/26
+resumo: "squeeze saturou e o robô prensava a caixa; unload deu o 1º sucesso do projeto (it 3080) e a caixa subiu 16,5 cm no model_5100."
 ---
 ## Hipótese
 Com `squeeze` (força normal de palma) o gradiente chega à coordenada do aperto e a caixa sobe.

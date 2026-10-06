@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Memória: ~/.claude/memory/g1-limpo-piso-da-estatua-travava-a-pega.md."
 ---
 # Piso da estátua no elo de manipulação
 

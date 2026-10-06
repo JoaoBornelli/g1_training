@@ -4,6 +4,7 @@ pai: "[[C1 multitask]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 06/08/26
+resumo: "16 specs e auditoria por agentes: orçamento igual de 4,0 e 5 defeitos (lift sem erguer, botar pagando segurar)."
 ---
 ## Hipótese
 16 specs (S0–S15) fecham os buracos do desenho: o currículo precisa governar cena, carga e perturbação, e o sinal de tarefa precisa ser igual entre tarefas.

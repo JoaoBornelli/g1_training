@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Registrado em 2026-09-18."
 ---
 # BOTAR: o veredito do dono no `model_21700` e a medição que o sustenta
 

@@ -4,6 +4,7 @@ pai: "[[BFM-Zero]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 22/07/26
+resumo: "Recompensa de alcance vira z por reward inference. Rejeitada: z não tem magnitude e o punho não desce abaixo de ~0,54 m."
 ---
 ## Hipótese
 Uma recompensa de alcance (mãos num alvo) inferida pelo BFM dá o `z` da tarefa, e o robô executa zero-shot.
@@ -23,6 +24,6 @@ Limite de cobertura do buffer: a recompensa só vira `z` útil onde existem esta
 A noção de que a magnitude do pedido não existe no BFM. Motivou o Goal Reaching (entregar a pose em vez da recompensa) e o Few-shot (otimizar o `z` direto).
 
 ## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT file.name
-```
+<!-- filhos:inicio -->
+- **Buffer LaFAN** (achado · ativa · 22/07/26) — Buffer de 264k frames do LaFAN para o reward inference; com suporte máximo o alvo baixo continua fora, então a causa é o dataset.
+<!-- filhos:fim -->

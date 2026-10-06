@@ -4,6 +4,7 @@ pai: "[[Residual PPO sobre o BFM]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 03/08/26
+resumo: "BFM fixo em ficar de pé, todo o resto no residual; autoridade medida e pose → z rejeitado; linha parada em 03/08."
 ---
 ## Hipótese
 Com o BFM fixo em "ficar de pé" (`move-ego-0-0`, semente 0), andar, agachar, alcançar e segurar saem inteiros do residual de junta.

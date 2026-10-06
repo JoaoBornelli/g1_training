@@ -4,6 +4,7 @@ pai: "[[Goal Reaching]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 24/07/26
+resumo: "Mão comandada de 0,70 a 0,10 m: piso em ~0,54 m (meio abaixado) ou queda e robô deitado (pelve 0,38 m); sem nada entre os dois."
 ---
 ## Fato
 O BFM tem um piso de mão em ~0,54 m. Abaixo de 0,35 m comandado ele cai ou termina deitado.

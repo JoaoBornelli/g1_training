@@ -4,6 +4,7 @@ pai: "[[Residual PPO sobre o BFM]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 30–31/07/26
+resumo: "RL emite 29 residuais + 20 coeficientes de z; parado funcionou, pegar nunca agachou; escala_c engolia o gradiente."
 ---
 ## Hipótese
 A RL emite 29 residuais de junta + 20 coeficientes `c` numa base de comportamento: `z = project_16(prior[tarefa] + escala_c·(c @ B))`.

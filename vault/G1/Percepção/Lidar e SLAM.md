@@ -2,6 +2,7 @@
 tipo: abordagem
 pai: "[[Percepção]]"
 estado: ativa
+resumo: "Lidar simulado com o mesmo código no sim e no real; SLAM por KISS-ICP + Kalman com a IMU do MID-360."
 verificado: 2026-10-06
 ---
 ## Hipótese
@@ -17,9 +18,3 @@ KISS-ICP + Kalman com a IMU do MID-360.
 
 
 ## O que herda
-
-
-## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT tipo
-```

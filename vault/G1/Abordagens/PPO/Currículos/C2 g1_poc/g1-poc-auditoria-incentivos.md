@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Auditoria por subagente em 2026-08-20, com medição em CPU (16 envs) + cálculo sobre os 21 termos propostos."
 ---
 # g1-poc-auditoria-incentivos (original)
 

@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 periodo: 20/08/26
+resumo: "O comando resampleava um passo antes do time_out e zerava o sucesso; explica a diferença treino × sonda."
 ---
 ## Fato
 Com `resampling_time_range = (20, 20)`, igual ao episódio, o comando resampleava no passo 999 e o `time_out` só no 1000: o sucesso era zerado UM PASSO antes do fim.

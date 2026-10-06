@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Fonte: actor_state_dict['distribution.std_param'] dos .pt em ~/Downloads."
 ---
 # Desvio da ação por junta — lido nos checkpoints
 

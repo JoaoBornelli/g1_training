@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Decidido e implementado em 2026-08-06, branch exp/curriculo-teste (commits ee83202 + 0126410)."
 ---
 # g1-multitask-orcamento-igual-por-tarefa (original)
 

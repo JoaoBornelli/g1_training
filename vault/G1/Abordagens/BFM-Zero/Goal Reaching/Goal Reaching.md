@@ -4,6 +4,7 @@ pai: "[[BFM-Zero]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 23/07–06/08/26
+resumo: "Entregar a pose alvo por goal_inference, em 6 experimentos. Rejeitada: o BFM passa pela pose profunda e não a segura."
 ---
 ## Hipótese
 Entregar a pose alvo (ângulos de junta) em vez de uma recompensa: `goal_inference` mapeia a pose direto para `z = project_z(B(pose))`, sem buffer, e o BFM cuida do equilíbrio.
@@ -23,6 +24,11 @@ O BFM chega perto de poses em pé e de poses de braço. Nas poses profundas ele 
 - Medir o erro por bloco (pernas, cintura, braços), nunca a média dos 29.
 
 ## Filhos
-```dataview
-TABLE tipo, estado, verificado FROM "" WHERE contains(pai, this.file.link) AND estado != "superada" SORT file.name
-```
+<!-- filhos:inicio -->
+- **Goal servo** (abordagem · rejeitada · 24/07/26) — Goal em malha fechada com overdrive integral. Rejeitado: mover o alvo gira o z em vez de empurrar mais.
+- **Goal track** (abordagem · rejeitada · 06/08/26) — Ferramenta de pose por slider com erro por bloco agora × melhor; mostrou que o robô passa pela pose e vai embora.
+- **IK gera pose** (abordagem · rejeitada · 23/07/26) — IK de corpo inteiro gera a pose de pega e o BFM executa; o BFM caía.
+- **Teste de goal** (abordagem · rejeitada · 23–24/07/26) — Poses montadas à mão viram z; braços e frames do dataset funcionam, agachar não (a pose 6 era impossível).
+- **Mapa comandado-alcançado** (achado · ativa · 24/07/26) — Mão comandada de 0,70 a 0,10 m: piso em ~0,54 m (meio abaixado) ou queda e robô deitado (pelve 0,38 m); sem nada entre os dois.
+- **Viabilidade da pose** (achado · ativa · 24/07–06/08/26) — A pose 6 tinha o CoM 5,4 cm fora do apoio; ferramentas find_pose, pose_check, pose6_reach, reach10 separam falha de controle de pose impossível.
+<!-- filhos:fim -->

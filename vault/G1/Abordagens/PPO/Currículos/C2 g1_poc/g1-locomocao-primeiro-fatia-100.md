@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Estabelecido em 2026-08-25, conferido por mim no codigo."
 ---
 # g1-locomocao-primeiro-fatia-100 (original)
 

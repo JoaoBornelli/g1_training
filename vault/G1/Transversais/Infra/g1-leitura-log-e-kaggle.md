@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Normalize antes de comparar qualquer número do log do mjlab."
 ---
 # g1-leitura-log-e-kaggle (original)
 

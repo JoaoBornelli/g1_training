@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C3 g1_limpo]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Medido em 2026-09-17 nos CSVs do registra_juntas (20500_impratio_10_tempo_075_{botar,carregar}.csv) e na referência ik/ref_botar.npz."
 ---
 # `limite_de_junta`: onde os 85 % do curso mordem e onde não mordem
 

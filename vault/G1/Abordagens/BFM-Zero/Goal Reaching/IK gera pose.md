@@ -4,6 +4,7 @@ pai: "[[Goal Reaching]]"
 estado: rejeitada
 verificado: 2026-10-06
 periodo: 23/07/26
+resumo: "IK de corpo inteiro gera a pose de pega e o BFM executa; o BFM caía."
 ---
 ## Hipótese
 Um IK de corpo inteiro (mink) gera uma pose de pega balanceada (pés plantados, CoM sobre os pés) e o BFM a executa por `goal_inference`.

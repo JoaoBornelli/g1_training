@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Princípios de recompensa]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Medido/derivado em 2026-08-20 no g1_poc, lendo o código (não é hipótese de log)."
 ---
 # g1-postura-penhasco-std-standing (original)
 

@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Calculado e conferido contra medição em 2026-08-24 (g1_poc bloco5, it 440)."
 ---
 # g1-track-lin-parado-colhe-27pct (original)
 

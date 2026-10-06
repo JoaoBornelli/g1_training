@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 21/08/26
+resumo: "Locomoção igual ao velocity do fabricante, com comando zero no início; base_lin_vel volta ao ator."
 ---
 ## Hipótese
 A locomoção tem de ser EXATAMENTE o treino `velocity` do fabricante, com uma mudança só: comando zero nos primeiros segundos (diretriz do dono, 21/08).

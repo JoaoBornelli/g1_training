@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[Infra]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "Verificado 2026-08-06, branch exp/curriculo-teste."
 ---
 # g1-auditoria-mjlab-bloco3 (original)
 

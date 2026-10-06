@@ -3,6 +3,7 @@ tipo: achado
 pai: "[[C1 multitask]]"
 estado: ativa
 verificado: 2026-10-06
+resumo: "SPEC de 16 itens (S0–S15) para a rodada de validação do currículo, implementada em 2026-08-05."
 ---
 # g1-multitask-spec-validacao-2026-08 (original)
 

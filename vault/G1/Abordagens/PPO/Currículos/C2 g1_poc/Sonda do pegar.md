@@ -4,6 +4,7 @@ pai: "[[C2 g1_poc]]"
 estado: validada
 verificado: 2026-10-06
 periodo: 19–20/08/26
+resumo: "Mede força em vez de recompensa no play; três erros de agregação em que um extremo mascarava a distribuição."
 ---
 ## Hipótese
 Recompensa não distingue "não aperta o bastante" de "aperta e não sobe"; força distingue.
