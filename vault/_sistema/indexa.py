@@ -140,5 +140,88 @@ def indexa():
     print(f"blocos de filhos atualizados em {n} notas")
 
 
+# ---------- indices gerados para agentes ----------
+TERMO = re.compile(r"`([A-Za-z_][A-Za-z0-9_./-]{3,60})`")
+HOME_INI, HOME_FIM = "<!-- estatico:inicio -->", "<!-- estatico:fim -->"
+
+
+def _tabela():
+    linhas = []
+    for p in _notas():
+        fm, corpo = _partes(p.read_text())
+        if not fm:
+            continue
+        linhas.append(dict(nome=p.stem, rel=p.relative_to(RAIZ).as_posix(), corpo=corpo,
+                           tipo=_campo(fm, "tipo"), estado=_campo(fm, "estado"),
+                           periodo=_campo(fm, "periodo"), verificado=_campo(fm, "verificado"),
+                           cluster=_campo(fm, "cluster"), resumo=_campo(fm, "resumo")))
+    return sorted(linhas, key=lambda x: (x["cluster"], x["rel"]))
+
+
+def escreve_indice(tab):
+    out = ["# Índice do vault (gerado por indexa.py — não edite)", "",
+           "Uma linha por nota: caminho · tipo · estado · período — resumo. Faça grep aqui em vez de varrer as notas.", ""]
+    cl = None
+    for x in tab:
+        if x["cluster"] != cl:
+            cl = x["cluster"]; out += ["", f"## {cl}", ""]
+        meta = " · ".join(v for v in (x["tipo"], x["estado"], x["periodo"]) if v)
+        out.append(f"- `{x['rel']}` · {meta} — {x['resumo']}")
+    (RAIZ / "_sistema" / "indice.md").write_text("\n".join(out) + "\n")
+
+
+def escreve_por_termo(tab):
+    onde = {}
+    for x in tab:
+        for t in set(TERMO.findall(x["corpo"])):
+            if t.lower() in {"true", "false", "none", "nan", "cpu", "cuda"}:
+                continue
+            onde.setdefault(t, []).append(x["nome"])
+    termos = {t: sorted(v) for t, v in onde.items() if 2 <= len(v) <= 80}
+    out = ["# Índice por termo de código (gerado por indexa.py — não edite)", "",
+           "Cada identificador entre crases que aparece em 2 ou mais notas, e as notas que falam dele.",
+           "Antes de mexer num termo, knob ou arquivo, faça grep nele aqui.", ""]
+    for t in sorted(termos, key=str.lower):
+        out.append(f"- `{t}` ({len(termos[t])}): " + " · ".join(termos[t]))
+    (RAIZ / "_sistema" / "por-termo.md").write_text("\n".join(out) + "\n")
+    return len(termos)
+
+
+def escreve_home(tab):
+    import datetime
+    hoje = datetime.date.today()
+    def vencido(v):
+        try:
+            return (hoje - datetime.date.fromisoformat(v)).days > 21
+        except ValueError:
+            return False
+    item = lambda x: f"- **{x['nome']}** ({x['rel'].rsplit('/', 1)[0]}) — {x['resumo']}"
+    blocos = [
+        ("Pendências abertas", [x for x in tab if x["tipo"] == "pendencia" and x["estado"] == "aberta"]),
+        ("Abordagens ativas e em desenho", [x for x in tab if x["tipo"] == "abordagem" and x["estado"] in ("ativa", "em-desenho")]),
+        ("Achados com mais de 3 semanas sem verificação", [x for x in tab if x["tipo"] == "achado" and x["estado"] != "superada" and vencido(x["verificado"])]),
+    ]
+    txt = [HOME_INI, "## Lista estática (para agentes; gerada por indexa.py)", ""]
+    for titulo, xs in blocos:
+        txt += [f"### {titulo} ({len(xs)})", ""] + ([item(x) for x in xs] or ["- nenhuma"]) + [""]
+    txt.append(HOME_FIM)
+    home = RAIZ / "_sistema" / "Home.md"
+    h = home.read_text()
+    h = re.sub(rf"\n*{re.escape(HOME_INI)}.*?{re.escape(HOME_FIM)}\n?", "\n", h, flags=re.S).rstrip()
+    home.write_text(h + "\n\n" + "\n".join(txt) + "\n")
+
+
+def indices():
+    tab = _tabela()
+    escreve_indice(tab)
+    n = escreve_por_termo(tab)
+    escreve_home(tab)
+    print(f"indice.md: {len(tab)} notas; por-termo.md: {n} termos; Home estática atualizada")
+
+
 if __name__ == "__main__":
-    semear() if "--semear" in sys.argv else indexa()
+    if "--semear" in sys.argv:
+        semear()
+    else:
+        indexa()
+        indices()
