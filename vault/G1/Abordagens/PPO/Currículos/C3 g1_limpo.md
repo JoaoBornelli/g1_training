@@ -31,6 +31,7 @@ Máquina de elo, currículo de cadeia, one-hot fora da normalização, R4/R4b (d
 ## Filhos
 <!-- filhos:inicio -->
 - **Achados do g1_limpo** (frente · ativa) — Um achado por memória g1-limpo-*: o fato medido, o porquê e como aplicar. Complementa as notas por run das três linhas.
+- **Pendências do C3** (frente · ativa) — As 12 pendências abertas do C3 em 05/10; cada uma é uma nota pendencia que sai da Home quando fecha.
 - **Linha bloco** (abordagem · validada · 26/08–18/09/26) — Um treino do zero e ~21 blocos em resume encadeado, cada um mudando a recompensa sobre uma política que já andava; termina no model_21700, base do melhor modelo.
 - **Linha zero** (abordagem · rejeitada · 14/09–01/10/26) — ~12 recomeços do zero (zero01–zero17), cada um com todas as restrições desde a it 0; nenhum produziu política competente; a zero17 trouxe o currículo de cadeia.
 - **Refino v2** (abordagem · ativa · 01–05/10/26) — Resume do model_21700 com o código da zero17: model_23250 é o MELHOR modelo; as continuações e os resumes do 24350 (freio em catraca, preço do aperto) não melhoraram.
