@@ -27,3 +27,9 @@ Spec: `../specs/2026-10-05-vault-g1-design.md`.
 - Na raiz fica só `G1.md`. Cada seção é uma pasta em `G1/` e forma um cluster.
 - Só o `pai` (frontmatter) cria aresta. No corpo, cite outra nota pelo nome em texto, sem `[[link]]`.
 - Seção nova = pasta nova em `G1/` + uma cor nova em `.obsidian/graph.json`.
+
+## Fonte das notas
+
+- A memória do Claude NÃO é fonte para o vault: o teto de 150 palavras corta o estudo.
+- Escreva a partir das fontes primárias: código e docstrings, corpos de commit, `.npz`/logs com números, specs, relatórios e o relato do usuário.
+- Cada experimento vira uma nota filha (Hipótese, Método com arquivos, Resultado com números, Por que parou, O que herda). O relato do usuário prevalece sobre a memória.
