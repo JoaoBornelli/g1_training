@@ -1,72 +1,121 @@
 {
   "collapse-filter": true,
-  "search": "-path:_templates",
+  "search": "-path:_sistema -file:canvas",
   "showTags": false,
   "showAttachments": false,
   "hideUnresolved": false,
-  "showOrphans": true,
+  "showOrphans": false,
   "collapse-color-groups": true,
   "colorGroups": [
     {
-      "query": "[estado:ativa]",
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco\"",
       "color": {
         "a": 1,
-        "rgb": 3055172
+        "rgb": 2600544
       }
     },
     {
-      "query": "[estado:em-desenho]",
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero\"",
       "color": {
         "a": 1,
-        "rgb": 3113197
+        "rgb": 12597547
       }
     },
     {
-      "query": "[estado:validada]",
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2\"",
       "color": {
         "a": 1,
-        "rgb": 9323693
+        "rgb": 15844367
       }
     },
     {
-      "query": "[estado:rejeitada]",
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C3 g1_limpo\"",
       "color": {
         "a": 1,
-        "rgb": 14037041
+        "rgb": 1482885
       }
     },
     {
-      "query": "[estado:parada]",
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C4 v3\"",
+      "color": {
+        "a": 1,
+        "rgb": 48340
+      }
+    },
+    {
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C2 g1_poc\"",
+      "color": {
+        "a": 1,
+        "rgb": 10181046
+      }
+    },
+    {
+      "query": "path:\"G1/Abordagens/PPO/Currículos/C1 multitask\"",
+      "color": {
+        "a": 1,
+        "rgb": 4149685
+      }
+    },
+    {
+      "query": "path:\"G1/Abordagens/PPO/Tarefas isoladas\"",
+      "color": {
+        "a": 1,
+        "rgb": 9159498
+      }
+    },
+    {
+      "query": "path:\"G1/Abordagens/PPO\"",
+      "color": {
+        "a": 1,
+        "rgb": 3066993
+      }
+    },
+    {
+      "query": "path:\"G1/Abordagens/BFM-Zero\"",
       "color": {
         "a": 1,
         "rgb": 15105570
       }
     },
     {
-      "query": "[estado:superada]",
+      "query": "path:\"G1/Abordagens/Controle determinístico\"",
       "color": {
         "a": 1,
-        "rgb": 9079434
+        "rgb": 3113197
       }
     },
     {
-      "query": "[estado:aberta]",
+      "query": "path:\"G1/Percepção\"",
       "color": {
         "a": 1,
-        "rgb": 15844367
+        "rgb": 15277667
+      }
+    },
+    {
+      "query": "path:\"G1/Cena de depósito\"",
+      "color": {
+        "a": 1,
+        "rgb": 16733986
+      }
+    },
+    {
+      "query": "path:\"G1/Transversais\"",
+      "color": {
+        "a": 1,
+        "rgb": 9807270
       }
     }
   ],
   "collapse-display": true,
   "showArrow": false,
-  "textFadeMultiplier": -1.4,
-  "nodeSizeMultiplier": 1.19494243825642,
-  "lineSizeMultiplier": 0.803443865000492,
-  "collapse-forces": true,
-  "centerStrength": 0.399094755485585,
-  "repelStrength": 19.4285124819476,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1,
+  "lineSizeMultiplier": 1,
+  "collapse-forces": false,
+  "centerStrength": 0.506838531929548,
+  "repelStrength": 20,
   "linkStrength": 1,
-  "linkDistance": 54,
-  "scale": 0.6666666666666636,
+  "linkDistance": 215,
+  "scale": 0.09248815955110722,
   "close": false
 }
