@@ -1,6 +1,6 @@
 ---
 tipo: achado
-pai: "[[Locomoção]]"
+pai: "[[C2 g1_poc]]"
 estado: ativa
 verificado: 2026-10-06
 ---
