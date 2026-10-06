@@ -1,0 +1,1 @@
+../vault/G1/Abordagens/PPO/Currículos/C4 v3/Comportamento esperado da v3.md
