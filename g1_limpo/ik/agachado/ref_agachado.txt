@@ -1,0 +1,24 @@
+pose do dono agachado 00.npz: pés a 0.43 m, ponta +34° (pés livres: largura presa à mistura 0.43 -> 0.23 m ± 3 cm, ponta livre), caixa a 0.29 m dos pés; dedos -30°; margem 0.10; cintura <= 25°; giro da coxa livre; peso da pose 0.1
+apoio caixa massa | veredito | res pé/mão [cm], sola [°] | pelve z, incl | tronco | joelho hip_pitch [°] | CoM-borda [cm] | folga mín [mm] (par) | maior desvio do alvo de postura | torque % joelho hip_p tornoz cintura ombro_p cotovelo | perto do batente
+DONO chão 20cm 5.0kg | como salva | — | 0.30, 27° | 45° | 144 -130 | -0.1 | -31 (right_palm_pad x box_geom) | — | 12 31 39 84 21 20 | left_hip_pitch 15°, right_hip_pitch 15°
+chão 14cm 5.0kg t=0.00 | REJEITADA | 2.3/2.2 sola 3.0° | 0.25, 17° | 42° | 150 -129 | +2.0 | -2 (right_wrist x box_geom) | left_ankle_roll 9° | 13 28 33 85 24 22 | nenhuma | pé: E incl x  [7s]
+chão 20cm 5.0kg t=0.00 | ok | 1.4/0.8 sola 2.0° | 0.26, 16° | 41° | 148 -129 | +2.1 | -1 (left_wrist x box_geom) | right_ankle_roll 9° | 13 29 32 86 25 23 | nenhuma | pé: D incl x  [7s]
+chão 26cm 5.0kg t=0.00 | REJEITADA | 1.1/0.1 sola 1.1° | 0.27, 16° | 39° | 147 -129 | +2.4 | -4 (left_elbow_yaw x box_geom) | right_ankle_roll 10° | 13 28 30 86 27 23 | nenhuma | pé: D incl x  [7s]
+0.04 14cm 5.0kg t=0.05 | ok | 1.1/0.8 sola 0.6° | 0.28, 20° | 45° | 143 -129 | +2.6 | -2 (left_wrist x box_geom) | waist_pitch 8° | 11 30 32 87 23 23 | nenhuma | pé: E z  [8s]
+0.04 20cm 5.0kg t=0.05 | ok | 0.8/0.1 sola 0.1° | 0.29, 19° | 42° | 142 -128 | +2.8 | -1 (left_wrist x box_geom) | left_shoulder_yaw 7° | 12 30 30 87 25 24 | nenhuma | pé: E z  [8s]
+0.04 26cm 5.0kg t=0.05 | REJEITADA | 0.8/0.1 sola 0.1° | 0.30, 18° | 38° | 141 -126 | +2.8 | -3 (right_elbow_yaw x box_geom) | left_shoulder_yaw 8° | 12 29 30 85 27 24 | nenhuma | pé: E z  [8s]
+0.15 14cm 5.0kg t=0.18 | ok | 0.8/0.1 sola 0.0° | 0.37, 25° | 46° | 129 -114 | +3.0 | -2 (right_wrist x box_geom) | right_knee 9° | 11 31 33 88 23 25 | nenhuma | pé: D z  [8s]
+0.15 20cm 5.0kg t=0.19 | ok | 0.6/0.1 sola 0.0° | 0.38, 23° | 42° | 127 -112 | +3.5 | -1 (left_wrist x box_geom) | left_knee 8° | 12 31 32 87 25 26 | nenhuma | pé: D z  [8s]
+0.15 26cm 5.0kg t=0.19 | ok | 0.5/0.1 sola 0.0° | 0.39, 22° | 39° | 125 -109 | +4.3 | -1 (right_wrist x box_geom) | right_knee 7° | 12 30 29 85 27 27 | nenhuma | pé: largura >  [8s]
+0.30 14cm 5.0kg t=0.36 | ok | 1.0/0.2 sola 0.0° | 0.52, 36° | 54° | 96 -101 | +2.8 | -2 (left_wrist x box_geom) | left_shoulder_pitch 18° | 6 37 37 97 25 28 | nenhuma | pé: E z  [8s]
+0.30 20cm 5.0kg t=0.38 | ok | 0.8/0.1 sola 0.0° | 0.54, 35° | 51° | 93 -97 | +2.8 | -1 (left_wrist x box_geom) | right_shoulder_pitch 16° | 5 36 37 96 25 29 | nenhuma | pé: E z  [8s]
+0.30 26cm 5.0kg t=0.39 | ok | 0.7/0.1 sola 0.0° | 0.56, 33° | 49° | 90 -93 | +2.9 | -1 (left_wrist x box_geom) | right_shoulder_pitch 14° | 5 36 37 94 25 29 | nenhuma | pé: E z  [8s]
+0.45 14cm 5.0kg t=0.54 | REJEITADA | 1.1/0.2 sola 0.0° | 0.63, 25° | 43° | 75 -72 | +3.2 | -2 (left_wrist x box_geom) | left_wrist_pitch 10° | 5 30 37 81 20 28 | nenhuma | pé: D z  [8s]
+0.45 20cm 5.0kg t=0.56 | ok | 1.0/0.1 sola 0.0° | 0.64, 24° | 40° | 72 -68 | +3.3 | -1 (left_wrist x box_geom) | left_wrist_pitch 9° | 4 29 36 79 20 29 | nenhuma | pé: E z  [8s]
+0.45 26cm 5.0kg t=0.58 | ok | 0.9/0.1 sola 0.0° | 0.66, 23° | 37° | 68 -65 | +3.6 | -1 (left_wrist x box_geom) | left_wrist_pitch 8° | 4 28 35 78 21 29 | nenhuma | pé: E z  [8s]
+0.55 14cm 5.0kg t=0.66 | REJEITADA | 1.1/0.3 sola 0.0° | 0.67, 14° | 32° | 61 -56 | +9.3 | -2 (left_wrist x box_geom) | waist_pitch 12° | 7 23 14 70 22 29 | nenhuma | pé: E z  [9s]
+0.55 20cm 5.0kg t=0.69 | ok | 1.0/0.1 sola 0.0° | 0.69, 14° | 30° | 57 -52 | +8.5 | -1 (left_wrist x box_geom) | waist_pitch 10° | 6 23 17 68 23 29 | nenhuma | pé: D z  [9s]
+0.55 26cm 5.0kg t=0.71 | ok | 0.9/0.1 sola 0.0° | 0.71, 13° | 27° | 52 -47 | +8.1 | -1 (left_wrist x box_geom) | waist_pitch 9° | 5 22 19 66 23 30 | nenhuma | pé: D z  [8s]
+de pé 14cm 5.0kg | aprovada 05/10 | 0.0/0.2 | 0.79, 0° | 0° | 11 -6 | +8.1 | -2 (left_wrist x box_geom) | — | 3 9 19 34 32 29 | nenhuma
+de pé 20cm 5.0kg | aprovada 05/10 | 0.0/0.0 | 0.79, 0° | 0° | 11 -6 | +8.1 | -0 (left_wrist x box_geom) | — | 3 9 19 34 33 29 | nenhuma
+de pé 26cm 5.0kg | aprovada 05/10 | 0.0/0.0 | 0.79, 0° | 0° | 11 -6 | +8.1 | -0 (left_wrist x box_geom) | — | 3 9 19 34 33 29 | nenhuma

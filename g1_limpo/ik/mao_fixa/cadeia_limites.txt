@@ -1,0 +1,7 @@
+pega aprovada -> de pé com caixa a 0,90 m, mão no MESMO ângulo da pega (margem da IK 0.02 do meio-curso)
+laje | mão na pega E/D [°] | de pé: res_pe res_mao, mão E/D [°] | juntas de pé acima de 80% do meio-curso (fração; graus até o batente)
+0.04 | -55/-57 | 0.0029 0.0067, -56/-49 | right_wrist_pitch 0.98 (2°), left_knee 0.91 (8°), right_knee 0.91 (8°), right_elbow 0.91 (8°), left_wrist_pitch 0.88 (11°)
+0.15 | -62/-63 | 0.0044 0.0101, -58/-56 | right_wrist_pitch 0.98 (2°), left_wrist_pitch 0.98 (2°), left_knee 0.93 (6°), right_knee 0.93 (6°)
+0.30 | -58/-57 | 0.0030 0.0078, -57/-50 | right_wrist_pitch 0.98 (2°), left_knee 0.91 (8°), right_knee 0.91 (8°), right_elbow 0.89 (10°), left_wrist_pitch 0.88 (11°)
+0.45 | -46/-47 | 0.0004 0.0006, -47/-45 | right_wrist_pitch 0.98 (2°), left_wrist_pitch 0.95 (5°), left_knee 0.84 (14°), right_knee 0.84 (14°)
+0.55 | -30/-30 | 0.0000 0.0004, -30/-30 | right_knee 0.81 (16°), left_knee 0.81 (16°)

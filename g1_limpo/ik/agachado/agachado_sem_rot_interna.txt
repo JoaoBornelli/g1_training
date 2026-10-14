@@ -1,0 +1,15 @@
+pose do dono agachado 00.npz: pés a 0.43 m, ponta +34°, caixa no chão a 0.29 m; dedos -30°; margem 0.10; cintura <= 25°; rotação interna proibida; peso da pose 0.02
+caixa massa | veredito | res pé/mão [cm] | pelve z, incl | tronco | joelho hip_pitch [°] | CoM-borda [cm] | folga mín [mm] (par) | maior desvio da pose do dono | torque % joelho hip_p tornoz cintura ombro_p cotovelo | perto do batente
+DONO 20cm 5.0kg | como salva | — | 0.30, 27° | 45° | 144 -130 | -0.1 | -31 (right_palm_pad x box_geom) | — | 12 31 39 84 21 20 | left_hip_pitch 15°, right_hip_pitch 15°
+20cm 5.0kg | REJEITADA | 7.2/4.3 | 0.40, 42° | 67° | 114 -129 | +5.2 | -1 (left_wrist x box_geom) | left_wrist_pitch 39° | 9 36 22 93 9 18 | nenhuma  [5s]
+20cm 7.5kg | REJEITADA | 7.5/4.5 | 0.39, 41° | 66° | 114 -129 | +5.2 | -1 (left_wrist x box_geom) | left_wrist_pitch 40° | 9 41 24 108 14 25 | nenhuma  [5s]
+20cm 10.0kg | REJEITADA | 7.8/4.6 | 0.39, 39° | 64° | 114 -129 | +5.1 | -1 (left_wrist x box_geom) | left_wrist_pitch 41° | 9 46 25 124 19 32 | nenhuma  [8s]
+26cm 5.0kg | REJEITADA | 4.3/2.8 | 0.40, 40° | 65° | 114 -129 | +6.4 | 0 (right_palm_pad x box_geom) | left_wrist_pitch 33° | 10 36 19 93 10 19 | nenhuma  [6s]
+26cm 7.5kg | REJEITADA | 4.5/2.9 | 0.39, 38° | 63° | 114 -129 | +6.3 | -1 (left_wrist x box_geom) | left_wrist_pitch 34° | 9 42 20 110 16 27 | nenhuma  [7s]
+26cm 10.0kg | REJEITADA | 4.9/3.1 | 0.39, 37° | 62° | 114 -129 | +6.3 | -1 (left_wrist x box_geom) | right_wrist_pitch 35° | 9 47 22 126 22 34 | nenhuma  [9s]
+32cm 5.0kg | REJEITADA | 2.9/2.0 | 0.40, 37° | 62° | 114 -129 | +6.9 | -5 (left_elbow_yaw x box_geom) | left_knee 30° | 8 38 18 102 19 21 | nenhuma  [7s]
+32cm 7.5kg | REJEITADA | 3.5/2.1 | 0.39, 35° | 60° | 114 -129 | +6.7 | -7 (left_elbow_yaw x box_geom) | right_knee 30° | 8 44 19 121 28 29 | nenhuma  [9s]
+32cm 10.0kg | REJEITADA | 3.8/2.2 | 0.38, 33° | 58° | 114 -129 | +6.7 | -7 (right_elbow_yaw x box_geom) | left_knee 30° | 7 50 20 140 37 37 | nenhuma  [10s]
+40cm 5.0kg | REJEITADA | 4.5/2.9 | 0.39, 35° | 60° | 114 -129 | +6.3 | -8 (right_elbow_yaw x box_geom) | right_wrist_roll 35° | 7 41 19 114 30 22 | nenhuma  [8s]
+40cm 7.5kg | REJEITADA | 4.9/3.2 | 0.37, 32° | 57° | 114 -129 | +6.3 | -9 (right_elbow_yaw x box_geom) | right_wrist_roll 36° | 6 48 20 136 43 30 | nenhuma  [7s]
+40cm 10.0kg | REJEITADA | 4.9/3.6 | 0.36, 28° | 53° | 115 -129 | +6.5 | -8 (left_elbow_yaw x box_geom) | left_wrist_roll 36° | 5 53 21 157 55 38 | nenhuma  [10s]

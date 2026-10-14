@@ -1,0 +1,4 @@
+laje 0.04 m, caixa 20 cm, mão -40°, margem 0.05, raiz livre ±10 cm, cintura ≤ 25°, folga com a laje 10 mm
+pelve pedida | veredito | res_pe res_mao | pelve z, incl | tronco | joelho, hip_pitch | CoM-pés | folga mín | raiz | perto do batente
+livre | ok | 0.0002 0.0013 | 0.49, 60° | 85° | 1.47, -2.31 | 0.0 cm | -0 mm | -2 cm | right_hip_pitch 11°, left_hip_pitch 12°, waist_pitch 5°
+0.45 | ok | 0.0004 0.0002 | 0.45, 55° | 79° | 1.65, -2.40 | 0.0 cm | -0 mm | -4 cm | left_hip_pitch 8°, right_hip_pitch 8°

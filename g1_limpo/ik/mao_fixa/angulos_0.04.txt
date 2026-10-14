@@ -1,0 +1,13 @@
+laje 0.04 m, caixa 20 cm, margem da IK 0.10 do meio-curso; mão = inclinação dos dedos contra o solo (0 = horizontal, -90 = para baixo)
+mão -20°
+  pega : NÃO FECHA (res_pe 0.0413, res_mao 0.0307); raiz +2 cm; mão -18/-18; tronco 85°; pelve z 0.50, incl 60°; perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+  de pé: ok (res_pe 0.0000, res_mao 0.0004); mão -20/-20; perto do batente: right_knee 17°, left_knee 17°
+mão -30°
+  pega : NÃO FECHA (res_pe 0.0246, res_mao 0.0182); raiz +1 cm; mão -28/-28; tronco 85°; pelve z 0.50, incl 60°; perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+  de pé: ok (res_pe 0.0000, res_mao 0.0004); mão -30/-30; perto do batente: right_knee 16°, left_knee 16°
+mão -40°
+  pega : NÃO FECHA (res_pe 0.0114, res_mao 0.0090); raiz +0 cm; mão -39/-39; tronco 85°; pelve z 0.51, incl 60°; perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+  de pé: ok (res_pe 0.0000, res_mao 0.0005); mão -40/-40; perto do batente: right_wrist_pitch 10°, left_wrist_pitch 13°, right_knee 16°, left_knee 16°
+mão -50°
+  pega : ok (res_pe 0.0039, res_mao 0.0040); raiz +0 cm; mão -50/-50; tronco 85°; pelve z 0.51, incl 60°; perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+  de pé: ok (res_pe 0.0018, res_mao 0.0045); mão -50/-46; perto do batente: right_elbow 9°, right_wrist_pitch 9°, left_knee 9°, right_knee 9°, left_wrist_pitch 16°

@@ -1,0 +1,5 @@
+caixa 20 cm com o centro a 3.00 m, 0 kg, +0 cm à frente do meio dos pés; mão livre; margem 0.02; cintura <= 25°; folga do chão 10 mm; pelve <= 60°
+pés | pelve pedida | veredito | res pe/mão/geo [cm] | pelve z, incl | tronco | mão E/D | joelho hip_pitch hip_roll hip_yaw ankle [rad] | rumo pé | folga corpo, chão [mm] | CoM–borda [cm] | torque % joelho hip_p hip_r ankle_p (res base N) | perto do batente
+0.40 | livre | ok | 0.0/0.0/0.0 | 0.60, 21° | 15° | -49/-42 | 1.51 -1.25 +0.33 +0.06 -0.61 | +18° | 10, 33 | 8.9 | 14 9 3 13 (2.5) | nenhuma  [8s]
+0.40 | 0.40 | REJEITADA | 0.1/0.0/0.0 | 0.40, 54° | 65° | -59/-42 | 2.03 -2.39 +0.52 -0.00 -0.59 | +30° | 10, 33 | 8.3 | 13 21 0 13 (2.5) | right_hip_pitch 8°, left_hip_pitch 8°  [8s]
+0.40 | 0.32 | REJEITADA | 2.5/0.0/0.8 | 0.37, 49° | 67° | -27/-22 | 2.08 -2.48 +0.54 -0.00 -0.47 | +30° | 16, 25 | 8.0 | 10 27 1 13 (2.5) | left_hip_pitch 3°, right_hip_pitch 3°  [8s]

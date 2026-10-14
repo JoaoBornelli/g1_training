@@ -1,0 +1,3 @@
+caixa 20 cm com o centro a 0.50 m, 5 kg, +10 cm à frente do meio dos pés; mão -30°; margem 0.10; cintura <= 25°; folga do chão 10 mm; pelve <= 60°
+pés | pelve pedida | veredito | res pe/mão/geo [cm] | pelve z, incl | tronco | mão E/D | joelho hip_pitch hip_roll hip_yaw ankle [rad] | rumo pé | folga corpo, chão [mm] | CoM–borda [cm] | torque % joelho hip_p hip_r ankle_p (res base N) | perto do batente
+0.50 | livre | ok | 0.0/0.0/0.1 | 0.58, 24° | 22° | -30/-30 | 1.53 -1.40 +0.53 +0.08 -0.49 | +30° | -0, 35 | 8.3 | 12 17 5 14 (2.5) | nenhuma  [10s]

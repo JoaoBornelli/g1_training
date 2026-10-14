@@ -1,0 +1,19 @@
+mão -30°; de pé com caixa a 0,90 m por tamanho; pegas da tabela theta-30
+DE PÉ caixa 14 cm | ok | res_pe 0.00 res_mao 0.18 cm | folga mín -2 mm | mão -30/-30 | cotovelo -0.53 | ombro roll -0.06 | perto do batente: right_knee 16°, left_knee 16°
+DE PÉ caixa 20 cm | ok | res_pe 0.00 res_mao 0.04 cm | folga mín -0 mm | mão -30/-30 | cotovelo -0.51 | ombro roll -0.03 | perto do batente: right_knee 16°, left_knee 16°
+DE PÉ caixa 26 cm | ok | res_pe 0.00 res_mao 0.04 cm | folga mín -0 mm | mão -30/-30 | cotovelo -0.52 | ombro roll 0.11 | perto do batente: right_knee 16°, left_knee 16°
+pega 0.04 caixa 14 cm | REJEITADA | tronco 85° | folga -1 mm | perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+pega 0.04 caixa 20 cm | ok | tronco 85° | folga -0 mm | perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+pega 0.04 caixa 26 cm | ok | tronco 85° | folga -1 mm | perto do batente: left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+pega 0.15 caixa 14 cm | ok | tronco 85° | folga -0 mm | perto do batente: right_hip_pitch 21°, left_hip_pitch 24°, waist_pitch 5°
+pega 0.15 caixa 20 cm | ok | tronco 85° | folga -0 mm | perto do batente: waist_pitch 5°, right_hip_pitch 29°, left_hip_pitch 30°
+pega 0.15 caixa 26 cm | ok | tronco 85° | folga -0 mm | perto do batente: waist_pitch 5°
+pega 0.30 caixa 14 cm | ok | tronco 78° | folga -1 mm | perto do batente: waist_pitch 5°
+pega 0.30 caixa 20 cm | ok | tronco 74° | folga -1 mm | perto do batente: waist_pitch 5°
+pega 0.30 caixa 26 cm | ok | tronco 70° | folga -0 mm | perto do batente: waist_pitch 5°
+pega 0.45 caixa 14 cm | ok | tronco 53° | folga -1 mm | perto do batente: nenhuma
+pega 0.45 caixa 20 cm | ok | tronco 51° | folga -0 mm | perto do batente: waist_pitch 6°
+pega 0.45 caixa 26 cm | ok | tronco 47° | folga -0 mm | perto do batente: waist_pitch 5°
+pega 0.55 caixa 14 cm | ok | tronco 33° | folga -1 mm | perto do batente: nenhuma
+pega 0.55 caixa 20 cm | ok | tronco 28° | folga -0 mm | perto do batente: nenhuma
+pega 0.55 caixa 26 cm | ok | tronco 22° | folga -0 mm | perto do batente: nenhuma

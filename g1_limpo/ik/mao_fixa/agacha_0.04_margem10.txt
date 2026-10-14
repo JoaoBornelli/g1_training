@@ -1,0 +1,7 @@
+laje 0.04 m, caixa 20 cm, mão -40°, margem 0.10, raiz livre ±10 cm, cintura ≤ 25°, folga com a laje 10 mm
+pelve pedida | veredito | res_pe res_mao | pelve z, incl | tronco | joelho, hip_pitch | CoM-pés | folga mín | raiz | perto do batente
+livre | NÃO FECHA | 0.0109 0.0086 | 0.51, 60° | 85° | 1.42, -2.26 | 0.5 cm | -1 mm | +0 cm | left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+0.45 | NÃO FECHA | 0.0190 0.0121 | 0.46, 49° | 74° | 1.69, -2.26 | 0.7 cm | -1 mm | +0 cm | left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+0.40 | NÃO FECHA | 0.0355 0.0123 | 0.43, 45° | 70° | 1.78, -2.26 | 1.0 cm | -1 mm | -2 cm | left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+0.35 | NÃO FECHA | 0.0516 0.0188 | 0.40, 40° | 65° | 1.88, -2.26 | 1.1 cm | -1 mm | -3 cm | left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
+0.30 | NÃO FECHA | 0.0680 0.0265 | 0.37, 35° | 60° | 2.00, -2.26 | 1.2 cm | -0 mm | -5 cm | left_hip_pitch 15°, right_hip_pitch 15°, waist_pitch 5°
