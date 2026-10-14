@@ -227,7 +227,8 @@ def main():
     massa0 = args.massa if args.massa is not None else (float(campo("massa", args.i)) if tem("massa") else 5.0)
     pose = Pose(c, meia0, massa0, lim)
 
-    server = viser.ViserServer(port=args.porta)
+    # ⚠ só nesta máquina: o padrão do viser é 0.0.0.0, e a rede inteira podia salvar poses
+    server = viser.ViserServer(host="127.0.0.1", port=args.porta)
     scene = ViserMujocoScene(server, c.m, num_envs=1)
     sujo = threading.Event()
     faixa = {n: (float(np.degrees(c.lo[i])), float(np.degrees(c.hi[i]))) for i, n in enumerate(c.nomes)}
@@ -345,8 +346,12 @@ def main():
 
     @salvar.on_click
     def _(_):
+        # ⚠ só o último componente do nome: "../agachado/ref_agachado" sobrescrevia a tabela da v3
+        base = Path(nome.value).name
+        if base in ("", ".", ".."):
+            print(f"[monta_pose] nome inválido: {nome.value!r}", flush=True); return
         SAIDA.mkdir(parents=True, exist_ok=True)
-        f = SAIDA / f"{nome.value}.npz"
+        f = SAIDA / f"{base}.npz"
         np.savez(f, hash_mjcf=c.hash, qpos=c.d.qpos[None].copy(), caixa_xyz=pose.caixa[None].copy(),
                  meia=np.array([pose.meia]), massa=np.array([pose.massa]), topo=np.array([pose.apoio]),
                  nas_maos=np.array([pose.nas_maos]), painel=painel.content)
