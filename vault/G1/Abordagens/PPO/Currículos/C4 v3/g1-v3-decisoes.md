@@ -63,7 +63,7 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
     terminação no batente, IK gerada fora das rampas.
 14. **As 15 poses da `ref_botar.npz` são o comportamento desejado** (01/10, vistas de frente e
     de lado): o tronco curvado na laje baixa com os braços estendidos é o certo. Folhas em
-    `~/Downloads/ik_v3/`.
+    `g1_limpo/ik/`.
 15. **Referências de postura da v3 aprovadas** (01/10, vistas de frente e de lado):
     `g1_limpo/ik/ref_v3_manipulacao.npz` (15 poses, PEGAR e BOTAR pela altura) e
     `g1_limpo/ik/ref_v3_de_pe.npz` (de pé sem caixa, mãos no keyframe: pelve 0,789, joelho
@@ -73,8 +73,8 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
     Consequências: tronco 7°–20° mais curvado e pernas mais retas nas lajes de 0,15 a 0,45 m.
     Na laje de 0,04 m (caixa a 4 cm do chão, confirmado pelo dono) o robô fica 9–11 cm mais
     atrás, e a caixa de 14 cm só fecha rente à borda da laje. Geradas por
-    `~/Downloads/ik_v3/ik_cintura25.py`, `gera_de_pe.py` e `gera_de_pe_sem_caixa.py`, partindo das poses aprovadas; as
-    folhas estão em `~/Downloads/ik_v3/ref_v3_lado.png` e `ref_v3_frente.png`. Os scripts
+    `g1_limpo/ik/ik_cintura25.py`, `gera_de_pe.py` e `gera_de_pe_sem_caixa.py`, partindo das poses aprovadas; as
+    folhas estão em `g1_limpo/ik/ref_v3_lado.png` e `ref_v3_frente.png`. Os scripts
     entram no pacote da v3 na implementação.
 16. **Durações dentro dos 20 s** (01/10): espera 0,5–1,0 s; CARREGAR da B 4–7 s; CARREGAR
     parado da C 0,5–1,0 s; ANDAR parado final 1,5 s; a pega da C só em laje ≥ 0,30 m.
@@ -285,7 +285,7 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
     180° com caixa, empurrão com caixa; 9 de 10 rodadas;
   - giro de 180° em no máximo 4 s (0,79 rad/s): teto do giro sobe para 1,0 rad/s, com e sem
     caixa, níveis 0,25 → 1,0 (substitui o ±0,5 de 02/10).
-- **Mão na IK, da pega ao transporte** (05/10; fotos e tabelas em `~/Downloads/ik_v3/mao_fixa/`).
+- **Mão na IK, da pega ao transporte** (05/10; fotos e tabelas em `g1_limpo/ik/mao_fixa/`).
   MEDIDO: a IK aprovada gira a mão 35°–91° da pega ao peito; com a caixa presa e nivelada isso
   é impossível, e o robô pega com a mão quase horizontal e deita o tronco. Levantar da laje de
   0,04 m com a mão da pega (−56°) leva o punho a 2° do batente. Varredura na laje de 0,04 m:
@@ -301,7 +301,9 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
   Andar com a caixa parte da mesma pose de pé com a mão a −30°, para coerência entre os
   movimentos (dono, 05/10): no CARREGAR o desvio postural, braços incluídos, mira essa pose.
   Testado por tamanho: de pé, 14, 20 e 26 cm fecham sem junta perto do batente
-  (`ref_v3_de_pe_theta-30_tamanhos.npz`; fotos `tamanho_<cm>_{lado,frente}.png`).
+  (`ref_v3_de_pe_theta-30_tamanhos.npz`; fotos `tamanho_<cm>_{lado,frente}.png`). Nas pegas da
+  `theta-30`, a caixa menor deitava mais o tronco (laje de 0,30 m: 78°, 74° e 70° para 14, 20 e
+  26 cm); essas pegas saíram em 08/10, e o parágrafo da spec foi reduzido em 09/10.
 - **Pose de referência no refino** (dono, 05/10): o robô RECEBE por se aproximar da pose da IK do
   alvo corrente, mirando o alvo, SEM zona morta (REJEITADA a zona morta proposta). EM ABERTO, a
   discutir antes da implementação: como incentivar sem quebrar a tarefa (spec §11.5). RISCO
@@ -328,6 +330,87 @@ linhas do catálogo do enunciado (§5) são economia de renda por estado.
   17° na IK e 66° no p99 dos plays; o ombro em roll, 20° e 62°; o ombro em yaw, 9° e 47°; a
   cintura em yaw, 5° e 28°. Todos ficam a mais de 40° do batente, onde a rampa da decisão 19
   não age. O `ankle_pitch` e o `waist_pitch` passam do batente em 3° e 1,5°.
+- **Limites de junta = especificação do robô real** (dono, 08/10; `specs/g1-v3.md` §6.5).
+  Nenhum limite nasce no código, na IK nem num teste. Toda margem se declara como fração da
+  tabela de juntas da Unitree (documentação de desenvolvedor). O modelo bate com a tabela nas
+  29 juntas. PENDENTE: a página do produto dá flexão de `hip_pitch` de 154°, e a tabela dá 145°.
+  Medir no robô.
+- **A restrição é a sola normal ao solo, não o giro da perna** (dono, 08/10; `specs/g1-v3.md`
+  §6.5). Palavras dele: "a ideia é manter os pés normais ao solo para que ele tenha equilíbrio,
+  girar a perna foi necessário para manter essa restrição". O `hip_yaw` fica livre dentro da
+  tabela; sai a regra de 16/09 (sem rotação interna). Na pose de agachamento do dono
+  (`poses_manuais/agachado 00.npz`), sem o giro a IK sobe a pelve de 0,27 para 0,40 m e deita o
+  tronco de 37° para 67°.
+- **Alvos da pega e da soltura = tabela do agachamento** (dono, 08/10; `specs/g1-v3.md` §8.1).
+  `g1_limpo/ik/agachado/ref_agachado.npz` substitui a `ref_v3_manipulacao_theta-30.npz`:
+  chão e 5 lajes × 3 caixas, alvo de postura na pose "agachado 00" do dono misturada com a pose
+  de pé pela altura da caixa, pés livres. Palavras dele: "o pé não precisa ficar exato na pose
+  que passei"; "o que eu quero era uma posição similar". Tabela trocada em 09/10 (ver abaixo):
+  13 de 18 fecham; pelve 0,25–0,71 m, tronco 27–54°.
+- **Limite mole a 95% e rampa pela banda** (dono, 08/10; `specs/g1-v3.md` §9.2). Palavras dele:
+  "limite pode subir para 95% e rampar mais agressivamente". Motivo: as poses da IK do chão e da
+  laje de 0,04 m ficam a 90% do curso no joelho e no `hip_pitch`, no começo da rampa de 90%, e
+  pagariam. Forma: excesso = relu(frac − 0,95)/0,05, somado por junta, peso −5 a medir na Parte
+  0. A rampa em radianos da Unitree não mordia as juntas de curso largo (C3, `hip_yaw` a 151°).
+- **Cercas de postura no lugar do tracking de corpo inteiro** (dono, 08/10; `specs/g1-v3.md`
+  §9.3). Palavras dele: "não quero fazer um tracking de corpo inteiro pois quero deixar o robô
+  generalizar a pose para a melhor que a PPO encontrar, porém preciso criar limites para que ele
+  não entre numa pose absurda e ineficiente". Cinco dobradiças, valores da `ref_agachado`:
+  sola normal ao solo (> 5°), giro da coxa (> 30°), tronco (> IK + 15°, vertical livre), CoM
+  (< 3 cm da borda das solas), torque (> 80% do motor por junta). A "pose de referência no
+  refino" de 05/10 sai. Achado: a IK pede 94–97% do torque da cintura na laje de 0,30 m (tabela de 09/10); o
+  treino vai ficar mais de pé que a IK ali. Ombro → palma como referência REJEITADO pelo dono.
+- **Chão não entra no currículo** (dono, 08/10; `specs/g1-v3.md` §8.1, §11.2). A linha do chão da
+  `ref_agachado.npz` é só referência; a laje de 0,04 m segue o nível mais baixo do PEGAR e do
+  BOTAR, e a cena não precisa do caso "sem laje".
+- **Pelve sai do Φ e vira cerca** (dono, 08/10, opção 2; `specs/g1-v3.md` §9.1 e §9.3). O
+  `k_postura` (atração da pelve à IK dentro do potencial) saiu: o Φ não puxa para pose nenhuma.
+  A altura da pelve é a sexta cerca, ±8 cm em volta da IK por altura e caixa (a pose do dono
+  fica 4 cm acima da IK de 09/10). Opção 1 (manter a atração) e 3 (nada mede a pelve) rejeitadas.
+- **Recuo até a caixa vira cerca** (dono, 08/10; `specs/g1-v3.md` §9.3): ±8 cm em volta da IK,
+  a sétima cerca; a faixa "pés ±8 cm" da §8.2 passa a medir a pelve e a cobrar.
+- **Tabela do agachamento trocada** (dono, 09/10; `specs/g1-v3.md` §8.1). Pedido dele sobre a
+  tabela de 08/10: as linhas do chão e da laje de 0,04 m "poderiam ser mais similares" à pose
+  dele, "pelvis mais alta talvez e tronco um pouco mais inclinado, não dobrar tanto o joelho".
+  Causa: a tarefa "CoM no meio dos pés" da IK forçava a pelve a 0,22 m e o tronco a 23°. Ela
+  saiu e entrou a cerca do CoM da §9.3 (≥ 3 cm da borda das solas); a largura dos pés ficou
+  presa à mistura da postura (0,43 → 0,23 m ± 3 cm) em vez de livre até 0,50 m; peso da pose
+  0,10; mão aceita a 1 cm (dono, 08/10: "até ±1 cm da posição das mãos em relação à caixa eu
+  não considero erro"); sola aceita a 5°, como a cerca. Chão: pelve 0,26 m, tronco 41°, joelho
+  148° (dono: 0,30 / 45° / 144°). 13 de 18 fecham. A anterior fica em
+  `ref_agachado_com_no_meio.npz`. DECIDIDO (dono, 09/10, opção 1): a cerca do CoM fica em 3 cm e o
+  custo pequeno na referência é aceito (a IK para 0,2–1,0 cm dentro dela em 10 poses; baixar
+  para 2 cm e regerar a IK com a regra dura foram rejeitados). DECIDIDO (dono, 09/10): o `wrist_pitch` (5 N·m) a 50–60% em
+  toda pose com caixa fica como está ("deixa assim"); a largura dos pés NÃO tem cerca ("para
+  algumas poses ele precisa abrir a base"), e a B3.2 da revisão de 08/10 fecha.
+- **Aperto = recompensa pelo menor aperto que segura** (dono, 09/10; `specs/g1-v3.md` §8.2). O
+  dono trouxe duas abordagens: teto de aperto por massa da caixa, ou "um gradiente pagando pelo
+  menor aperto possível necessário, quanto menos aperto mais paga". Escolheu a segunda. Forma:
+  `r_aperto = w·exp(−aperto/F_ref)`, `aperto = min(F_esq, F_dir)` (par de forças opostas; o
+  tronco é apoio), `F_ref` 82 N, só com a caixa presa (P3 a B2), peso 0 → `w` no refino; `w`
+  medido na Parte 0, com a checagem de que afrouxar nunca cobre a perda da caixa. O P3 e o
+  CARREGAR pagam segurar; a margem vem da DR de μ e da massa, que o ator não vê. Teto por
+  massa REJEITADO: cerca sem gradiente; esmagar depende da caixa, não da massa; os 200–260 N
+  de hoje estouram na caixa leve. Fecha a B4 da revisão de 08/10.
+- **`F_solta` = 2 N, fixo** (dono, 09/10). SUPERADO no mesmo dia: o gate saiu (abaixo). Palavras dele: "F_solta pode
+  ser um valor fixo, 2 N ou alguma coisa assim". A caixa já está apoiada no B2; afrouxar é
+  tirar o aperto, e o toque que sobra não depende da massa. A Parte 0 mede a força de duas
+  palmas em repouso nas faces e sobe o número se 2 N ficar abaixo do ruído do contato. A
+  proposta 0,25·m·g (02/10) saiu. Fecha a B5 da revisão de 08/10.
+- **Gate de afrouxar (`F_solta`) REMOVIDO; invariante de B2 a B4 no lugar** (dono, 09/10;
+  `specs/g1-v3.md` §8.2). Palavras dele: "esse F_solta não faz sentido ter. O treino já espera a
+  caixa estar na mesa, o robô tem um alvo de afastar as mãos e depois levantar, e ainda uma
+  penalidade se a caixa se mover depois de estar na mesa". O B2 volta a ser só "caixa apoiada";
+  o invariante de B2 a B4 (caixa apoiada, nivelada e parada, deslocamento < 2 cm; dono: "2 cm
+  está bom, pode manter") zera
+  a proximidade se a caixa se mover, e é ele que impede o arrasto. Supera a decisão de 05/10
+  "soltar exige afrouxar". Dado medido que fica: palma 1–2 mm dentro da face = 2–8,5 N (~3 N/mm).
+- **Cerca da sola só fora da marcha** (dono, 09/10; `specs/g1-v3.md` §9.3 e §16 item 11).
+  Palavras dele: "só fora da marcha". Medido nos CSV de play (`g1_limpo/ik/cercas_nos_plays.py`):
+  no toe-off o pé de apoio inclina até 20° e a cerca cobraria 27% dos passos do ANDAR e 42% do
+  CARREGAR; nas outras seis cercas o ANDAR custa zero. A cerca da sola vale no PEGAR e no BOTAR;
+  no ANDAR e no CARREGAR o pé fica com os termos da Unitree. Alternativa não escolhida: contar o
+  pé só quando ele carrega peso.
 
 ## Enunciado atualizado (05/10)
 
@@ -347,3 +430,61 @@ faixa; §4.2 esperas; §4.5 BOTAR de um comando e proibido do tronco; §4.6 REOR
 3. Alvos macro do PEGAR e do BOTAR gerados e julgados no viewer, sem treino.
 4. Pacote novo, só com as peças do inventário.
 5. Treino em degraus: locomoção (com giro no lugar) → B → C.
+
+## Pose de referência no refino (05/10)
+
+Movido de `specs/g1-v3.md` §11.5 em 14/10. SUBSTITUÍDO em 08/10 pelas cercas da §9.3 da spec; fica
+como registro da discussão e dos riscos.
+
+**Pose de referência no refino (dono, 05/10) — SUBSTITUÍDA em 08/10 pelas cercas da §9.3.**
+O dono descartou o tracking de corpo inteiro ("quero deixar o robô generalizar a pose para a
+melhor que a PPO encontrar"); a IK vira a fonte das métricas e dos valores das cercas. O texto
+abaixo fica como registro da discussão de 05/10 e dos riscos levantados. No refino, o robô recebia por se aproximar da
+pose de referência, para o movimento ficar parecido com a IK, mais eficiente e natural:
+- a referência é a pose da IK do alvo macro corrente (`ref_agachado.npz` e a pose de pé, §8.1), interpolada pelo
+  progresso entre um alvo e o seguinte; no CARREGAR, a pose de pé com caixa;
+- o termo MIRA o alvo, SEM zona morta (dono, 05/10): quanto mais perto da pose, mais ele recebe;
+- é recompensa, e não penalidade (CLAUDE.md, "recompense antes de penalizar").
+
+EM ABERTO, a discutir com o dono antes da implementação: como dar esse incentivo sem quebrar a
+execução da tarefa. Pontos que a discussão precisa fechar:
+1. No PEGAR e no BOTAR, nenhum termo paga positivo por passo (§9.2): pagar por estar perto da
+   pose a cada passo pagaria a estátua perto da pose. A forma tem de ser outra (potencial,
+   multiplicador do progresso, ou condição de avanço do alvo).
+2. Um potencial puro não muda a política ótima (Ng, Harada e Russell, 1999): ele só acelera o
+   aprendizado. Para o estilo mudar de fato, a pose tem de entrar no que paga a tarefa (o bônus
+   do alvo ou a condição de avanço).
+3. A escada de custos (§10) e o ganho do progresso: o termo da pose não pode render mais que
+   avançar a tarefa, nem tornar um alvo inalcançável quando a caixa, a massa ou o estimador
+   saem da tabela.
+4. A interpolação da referência entre alvos e o peso por família de juntas.
+
+**RISCO: pagar por proximidade numa arquitetura que paga por tarefa completa** (registro pedido
+pelo dono, 05/10; avaliação R13). A v3 paga a tarefa pelo progresso. No PEGAR e no BOTAR, o
+ganho vem só do potencial, que soma `Φ_fim − Φ_início` no trecho, e do bônus `B_alvo` de cada
+alvo alcançado; nada paga por passo (§9.2). Um termo que paga por estar perto da pose a cada
+passo quebra essa regra e traz de volta a renda por estado, a causa de 15 dos 26 hacks do
+catálogo (enunciado §5). Os mecanismos:
+
+1. **Estátua na pose.** O PEGAR e o BOTAR não têm relógio, e o episódio acaba no fim da cadeia.
+   Com um termo de `w` por segundo, ficar parado na pose de um alvo até os 20 s rende
+   `w·(20 − t)`; avançar rende só os bônus que faltam. Para todo `w > 0` existe um ponto em que
+   parar vale mais que completar. É o hack "pairar paga mais que fechar" do `g1_limpo` (catálogo:
+   pairar 25/s contra fechar 16,5/s).
+2. **Alvo preferido.** A referência muda de alvo para alvo. Se uma pose é mais fácil de imitar,
+   como a de pé, o robô acha o ponto da cadeia onde a renda é maior e para ali.
+3. **Pose contra tarefa.** Fora da tabela (caixa girada, massa, erro do estimador, caixa mais
+   longe), a pose da IK e o alvo da tarefa divergem. O gradiente da pose pode segurar o robô num
+   mínimo local perto da referência, sem completar o alvo.
+4. **O refino não volta.** O contador para quando o sucesso cai, mas nunca desce (§11.5). Se um
+   degrau dá à pose um peso que quebra a tarefa, o treino fica preso nesse degrau, com esse peso.
+   O balanceador ainda manda mais envs para a tarefa que falha, e exercita mais a estátua.
+5. **Crítico.** A renda por passo depende do tempo que sobra no episódio, que o crítico não vê;
+   o valor fica ruidoso (catálogo: renda congelada "inobservável").
+
+Direções que não reabrem a renda por estado, para a discussão (propostas, não decisões):
+- a pose paga só no avanço: o bônus `B_alvo` multiplicado pela semelhança com a pose no instante
+  em que o alvo avança;
+- a pose como condição de avanço do alvo, com tolerância que aperta a cada degrau;
+- a pose dentro do Φ: seguro, mas só acelera o aprendizado (ponto 2 da lista acima);
+- em qualquer forma, o contador do refino passa a poder voltar um degrau quando o sucesso cai.

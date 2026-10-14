@@ -88,7 +88,9 @@ sinal move o nível de dificuldade e as médias de sucesso das cadeias.
 
 **Fora do objetivo deste modelo:** andar até a mesa com navegação (o comando de
 velocidade vem de fora), o estimador real da caixa (o treino usa um estimador simulado, §2),
-a grade do lidar (chave desligada na primeira v3; dono, 02/10), cena de depósito.
+desviar de obstáculo (o robô passa por cima; o desvio vem do comando), cena de depósito. O
+mapa de elevação do lidar está DENTRO, ligado desde o começo (dono, 06/10; supera o "desligada
+na primeira v3" de 02/10).
 
 ## 2. Cenário físico
 
@@ -121,7 +123,8 @@ inclusive no transporte, porque o conteúdo não pode sofrer impacto (dono, 05/1
 exceção é o tombo de 90° do REORIENTAR, que termina de novo com uma face normal ao solo.
 
 **Lajes.** O robô pega a caixa apoiada em uma laje e bota em outra. A altura de cada
-laje é sorteada entre 0 e 0,55 m, de forma independente. A bancada do REORIENTAR é
+laje é sorteada entre 0,04 e 0,55 m, de forma independente. O chão fica fora do treino (dono,
+08/10). A bancada do REORIENTAR é
 sorteada entre 0,40 e 0,70 m. O robô não conhece essas alturas, e ninguém informa a ele
 que existe uma laje sob a caixa: ele aprende sozinho que o fundo da caixa está apoiado.
 Ele recebe um alvo de pose para pegar, um para segurar e um para soltar, e age sobre o
@@ -140,6 +143,16 @@ e o y do alvo ficam no referencial do peito.
 
 **Tolerância no BOTAR.** 0,10 m de posição.
 
+**Terreno (dono, 09/10).** O ANDAR e o CARREGAR andam em rampa, escada (subir e descer), chão
+irregular e obstáculo discreto. O robô passa por cima do obstáculo. Ele vê o terreno pelo mapa
+de elevação do lidar. Tetos: sem caixa, degrau de 0,20 m, rampa de 20° e obstáculo de 0,15 m;
+com caixa, degrau de 0,15 m, rampa de 15° e obstáculo de 0,10 m. O PEGAR e o BOTAR acontecem só
+no plano.
+
+**Simulador (dono, 09/10).** O comportamento vale em dois simuladores. O treino roda no mjlab e
+é refeito no Isaac Lab. A política do mjlab roda sem treino no Isaac Sim (sim2sim), como teste
+da física antes do robô real.
+
 ## 3. Invariantes globais
 
 Regras que valem em toda etapa, com ou sem caixa, e nas trocas entre etapas.
@@ -148,13 +161,13 @@ Regras que valem em toda etapa, com ou sem caixa, e nas trocas entre etapas.
 manipulação o ereto é mole: o tronco pode e deve inclinar para manipular a caixa quando
 o alvo exige. Agachar é permitido só para alcançar um alvo baixo, e só enquanto o alvo
 está baixo. A pose de IK para uma caixa no chão não chega ao batente, portanto agachar
-não justifica batente. O centro de massa fica sobre o meio dos pés sempre que possível,
-e em especial quando carrega a caixa.
+não justifica batente. O centro de massa fica a 3 cm ou mais da borda do apoio dos pés, e em
+especial quando carrega a caixa (dono, 09/10).
 
 **De pé, como um humano.** Parado, o robô fica com a pelve nivelada, o tronco vertical e
 as pernas quase retas, com a pelve a 0,78–0,79 m e o centro de massa sobre o meio dos
-pés. Sem caixa, o joelho fica perto de 0,15 rad. Com a caixa na altura de transporte, de
-1 a 5 kg, o joelho fica entre 0,20 e 0,42 rad, e o corpo inclina levemente para trás a
+pés. Sem caixa, o joelho fica perto de 0,15 rad. Com a caixa na altura de transporte, a pose
+de pé é a mesma para toda massa, de 1 a 5 kg, com a mão a −30° (dono, 05/10), e o corpo inclina levemente para trás a
 partir dos tornozelos: os pés ficam de 3 a 7 cm à frente da pelve. A pelve não inclina
 para a frente com a cintura compensando o tronco. Andando, a pelve fica nivelada e o
 tronco vertical; a altura da pelve e o joelho seguem a marcha. Os números vêm da IK de
@@ -223,7 +236,8 @@ controlador nunca pede o máximo.
 **Fecho.** Não tem. ANDAR dura enquanto o controlador pedir.
 
 **Proibido.** Deriva sem comando. Passo miúdo. Pé arrastando. Frear tarde com passo de
-acerto. Braços abertos. Ignorar comando baixo: ficar parado ou marchar no lugar.
+acerto. Braços abertos. Ignorar comando baixo: ficar parado ou marchar no lugar. No terreno:
+tropeçar no obstáculo, pisar na quina do degrau.
 
 **Particularidades já pagas caro.**
 - A recompensa preferia parar: parado colhia 27% do rastreio de velocidade.
@@ -284,7 +298,8 @@ pedir. Como elo da cadeia C, fecha com a caixa no alvo de transporte, nivelada, 
 pé, por 0,5 s, e então abre o BOTAR.
 
 **Proibido.** Largar. Deixar a caixa cair de altura. Andar agachado. Girar sem comando.
-Segurar com uma mão. Sacudir a caixa.
+Segurar com uma mão. Sacudir a caixa. No terreno: tropeçar no obstáculo, pisar na quina do
+degrau, inclinar a caixa mais de 15° na escada ou na rampa.
 
 **Particularidades já pagas caro.**
 - Não andava com a caixa: andar somava 5,2% e parar pagava o resto.
@@ -301,8 +316,8 @@ recebido.
 acontecem dentro do BOTAR, sem outro comando (dono, 02/10). Depois de ficar de pé, o robô
 continua parado no BOTAR até o controlador trocar a tarefa. Desce a caixa reta até o alvo,
 seguindo a pose de IK. Inclina o tronco se o alvo é baixo. Apoia a caixa sem impacto. Quando
-a caixa chega ao alvo com a orientação correta, afrouxa o aperto com as mãos ainda nas faces,
-solta e volta à pose de pé estável, mãos ao lado do tronco (dono, 05/10). Na prateleira, entra
+a caixa chega ao alvo com a orientação correta, solta e afasta as mãos. Depois de apoiada, a
+caixa fica parada (dono, 09/10). Então o robô volta à pose de pé estável, mãos ao lado do tronco. Na prateleira, entra
 com a caixa deslizando no piso, sem tocar laterais nem teto, e tira as mãos pela frente
 (dono, 02/10). O robô
 aprende como soltar; a ordem das mãos não é prescrita. Pode se mover minimamente ao
@@ -406,8 +421,8 @@ Rejeitados, com o motivo. Não reabrir sem dado novo.
 - Cone elíptico de orientação: diverge para NaN, duas vezes.
 - Termo novo de recompensa como primeiro recurso: conserta a forma de um termo que existe.
 - Teto de tempo por tarefa: rejeitado; correr é o risco, demorar não.
-- Torque e energia como regra explícita: por enquanto não; o robô infere no treino. Exceção:
-  o custo de energia da receita da Unitree (−2e−5), que entra com a locomoção (dono, 02/10).
+- Torque: o robô fica abaixo de 80% do torque de cada atuador; acima disso paga (dono, 08/10).
+  Energia: só o termo da receita da Unitree (−2e−5), que entra com a locomoção (dono, 02/10).
 - Ordem de soltura das mãos prescrita: o robô aprende.
 - BOTAR → REORIENTAR como cadeia: rejeitado; sempre há ANDAR parado entre manipulações.
 - Tombar para frente ou para o lado no REORIENTAR: só para trás.

@@ -2,14 +2,17 @@
 tipo: decisao
 pai: "[[C4 v3]]"
 estado: em-desenho
-verificado: 2026-10-06
-resumo: "Comportamento esperado da v3 com as decisões do dono de 01 e 02/10: o que o robô vê, faz e recebe em cada trecho de cada episódio; base da spec g1-v3."
+verificado: 2026-10-09
+resumo: "Comportamento esperado da v3 com as decisões do dono de 01/10 a 09/10, sincronizado com a spec em 09/10: o que o robô vê, faz e recebe em cada trecho de cada episódio; base da spec g1-v3."
 cluster: c4
 ---
 # G1 v3 — comportamento esperado do treino (rascunho)
 
-Estado: RASCUNHO de 01/10, para o dono revisar antes da spec. Ele descreve o que o robô vê, o
-que ele faz e o que paga em cada trecho de cada episódio. Ele não descreve código.
+Estado: RASCUNHO de 01/10, SINCRONIZADO com `specs/g1-v3.md` em 09/10 (pedido do dono, depois do
+achado L3 de `docs/relatorios/2026-10-09-viabilidade-v3.md`). Ele descreve o que o robô vê, o que
+ele faz e o que paga em cada trecho de cada episódio. Ele não descreve código. Os números e as
+fórmulas ficam na spec; aqui fica o comportamento, com a seção da spec entre parênteses. Uma
+decisão nova muda os dois documentos na mesma edição.
 
 Base: `specs/g1-limpo-comportamento.md` (enunciado), `vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-decisoes.md` (decisões
 de 01/10) e `docs/relatorios/2026-10-01-inventario-v3.md` (o que funcionou). Os códigos entre
@@ -22,26 +25,38 @@ tarefa dentro do episódio, sem handover. O ciclo do produto é o do enunciado �
 
 O que o controlador manda ao robô, em campo e no treino:
 
-- o one-hot da tarefa (ANDAR, REORIENTAR, PEGAR, CARREGAR, BOTAR);
+- o one-hot da tarefa, com 6 slots (ANDAR, PEGAR, CARREGAR, BOTAR; REORIENTAR e LEVANTAR
+  reservados e apagados);
 - o comando de velocidade (vx, vy, wz), nas tarefas que andam;
-- a pose da caixa (oráculo no sim, estimador depois);
+- a caixa escolhida (no PEGAR) e o alvo de soltura (no BOTAR); depois disso o estimador rastreia
+  os dois (§13; spec §6.4);
 - o alvo definitivo da tarefa: o alvo de transporte no PEGAR e no CARREGAR, o alvo de soltura no
   BOTAR;
 - o alvo macro corrente, que um gerador de IK calcula a partir da caixa e do alvo definitivo.
   O gerador roda no robô; ele é a mesma tabela de IK do PEGAR e do BOTAR de hoje [C47].
 
 A v3 treina ANDAR, PEGAR, CARREGAR e BOTAR, com a laje como único suporte. O REORIENTAR, o
-LEVANTAR e a prateleira entram depois, no futuro, cada um com arquitetura própria. A grade do MID-360
-(`docs/planos/2026-10-02-percepcao-lidar-na-v3.md`) fica com a chave desligada na primeira v3
-(decidido pelo dono, 02/10). Os slots deles no one-hot ficam apagados até lá [C12].
+LEVANTAR e a prateleira entram depois, no futuro, cada um com arquitetura própria. Os slots deles
+no one-hot ficam apagados até lá [C12].
+
+O robô vê o terreno por um mapa de elevação 2,5D (2 × 2 m, 10 cm, altura e confiança; recorte de
+um mapa interno de 5 × 5 m do filtro, dono 14/10, D5), montado
+pelo lidar simplificado na pose do MID-360, ligado desde o começo em todos os envs (dono, 06/10;
+supera o "desligada na primeira v3" de 02/10; spec §4, §19.1). O ANDAR e o CARREGAR andam em rampa,
+escada, chão irregular e obstáculo discreto, que o robô passa por cima; o PEGAR e o BOTAR ficam no
+plano (dono, 09/10; enunciado §2 "Terreno"; spec §11.2, §12).
+
+O treino roda no mjlab; a política do mjlab passa sem treino no Isaac Sim (sim2sim), e o treino é
+refeito no Isaac Lab (dono, 09/10; enunciado §2 "Simulador"; spec §1, §16 Parte 5).
 
 ## 2. Fases do treino
 
-**Fase 0, locomoção sozinha.** 100% dos envs andam. O sorteador de comando tem quatro
-subtarefas: reto nas quatro direções, giro andando, giro no lugar e parado. Elas abrem em
-ordem, e a fração de cada uma segue o balanceador descrito abaixo. A
-fase 0 termina quando a `razao_marcha` passa de 0,50 [C1, C2] e o giro passa no portão dele
-[A11].
+**Fase 0, locomoção sozinha.** 100% dos envs andam. As subtarefas do ANDAR abrem em ordem:
+reto nas quatro direções e parado, comando baixo, giro andando, giro no lugar; depois os níveis
+de velocidade e o nível TERRENO (spec §11.2). A fração de cada uma segue o balanceador descrito
+abaixo. A fase 0 termina quando o reto e o parado do ANDAR passam no portão (0,75 de sucesso,
+com o sucesso pela razão de deslocamento ≥ 0,50 [C1, C2]); aí a B abre (spec §11.1). O giro não
+trava a abertura.
 
 **Fase 1, até o fim do treino.** A tarefa de cada env sai do balanceador de tarefas (abaixo) e
 fica com o env até o reset seguinte. A fração vale em ENVS, não em episódios: assim a fatia de
@@ -87,8 +102,9 @@ quando tudo passa no portão: 1/3 por fatia no fim.
   | abre a laje 0,04 | 25% | 75% | 25% | 66% |
 
 - **Abertura em ordem.** Uma subtarefa fechada tem fração zero. A seguinte abre quando as
-  abertas passam no portão. ANDAR e CARREGAR da B: reto e parado → giro andando → giro no
-  lugar (exemplo do dono). O ANDAR e o CARREGAR da B têm balanceadores independentes
+  abertas passam no portão. ANDAR: reto e parado → comando baixo → giro andando → giro no lugar
+  → níveis de velocidade → TERRENO. CARREGAR da B: reto, giro no lugar e arco, com os níveis de
+  velocidade do ANDAR → TERRENO, com tetos menores (spec §11.2). O ANDAR e o CARREGAR da B têm balanceadores independentes
   (decidido pelo dono, 02/10).
 - **Níveis são subtarefas do mesmo balanceador** (decidido pelo dono, 02/10): as alturas do
   PEGAR e do BOTAR, as velocidades do ANDAR e do CARREGAR e, depois, os ângulos do
@@ -130,7 +146,7 @@ acaba como `time_out`, sem punição por terminar cedo.
 
 | trecho | duração | o robô vê | o robô faz |
 |---|---|---|---|
-| ANDAR | 20 s; o comando muda a cada 3–8 s | one-hot ANDAR, comando, canais da caixa em zero [C13] | rastreia o comando; nas quatro subtarefas; marcha alternada; parado, fica de pé sem deriva |
+| ANDAR | 20 s; o comando muda a cada 3–8 s | one-hot ANDAR, comando, canais da caixa em zero [C13], mapa de elevação | rastreia o comando nas subtarefas abertas; marcha alternada; parado, fica de pé sem deriva; no nível TERRENO, sobe e desce escada e rampa e passa por cima do obstáculo |
 
 ### 3.2 B: PEGAR e CARREGAR
 
@@ -143,7 +159,9 @@ acaba como `time_out`, sem punição por terminar cedo.
 O comando do CARREGAR é sorteado na abertura dele, sem herdar o zero da pega; hoje a cauda
 herdava ~2,9 s parada. Ele não muda dentro do trecho: frear com a caixa vem da generalização
 do ANDAR (decidido pelo dono, 02/10; conferir no play com CARREGAR a 0,5 m/s seguido de
-CARREGAR parado). A laje sai da cena quando o comando pede movimento [C39].
+CARREGAR parado). A laje sai da cena quando o comando pede movimento [C39]. No nível TERRENO do
+CARREGAR, a pega acontece na plataforma plana do centro do subterreno (2 m), e o CARREGAR sai
+dela para o terreno (dono, 09/10; spec §12).
 
 ### 3.3 C: PEGAR, CARREGAR parado, BOTAR
 
@@ -153,16 +171,23 @@ CARREGAR parado). A laje sai da cena quando o comando pede movimento [C39].
 | PEGAR | o tempo que o robô levar | como na B; a laje sai da faixa que o PEGAR já domina, só de 0,30 m para cima | como na B |
 | CARREGAR parado | sorteada, 0,5–1,0 s | one-hot CARREGAR, comando zero | segura a caixa no peito, parado, de pé |
 | BOTAR | o tempo que o robô levar | one-hot BOTAR, a laje de destino à frente, o alvo de soltura, o alvo macro | percorre os alvos macro do BOTAR até soltar e ficar de pé |
-| ANDAR parado | fixa, 1,5 s | one-hot ANDAR, comando zero | fica de pé, livre, mãos ao lado do tronco; a caixa fica apoiada, sem contato |
+| ANDAR parado | fixa, 1,5 s; a troca para ele vem de 0 a 1,5 s depois do aviso do detector de fim (pose de pé sem caixa, estável por 0,5 s; dono, 14/10; spec da interface §4.2), sorteada, com o one-hot ainda em BOTAR (dono, 05/10) | one-hot ANDAR, comando zero | fica de pé, livre, mãos ao lado do tronco; a caixa fica apoiada, sem contato |
 
-A laje de destino aparece na abertura do BOTAR e só se afasta do corpo no sorteio [C38].
+A laje de destino aparece na abertura do BOTAR e só se afasta do corpo no sorteio [C38]. A
+cadeia C fica toda no plano (spec §12).
 
 ## 4. Alvos macro
 
 Um alvo macro é uma pose intermediária da tarefa, em poucas grandezas do espaço da tarefa. Ele
-sai da caixa real (posição, giro e tamanho) e do alvo definitivo, então generaliza em posição e
+sai da caixa estimada (posição, giro e tamanho) e do alvo definitivo, então generaliza em posição e
 tamanho. O peso da caixa a IK não vê: a política o aprende com a variação de 1 a 5 kg. As 29
-juntas ficam livres; não há mímica.
+juntas ficam livres; não há mímica. A tabela é `g1_limpo/ik/agachado/ref_agachado.npz` (dono,
+08/10; trocada em 09/10; spec §8.1).
+
+O alvo mede só a grandeza da tarefa: as palmas no P0–P2, a caixa no P3, P4, B1 e B2, as palmas
+afastadas no B3 e a pose no B4. A postura (pelve, recuo, tronco, CoM, sola, giro da coxa, torque)
+não é atraída para a IK: ela fica dentro de sete cercas de custo, com os valores da IK, e o PPO
+escolhe a pose dentro delas (dono, 08/10; spec §9.1, §9.3).
 
 O alvo macro avança quando o robô chega nele dentro da tolerância. Não existe relógio: demorar
 é permitido, correr não (enunciado §3).
@@ -171,10 +196,11 @@ O alvo macro avança quando o robô chega nele dentro da tolerância. Não exist
 
 | alvo | o que vale | avança quando |
 |---|---|---|
-| P1 pré-pega | as duas palmas a ~5 cm das faces laterais escolhidas; pelve, tronco, pés e hip_yaw na pose de IK da altura | as duas palmas dentro da tolerância |
-| P2 pega | as duas palmas nas faces; força normal nas duas mãos entre `F_ref` e k·`F_ref` [A2] | contato nas duas mãos, força na faixa |
-| P3 erguida | a caixa 5 cm acima da laje, nivelada, sem apoio na laje | nivelada dentro de 15° e sem apoio |
-| P4 peito | a caixa no alvo de transporte (x, y no peito, z 0,90 m no mundo (dono, 02/10)) [C18], nivelada; o robô na pose de pé com caixa (pelve ~0,79 m, joelho 0,20–0,42) [F25] | dentro da tolerância por 0,5 s |
+| P0 frente | as palmas 5 cm à frente da face da frente, alinhadas às faces laterais, na altura do centro | as palmas a até 3 cm |
+| P1 entrada | as palmas avançam ao longo das faces laterais até o centro delas | as palmas a até 3 cm |
+| P2 pega | as duas palmas nas faces; sem força mínima (dono, 05/10) | contato nas duas mãos |
+| P3 erguida | a caixa 5 cm acima da laje, nivelada, sem apoio na laje | sem apoio e nivelada dentro do limite do degrau (30° → 15°) |
+| P4 peito | a caixa no alvo de transporte (x, y no peito, z 0,90 m no mundo (dono, 02/10)) [C18], nivelada; o robô na pose de pé com caixa, a MESMA para toda massa (dono, 05/10; spec §8.1) | caixa a até 5 cm e pelve a até 3 cm, por 0,5 s |
 
 O par de faces é o mais alinhado com as palmas; a caixa nunca é pega pela quina (enunciado §4.3).
 
@@ -189,15 +215,29 @@ quiser.
 
 | alvo | o que vale | avança quando |
 |---|---|---|
-| B1 sobre o alvo | a caixa 5 cm acima do alvo de soltura, nivelada; pelve, tronco, pés e hip_yaw na pose de IK da altura | dentro da tolerância |
-| B2 apoiada | a caixa apoiada no alvo, dentro de 0,10 m, nivelada, sem impacto acima do limiar [A1] | apoio de ~1·m·g, nivelada |
-| B3 solta | as duas palmas a 5 cm ou mais das faces; a caixa apoiada e parada | mãos livres, caixa parada por 0,5 s |
-| B4 de pé | a pose de pé sem caixa, mãos ao lado do tronco | dentro da tolerância |
+| B1 sobre o alvo | a caixa 5 cm acima do alvo de soltura, nivelada | caixa a até 3 cm na horizontal |
+| B2 apoiada | a caixa apoiada no alvo, dentro de 0,10 m, nivelada, chegada abaixo do limiar [A1] | apoio de 0,8·m·g ou mais, por 0,3 s |
+| B3 solta | as duas palmas a 5 cm ou mais das faces; a caixa apoiada e parada | por 0,5 s |
+| B4 de pé | a pose de pé sem caixa, mãos ao lado do tronco | pelve a até 3 cm e tronco a até 5°, por 0,5 s |
+
+Soltar não exige afrouxar antes: o gate `F_solta` saiu (dono, 09/10; spec §8.2). O invariante de
+B2 a B4 (abaixo) impede arrastar a caixa depois de apoiada.
 
 ### 4.3 Invariantes
 
-Depois de P2 e até B3, todo alvo exige: caixa nivelada, as duas mãos na caixa e força na faixa. Quebrar um invariante tira a proximidade ao alvo seguinte e
-impede o avanço. Endireitar devolve a proximidade.
+- De P0 a P2: a caixa desloca menos de meia aresta na laje (dono, 05/10).
+- De P2 a B2: caixa nivelada (30° na fase aprender, 15° no fim) e as duas mãos na caixa. Não
+  existe faixa de força.
+- De B2 a B4: a caixa, depois de apoiada, fica apoiada, nivelada e parada, com menos de 2 cm de
+  deslocamento (dono, 09/10).
+
+Quebrar um invariante zera a proximidade ao alvo corrente e impede o avanço. Endireitar devolve a
+proximidade (spec §8.2).
+
+**Aperto** (dono, 09/10; spec §8.2): o robô paga pelo aperto, e o menor aperto que segura custa menos,
+`−w·(1−exp(−aperto/F_ref))` (dono, 14/10, B02), `F_ref` 49 N (μ 0,5), só com a caixa presa (P3 a B2), com o peso 0 → `w` no refino. O mínimo que
+segura vem do conflito com o P3 e com o CARREGAR: abaixo do atrito, a caixa escorrega. A faixa
+`F_ref`–k·`F_ref` [A2] não entra.
 
 Consequência: **a caixa não chega ao peito tombada**. Ela não passa de P3 sem estar nivelada, e
 pairar tombada paga zero.
@@ -215,13 +255,19 @@ pairar tombada paga zero.
   ganho nenhum: ele só sobe o ponto de partida [A21].
 - **O rastreio só cobra a deriva.** Com comando zero, ele vale zero parado e negativo quando o
   robô desliza ou gira sem comando. Ele não paga renda.
-- **`pose` e `upright` não agem.** A postura do corpo vem da IK da altura, dentro do alvo macro.
-  O `upright` com ótimo a 3° brigaria com os 24° da IK [A14].
+- **Os termos posturais da locomoção não agem.** No PEGAR e no BOTAR, o desvio postural e o
+  tronco plano da Unitree valem zero; a postura fica dentro das cercas (spec §9.2, §9.3). O
+  tronco plano brigaria com o tronco inclinado da IK [A14].
+- **Nenhum termo paga positivo por passo** no PEGAR, no BOTAR e depois da caixa perdida: o
+  `alive` e a altura do pé vão a zero (dono, 05/10; spec §9.2).
 
 ### 5.2 Tarefas por passo: ANDAR, esperas e CARREGAR
 
-- O rastreio do comando, o `upright` e o `pose` de pé pagam por passo, como no molde, com os
-  consertos de locomoção do inventário [C3–C10].
+- Os termos da receita da Unitree pagam por passo (spec §19, §9.2), com dois desvios do dono
+  (05/10): o rastreio é normalizado pelo comando, para o parado receber zero em comando baixo, e
+  o termo da marcha paga o comprimento do passo no toque do pé, para o passo ter comprimento
+  mínimo; o robô escolhe a cadência, sem relógio na observação (dono, 14/10). O desvio
+  postural mira a pose de pé da IK: sem caixa no ANDAR, com caixa no CARREGAR (spec §6.3).
 - No CARREGAR, o pagamento por passo é multiplicado pela qualidade da caixa: no peito,
   nivelada, nas duas mãos.
 - **A duração é do controlador.** O robô não alonga nem encurta um trecho por passo. Então
@@ -229,8 +275,11 @@ pairar tombada paga zero.
 
 ### 5.3 Sempre
 
-- Os reguladores custam em toda tarefa: `action_rate`, `joint_acc`, freio por nível [C8],
-  `limite_de_junta`, autocolisão, termos de pé, momento angular.
+- Os reguladores da Unitree custam em toda tarefa: vz, giro xy, velocidade e aceleração de
+  junta, `action_rate`, energia, escorrego do pé, contato fora dos pés filtrado pelo parceiro.
+  O limite de junta é mole a 95% do curso, com rampa pela banda (dono, 08/10). As sete cercas de
+  postura custam em toda tarefa; a da sola só fora da marcha (dono, 09/10; spec §9.3). O freio
+  por nível [C8] age só no PEGAR, no CARREGAR e no BOTAR (dono, 05/10; spec §11.4).
 - **Contato do corpo com a mesa ou a laje: multa em rampa, como hoje [C31].** O limiar começa
   em 50 N e aperta até 10 N no refino (§9 item 10; decisões do dono de 01/10 e 02/10). Não é
   terminação: a terminação de 28/08 matava 76% dos episódios de manipulação por ruído de
@@ -242,17 +291,19 @@ pairar tombada paga zero.
 
 O episódio termina quando:
 
-- o robô cai (`fell_over`, 70°);
-- a caixa cai ou sai das mãos [C35];
-- o robô solta a caixa fora do alvo [C34];
-- a velocidade de chegada da caixa passa do limiar [A1]: 1,98 m/s na fase aprender, até
-  0,99 m/s no refino;
+- o robô cai: inclinação acima de 0,8 rad ou base abaixo de 0,2 m no ANDAR e no CARREGAR
+  (Unitree); `fell_over` a 70° no PEGAR e no BOTAR (spec §10);
+- a caixa cai ou sai das mãos [C35], ou o robô solta a caixa fora do alvo [C34]; com a chave
+  `CAIXA_PERDIDA_VIRA_ANDAR` ligada, a perda troca para ANDAR parado em vez de terminar (§10.1);
+- a caixa sai da laje antes da pega, de P0 a P2: conta como caixa perdida (dono, 05/10);
+- a velocidade de chegada da caixa passa do limiar [A1]: 1,0 m/s na fase aprender, até
+  0,25 m/s no refino (dono, 14/10, A10; era 1,98 → 0,99);
 - `|hip_yaw|` passa de 1,0 rad [C33];
 - a junta chega ao batente: SÓ NO REFINO (opção A, decidida pelo dono, 02/10).
 
 As outras terminações valem desde o começo (decidido pelo dono, 02/10).
 
-A terminação custa um valor fixo e o resto do episódio. **O ganho já pago fica.** Isto corrige
+A terminação custa um valor fixo (−200 × dt) e o resto do episódio. **O ganho já pago fica.** Isto corrige
 o que eu disse na discussão ("cair devolve tudo"). Devolver tudo faria o que está em jogo
 crescer ao longo da cadeia: no BOTAR, uma queda devolveria também a pega, e o robô aprenderia
 a não tentar o BOTAR. Com o ganho mantido, o que está em jogo nunca passa do que falta ganhar.
@@ -261,27 +312,27 @@ a não tentar o BOTAR. Com o ganho mantido, o que está em jogo nunca passa do q
 
 | tarefa | o nível controla | o sucesso que move o nível |
 |---|---|---|
-| ANDAR e CARREGAR | as subtarefas de comando e a faixa de velocidade, pelo balanceador da fatia (§2) | proposta: razão entre o deslocamento projetado e o pedido, sobre o twist inteiro [P3, A11] |
-| PEGAR | altura da laje da pega (0,55 → 0,04 m) e massa da caixa | PEGAR completo e o trecho seguinte sem terminação |
-| BOTAR | altura da laje de destino (0,55 → 0,04 m); a massa vem da faixa já dominada pelo PEGAR (proposta) | BOTAR completo e o ANDAR parado final sem terminação |
+| ANDAR e CARREGAR | as subtarefas de comando, os níveis de velocidade e o nível TERRENO, pelo balanceador da fatia (§2) | razão entre o deslocamento projetado e o pedido, sobre o twist inteiro, ≥ 0,50, sem queda [P3, A11]; no TERRENO do CARREGAR, também a caixa a ≤ 15° e sem largar (spec §11.3) |
+| PEGAR | altura da laje da pega e massa juntas: (0,55 m; 1 kg) → (0,45; 2) → (0,30; 3) → (0,15; 4) → (0,04; 5) (dono, 05/10) | PEGAR completo e o trecho seguinte sem terminação |
+| BOTAR | altura da laje de destino (0,55 → 0,04 m); a massa vem da faixa já dominada pelo PEGAR (dono, 02/10) | BOTAR completo e o ANDAR parado final sem terminação |
 
 - Cada nível contém os anteriores, e nenhum nível é impossível [C42].
 - Na cadeia C, a laje da pega sai da faixa que o PEGAR já domina. A fronteira do PEGAR treina na
   cadeia B.
-- O degrau do freio de cada env segue o nível da tarefa daquele env [C8]. Com o balanceador, o
-  nível do grupo é o número de níveis abertos (proposta).
+- O freio age só na manipulação. O degrau do freio de cada env segue o nível do grupo da tarefa
+  dele, contado como o número de níveis abertos [C8] (spec §11.4).
 
 ## 7. Sintoma a sintoma
 
 | sintoma de hoje | causa medida | o que a v3 muda |
 |---|---|---|
-| Não gira no lugar | ~3% da frota; |wz| abaixo do piso σ, estátua empata | fração pelo balanceador da fatia (até ~2/3 do ANDAR) e gradiente acima do piso [A10] |
+| Não gira no lugar | ~3% da frota; |wz| abaixo do piso σ, estátua empata | fração pelo balanceador da fatia (até ~2/3 do ANDAR) e rastreio normalizado pelo comando: parado recebe zero em qualquer comando [A10] (spec §19, conflito 5) |
 | A caixa tomba na pega | o braço gira a caixa ao erguer; o fecho aceitava 25°; pairar tombada pagava | nivelada é condição de todo alvo depois da pega; pairar paga zero |
 | Bota mal; não bota em laje baixa | o BOTAR só treinava quando a pega da C fechava; a laje herdava a do PEGAR | nível próprio do BOTAR; a pega da C usa a faixa dominada; postura da IK da altura |
-| Carrega agachado e estranho | a referência de forma presa na laje; nada media a pelve | P4 exige a pose de pé com caixa; o CARREGAR paga a pose de pé × caixa |
+| Carrega agachado e estranho | a referência de forma presa na laje; nada media a pelve | P4 exige a pose de pé com caixa; no CARREGAR, o desvio postural e a altura da base da Unitree miram a pose de pé com caixa, e o rastreio paga vezes a qualidade da caixa |
 | Agacha antes de pegar | fechar 0,5 s antes rendia ~7 | o potencial não paga o agachamento antecipado |
 | No play, bota e fica agachado com as mãos na caixa (dono, 02/10) | no treino de hoje, o fecho do BOTAR não exige soltar [A6], e no fecho a máquina de estados publica ANDAR (`comando.py:1767`, espera final): o robô aprendeu a soltar e levantar só quando o one-hot vira ANDAR; o play não troca, e ele espera | abaixar, apoiar, soltar e voltar de pé ficam DENTRO do BOTAR (B1 → B4); o alvo avança sozinho pela tolerância; o controlador manda BOTAR uma vez |
-| Toca a laje com a perna | o limiar de 50 N não cobra o toque leve | rampa de 50 N que aperta até 10 N no refino; postura da IK da altura com folga de 10 mm da laje |
+| Toca a laje com a perna | o limiar de 50 N não cobra o toque leve | rampa de 50 N que aperta até 10 N no refino; a IK de referência tem folga de 10 mm da laje |
 
 ## 8. O que muda no enunciado
 
@@ -305,7 +356,10 @@ Decidido pelo dono (01/10):
 2. **Pose de pé parado: a IK.** Em regime parado, o `pose` mira a IK de pé: sem caixa, joelho
    ~0,15 rad; com caixa, a IK de pé com caixa para a massa (joelho 0,20–0,42). Andando, ele
    segue o keyframe do molde. Em 01/10 isto tinha sido rejeitado para o `g1_limpo` pelo risco
-   da estátua; na v3 o robô não alonga a espera, então o risco não existe.
+   da estátua; na v3 o robô não alonga a espera, então o risco não existe. ATUALIZADO (dono,
+   05/10): o `pose` e o keyframe do molde saem com a receita da Unitree; a pose de pé da IK
+   (joelho 0,16) é o offset da ação e o alvo do desvio postural, parado e andando (spec §6.3);
+   com caixa, a mesma pose para toda massa (spec §8.1).
 
 3. **Contato com a mesa ou a laje: joelho da rampa em 10 N.**
 4. **Nenhuma junta chega ao limite; a penalização pode ser grave.**
@@ -315,21 +369,28 @@ Decidido pelo dono (01/10):
    ("deitar o tronco para alcançar") é o do 21700: deitar o tronco no lugar de estender o
    braço. A tabela nova tem 10 mm de folga com a laje (a antiga punha a perna dentro dela) e
    a cintura até 25°. Na laje de 0,04 m o robô fica 9–11 cm mais atrás, e a caixa de 14 cm
-   fica rente à borda da laje.
+   fica rente à borda da laje. SUPERADO (dono, 08/10; tabela trocada em 09/10): as pegas vêm de
+   `g1_limpo/ik/agachado/ref_agachado.npz`, e a pose de pé com caixa vem de
+   `ref_v3_de_pe_theta-30_tamanhos.npz`, com a mão a −30° (spec §8.1).
 6. **Durações, dentro dos 20 s do episódio** (decidido 01/10): espera 0,5–1,0 s; CARREGAR da
    B 4–7 s; CARREGAR parado da C 0,5–1,0 s; ANDAR parado final 1,5 s; a pega da C só em laje
    de 0,30 m para cima. Estimado a 0,25 m/s de mão, em linha reta, pelas poses de referência:
-   PEGAR 3,0–7,0 s e BOTAR 3,2–7,2 s. Pior caso: B 15,0 s (a pega cabe até 12 s); C 15,7 s
-   (sobra 4,3 s). O log mede o tempo real do PEGAR e do BOTAR e a fração de C cortada nos 20 s.
+   PEGAR 3,0–7,0 s e BOTAR 3,2–7,2 s. Pior caso: B 15,0 s (a pega cabe até 12 s); C 17,2 s,
+   com a espera de até 1,5 s depois do B4 (dono, 05/10; spec §7). O log mede o tempo real do
+   PEGAR e do BOTAR e a fração de C cortada nos 20 s.
 7. **Impacto pela velocidade de chegada** (decidido pelo dono, 01/10, depois do teste de
    queda). Teste de queda na cena, MuJoCo clássico: o choque dura
    menos que um passo de controle (20 ms), e o pico lido uma vez por passo depende da fase: 5 cm
    leem 2,5 × m·g e 8 cm leem 9,0 (o pico real por subpasso é 11,8 e 16,1). A medida passa a
    ser a velocidade vertical da caixa no passo antes do primeiro contato com a laje. Limiar
    final 0,99 m/s, a de uma queda de 5 cm. Não depende da massa nem do tamanho da caixa.
+   ATUALIZADO 14/10 (A10): limiar 1,0 → 0,25 m/s, e o potencial do BOTAR paga o pouso devagar
+   com `exp(−(v/σ)²)`, σ 1,0 → 0,35 m/s (spec §9.1).
 8. **Alvo macro** (decidido 01/10): mãos e pelve atraem para a IK da altura em todos os alvos;
    tronco e pés ficam numa faixa em volta da IK; a força das mãos fica numa faixa entre `F_ref`
-   e k·`F_ref`.
+   e k·`F_ref`. SUPERADO: a pelve saiu do Φ e virou cerca (dono, 08/10, opção 2); tronco,
+   recuo e CoM viraram cercas (spec §9.3); a faixa de força saiu, e o aperto é recompensa pelo
+   menor aperto que segura (dono, 09/10; spec §8.2).
 9. **Batente** (decidido 01/10): a rampa de cada junta tem largura de min(15°, 30% do
    meio-curso) a partir do batente, por lado, e sobe a ~50/s no batente; a junta que chega ao
    batente termina o episódio; a rampa nunca cobra a IK, então a da cintura vai de 25° a 30°.
@@ -342,17 +403,18 @@ Decidido pelo dono (01/10):
    ler o ângulo medido terminaria 4 de 7 plays do 23250 em 1,6 s, pelo tornozelo. Desde o
    começo, a terminação no batente mata o treino (`docs/relatorios/2026-10-02-avaliacao-v3.md`
    §2). DECIDIDO pelo dono, 02/10: opção A. A rampa vale desde o começo, e a terminação no
-   batente entra no refino (§12.1).
+   batente entra no refino (§12.1). ATUALIZADO (dono, 08/10): a rampa vira limite mole a 95%
+   do curso da tabela do robô real, com o excesso medido em fração da banda até o batente; ela
+   cobre as juntas de curso largo desde o começo, sem batente virtual (spec §6.5, §9.2).
 10. **Refino progressivo** (decidido pelo dono, 01/10 e 02/10). Fase aprender: um modelo faz
     todas as tarefas, pegar e botar a caixa em todas as alturas; o freio sobe por nível, como
     hoje. Quando isso acontece, começa a fase refinar, e as restrições apertam aos poucos.
     Apertam no refino: contato 50 → 10 N; nivelamento 30° →
-    15°; chegada da caixa 1,98 → 0,99 m/s; aperto 8 × `F_ref` → ~2,5 ×. A atração para a
-    postura da IK (mãos e pelve) e a faixa do tronco e dos pés valem cheias desde o começo
-    (a postura da IK incentiva a completar). Desde o começo: todas as terminações (§5.4,
-    decidido pelo dono, 02/10), a rampa do batente (item 9) e a caixa acima de 30° (o alvo
-    não avança). A confirmar: as juntas de curso largo com batente virtual; o gatilho de
-    cada degrau.
+    15°; chegada da caixa 1,0 → 0,25 m/s, σ do pouso 1,0 → 0,35 m/s; peso do `r_aperto` 0 → `w` (dono, 09/10; era
+    "aperto 8 × `F_ref` → ~2,5 ×"). As cercas de postura (spec §9.3) valem cheias desde o
+    começo, sem degrau (dono, 08/10). Desde o começo: as terminações do §5.4 (decidido pelo
+    dono, 02/10), a rampa do limite de junta (item 9) e a caixa acima de 30° (o alvo não
+    avança). O gatilho de cada degrau está no §12.1.
 
 
 ## 10. Garantias de comportamento (pedido do dono, 02/10)
@@ -361,15 +423,16 @@ Cada linha diz o mecanismo, quando ele age e se ele já está no desenho.
 
 | comportamento | mecanismo | quando | estado |
 |---|---|---|---|
-| De pé sem caixa, pose normal, sem agachar antes de pegar | o `pose` de pé parado usa a IK de pé sem caixa (pelve 0,79, joelho 0,16); andando, o keyframe do molde (decisão 10). O potencial do PEGAR conta a partir da abertura: agachar na espera não adianta ganho [A21]. A espera tem duração do controlador, então não vira estátua paga [R17] | desde o começo | no desenho |
-| De pé com caixa, mãos na caixa | o P4 exige a IK de pé com caixa da massa (joelho 0,20–0,37 de 1 a 5 kg). O CARREGAR paga o `pose` de pé com caixa × a qualidade da caixa. Os invariantes exigem as duas mãos e a força na faixa | desde o começo | no desenho |
-| Andar normal, com e sem caixa | rastreio, `giro_sem_gingado`, `foot_swing_height` com reset, `foot_clearance`, `foot_slip`; o CARREGAR usa os mesmos termos de pé | desde o começo | no desenho |
-| Sem passo miúdo, em qualquer velocidade | nenhum termo cria passo longo hoje: o `air_time` do molde tem peso 0 e paga qualquer voo de 0,05 a 0,5 s, passo miúdo inclusive. Proposta: no refino, o `air_time` muda de forma e passa a pagar o voo acima de uma duração mínima, medida no primeiro contato | refino, com chave para voltar atrás (decidido pelo dono, 02/10) | no desenho |
+| De pé sem caixa, pose normal, sem agachar antes de pegar | o desvio postural da Unitree mira a pose de pé da IK sem caixa (pelve 0,79, joelho 0,16), parado e andando (spec §6.3). O potencial do PEGAR conta a partir da abertura: agachar na espera não adianta ganho [A21]. A espera tem duração do controlador, então não vira estátua paga [R17] | desde o começo | no desenho |
+| De pé com caixa, mãos na caixa | o P4 exige a pose de pé com caixa, a mesma para toda massa (spec §8.1). No CARREGAR, o desvio postural mira essa pose, e o rastreio paga vezes a qualidade da caixa. Os invariantes exigem as duas mãos | desde o começo | no desenho |
+| Andar normal, com e sem caixa | termos da receita da Unitree: rastreio normalizado, comprimento do passo (no lugar da marcha por fase, dono 14/10), altura do pé, escorrego do pé; o CARREGAR usa os mesmos termos de pé; o `giro_sem_gingado` saiu (spec §19) | desde o começo | no desenho |
+| Sem passo miúdo, em qualquer velocidade | o termo da marcha paga `min(L/L_alvo, 1)` no toque do pé, com `L_alvo = |v|·clamp(2·L_min/|v|, 0,8; 1,4)/2` (dono, 05/10; forma de 14/10, sem relógio na observação; spec §19, conflito 6). Substitui o `air_time` com duração mínima no refino | desde o começo | no desenho |
+| Andar e carregar no terreno | mapa de elevação na observação; nível TERRENO no ANDAR e no CARREGAR, com tetos menores com a caixa (dono, 09/10; spec §11.2) | depois dos níveis de velocidade | no desenho |
 | Caixa sem sacudir | penalidade pela aceleração linear e angular da caixa, em PEGAR, CARREGAR e BOTAR (e REORIENTAR quando entrar), a partir da diferença de velocidade entre passos de controle; a diferença de velocidade integra o choque e não sofre o aliasing da força [F37]. Medido 02/10 nos plays do 23250: no CARREGAR a 0,5 m/s, linear p50 2,9 e p90 4,8 m/s², angular p50 17 e p90 28 rad/s²; no PEGAR, linear p90 4,6–7,3 m/s², angular p90 23–45 rad/s² | refino (decidido pelo dono, 02/10) | no desenho; escala a calibrar com estes números |
-| Lado de cima para cima | caixa nivelada é invariante de P2 a B3 (30° → 15° no refino); tombo pelo eixo de cima [C22]; orientação com gradiente de 0 a 180° [C23]; vertical do mundo no BOTAR [C25]; qualidade do CARREGAR | desde o começo | no desenho |
-| Sem correr | freio por nível [C8]; a duração dos trechos por passo é do controlador, então terminar antes não compra passos; a renda congelada, que dava a pressa, sai [S1] | desde o começo | no desenho |
+| Lado de cima para cima | caixa nivelada é invariante de P2 a B2, e a caixa apoiada fica parada de B2 a B4 (30° → 15° no refino); tombo pelo eixo de cima [C22]; orientação com gradiente de 0 a 180° [C23]; vertical do mundo no BOTAR [C25]; qualidade do CARREGAR | desde o começo | no desenho |
+| Sem correr | freio por nível na manipulação [C8]; a duração dos trechos por passo é do controlador, então terminar antes não compra passos; a renda congelada, que dava a pressa, sai [S1] | desde o começo | no desenho |
 | Sem demorar | o desconto γ 0,99 (horizonte ~2 s) faz o progresso de agora valer mais; PEGAR e BOTAR que não fecham nos 20 s não contam sucesso, e o balanceador manda mais envs para eles. O equilíbrio entre o desconto e o freio se mede no ponto de operação | desde o começo | no desenho; calibrar |
-| Resistir a empurrões | `push_robot` do molde em todo env de treino, a cada 1–3 s, até 0,5 m/s linear e 0,5–0,8 rad/s angular; fora do play (smoke confere os dois) | desde o começo | já existe |
+| Resistir a empurrões | empurrão da Unitree, ±0,5 m/s a cada 5 s, em todas as tarefas; fora do play (spec §12) | desde o começo | no desenho |
 
 ### 10.1 Comportamentos novos (propostas)
 
@@ -467,7 +530,7 @@ folga de 10 mm), achar a folga lateral mínima em que a mão do G1 entra, e julg
 
 MEDIDO 02/10 (IK do BOTAR dentro da prateleira, sementes da `ref_v3_manipulacao`, regras do
 `ik_cintura25` mais folga robô × parede de 10 mm; caixa com a face da frente 2 cm para dentro
-da boca; `scratchpad/ik_prateleira.py`, fotos em `~/Downloads/ik_v3/prateleira/`):
+da boca; `scratchpad/ik_prateleira.py`, fotos em `g1_limpo/ik/prateleira/`):
 
 | geometria (lateral / teto, por lado) | aceitas | onde falha |
 |---|---|---|
@@ -504,22 +567,26 @@ dela.
 
 | regra do refino | ANDAR | PEGAR | CARREGAR | BOTAR |
 |---|---|---|---|---|
-| passo miúdo (`air_time` com duração mínima) | sim | — | sim | — |
+| ~~passo miúdo (`air_time` com duração mínima)~~ SAIU: o passo mínimo vale desde o começo (dono, 05/10; spec §19, conflito 6) | | | | |
 | contato com a laje 50 → 10 N | — | sim | — | sim |
 | nivelamento 30° → 15° | — | sim | sim | sim |
-| aperto 8× → 2,5× `F_ref` | — | sim | sim | sim |
+| peso do `r_aperto` 0 → `w` (dono, 09/10; era "aperto 8× → 2,5× `F_ref`") | — | sim | sim | sim |
 | sacudida (aceleração da caixa) | — | sim | sim | sim |
-| chegada da caixa 1,98 → 0,99 m/s | — | — | — | sim |
-| terminação no batente (se a opção A da avaliação) | sim | sim | sim | sim |
+| chegada da caixa 1,0 → 0,25 m/s; σ do pouso 1,0 → 0,35 m/s | — | — | — | sim |
+| terminação no batente e `hip_yaw` > 1 rad (opção A, dono, 02/10) | sim | sim | sim | sim |
+| magnitude do erro do estimador (§13) | sim | sim | sim | sim |
+| DR dos ganhos do PD 0,9–1,1× (depois de alinhar ao kp do deploy) (dono, 06/10) | sim | sim | sim | sim |
+| DR do atraso da ação 0–1 → 0–3 passos (dono, 06/10) | sim | sim | sim | sim |
+| DR do atrito seco do motor 0–0,05 N·m (dono, 06/10) | sim | sim | sim | sim |
 
 ### 12.2 Lacunas
 
 | lacuna | proposta |
 |---|---|
-| canais do alvo macro | trocar o `alvo_b` de hoje (3 canais, o alvo do elo) pelo alvo macro corrente, no frame da base: as duas palmas (6), a altura da pelve (1) e a inclinação do tronco (1). O bloco da caixa passa de 10 para 15 canais e continua zerado no ANDAR [C13]. O giro da caixa em torno da vertical entra pelas palmas, que giram com ela |
-| tolerância de cada alvo | P0 e P1: palmas a até 3 cm do alvo; P2: contato nas duas mãos e força na faixa; P3: caixa 5 cm acima da laje, sem apoio, nivelada no limite do degrau; P4: caixa a até 5 cm do alvo de transporte e pelve a até 3 cm da altura da IK, por 0,5 s; B1: caixa a até 3 cm na horizontal, 5 cm acima do alvo; B2: apoio de 0,8·m·g ou mais, a até 0,10 m do alvo; B3: palmas a 5 cm ou mais das faces e caixa parada por 0,5 s; B4: pose de pé da IK com a mesma tolerância do P4. A calibrar contra o tremor das palmas medido no play |
+| canais do alvo macro | trocar o `alvo_b` de hoje (3 canais, o alvo do elo) pelo alvo macro corrente, no frame da base: as duas palmas (6), a altura da pelve (1) e a inclinação do tronco (1). Com as duas idades de leitura (§13), o bloco da caixa tem 17 canais e continua zerado no ANDAR [C13] (spec §6.1). ATUALIZADO 14/10 (dono): a referência da etapa saiu do ator e fica no crítico e na recompensa; o bloco tem 11 canais: caixa (7), idade da leitura (1) e o alvo do controlador (3); o ator recebe só os comandos de alto nível e os sensores (spec §19.1). O giro da caixa em torno da vertical entra pelas palmas, que giram com ela |
+| tolerância de cada alvo | P0 e P1: palmas a até 3 cm do alvo; P2: contato nas duas mãos, sem força mínima (dono, 05/10); P3: caixa 5 cm acima da laje, sem apoio, nivelada no limite do degrau; P4: caixa a até 5 cm do alvo de transporte e pelve a até 3 cm da altura da IK, por 0,5 s; B1: caixa a até 3 cm na horizontal, 5 cm acima do alvo; B2: apoio de 0,8·m·g ou mais, a até 0,10 m do alvo; B3: palmas a 5 cm ou mais das faces e caixa parada por 0,5 s; B4: pose de pé da IK com a mesma tolerância do P4. A calibrar contra o tremor das palmas medido no play |
 | P0 sem pose de IK | sai da geometria da caixa: palmas 5 cm à frente da face da frente, alinhadas às faces laterais (y = ±(a + 0,035)), na altura do centro; pelve e tronco do P0 e do P1 são os da IK da altura, como no P2 |
-| gerador de IK no treino | interpolação linear da tabela (`ref_v3_manipulacao.npz` por altura e tamanho; `ref_v3_de_pe.npz` por massa) nas grandezas do alvo (palmas no frame da caixa, altura da pelve, tronco, recuo da raiz), nunca IK por env |
+| gerador de IK no treino | interpolação linear da tabela (`ref_agachado.npz` por altura e tamanho; `ref_v3_de_pe_theta-30_tamanhos.npz` por tamanho, a mesma para toda massa; spec §8.1) nas grandezas do alvo (palmas no frame da caixa, altura da pelve, tronco, recuo da raiz), nunca IK por env |
 | forma do potencial | `γΦ(s') − Φ(s)`, com Φ de 0 a 1 por alvo (a proximidade ao alvo corrente) e um bônus fixo ao alcançar cada alvo; com Φ acumulado, segurar o P4 por 0,5 s custaria perto de um alvo inteiro (avaliação R2) |
 | sucesso do ANDAR | por subtarefa: razão entre o deslocamento projetado e o pedido, sobre o twist inteiro [P3, A11]; o parado: deriva de posição e de rumo abaixo de um limiar |
 | pesos | o bônus de cada alvo cobre o custo dos reguladores no trecho até ele, medido no ponto de operação (§5.3); números na spec |
@@ -541,7 +608,7 @@ deriva da odometria).
 |---|---|---|---|
 | P0–P3 | a caixa na laje | sim | câmera (tag CAIXA ou as CNNs) + depth; odometria entre leituras |
 | P4 e CARREGAR | o peito | não | — |
-| caixa na mão (depois de `pegou`) | as palmas | não | cinemática das mãos |
+| caixa na mão | a câmera, como antes da pega (dono, 14/10; a cinemática das mãos depois de `pegou` SAIU: `pegou` é do simulador) | sim | câmera + depth; sem leitura, a última fica e a idade cresce |
 | B1–B3 | o alvo de soltura na laje de destino | sim | tag MESA (marco da sessão) ou lidar; odometria |
 | B4 e esperas | de pé | não | — |
 
@@ -559,7 +626,7 @@ Proposta:
    (calibração), ruído por leitura, atraso, leitura retida na taxa do sensor, oclusão (sem leitura
    nova enquanto as mãos cobrem a caixa ou a caixa cobre a laje) e deriva de odometria entre
    leituras. O crítico continua com a verdade [C15].
-3. **Caixa na mão** pela cinemática das palmas depois de `pegou`.
+3. **Caixa na mão** pela câmera, como antes da pega (dono, 14/10). SUPERADO: "pela cinemática das palmas depois de `pegou`".
 4. **Canais novos:** a idade da leitura da caixa e a do alvo de soltura (2), no fim do bloco.
 5. **Quando entra:** a forma (atraso, taxa, oclusão, idade, troca para a cinemática) desde o
    começo, porque ela muda o laço fechado; as magnitudes (ruído, viés, deriva) crescem no refino
@@ -575,9 +642,10 @@ depth: um algoritmo detecta a caixa na imagem e outro detecta a orientação.
 | o que leva erro | hoje no treino | no refino, até |
 |---|---|---|
 | posição da caixa | nenhum (oráculo) | erro do depth (±2% da distância até 2 m, D435i) + tremor da detecção; atraso da inferência; leitura retida na taxa da câmera; sem leitura quando os braços cobrem a caixa ou ela está abaixo do alcance mínimo do depth (0,175–0,28 m) |
+| viés da câmera na caixa (dono, 06/10) | nenhum | até ±2 cm na posição e até ±2 cm no tamanho, fixos por episódio (calibração), além do tremor por leitura. O erro no tamanho vira erro de penetração do alvo da mão: caixa estimada menor → aperta mais; maior → pega frouxa. A pega tem de se ajustar pelo toque, não pela medida. O toque vem do torque PERCEBIDO pelo robô (dono, 06/10), nunca da força de contato: o ator só vê o que o G1 mede (juntas, ação anterior — o erro alvo − q dá o torque do PD). DECIDIDO (dono, 06/10): sem canal de `tau_est`; o modelo aprende a estimar o toque sozinho pelas 29 juntas. Para a relação erro de posição → força valer no real, a DR do REFINO (§12.1) inclui os ganhos do PD (0,9–1,1×, depois de alinhar ao kp do deploy), o atraso da ação (0–1 → 0–3 passos) e o atrito seco do motor (0–0,05 N·m) — faixas do `docs/relatorios/2026-10-05-dr-para-a-v3.md`; a força de contato fica só na recompensa e no crítico |
 | orientação da caixa | nenhum | o orientador medido no `g1-box-vision`: mediana 5,3°, p90 15,3°, 0,2% acima de 45°; o cubo é simétrico, então o erro conta módulo 90° |
 | detecção perdida | nenhuma | a taxa medida (o detector achou a caixa em 97,8%) |
 | alvo de soltura | nenhum | erro da detecção da laje + deriva da odometria |
-| IMU, juntas, velocidade da base | ruído uniforme do molde (giro ±0,2, gravidade ±0,05, posição ±0,01, velocidade de junta ±1,5, velocidade da base ±0,5) e viés de encoder ±0,015 | o mesmo, mais atraso de 1–2 passos |
-| física | atrito do pé 0,3–1,2; empurrões; massa da caixa 1–5 kg | mais atrito da caixa e da palma, ganhos do PD, massa e centro de massa do robô, atraso da ação |
+| IMU e juntas | ruído da Unitree (giro ±0,2, gravidade ±0,05, posição ±0,01, velocidade de junta ±1,5; sem velocidade linear da base no ator) e viés de encoder ±0,015 (spec §19.1); atraso de 0–1 passo na ação e na propriocepção desde a fase 0 (dono, 14/10, L4.3) | o mesmo, mais atraso de 1–2 passos |
+| física | atrito do pé 0,3–1,0 e massa do tronco −1 a +3 kg (Unitree); empurrões; massa da caixa 1–5 kg | mais atrito da caixa e da palma, ganhos do PD, massa e centro de massa do robô, atraso da ação de 0–2 e 0–3 passos |
 | one-hot e comando de velocidade | sem erro | sem erro: vêm exatos do controlador; ruído no one-hot faria frações entre tarefas |

@@ -39,7 +39,7 @@ robô real:   SDK da Livox ─────────────────�
 
 | item | valor (ponto de partida) |
 |---|---|
-| área | 2 × 2 m centrada no robô (raio de 1 m, dono 06/10) |
+| área | 2 × 2 m centrada no robô (raio de 1 m, dono 06/10) é o recorte que a política recebe; o filtro guarda um mapa interno de 5 × 5 m (dono, 14/10, D5) |
 | referencial | gira só com o rumo da base; alinhado à gravidade (roll e pitch saem) |
 | célula | 10 cm: 21 × 21 = 441 células; 5 cm (41 × 41 = 1 681) só se a medida de custo e de erro pedir |
 | canais por célula | altura e confiança: 882 canais com 10 cm |
@@ -73,7 +73,9 @@ o mapa só muda quando o terreno muda.
 
 É o desenho do `elevation_mapping` do ETH (Fankhauser), reduzido ao que a política precisa.
 
-**O lidar simplificado no treino:** R = 128 a 256 raios por leitura, a 10 Hz, tirados do padrão do
+**O lidar simplificado no treino:** R = 1024 raios por leitura (dono, 14/10, D6: com o mapa interno de
+5 × 5 m, 100% das células à frente com leitura a 1 m/s, contra 84,5% com 256; ~6% do passo em CPU; era
+128 a 256), a 10 Hz, tirados do padrão do
 MID-360 (§5), na pose `T_BASE_SENSOR` (§2), com o robô incluído no raycast (§7). A odometria do
 treino é o deslocamento verdadeiro mais ruído; o ruído cresce no refino até o erro do ESKF do
 `lidar_sim` (ATE de 1,5 cm na volta de 4 m), como o estimador da caixa (spec §13).
@@ -83,7 +85,7 @@ rampa, escada aleatória, chão irregular), como um nível a mais do ANDAR, depo
 velocidade no plano (dono, 06/10).
 
 **O CARREGAR no terreno (dono, 06/10: "em algum momento"; nível futuro).** MEDIDO em 06/10
-(`~/Downloads/ik_v3/sombra/sombra_caixa.py`, mapas `sombra_*.png`): raios do MID-360 na pose do URDF,
+(`g1_limpo/ik/sombra/sombra_caixa.py`, mapas `sombra_*.png`): raios do MID-360 na pose do URDF,
 robô de pé com a caixa no peito (pose `theta-30` da IK), contra as geometrias de colisão do robô, a
 caixa e o chão. As malhas visuais e a casca da cabeça saem do raio, porque no real o sensor olha por
 uma janela.
@@ -96,7 +98,9 @@ uma janela.
 | caixa de 26 cm | 0,89 m | 9% | 88% | 1,07–2,17 m, ±30° |
 
 Os lados e a trás não mudam com a caixa. Consequência: andando para a frente com a caixa grande, o
-chão some da vista a ~2,2 m, e não a ~0,9 m. A memória do mapa precisa guardar um degrau por
+chão some da vista a ~2,2 m, e não a ~0,9 m. ATUALIZADO 14/10 (D5): com a caixa de 26 cm, a faixa à frente de 0,9 a 1,1 m tem 0% de
+visibilidade, e o chão mais perto visto fica a 1,17 m, fora de um mapa de 2 × 2 m. Por isso o filtro
+guarda um mapa interno de 5 × 5 m. A memória do mapa precisa guardar um degrau por
 ~2,2 m de caminho em vez de ~0,9 m: 4,4 s a 0,5 m/s, contra 1,8 s sem caixa. A odometria erra pouco
 nesse trecho (ESKF: 1,5 cm em 4 m), então a sombra cabe no mesmo filtro, com duas regras:
 - o raycast do treino inclui a caixa na mão (§7): a sombra aparece no treino como no real;
