@@ -35,9 +35,9 @@ O treino, como está desenhado, não entrega a tarefa inteira. Ele entrega um n�
   - uma fonte real do estado da caixa (AprilTag no primeiro teste);
   - o LIO e o filtro do mapa rodando no robô.
   Sem qualquer uma delas, o resultado real é zero.
-- **O ciclo do produto (enunciado §1) não fecha nem no sim.** O passo 6 (REORIENTAR) fica fora da
-  v3, e as emendas do ciclo não são treinadas. Sem o passo 6 e com um controlador roteirizado, a
-  previsão é esta:
+- **O ciclo do produto (enunciado §1) não fecha nem no sim, porque o passo 6 (REORIENTAR) fica fora
+  da v3.** As emendas do ciclo não pedem treino próprio: o 24800 fez os ciclos sem elas (§2.1,
+  item 5; dono, 15/10). Sem o passo 6 e com um controlador roteirizado, a previsão é esta:
   - no sim: 0,5 a 0,8 por ciclo com caixa fácil e 0,2 a 0,5 na média do envelope;
   - no real, com caixa leve e tag: 5 a 35% por ciclo.
 - **Dificuldade:** 4/5 para a v3 como está escrita e 5/5 para a tarefa do dono.
@@ -106,15 +106,27 @@ Cada item diz o que acontece, a fonte e o conserto. Os ids levam ao anexo B.
    - Assim, a caixa no chão durante o CARREGAR conta como sucesso do PEGAR, contra o enunciado
      :84-86. O nível sobe com a caixa no chão, e o log superestima o PEGAR em mais de 10 p.p.
    - Conserto: acrescentar "e não `v3_perdeu`" a toda regra de sucesso.
-5. **Emendas e trocas em voo não são treinadas (loco-4, confiabilidade-4, sota-v1).**
-   - O treino não tem frear com a caixa, chegar andando ao BOTAR nem a troca para ANDAR com a
-     caixa na mão.
-   - Precedente MEDIDO no C3 (zero16, 30/09): uma troca de one-hot nunca treinada fez a política
-     largar a caixa ou cair em 28 de 28 envs.
-   - No real, o controlador troca de tarefa pela câmera (interface-real :243). Um falso alarme de
-     caixa perdida pode virar caixa no chão.
-   - Conserto: treinar a variante C' (1,5 a 4 s de CARREGAR andando antes do parado) e o comando
-     zero no meio da B. Isso reverte o risco que você aceitou em 02/10 (specs/g1-v3.md:260-262).
+5. **Emendas do ciclo: REBAIXADO pelo dono (15/10), com medida.**
+   - A validação previu que as emendas não treinadas derrubam o ciclo (loco-4, confiabilidade-4,
+     sota-v1). As emendas são frear com a caixa, trocar o comando no CARREGAR e chegar andando ao
+     BOTAR.
+   - O dono testou isso com o 24800 no autônomo da fase 1. MEDIDO
+     (`lidar_sim/runs/autonomo/*/resumo.json`): com o controlador ajustado, o 24800 fecha 10 de 10
+     corridas datadas. As corridas H e I fecham 3 tarefas seguidas, com 1, 3 e 5 kg, do pallet e
+     da mesa à mesa, com 18 a 21 s de transporte. As 2 falhas (L e h) são quedas no PEGAR do
+     pallet baixo com a caixa de 16 cm: é a habilidade isolada, e não a emenda.
+   - O C3 também não treinava as emendas. O comando não muda no meio do episódio
+     (`resampling_time_range = 1e9`), e nenhuma cadeia vai do ANDAR ao PEGAR
+     (`g1_limpo/comando.py:1068-1076`). Logo, a medida do 24800 vale para a v3.
+   - Condição: o controlador faz rampa, distância de parada e uma camada de rastreio calibrada
+     pela curva de cada checkpoint (`cenarios/curva_*.json`). A v3 vai pedir uma curva nova.
+   - Uma diferença NÃO passa do 24800 para a v3. O C3 sorteava um deslocamento lateral do alvo do
+     BOTAR em relação ao robô (`g1_limpo/comando.py:1909-1912`). O plano da v3 põe a laje reta à
+     frente, com jitter só para longe (plano:1554-1556). No autônomo, o erro lateral de chegada
+     mediu até 6,7 cm.
+   - Fica sem medida: a troca para ANDAR com a caixa na mão, depois de um falso alarme da câmera.
+     Precedente no C3 (zero16, 30/09): uma troca de one-hot nunca treinada largou a caixa em 28 de
+     28 envs.
 6. **O freio e o refino sobem em catraca e nunca descem (confiabilidade-v1).**
    - A regra está em specs/g1-v3.md:638-650. No C3, a catraca prendeu o sucesso abaixo do
      portão. É a pendência aberta "Freio em catraca sem descida".
@@ -293,7 +305,7 @@ uma peça fora do escopo: o estimador real.
 | 4 | Qual é o μ do pad (ou da luva) e da carcaça contra papelão, e o calor no aperto contínuo? | Plano inclinado com papelão (30 min). Depois, com o robô suspenso, segurar 3 e 5 kg por 120 s, lendo a temperatura e o `tau_est`. | 30 a 60 min, com o robô | Teto de 2–3 kg no real, ou uma luva de μ ≥ 0,8. No sim, contato por material e um treino novo. |
 | 5 | De onde vem o estado real da caixa e do topo da mesa? | Bancada com a D435i na pose da cabeça e caixas de 14, 20 e 26 cm em 20 poses, com e sem mãos. Medir a detecção, os erros e a latência p50 e p95. Primeiro com AprilTag. | algumas horas, sem treino | Sem fonte, a manipulação real não roda. Com tag, ela roda, e o modo sem marcador fica para depois. |
 | 6 | Que altura têm a mesa e o pallet do galpão? Que caixas o produto move? | Medir no galpão. | zero | Com mesa acima de 0,55 m, os passos 2, 5 e 7 saem da distribuição. Pedem níveis 0,55 → 0,70 → 0,90 m. |
-| 7 | Como a política reage às emendas? | Hoje, com o 24800 no `registra_juntas` (MuJoCo clássico, ~5 min): CARREGAR 5 s a 0,5 m/s e depois 3 s com comando zero; e CARREGAR a vx 0,10. | minutos, rodados por você | O BOTAR do ciclo cai 10–30 p.p. Treine a variante C' e o comando zero no meio da B. |
+| 7 | Como a política reage às emendas? | RESPONDIDA pelo dono (15/10): o 24800 no autônomo fecha os ciclos sem treino das emendas (§2.1, item 5). | — | — |
 
 As medidas 2, 3 e 4 pedem o robô. O vault registra que você não tem acesso a ele
 (`C4 v3/g1-v3-palma-de-plastico-5kg.md:11`).
@@ -310,7 +322,7 @@ Nenhuma destas mudanças entrou no plano. Elas esperam o seu veredito.
 | Pagar o valor do último toque do `passo` a cada passo de controle, vezes o rastreio. | S §19; termo `passo` | O passo miúdo deixa de ser ótimo. | loco-1 |
 | Mudar o ramo `c < 0,02` para −min((v/c_ref)², 1), com c_ref de 0,10 m/s e 0,15 rad/s. Sortear wz de 0,02 a 0,25 rad/s e dar comando baixo ao CARREGAR. | rastreio; sorteio de comando | Giro no lugar sem deslizar; a chegada lenta com a caixa passa a ser treinada. | loco-2, loco-v1, loco-v2 |
 | Acrescentar "e não `v3_perdeu`" a toda regra de sucesso. | plano:1497-1498 | O nível não sobe com a caixa no chão, e o log mede o que o ciclo usa. | confiabilidade-2 |
-| Treinar as emendas: C' com 1,5 a 4 s de CARREGAR andando antes do parado (episódio de 24 s); comando zero no meio da B; laje de destino com ±0,08 m de deslocamento lateral. | S §7; reverte a decisão de 02/10 | +10 a +30 p.p. no BOTAR do ciclo. | loco-4, confiabilidade-4, manip-5, sota-v1 |
+| Sortear um deslocamento lateral do alvo do BOTAR em relação ao robô, como o C3 fazia (`g1_limpo/comando.py:1909-1912`). A variante C' e o comando zero no meio da B SAEM: o dono mediu, com o 24800, que o ciclo não precisa deles (15/10). | F2 (`posiciona_destino`, plano:1554-1556) | O BOTAR aceita o erro lateral de chegada, que mediu até 6,7 cm no autônomo. | confiabilidade-4, manip-5 |
 | Pôr no atuador do sim o limite real da cintura e do tornozelo (ou 35 N·m, por segurança), com o limite da soma pitch+roll. | cena; knob do atuador | O que passa no sim passa no real. O canto de 4–5 kg em laje baixa pode sair do envelope. | fisica-2, fisica-v1, sim2real-v1 |
 | Contato por material: o robô com priority acima da caixa; DR de μ só no pad (0,5–0,9); o pulso e o tronco com o μ medido; DR de μ na laje de 0,3 a 1,0. | cena e DR | A pega do sim passa a depender do que existe no real. O arrasto na soltura aparece no treino. | fisica-4, sim2real-2, manip-1 |
 | Estimador mais honesto: FOV do RGB, alcance mínimo de 0,5 m, viés de orientação por episódio, ±2 cm no tamanho e no alvo do PEGAR, erro no alvo do BOTAR, latência medida, caixa tirada do mapa pela cinemática das palmas. | S §13; plano:465 | A política deixa de depender de uma leitura perfeita de perto. | percepcao-2, -3, -5, -v1, -v2, -v3 |
@@ -354,8 +366,8 @@ custo é rearquitetar e abrir mão de "um modelo só".
    caixas de galpão maiores?
 4. Você aceita um teto de 3 kg no primeiro deploy real, até medir o μ, o limite da cintura e o calor?
 5. Você aceita AprilTag na caixa e no destino no primeiro teste real?
-6. Você aceita treinar as emendas (C' e comando zero no meio da B) e reverter o risco aceito em
-   02/10?
+6. RESPONDIDA (dono, 15/10): as emendas não entram no treino. O 24800 fecha os ciclos quando
+   aprende bem as tarefas isoladas.
 7. O galpão pede escada com caixa, ou bastam soleira e rampa de doca? Se bastam, o terreno com
    caixa pode sair da v3.
 8. Que taxa por ciclo, e quantas intervenções por hora, contam como sucesso do produto? O 9 de 10
@@ -403,6 +415,8 @@ custo é rearquitetar e abrir mão de "um modelo só".
 ## Anexo A. Tarefa × resultado previsto, requisito a requisito
 
 Fonte: síntese do workflow, com os ajustes dos verificadores. "sim" e "real" dizem se o requisito é atendido. Os ids dos achados estão no anexo B.
+
+O R31 (emendas) foi rebaixado em 15/10 pela medida do dono com o 24800 (§2.1, item 5). A linha abaixo guarda a previsão original.
 
 | req | requisito | pedido | previsto | sim | real | achados |
 |---|---|---|---|---|---|---|
