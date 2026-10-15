@@ -264,7 +264,7 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-12 | células do balanceador | uma célula por TIPO de subtarefa (ANDAR: reto, parado, baixo, giro andando, giro no lugar, terreno). O nível da tarefa sobe quando todas as células abertas passam no portão e todos os tipos já abriram. A EMA da tarefa recomeça na primeira medida depois da subida. Mínimo de 50 its entre subidas | com uma célula por (tipo, nível), o piso 0,10 estoura com mais de 10 células; "o nível k sorteia entre 0,25 e o teto" já inclui os níveis de baixo |
 | PD-13 | EMA do sucesso | uma atualização por iteração, com os segmentos e episódios que fecharam nela, α 0,05 | o mesmo α do balanceador do `g1_limpo` (`Cadeia.balanceador_alpha`) |
 | PD-14 | déficit das fatias | ANDAR = células do ANDAR; B = células do PEGAR e do CARREGAR; C = célula do BOTAR | a S §11.1 fala em déficit "da tarefa", e as fatias juntam tarefas |
-| PD-15 | sucesso com canal zero | posição deriva < 0,10 m e rumo deriva < 0,25 rad no segmento | S §11.3 "abaixo de um limiar" sem número; 0,10 m é o do aceite do giro no lugar (S §15) |
+| PD-15 | sucesso com canal zero | posição deriva < 0,10 m e rumo deriva < 0,25 rad, medidas a partir de uma âncora que fica `ancora_s` 1,5 s depois da abertura do segmento e passa a 1,5 s depois de cada empurrão (DONO, 15/10); um segmento que fecha antes da âncora não registra. Antes de 15/10 a deriva contava o segmento inteiro, e a frenagem do 24800 (0,126 m de 0,5 m/s; 0,62 m de 1,5 m/s, `lidar_sim/cenarios/curva_model_24800.json`) reprovava o parado acima de ~0,5 m/s e travava o nível do ANDAR e o terreno | S §11.3 "abaixo de um limiar" sem número; 0,10 m é o do aceite do giro no lugar (S §15) |
 | PD-16 | passo de lado | `L` = projeção, na direção do comando, de (pé que toca − pé de apoio), MENOS a mesma projeção na pose de pé (`q_de_pé`) | sem isto, o passo de lado recebe a largura da base (0,23 m) de graça |
 | PD-17 | crítico | sem mapa perfeito; o crítico recebe o mapa do filtro | a S §19.1 só propõe; um segundo raycast dobra o custo |
 | PD-18 | estimador "baixo" desde o começo | posição σ 0,5 cm, orientação σ 1°, perda 0,5%, latência 33 ms, 30 Hz, deriva da odometria 0,002 m/√m (0,4 cm em 4 m; o refino vai a 0,0075 m/√m = 1,5 cm em 4 m, o ATE do ESKF) | a S §13 diz "baixo" sem número (sanidade 4.5.2); a deriva cresce com a raiz da distância, e não com a distância (D2b) |
@@ -296,6 +296,9 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; `Mapa` e `Caixa` só leem | dois termos dando o passo dobrariam a deriva |
 | PD-45 | cerca de torque nos pares acoplados (DONO, 15/10) | nos pares (`waist_pitch`, `waist_roll`), (`left_ankle_pitch`, `left_ankle_roll`) e (`right_ankle_pitch`, `right_ankle_roll`), a fração é (\|τp\| + \|τr\|)/`tau_par` com `tau_par` 50; nas outras juntas segue \|τ_j\|/`tau_max_j`. O atuador fica em 50 N·m por eixo | dois motores 5020 movem o pitch e o roll de cada par juntos: com engrenagem 1:1 (hipótese do mjlab, `g1_constants.py`), o real tem \|τp\| + \|τr\| ≤ 50. O `unitree_rl_lab` treina com 25 por eixo; o `MIMIC_CFG` da Unitree, com 50. MEDIDO nos plays do C3 (torque pelo PD): o roll da cintura tem p95 de 12–16 N·m; a soma passa de 40 em 1,5–10,7% dos passos com caixa, contra 0,8–3,8% por junta. Fica a pergunta à Unitree: se o pitch puro tem só 25, os 5 kg nas lajes baixas saem (`docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2, item 8) |
 | PD-46 | atrito por material (DONO, 15/10) | caixa com `priority` 0 e μ 0,3; colisões do robô (`.*_collision`, pulso e tronco inclusive) e pads de dorso com μ 0,3; pés 0,6 (`priority` 1, DR 0,3–1,0); pads de palma com o DR de μ que era da caixa; laje com `priority` 3 e DR de μ 0,3–1,0. Com `priority` igual, o MuJoCo usa o maior μ e o maior condim do par (3), e o `solref` sai da mistura dos dois | com a caixa em `priority` 2, o μ sorteado da caixa (0,5–1,0) valia no pulso e no tronco, que fazem ~2/3 da força da pega no C3 (`docs/relatorios/2026-10-05-dr-de-atrito-pega-e-transferencia.md:30-42`); no real eles são carcaça. 0,3 é hipótese até alguém medir. Conta: 5 kg pedem 49 N de atrito; pads a μ 0,5 dão 40 N e o pulso a 0,3 dá ~42 N |
+| PD-48 | forma do `passo` (DONO, 15/10) | r = min(relu(L)/`L_alvo`, 1)² por toque, vezes max(r_lin, 0); peso 0,5 sem mudança | por toque e linear, o termo paga por segundo cadência × L/`L_alvo` = v/`L_alvo`, o mesmo para todo L abaixo do alvo: derivada zero em L. Com o quadrado, paga v·L/`L_alvo`², que cresce até o alvo e é o mesmo de antes no alvo. MEDIDO no 24800: passo de ~0,20 m no ANDAR e de ~0,045 m (6,6 passos/s) no CARREGAR; no ponto do C3, 0,34/s no passo miúdo contra 1,5/s no alvo |
+| PD-49 | σ do canal zero (DONO, 15/10) | no ramo c < `limiar` do `rastreio_normalizado`, exp(−v²/σ₀²) − 1 com `sigma_zero` 0,10 m/s no linear e 0,15 rad/s no giro; piso −1 | com o σ 0,5 da Unitree, deslizar a 0,05 m/s custava 0,01 e a derivada era −0,4 por m/s; com σ₀ 0,10, custa 0,22 e a derivada é −7,8 por m/s. É o deslocamento da base no giro no lugar e o rumo que deriva sem comando (pendência "Giro no lugar estranho") |
+| PD-50 | sucesso sem perda (DONO, 15/10) | toda regra de sucesso do PEGAR, do CARREGAR e do BOTAR exige `não v3_perdeu` no instante do registro | com `caixa_perdida_vira_andar`, perder a caixa não termina o episódio: o PEGAR contava a caixa caída no CARREGAR, o segmento do CARREGAR passava a razão sem a caixa, e o B4 fechava com a caixa caindo da laje depois (enunciado :84-86) |
 | PD-47 | laje de destino (DONO, 15/10) | o alvo de soltura fica a `destino_borda` 0,15 m para dentro da borda perto da laje, centrado no lado; a laje gira `destino_giro_max` ±10° em torno do alvo, contra o rumo da base; o alvo sai do rumo da base em y U[−0,10; 0,10] m; em x, o alvo fica a `recuo(h_dest, a)` + o jitter só para longe + e(θ) = 0,15·cos θ + 0,30·sen\|θ\| − 0,15 (até 5 cm a 10°), que mantém o canto mais perto à mesma distância da base [C38] | no autônomo, o erro lateral de chegada ao BOTAR mediu até 6,7 cm, e o 24800 treinou com a laje a ±0,10 m de lado (`g1_limpo/comando.py:1888-1895`). A laje fora do paralelo é o caso real (dono). Sem a borda: com o alvo no centro da laje de 0,60 m posto a 0,25–0,44 m da base, a borda perto caía de −0,05 a +0,14 m da base, dentro do corpo; o C3 punha o alvo a 0,15 m da borda (`botar_recuo_borda`, `g1_limpo/knobs.py:252`) |
 
 ---
@@ -409,7 +412,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `reamostra_s` | (3,0; 8,0) | S §7 |
 | | `janela_media_s` | 0,8 | S §19, conflito 5 |
 | | `limiar_canal` | 0,02 | S §19, conflito 5 |
-| | `deriva_pos_m`, `deriva_rumo_rad` | 0,10; 0,25 | PD-15 |
+| | `deriva_pos_m`, `deriva_rumo_rad`, `ancora_s` | 0,10; 0,25; 1,5 | PD-15 |
 | | `razao_portao` | 0,50 | S §11.3 |
 | | `pedido_min_segmento` | 0,5 | `g1_limpo/comando.py:2507` |
 | | `terreno_v_max` | 1,0 | PD-12 (célula terreno usa o reto do nível, até 1,0 m/s) |
@@ -434,6 +437,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `faixa_tronco_graus`, `faixa_recuo`, `faixa_com` | 15; 0,08; 0,03 | S §8.2 |
 | | `delta_tronco_graus`, `delta_recuo`, `delta_com` | 15; 0,08; 0,03 | PD-23 |
 | `Recompensa` | `rastreio_linear`, `rastreio_angular`, `sigma_rastreio`, `piso_rastreio` | 1,0; 0,5; 0,5; −1,0 | S §9.2, §19 |
+| | `sigma_zero_lin`, `sigma_zero_ang` | 0,10; 0,15 | PD-49 |
 | | `passo`, `L_min`, `fator_T` | 0,5; 0,20; (0,8; 1,4) | S §19, conflito 6 |
 | | `vivo` | 0,15 | S §9.2 |
 | | `altura_pe`, `alvo_pe`, `std_pe`, `tanh_pe` | 1,0; 0,10; 0,05; 2,0 | S §9.2; `foot_clearance_reward` do unitree_rl_lab |
@@ -540,8 +544,8 @@ def fator_pouso(v_vertical, fundo_sobre_laje, sigma, altura) -> torch.Tensor: ..
 def custo_aperto(F_esq, F_dir, F_ref) -> torch.Tensor: ...  # 1 − exp(−min(F_esq,F_dir)/F_ref); peso −w (S §8.2, B02)
 def dobradica(x, limite) -> torch.Tensor: ...             # relu(x − limite)  (cercas, S §9.3)
 def excesso_de_junta(q, centro, meio, mole) -> torch.Tensor: ...  # Σ relu(|q−c|/m − mole)/(1−mole)  (S §9.2)
-def rastreio_normalizado(erro2, c, v2, sigma, limiar, piso) -> torch.Tensor: ...
-    # c ≥ limiar: (exp(−e²/σ²) − exp(−c²/σ²)) / (1 − exp(−c²/σ²)), com piso; c < limiar: exp(−v²/σ²) − 1  (S §19, conflito 5)
+def rastreio_normalizado(erro2, c, v2, sigma, sigma_zero, limiar, piso) -> torch.Tensor: ...
+    # c ≥ limiar: (exp(−e²/σ²) − exp(−c²/σ²)) / (1 − exp(−c²/σ²)), com piso; c < limiar: exp(−v²/σ₀²) − 1  (S §19, conflito 5; PD-49)
 def L_alvo(v_cmd, L_min, fator_T) -> torch.Tensor: ...    # |v|·clamp(2·L_min/|v|, 0,8, 1,4)/2  (S §19, conflito 6)
 ```
 
@@ -662,6 +666,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_p4_fechado`, `v3_b4_fechado`, `v3_perdeu_agora` | (E,) bool | `comando.cadeia` | `comando`, `terminacoes`, `recompensas` |
 | `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia` | `recompensas`, `terminacoes`, `comando.twist` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
+| `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio (−∞ sem empurrão); (E,4) pose da âncora do canal zero (x, y, rumo, instante) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
 
 ### 6.5 Termos (nomes exatos, na ordem do dict)
 
@@ -903,8 +908,8 @@ depois o 15) → B6.
     N (S §8.2); `fator_pouso(0,9, 0,02, 1,0, 0,05)` = 0,445 ± 0,001 (S §9.1: 0,44), e 1 com o fundo a
     0,10 m; `excesso_de_junta` = 0 a 90% do meio curso, 0,5 a 97,5%, 1 a 100% (S §9.2);
     `rastreio_normalizado`: c 0,5 e erro 0 → 1; robô parado (erro = c) → 0; c 0,05 e metade da
-    velocidade → 0,75 ± 0,01 (S §19, conflito 5); c 0,01 e v 0 → 0; c 0,01 e v 0,5 → −0,632; piso
-    −1 respeitado; `L_alvo` 0,25 → 0,175; 0,5 → 0,20; 1,0 → 0,40; 1,5 → 0,60 (S §19, conflito 6).
+    velocidade → 0,75 ± 0,01 (S §19, conflito 5); c 0,01 e v 0 → 0; c 0,01, v 0,05 e σ₀ 0,10 →
+    −0,221 ± 0,001 (PD-49); c 0,01, v 0,5 e σ₀ 0,10 → −1,000 ± 0,001; piso −1 respeitado; `L_alvo` 0,25 → 0,175; 0,5 → 0,20; 1,0 → 0,40; 1,5 → 0,60 (S §19, conflito 6).
   - `alvos`: `Referencias` devolve a grade nos nós e a média no meio de dois nós; clamp abaixo de 0 e
     acima de 0,55; `frame_da_caixa` com a caixa girada 30° e o robô a 0° dá o eixo x a 30°; com a
     caixa a 50°, dá −40°; `inclinacao_da_caixa` da caixa girada 90° em x = 0 (simetria) e girada 20°
@@ -1186,7 +1191,10 @@ Ondas:
        janela atrasa até 0,8 s").
     4. Sucesso por segmento, no fecho do segmento (`_fecha_segmento`, `comando.py:2392-2437`):
        canal ativo (|c| ≥ 0,02): razão projetada ≥ 0,50 (linear: Σ(v·ĉ)dt / Σ|c|dt; giro: Σ(ω·sinal)dt
-       / Σ|wz|dt); canal zero: deriva de posição < 0,10 m e de rumo < 0,25 rad no segmento (PD-15);
+       / Σ|wz|dt); canal zero: deriva de posição < 0,10 m e de rumo < 0,25 rad a partir da âncora
+       `v3_ancora`, gravada `ancora_s` depois da abertura do segmento e regravada `ancora_s` depois de
+       cada empurrão (`v3_t_empurrao`); um segmento que fecha antes da âncora não registra (PD-15);
+       no CARREGAR, todo registro exige também `não v3_perdeu` (PD-50);
        chama `v3_cur.registra(celula, 1, sucesso)`. Um segmento aberto numa terminação que não é
        `time_out` registra falha (S §11.3 "sem queda").
     5. `razao_marcha` fica, como diagnóstico.
@@ -1210,7 +1218,9 @@ Ondas:
   [0,25; 0,75] para a frente e em [0,25; 0,75] de lado, e as 4 direções com 25 ± 1%; `giro_lugar` tem
   linear 0; `baixo` fica em [0,05; 0,25]; `avanca_trecho` na fatia C passa do PEGAR ao CARREGAR
   parado só depois do aviso mais o atraso, e o one-hot fica em BOTAR no atraso do BOTAR; o sucesso
-  do segmento com 60% de razão passa e com 40% falha; o parado com deriva de 0,15 m falha.
+  do segmento com 60% de razão passa e com 40% falha; o parado com deriva de 0,15 m depois da âncora
+  falha; o parado que anda 0,30 m nos primeiros 1,5 s (frenagem) e 0,05 m depois passa; um empurrão
+  no meio regrava a âncora; um segmento de 1 s não registra.
 - Contagem: 2 526 → ~600. Commit: `feat(v3): twist por célula e cadeia de trechos`.
 
 ### D4 — `curriculo.py` (Sonnet)
@@ -1237,8 +1247,8 @@ Ondas:
   | termo | núcleo | dado do env | tarefas (S §9.2) |
   |---|---|---|---|
   | `rastreio_linear` | `potencial.rastreio_normalizado` com c = ‖cmd_xy‖, erro² = ‖cmd_xy − v̄_xy‖², v² = ‖v̄_xy‖²; vezes `qualidade(env)` (1 na fase D; a fase E troca pelo `CarregarComQualidade`) | `twist.v_media_b` | todas (no PEGAR e no BOTAR, comando zero dá só o custo da deriva) |
-  | `rastreio_angular` | idem com c = abs(wz), v = v̄_wz | idem | todas |
-  | `passo` | no toque (contato agora e não no passo anterior): L = (p_toque − p_apoio)·ĉ_w − (p_toque⁰ − p_apoio⁰)·ĉ_b (PD-16); r = min(relu(L)/`L_alvo`, 1) · max(r_lin, 0); zero com ‖cmd_xy‖ < 0,02 | sites dos pés; `pes_chao`; `pes_de_pe_b` da `referencias.npz` | ANDAR, CARREGAR |
+  | `rastreio_angular` | idem com c = abs(wz), v = v̄_wz; σ₀ = `sigma_zero_ang` (o linear usa `sigma_zero_lin`, PD-49) | idem | todas |
+  | `passo` | no toque (contato agora e não no passo anterior): L = (p_toque − p_apoio)·ĉ_w − (p_toque⁰ − p_apoio⁰)·ĉ_b (PD-16); r = min(relu(L)/`L_alvo`, 1)² · max(r_lin, 0) (PD-48); zero com ‖cmd_xy‖ < 0,02 | sites dos pés; `pes_chao`; `pes_de_pe_b` da `referencias.npz` | ANDAR, CARREGAR |
   | `vivo` | 1 | — | ANDAR, CARREGAR |
   | `altura_pe` | exp(−Σ_pés (h − 0,10)²·tanh(2·‖v_xy‖)/0,05) | `altura_pes`, velocidade dos `*_ankle_roll_link` | ANDAR, CARREGAR |
   | `escorrego` | Σ_pés ‖v_xy‖·contato | idem, `pes_chao` | todas |
@@ -1262,6 +1272,7 @@ Ondas:
   Unidades das cercas: ângulo em graus, comprimento em metros, torque em fração. O `item3_escada`
   usa os mesmos núcleos e as mesmas unidades.
 - Teste (`test_recompensas`): passo: L = 0,20 m a 0,5 m/s com r_lin 1 → 1; L = 0,40 → 1 (satura);
+  L = 0,10 → 0,25, e a soma por segundo com L = 0,10 e o dobro da cadência dá a metade da de L = 0,20 (PD-48);
   passo de lado com os pés na largura da pose de pé → 0; `altura_pe` com os pés parados → 1;
   `cerca_giro` com `hip_yaw_E` = −40° → 10; `cerca_tronco` com 20° no ANDAR → 5; `cerca_com` com o
   CoM 5 cm dentro → 0 e 1 cm dentro → 0,02; um pé só no chão → 0; `cerca_torque` com 90% → 0,5;
@@ -1301,7 +1312,8 @@ Ondas:
     `massa_tronco` (`dr.body_mass`, soma de −1 a +3 kg no `torso_link`); `vies_encoder`
     (`dr.encoder_bias`, ±0,015); `atraso`: põe `max_lag` = 4 nos buffers de atraso dos atuadores e
     1 nos dos termos de observação (PD-28).
-  - intervalo: `empurrao` (`mdp.push_by_setting_velocity`, `interval_range_s` (5, 5), x e y ±0,5).
+  - intervalo: `empurrao` (`mdp.push_by_setting_velocity`, `interval_range_s` (5, 5), x e y ±0,5),
+    envolvido para gravar `v3_t_empurrao` dos envs empurrados (PD-15).
 - Teste (`test_eventos`): o núcleo de escolha de coluna e linha: fatia B nunca cai na coluna 6
   (`irregular`); CARREGAR com nível de terreno 9 fica na linha ≤ 6 nas colunas de obstáculo e ≤ 6
   nas de escada; ANDAR no plano fica na coluna 0.
@@ -1486,11 +1498,11 @@ visibilidade da D435i`.
    = True, `v3_tarefa` = ANDAR (parado) até o fim, `v3_alvo_idx` = B4 com σ = a distância à pose de
    pé no instante da perda (a volta à pose de pé paga uma vez, como potencial; ao fechar o B4, o
    índice vai a −1). Sem a chave, a terminação `caixa_perdida` encerra (E5).
-5. Sucesso do PEGAR (S §11.3): `v3_p4_fechado` e o trecho seguinte sem terminação; registra no fim
+5. Sucesso do PEGAR (S §11.3): `v3_p4_fechado`, o trecho seguinte sem terminação e `não v3_perdeu` no registro (PD-50); registra no fim
    do trecho seguinte (B: no fim do episódio; C: na abertura do BOTAR) ou falha numa terminação.
 Teste: o núcleo de avanço com estados sintéticos passa de P0 a P4 na ordem e não avança com a caixa
 a 40°; a caixa perdida com a chave liga `v3_perdeu` e troca a tarefa; o sucesso do PEGAR conta
-falha com queda no CARREGAR. Commit: `feat(v3): cadeia B com alvos macro e detector de fim`.
+falha com queda no CARREGAR e com a caixa perdida no CARREGAR, chave ligada (PD-50). Commit: `feat(v3): cadeia B com alvos macro e detector de fim`.
 
 **E4 — `recompensas.py`, manipulação (Sonnet).**
 
@@ -1568,7 +1580,7 @@ caixa a ≤ 3 cm do alvo + 5 cm na horizontal; B2, caixa a ≤ 0,10 m do alvo, n
 (PD-39), por 0,5 s; B4, pelve a ≤ 3 cm de `pelve_de_pe` e tronco a ≤ 5°, por 0,5 s. No primeiro apoio,
 `v3_ponto_apoio` = posição da caixa (invariante B2–B4). Detector com a pose de pé sem caixa; depois do
 aviso, espera U[0; 1,5] s com o one-hot em BOTAR, e o ANDAR parado de 1,5 s. Sucesso do BOTAR: B4
-fechado e o ANDAR parado final sem terminação. O CARREGAR parado da C não registra célula.
+fechado, o ANDAR parado final sem terminação e `não v3_perdeu` no registro (PD-50). O CARREGAR parado da C não registra célula.
 Commit: `feat(v3): cadeia C com B1–B4`.
 
 **F2 — `eventos.py` (Sonnet).** `posiciona_destino(env, ids)` (PD-47): sorteia θ U[−10°; 10°] e
@@ -1854,3 +1866,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-14 | versão inicial | pedido do dono |
 | 2026-10-14 | revisão inteira do plano: 25 correções (PD-35 a PD-44, alturas de queda livre, teste do mapa parado, referência macro por alvo, dono único da odometria, média por célula, módulos puros sem import entre si, eventos e buffers que faltavam no contrato, tabelas quebradas) | `docs/relatorios/2026-10-14-plano-v3-achados.md` |
 | 2026-10-15 | cena, três decisões do dono depois da validação de viabilidade: cerca de torque pela soma nos pares acoplados da cintura e dos tornozelos (PD-45); atrito por material, com a caixa em `priority` 0 e o DR de μ nos pads e na laje (PD-46); laje de destino com o alvo a 0,15 m da borda perto, ±0,10 m de lado e giro de ±10° (PD-47). Corrige também o alvo no centro da laje de 0,60 m, que punha a borda perto dentro do corpo [C38]. Contagem: ~+20 linhas no pacote (`cena.py`, `eventos.py`, `alvos.py`, `recompensas.py`), nenhum termo novo | `docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2 e §6.1; respostas do dono em 15/10 |
+| 2026-10-15 | currículo e recompensa, quatro decisões do dono depois da validação de viabilidade: âncora de 1,5 s no sucesso do canal zero (PD-15); `passo` ao quadrado por toque (PD-48); σ próprio no canal zero do rastreio, 0,10 m/s e 0,15 rad/s (PD-49); `não v3_perdeu` em todo sucesso do PEGAR, do CARREGAR e do BOTAR (PD-50). Contagem: ~+14 linhas no pacote, nenhum termo novo, nenhum peso muda | `docs/relatorios/2026-10-15-viabilidade-v3.md` §2.1, itens 1 a 4; respostas do dono em 15/10 |
