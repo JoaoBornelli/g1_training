@@ -312,7 +312,7 @@ As medidas 2, 3 e 4 pedem o robô. O vault registra que você não tem acesso a 
 
 ## 6. Mudanças que aumentam a viabilidade
 
-Em 15/10, o dono aprovou as três mudanças da cena, e elas entraram no plano: a cerca de torque pela soma do par (PD-45), o atrito por material (PD-46) e a laje de destino de lado e girada ±10° (PD-47). A laje girada foi um pedido do dono. As outras mudanças esperam o veredito dele.
+Em 15/10, o dono aprovou as três mudanças da cena, e elas entraram no plano: a cerca de torque pela soma do par (PD-45), o atrito por material (PD-46) e a laje de destino de lado e girada ±10° (PD-47). A laje girada foi um pedido do dono. No mesmo dia entraram as quatro de currículo e recompensa: a âncora do parado (PD-15), o `passo` ao quadrado (PD-48), o σ do canal zero (PD-49) e o sucesso sem perda (PD-50). O estimador e o aceite esperam o veredito do dono.
 
 ### 6.1 Mudam o resultado no sim, e custam pouco antes do código
 
