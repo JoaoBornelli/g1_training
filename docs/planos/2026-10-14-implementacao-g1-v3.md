@@ -294,6 +294,9 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-42 | z por célula no filtro | a MÉDIA dos z da leitura na célula, com variância σ_m²/n | o máximo de n pontos com ruído de 2 cm sobe o chão em ~+2 cm com 5 pontos; o desvio da PERC §0 ("a altura dos pontos de contato") fica na média |
 | PD-43 | import dos módulos puros | não importam uns aos outros; recebem os knobs como argumento | carga por caminho no sim do real e no robô (PERC §2) |
 | PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; `Mapa` e `Caixa` só leem | dois termos dando o passo dobrariam a deriva |
+| PD-45 | cerca de torque nos pares acoplados (DONO, 15/10) | nos pares (`waist_pitch`, `waist_roll`), (`left_ankle_pitch`, `left_ankle_roll`) e (`right_ankle_pitch`, `right_ankle_roll`), a fração é (\|τp\| + \|τr\|)/`tau_par` com `tau_par` 50; nas outras juntas segue \|τ_j\|/`tau_max_j`. O atuador fica em 50 N·m por eixo | dois motores 5020 movem o pitch e o roll de cada par juntos: com engrenagem 1:1 (hipótese do mjlab, `g1_constants.py`), o real tem \|τp\| + \|τr\| ≤ 50. O `unitree_rl_lab` treina com 25 por eixo; o `MIMIC_CFG` da Unitree, com 50. MEDIDO nos plays do C3 (torque pelo PD): o roll da cintura tem p95 de 12–16 N·m; a soma passa de 40 em 1,5–10,7% dos passos com caixa, contra 0,8–3,8% por junta. Fica a pergunta à Unitree: se o pitch puro tem só 25, os 5 kg nas lajes baixas saem (`docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2, item 8) |
+| PD-46 | atrito por material (DONO, 15/10) | caixa com `priority` 0 e μ 0,3; colisões do robô (`.*_collision`, pulso e tronco inclusive) e pads de dorso com μ 0,3; pés 0,6 (`priority` 1, DR 0,3–1,0); pads de palma com o DR de μ que era da caixa; laje com `priority` 3 e DR de μ 0,3–1,0. Com `priority` igual, o MuJoCo usa o maior μ e o maior condim do par (3), e o `solref` sai da mistura dos dois | com a caixa em `priority` 2, o μ sorteado da caixa (0,5–1,0) valia no pulso e no tronco, que fazem ~2/3 da força da pega no C3 (`docs/relatorios/2026-10-05-dr-de-atrito-pega-e-transferencia.md:30-42`); no real eles são carcaça. 0,3 é hipótese até alguém medir. Conta: 5 kg pedem 49 N de atrito; pads a μ 0,5 dão 40 N e o pulso a 0,3 dá ~42 N |
+| PD-47 | laje de destino (DONO, 15/10) | o alvo de soltura fica a `destino_borda` 0,15 m para dentro da borda perto da laje, centrado no lado; a laje gira `destino_giro_max` ±10° em torno do alvo, contra o rumo da base; o alvo sai do rumo da base em y U[−0,10; 0,10] m; em x, o alvo fica a `recuo(h_dest, a)` + o jitter só para longe + e(θ) = 0,15·cos θ + 0,30·sen\|θ\| − 0,15 (até 5 cm a 10°), que mantém o canto mais perto à mesma distância da base [C38] | no autônomo, o erro lateral de chegada ao BOTAR mediu até 6,7 cm, e o 24800 treinou com a laje a ±0,10 m de lado (`g1_limpo/comando.py:1888-1895`). A laje fora do paralelo é o caso real (dono). Sem a borda: com o alvo no centro da laje de 0,60 m posto a 0,25–0,44 m da base, a borda perto caía de −0,05 a +0,14 m da base, dentro do corpo; o C3 punha o alvo a 0,15 m da borda (`botar_recuo_borda`, `g1_limpo/knobs.py:252`) |
 
 ---
 
@@ -392,6 +395,8 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `caixa_n_variantes` | 8 | `g1_limpo/knobs.py:30` |
 | | `caixa_massa_base` | 1,0 | S §11.2 |
 | | `pad_atrito` | (1,0; 0,02; 0,001) | `g1_limpo/cena.py:245` |
+| | `caixa_priority`, `caixa_atrito`, `robo_atrito` | 0; (0,3; 0,02; 0,001); (0,3; 0,02; 0,001) | PD-46 |
+| | `destino_borda`, `destino_jitter_y`, `destino_giro_max_graus` | 0,15; 0,10; 10 | PD-47 |
 | | `grupo_mobilia` | 1 | PD-9 |
 | | `prateleira_*`, `caixa_xy`, `caixa_jitter_y`, `jitter_x_max`, `jitter_z`, `reset_base_manipula` | os valores do `g1_limpo/knobs.py` `Cena` e `Nivel` | cópia |
 | | `njmax`, `nconmax`, `impratio`, `cone` | 800; 300; 1,0; "pyramidal" | `g1_limpo/knobs.py:103-106`; S §12 (L2) |
@@ -439,6 +444,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `cerca_sola`, `cerca_giro`, `cerca_tronco`, `cerca_com`, `cerca_torque`, `cerca_pelve`, `cerca_recuo` | `None` (Parte 0, item 3) | S §9.3; PD-30 |
 | | `lim_sola_graus`, `lim_giro_graus`, `lim_tronco_graus`, `lim_com`, `lim_torque`, `banda_torque`, `lim_pelve`, `lim_recuo` | 5; 30; 15; 0,03; 0,8; 0,2; 0,08; 0,08 | S §9.3 |
 | | `tau_max` | por regex: joelho e `hip_roll` 139; `hip_pitch`, `hip_yaw`, `waist_yaw` 88; cintura e tornozelo 50; ombro, cotovelo, `wrist_roll` 25; `wrist_pitch`, `wrist_yaw` 5 | S §9.3 |
+| | `pares_torque`, `tau_par` | ((`waist_pitch_joint`, `waist_roll_joint`), (`left_ankle_pitch_joint`, `left_ankle_roll_joint`), (`right_ankle_pitch_joint`, `right_ankle_roll_joint`)); 50,0 | PD-45 |
 | | `contato_fora`, `contato_fora_N` | −1,0; 1,0 | S §9.2 |
 | | `contato_laje`, `laje_joelho_N`, `laje_saturacao_N` | −2,0; 50; 100 | S §9.2; `g1_limpo/knobs.py` `Contato` |
 | | `freio`, `freio_fator`, `vel_max_parado`, `vel_max_andando`, `vel_max_correndo` | −6/29; 1,5; os do `g1_limpo/knobs.py` `Tarefa` | S §9.2, §11.4 |
@@ -511,6 +517,9 @@ def palmas_alvo_caixa(indice, a, k: Alvos) -> torch.Tensor: ...    # (E,2,3) no 
 def caixa_alvo_w(indice, caixa_na_pega_w, alvo_soltura_w, base_pos_w, rumo, chao_z, a, ref, k) -> torch.Tensor: ...
     # (E,3): P3 = caixa_na_pega + (0,0,p3_alto); P4 = base + R(rumo)·caixa_transporte_b(a), z = chao_z + z_transporte;
     # B1 = alvo_soltura + (0,0,b1_alto); B2 = alvo_soltura; outros: NaN
+def laje_destino(recuo, theta, y, meia_xy, borda) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # (alvo_b (E,2), centro_b (E,2)) no frame da base, PD-47: alvo em (recuo + e(θ), y), com
+    # e(θ) = borda·cos θ + meia_xy·sen|θ| − borda; centro = alvo + R(θ)·(meia_xy − borda, 0)
 def avanca(indice, ok_agora, relogio, dt, tempos) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
     # (novo_indice, novo_relogio, avancou): avança quando `ok_agora` vale pelo tempo do alvo
     # (P2: 0; P4: tempo_p4; B2: tempo_b2; B3: tempo_b3; B4: tempo_b4); `ok_agora` falso zera o relógio
@@ -677,11 +686,11 @@ N); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem históric
 
 **Terminações:** `time_out`, `queda`, `caixa_perdida`, `chegada`, `batente`.
 
-**Eventos:** reset, nesta ordem: `fatia`, `base`, `juntas`, `cena`, `carga`, `atrito_caixa`,
-`vies_imu`, `pd`, `forca_motor`, `solref`, `com_caixa`, `filtros`; startup: `atrito_pe`,
+**Eventos:** reset, nesta ordem: `fatia`, `base`, `juntas`, `cena`, `carga`, `atrito_pad`,
+`atrito_laje`, `vies_imu`, `pd`, `forca_motor`, `solref`, `com_caixa`, `filtros`; startup: `atrito_pe`,
 `massa_tronco`, `vies_encoder`, `tamanho_caixa`, `atraso`; intervalo: `empurrao`, `forca_caixa`,
 `rfi`. Cada fase acrescenta os seus (D: `fatia`, `base`, `juntas`, `filtros`, startup, `empurrao`;
-E: `cena`, `carga`, `atrito_caixa`, `vies_imu`; H: `pd`, `forca_motor`, `solref`, `com_caixa`,
+E: `cena`, `carga`, `atrito_pad`, `atrito_laje`, `vies_imu`; H: `pd`, `forca_motor`, `solref`, `com_caixa`,
 `forca_caixa`, `rfi`).
 
 **Terminações (nota):** a chave `time_out` usa a função `fim_da_cadeia` (D6), com `time_out=True`.
@@ -699,7 +708,7 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 ### 6.7 Chaves de log e checkpoint
 
 - Currículo (`Curriculum/v3/<k>`): `frac_ANDAR`, `frac_B`, `frac_C`, `s_<tarefa>_<tipo>`,
-  `nivel_<tarefa>`, `degrau_<tarefa>`, `atraso_max`, `mu_min_caixa`.
+  `nivel_<tarefa>`, `degrau_<tarefa>`, `atraso_max`, `mu_min_pad`.
 - Twist (`Metrics/twist/<k>`): `razao_marcha`, `eficiencia_min`, `eficiencia_media`, `segmentos`,
   mais os do fabricante.
 - Métricas (`Episode_Metrics/<k>`): as das tarefas D8, E7, F6, G4 e H6.
@@ -719,10 +728,11 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 | | estimador | magnitude "início" (PD-18) |
 | intervalo, desde a it 0 | empurrão | ±0,5 m/s em x e y, a cada 5 s |
 | ANDAR no portão (nível 0) | viés por episódio no giro da base e inclinação fixa do IMU (evento `vies_imu`, E1; termos `giro_base` e `gravidade`, E8) | ±0,05 rad/s; ±1° |
-| PEGAR no portão do nível 0 | atrito da caixa por `priority` | [0,6; 1,0] |
+| PEGAR no portão do nível 0 | atrito dos pads de palma (evento `atrito_pad`, PD-46) | [0,6; 1,0] |
+| | atrito da laje (evento `atrito_laje`, PD-46) | [0,3; 1,0] |
 | | CoM da caixa | ±0,2 da meia aresta |
 | | atraso | 0–2 passos |
-| cada nível seguinte do PEGAR e do CARREGAR | borda de baixo do μ da caixa | desce 0,025 por nível até 0,5 |
+| cada nível seguinte do PEGAR e do CARREGAR | borda de baixo do μ dos pads | desce 0,025 por nível até 0,5 |
 | | CoM da caixa | até ±0,3 (xy), ±0,2 (z) |
 | | força na caixa (CARREGAR) | impulso 5–20 N, 0,1–0,3 s, a cada 3–8 s |
 | | RFI | 0,05 × limite de torque |
@@ -1069,7 +1079,13 @@ Ondas:
      10⁹, `delay_per_env_phase` False (PD-14, PD-28).
   2. Sites no `torso_link`: `mid360` (`Percepcao.mid360_pos`, `mid360_quat`) e `d435` (pos
      `Estimador.d435_pos`, giro de `d435_pitch` em y; o eixo x do site é o eixo óptico).
-  3. `_add_pad`: atrito de `Cena.pad_atrito`, `group` = 3 (o lidar vê o pad).
+  3. `_add_pad`: atrito de `Cena.pad_atrito` no pad de palma e de `Cena.robo_atrito` no pad de
+     dorso, `group` = 3 (o lidar vê o pad). Atrito por material (PD-46): a caixa nasce com
+     `priority` = `Cena.caixa_priority` (0) e μ `Cena.caixa_atrito`; a `CollisionCfg` do robô ganha
+     `friction` = {pés: (0,6,), `.*_collision`: `Cena.robo_atrito`}, com os pés primeiro, como o
+     `condim`; a laje fica com `priority` 3. Teste (`test_cena`, sem física): no `MjModel` compilado,
+     `geom_priority` da caixa = 0, da laje = 3, dos pés = 1; `geom_friction[:, 0]` = 0,3 na caixa,
+     nas cápsulas do pulso, no `torso_collision` e nos pads de dorso, e 1,0 nos pads de palma.
   4. Caixa e laje no grupo `Cena.grupo_mobilia` = 1 (PD-9).
   5. `PadraoMid360Cfg` (dataclass, com `caminho`): `generate_rays(mj_model, device)` devolve
      `(zeros(205,3), dirs[0])` (duck typing, `raycast_sensor.py:517-521`).
@@ -1237,7 +1253,7 @@ Ondas:
   | `cerca_giro` | relu(max(−q_hip_yaw_E, 0)_graus − 30) + relu(max(q_hip_yaw_D, 0)_graus − 30) | — | todas |
   | `cerca_tronco` | relu(incl_tronco_graus − (tronco_IK_graus + 15)); tronco_IK = 0 no ANDAR e no CARREGAR, a referência do alvo corrente no PEGAR e no BOTAR | `torso_link` | todas |
   | `cerca_com` | relu(0,03 − margem) só com os dois pés em contato (PD-35); margem = distância com sinal do CoM combinado (robô + caixa presa) às arestas do fecho convexo dos 8 cantos das solas | `subtree_com` da raiz, massa da caixa | todas |
-  | `cerca_torque` | Σ_j relu(abs(τ_j)/τ_max_j − 0,8)/0,2 | `qfrc_actuator` | todas |
+  | `cerca_torque` | Σ_j relu(f_j − 0,8)/0,2, com f_j = abs(τ_j)/τ_max_j nas juntas soltas e, em cada par de `pares_torque`, um termo só com f = (abs(τ_p) + abs(τ_r))/`tau_par` (PD-45) | `qfrc_actuator` | todas |
   | `cerca_pelve` | relu(abs(h_pelve − pelve_IK) − 0,08); pelve_IK = `pelve_de_pe` no ANDAR, `pelve_com_caixa(a)` no CARREGAR, a referência do alvo no PEGAR e no BOTAR | `altura_pelve` | todas |
   | `cerca_recuo` | relu(abs(recuo − recuo_IK) − 0,08); recuo_IK = 0,25 no CARREGAR, a referência do alvo no PEGAR e no BOTAR | pelve, caixa | PEGAR, CARREGAR, BOTAR (a fase E liga) |
   | `contato_fora` | nº de corpos fora dos pés com força > 1 N no chão + contatos de autocolisão (+ a caixa fora da janela da pega, fase E) | `nao_pes_chao`, `auto_colisao` | todas |
@@ -1249,6 +1265,8 @@ Ondas:
   passo de lado com os pés na largura da pose de pé → 0; `altura_pe` com os pés parados → 1;
   `cerca_giro` com `hip_yaw_E` = −40° → 10; `cerca_tronco` com 20° no ANDAR → 5; `cerca_com` com o
   CoM 5 cm dentro → 0 e 1 cm dentro → 0,02; um pé só no chão → 0; `cerca_torque` com 90% → 0,5;
+  `cerca_torque` com `waist_pitch` 30 N·m e `waist_roll` 15 N·m → 0,5 (soma 45 de 50), e 0 na
+  regra por junta;
   `excesso_de_junta` a 97,5% → 0,5; `vivo` zera com `v3_perdeu`.
 - Contagem: 1 390 → ~800 no fim da fase H (~500 na fase D). Commit:
   `feat(v3): termos da locomoção da Unitree com os desvios e as cercas`.
@@ -1427,14 +1445,16 @@ E §3 "Pega", "Caixa íntegra e nivelada", "Contato", "Progressão na cadeia", E
 
 **E1 — `eventos.py` (Sonnet).** Origem: `g1_limpo/eventos.py:74-211` (`_topo_por_nivel`,
 `orientacao_de_nascimento`, `posiciona_cena`), `:214-253` (`afasta_cena` → `estaciona_cena`),
-`:256-369` (`tamanho_caixa`, `carga_caixa`); `g1_limpo/env_cfg.py:412-417` (`atrito_caixa`).
+`:256-369` (`tamanho_caixa`, `carga_caixa`); `g1_limpo/env_cfg.py:412-417` (`atrito_caixa`, molde
+do `atrito_pad` e do `atrito_laje`).
 Mudanças: (1) toda escrita de z soma `env_origins[:, 2]` (D3), e `v3_topo` guarda o topo sobre o
 chão local; (2) o nível vem de `v3_cur.nivel("PEGAR")`: topo U[h_k; 0,55], na fatia C
 U[max(h_k; 0,30); 0,55] (S §7); (3) massa U[1; m_k] na B; na C, U[1; m_j] com j o maior nível do PEGAR
 que já passou no portão (S §11.2); (4) `estaciona_cena` na fatia ANDAR: laje e caixa 20 m acima da
 origem; (5) `laje_fora(env, ids)` (chamada pelo `comando` na abertura do CARREGAR com comando que
-anda, [C39]); (6) `atrito_caixa` (reset) por `priority`, ligado pelo estado de DR do `v3_cur`
-(§6.8); (7) `vies_imu` (reset): com o portão do ANDAR no estado de DR, sorteia `v3_vies_giro`
+anda, [C39]); (6) `atrito_pad` e `atrito_laje` (reset; `dr.geom_friction`, coluna 0, nos pads de
+palma e na geom da laje; PD-46), ligados pelo estado de DR do `v3_cur` (§6.8); antes do portão,
+pads 1,0 e laje 1,0; (7) `vies_imu` (reset): com o portão do ANDAR no estado de DR, sorteia `v3_vies_giro`
 (±0,05 rad/s) e `v3_incl_imu` (giro de até 1°), senão zero e identidade. Teste: o núcleo do topo com
 a origem a +1,4 m põe o topo da laje a 1,4 + h; a fatia C nunca sorteia topo < 0,30. Commit:
 `feat(v3): cena da cadeia B com z sobre o chão local`.
@@ -1499,9 +1519,9 @@ chave desligada. Teste: com a chave ligada nunca termina; desligada, termina no 
 Commit: `feat(v3): terminação da caixa perdida com a chave`.
 
 **E6 — `curriculo.py` e `balanceador.py`, DR por nível (Sonnet).** `Curriculo` ganha o estado de DR
-(`mu_min_caixa`, `com_caixa`, `atraso_max`, `rfi`, `forca_caixa`) que sobe pela §6.8 quando os
-portões fecham, e entra no `estado()`. O termo `v3` aplica `atraso_max` nos buffers (PD-28, PD-41).
-Teste: o PEGAR no portão do nível 0 liga o atrito da caixa e o atraso 0–2; cada nível seguinte desce
+(`mu_min_pad`, `atrito_laje`, `com_caixa`, `atraso_max`, `rfi`, `forca_caixa`) que sobe pela §6.8
+quando os portões fecham, e entra no `estado()`. O termo `v3` aplica `atraso_max` nos buffers (PD-28,
+PD-41). Teste: o PEGAR no portão do nível 0 liga o atrito dos pads e da laje e o atraso 0–2; cada nível seguinte desce
 o μ mínimo em 0,025 até 0,5; nada desce. Commit: `feat(v3): DR por nível no currículo`.
 
 **E7 — `metricas.py` (Haiku).** Acrescenta: Φ médio e tempo por alvo; inclinação da caixa (pico no
@@ -1542,7 +1562,7 @@ Atende: S §16 Parte 3, §7 (fatia C), §8.2 (B1–B4 e o invariante B2–B4), �
 | F-3 | F9 revisão |
 
 **F1 — `comando.py`, cadeia C (Sonnet).** Abertura do BOTAR: `posiciona_destino` (F2);
-`v3_alvo_w` = centro do topo da laje de destino + (0, 0, a); `v3_alvo_idx` = B1. `ok_agora`: B1,
+`v3_alvo_w` = o ponto de soltura do F2 no topo da laje de destino + (0, 0, a); `v3_alvo_idx` = B1. `ok_agora`: B1,
 caixa a ≤ 3 cm do alvo + 5 cm na horizontal; B2, caixa a ≤ 0,10 m do alvo, nivelada, apoio ≥
 0,8·m·g por 0,3 s; B3, palmas a ≥ 5 cm dos planos das faces, caixa apoiada e com ‖v‖ < 0,05 m/s
 (PD-39), por 0,5 s; B4, pelve a ≤ 3 cm de `pelve_de_pe` e tronco a ≤ 5°, por 0,5 s. No primeiro apoio,
@@ -1551,9 +1571,17 @@ aviso, espera U[0; 1,5] s com o one-hot em BOTAR, e o ANDAR parado de 1,5 s. Suc
 fechado e o ANDAR parado final sem terminação. O CARREGAR parado da C não registra célula.
 Commit: `feat(v3): cadeia C com B1–B4`.
 
-**F2 — `eventos.py` (Sonnet).** `posiciona_destino(env, ids)`: a laje (mocap) vai para a frente do
-robô, no rumo da base, à distância `recuo(h_dest, a)` mais um jitter só para longe ([C38]), com topo
-`v3_topo_destino` U[h_k; 0,55] pelo nível do BOTAR. Commit: `feat(v3): laje de destino do BOTAR`.
+**F2 — `eventos.py` (Sonnet).** `posiciona_destino(env, ids)` (PD-47): sorteia θ U[−10°; 10°] e
+y U[−0,10; 0,10] m; o ponto de soltura, no frame da base, fica em x = `recuo(h_dest, a)` + o jitter
+só para longe ([C38]) + e(θ), com e(θ) = `destino_borda`·cos θ + `prateleira_meia_xy`·sen|θ| −
+`destino_borda`, e em y; a laje (mocap) gira para o rumo da base + θ, com o centro no ponto de
+soltura + R(rumo + θ)·(`prateleira_meia_xy` − `destino_borda`, 0); topo `v3_topo_destino`
+U[h_k; 0,55] pelo nível do BOTAR; a função devolve o ponto de soltura no mundo (E,3), que o F1
+usa. A conta fica no núcleo puro `alvos.laje_destino` (§6.3; acréscimo ao `alvos.py` nesta
+tarefa, com o jitter para longe somado ao `recuo` antes da chamada). Teste: θ = 0 e y = 0 põem
+o centro da laje a recuo + 0,15 m e a borda perto a recuo − 0,15 m; θ = 10° põe o canto mais perto
+a recuo − 0,15 m (± 1 mm), à mesma distância do caso θ = 0; o alvo fica a 0,15 m da borda perto, no
+frame da laje, para todo θ e y. Commit: `feat(v3): laje de destino do BOTAR`.
 
 **F3 — `terminacoes.py` (Sonnet).** `chegada`: no BOTAR, no primeiro contato caixa × laje depois da
 abertura, a velocidade vertical do passo anterior (`v3_vz_caixa_ant`) acima do limite do degrau
@@ -1825,3 +1853,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 |---|---|---|
 | 2026-10-14 | versão inicial | pedido do dono |
 | 2026-10-14 | revisão inteira do plano: 25 correções (PD-35 a PD-44, alturas de queda livre, teste do mapa parado, referência macro por alvo, dono único da odometria, média por célula, módulos puros sem import entre si, eventos e buffers que faltavam no contrato, tabelas quebradas) | `docs/relatorios/2026-10-14-plano-v3-achados.md` |
+| 2026-10-15 | cena, três decisões do dono depois da validação de viabilidade: cerca de torque pela soma nos pares acoplados da cintura e dos tornozelos (PD-45); atrito por material, com a caixa em `priority` 0 e o DR de μ nos pads e na laje (PD-46); laje de destino com o alvo a 0,15 m da borda perto, ±0,10 m de lado e giro de ±10° (PD-47). Corrige também o alvo no centro da laje de 0,60 m, que punha a borda perto dentro do corpo [C38]. Contagem: ~+20 linhas no pacote (`cena.py`, `eventos.py`, `alvos.py`, `recompensas.py`), nenhum termo novo | `docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2 e §6.1; respostas do dono em 15/10 |
