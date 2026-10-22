@@ -287,10 +287,10 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-35 | cerca do CoM | só com os dois pés em contato; fora disso o custo é 0 | a medida da Parte 0 (item 11) foi feita assim (`g1_limpo/ik/cercas_nos_plays.py:76`); no apoio simples da marcha o CoM sai do pé de apoio por desenho |
 | PD-36 | troca de tarefa no potencial | no passo em que `v3_alvo_idx` vira −1, o `progresso` paga 0, e não `−Φ` | o `−Φ` cairia na hora em que o controlador troca a tarefa, sem relação com a ação do robô; a troca só vem depois do detector (pose estável), então não há ciclo a explorar |
 | PD-37 | `qualidade` no CARREGAR | multiplica só a parte positiva do rastreio | multiplicar o rastreio negativo apagaria o custo da deriva com a caixa caída |
-| PD-38 | CoM da caixa (DR) | atrás da chave `DR.com_caixa` = False; a seção 37 do smoke testa a heap, e o dono liga | `dr.body_com_offset` corrompeu a heap no `g1_limpo` (`env_cfg.py:386`; commit `af77cf4`) |
+| PD-38 | CoM da caixa (DR) (ACEITA pelo dono, 22/10) | atrás da chave `DR.com_caixa` = False; a seção 37 do smoke testa a heap, e o dono liga | `dr.body_com_offset` corrompeu a heap no `g1_limpo` (`env_cfg.py:386`; commit `af77cf4`) |
 | PD-39 | "caixa parada" no B3 | ‖v_caixa‖ < 0,05 m/s | S §8.2 sem número |
-| PD-40 | gravidade ±0,1 m/s² (DR §3.7) | sai | o mjlab 1.5.3 não tem DR de gravidade por mundo; o viés de inclinação do IMU (±1°, §6.8) cobre o mesmo efeito na observação |
-| PD-41 | DR por degrau | os parâmetros sorteados no reset usam o degrau da tarefa principal da fatia (ANDAR; PEGAR na B; BOTAR na C); o atraso é global (um buffer por termo) e sobe pelo estado global: 0–1, 0–2 depois do portão do PEGAR, 0–3 quando uma tarefa chega ao degrau 3 | o `max_lag` do `DelayBuffer` vale para todos os envs |
+| PD-40 | gravidade ±0,1 m/s² (DR §3.7) (ACEITA pelo dono, 22/10) | sai | o mjlab 1.5.3 não tem DR de gravidade por mundo; o viés de inclinação do IMU (±1°, §6.8) cobre o mesmo efeito na observação |
+| PD-41 | DR por degrau (DONO, 22/10) | um degrau GLOBAL para toda a DR do refino (PD, força do motor, `solref`, atraso, estimador, RFI): o MENOR degrau entre as tarefas. Todos os envs sorteiam com ele no reset; o `max_lag` do atraso segue o mesmo degrau. Substitui o degrau da tarefa principal da fatia | a regra mais simples: uma só, sem escolha por fatia e sem exceção para o atraso; nenhuma tarefa nova sofre DR forte cedo. Preço aceito: a tarefa adiantada refina com a DR da mais atrasada |
 | PD-42 | z por célula no filtro | a MÉDIA dos z da leitura na célula, com variância σ_m²/n | o máximo de n pontos com ruído de 2 cm sobe o chão em ~+2 cm com 5 pontos; o desvio da PERC §0 ("a altura dos pontos de contato") fica na média |
 | PD-43 | import dos módulos puros | não importam uns aos outros; recebem os knobs como argumento | carga por caminho no sim do real e no robô (PERC §2) |
 | PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; `Mapa` e `Caixa` só leem | dois termos dando o passo dobrariam a deriva |
@@ -1677,13 +1677,12 @@ para o degrau da tarefa corrente de cada env. Os termos e as terminações leem 
 degrau ≥ 1 da tarefa corrente. Teste: uma junta a 100% do meio curso no degrau 1 termina; no degrau 0
 não.
 
-**H4 — `eventos.py`, DR do refino (Sonnet).** Pelo degrau da tarefa principal da fatia do env (ANDAR,
-PEGAR na B, BOTAR na C), no reset: `dr.pd_gains` (escala 1 ± 0,1·d/5); `dr.effort_limits` (escala;
+**H4 — `eventos.py`, DR do refino (Sonnet).** Pelo degrau global, o menor entre as tarefas (PD-41), no reset: `dr.pd_gains` (escala 1 ± 0,1·d/5); `dr.effort_limits` (escala;
 braços 0,8–1,1 no degrau 5); `solref` do chão e da caixa por evento próprio com
 `@requires_model_fields("geom_solref")` (o mjlab não tem DR de `solref`; padrão de
 `g1_limpo/eventos.py:256-301`); RFI por passo em `qfrc_applied` (0,05 → 0,1 × `tau_max`); força na
 caixa no CARREGAR com `mdp.apply_body_impulse` (5–20 N, 0,1–0,3 s, a cada 3–8 s). A gravidade ±0,1
-sai (PD-40). O atraso global sobe para 0–3 quando uma tarefa chega ao degrau 3 (PD-41). O CoM da
+sai (PD-40). O atraso global sobe para 0–3 quando o degrau global chega a 3 (PD-41). O CoM da
 caixa (`dr.body_com_offset`) fica atrás da chave `DR.com_caixa` = False (PD-38). Teste: os núcleos de
 escala por degrau.
 
@@ -1876,3 +1875,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | revisão das PD pelo dono: PD-3 aceita; PD-22 refeita para Docker no RunPod, clonando a branch; os detalhes de treino ficam para depois da implementação | respostas do dono em 22/10 |
 | 2026-10-22 | PD-5 e PD-12 aceitas pelo dono | respostas do dono em 22/10 |
 | 2026-10-22 | PD-30 a PD-34 aceitas pelo dono, com as margens propostas (50%; 1,5; 1,5; 1,2; 10%) | respostas do dono em 22/10 |
+| 2026-10-22 | PD-38 e PD-40 aceitas; PD-41 refeita para um degrau global, o menor entre as tarefas, para toda a DR e o atraso. Fecha a revisão das PD | respostas do dono em 22/10 |
