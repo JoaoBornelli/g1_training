@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treino da v3</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f5f5f5; --color-paper-2: #ececec; --color-ink: #2d3142;
+      --color-muted: #4f5d75; --color-soft: #5a6580;
+      --color-rule: rgba(45,49,66,0.12); --color-rule-solid: rgba(79,93,117,0.25);
+      --color-accent: #bf4520; --color-accent-tint: rgba(191,69,32,0.08); --color-link: #2e5aa8;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', 'Times New Roman', serif;
+      --font-mono: 'Geist Mono', ui-monospace, Menlo, monospace;
+    }
+    body { font-family: var(--font-sans); background: var(--color-paper); padding: 3rem 1rem; color: var(--color-ink); }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header { margin-bottom: 2.5rem; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.75rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.75rem, 3vw + 1rem, 2.6rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 0.6rem; }
+    h2 { font-family: var(--font-serif); font-size: 1.7rem; font-weight: 400; letter-spacing: -0.01em; margin: 3rem 0 0.4rem; }
+    h2 .num { font-family: var(--font-mono); font-size: 0.8rem; color: var(--color-accent); letter-spacing: 0.1em; margin-right: 0.6rem; vertical-align: middle; }
+    .subtitle, .lead { font-size: 0.95rem; line-height: 1.6; color: var(--color-muted); max-width: 70ch; }
+    .lead { margin-bottom: 1.2rem; }
+    .diagram-container { overflow-x: auto; margin: 0.5rem 0 0.5rem; }
+    svg { width: 100%; min-width: 1000px; display: block; }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--color-rule); border-radius: 6px; font-size: 0.82rem; margin: 0.6rem 0 0.4rem; }
+    th, td { text-align: left; vertical-align: top; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--color-rule); line-height: 1.45; }
+    th { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); font-weight: 500; background: var(--color-paper-2); }
+    td code, li code, p code { font-family: var(--font-mono); font-size: 0.76rem; background: var(--color-paper-2); padding: 0 0.25rem; border-radius: 2px; }
+    td.n { font-family: var(--font-mono); white-space: nowrap; }
+    .tw { overflow-x: auto; }
+    .tag { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.08em; border: 1px solid var(--color-rule-solid); border-radius: 2px; padding: 0 0.3rem; color: var(--color-muted); white-space: nowrap; }
+    .tag.novo { border-color: rgba(191,69,32,0.5); color: var(--color-accent); }
+    .cards { display: grid; grid-template-columns: 1.15fr 1fr 0.9fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+    .card { background: #fff; border: 1px solid var(--color-rule); border-radius: 6px; padding: 1.1rem 1.2rem; }
+    .card h3 { font-size: 0.86rem; font-weight: 600; margin-bottom: 0.7rem; padding-bottom: 0.6rem; border-bottom: 1px solid rgba(45,49,66,0.08); display: flex; gap: 0.55rem; align-items: center; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot.coral { background: var(--color-accent); } .dot.ink { background: var(--color-ink); } .dot.muted { background: var(--color-muted); }
+    .card ul, ul.plain { list-style: none; color: var(--color-muted); font-size: 0.8rem; line-height: 1.55; }
+    .card li, ul.plain li { margin-bottom: 0.3rem; padding-left: 0.9rem; position: relative; }
+    .card li::before, ul.plain li::before { content: '—'; position: absolute; left: 0; color: rgba(45,49,66,0.25); font-size: 0.75rem; }
+    .big { font-family: var(--font-mono); font-size: 1.5rem; color: var(--color-ink); display: block; margin-bottom: 0.15rem; }
+    .check { background: var(--color-accent-tint); border: 1px solid rgba(191,69,32,0.35); border-radius: 6px; padding: 1rem 1.2rem; margin-top: 0.8rem; }
+    .check h3 { font-size: 0.86rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--color-accent); }
+    .callout { font-family: var(--font-serif); font-style: italic; font-size: 1.05rem; color: var(--color-muted); margin: 0.6rem 0; }
+    .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid rgba(45,49,66,0.10); font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; color: var(--color-soft); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <p class="eyebrow">g1_training · v3 · visão geral do treino · 22/10/2026</p>
+    <h1>O treino da v3, de ponta a ponta</h1>
+    <p class="subtitle">Um modelo só, PPO no mjlab, ensina o G1 a andar, pegar, carregar e botar cubos de 14–26 cm e até 5 kg em lajes de 0,04–0,55 m. Esta página junta a spec (<code>specs/g1-v3.md</code>), a interface real e o plano (<code>docs/planos/2026-10-14-implementacao-g1-v3.md</code>) com todas as decisões até 22/10. Use para achar o que está errado antes de implementar.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot coral"></span>O que entra e o que sai da política</h3>
+      <ul>
+        <li><span class="big">1 447</span>números por passo de 20 ms no ator (565 de propriocepção, tarefa e caixa, com histórico de 5; mais 882 do mapa)</li>
+        <li><span class="big">29</span>alvos de posição das juntas, escala 0,25 em torno de <code>q_de_pé</code>, que viram torque no PD</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot ink"></span>O treino</h3>
+      <ul>
+        <li>4 tarefas: ANDAR, PEGAR, CARREGAR, BOTAR (REORIENTAR reservado no one-hot)</li>
+        <li>3 fatias de episódio: ANDAR, B, C; episódio até 20 s</li>
+        <li>2 balanceadores e um refino em 5 degraus</li>
+        <li>orçamento: 30 000 its; Docker no RunPod (4090 ou L40S)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot muted"></span>Ainda em aberto</h3>
+      <ul>
+        <li>pesos que saem da Parte 0 (portão da fase B)</li>
+        <li>smoke só no fim (fase I)</li>
+        <li>número de envs e s/it na GPU nova</li>
+        <li>Kalman da caixa: extensão depois do 1º treino</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ 1 -->
+  <h2><span class="num">01</span>Um passo do treino</h2>
+  <p class="lead">A cada 20 ms: o simulador gera os sensores; os sensores viram a observação; a política devolve 29 alvos; o PD vira torque; o simulador avança. A recompensa e o PPO usam o estado verdadeiro, que a política não vê.</p>
+  <div class="diagram-container">
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="passo-title passo-desc">
+      <title id="passo-title">Um passo do treino da v3</title>
+      <desc id="passo-desc">O simulador alimenta propriocepção, lidar com mapa e estimador da caixa; com o controlador de cadeia, eles formam a observação do ator; a ação passa pelo PD de volta ao simulador; a recompensa usa o estado verdadeiro e o PPO atualiza o ator.</desc>
+      <defs>
+        <marker id="pa" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="pa-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+        <marker id="pa-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- arrows -->
+      <path d="M 200 224 L 222 224 Q 230 224 230 216 L 230 118 Q 230 110 238 110 L 260 110" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <line x1="200" y1="240" x2="260" y2="240" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <path d="M 200 256 L 222 256 Q 230 256 230 264 L 230 342 Q 230 350 238 350 L 260 350" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+
+      <path d="M 420 110 L 452 110 Q 460 110 460 118 L 460 196 Q 460 204 468 204 L 520 204" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <line x1="420" y1="240" x2="520" y2="240" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <path d="M 420 350 L 468 350 Q 476 350 476 342 L 476 272 Q 476 264 484 264 L 520 264" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <path d="M 420 470 L 484 470 Q 492 470 492 462 L 492 296 Q 492 288 500 288 L 520 288" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+
+      <line x1="690" y1="240" x2="760" y2="240" stroke="#bf4520" stroke-width="1.2" marker-end="url(#pa-acc)"/>
+      <rect x="696" y="214" width="58" height="14" fill="#f5f5f5"/>
+      <text x="725" y="224" fill="#bf4520" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">AÇÃO 29</text>
+
+      <path d="M 840 300 L 840 532 Q 840 540 832 540 L 128 540 Q 120 540 120 532 L 120 282" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <rect x="440" y="546" width="80" height="14" fill="#f5f5f5"/>
+      <text x="480" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TORQUE PD</text>
+
+      <path d="M 120 200 L 120 48 Q 120 40 128 40 L 622 40 Q 630 40 630 48 L 630 58" fill="none" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#pa-link)"/>
+      <rect x="330" y="22" width="120" height="14" fill="#f5f5f5"/>
+      <text x="390" y="32" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ESTADO VERDADEIRO</text>
+
+      <line x1="700" y1="90" x2="760" y2="90" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#pa-link)"/>
+      <path d="M 840 130 L 840 152 Q 840 160 832 160 L 618 160 Q 610 160 610 168 L 610 178" fill="none" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#pa-link)"/>
+      <rect x="690" y="164" width="76" height="14" fill="#f5f5f5"/>
+      <text x="728" y="174" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ATUALIZA</text>
+
+      <!-- nodes -->
+      <rect x="40" y="200" width="160" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="200" width="160" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="48" y="206" width="30" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="63" y="215" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SIM</text>
+      <text x="120" y="238" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Simulador mjlab</text>
+      <text x="120" y="254" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">G1 29 DoF · caixa · laje</text>
+      <text x="120" y="268" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">terreno · DR · 5 ms</text>
+
+      <rect x="260" y="80" width="160" height="60" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="80" width="160" height="60" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="340" y="106" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Propriocepção</text>
+      <text x="340" y="124" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">IMU · juntas · ruído</text>
+
+      <rect x="260" y="200" width="160" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="200" width="160" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="340" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Lidar e mapa</text>
+      <text x="340" y="243" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">205 raios/passo</text>
+      <text x="340" y="257" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">corte 0,7 m · Kalman</text>
+      <text x="340" y="271" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">recorte 2 × 2 m</text>
+
+      <rect x="260" y="320" width="160" height="60" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="320" width="160" height="60" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="340" y="346" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Estimador da caixa</text>
+      <text x="340" y="364" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">câmera simulada · 30 Hz</text>
+
+      <rect x="260" y="440" width="160" height="60" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="440" width="160" height="60" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="340" y="466" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Controlador de cadeia</text>
+      <text x="340" y="484" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">one-hot · comando · alvo</text>
+
+      <rect x="520" y="180" width="170" height="120" rx="6" fill="#f5f5f5"/>
+      <rect x="520" y="180" width="170" height="120" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+      <rect x="528" y="186" width="34" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+      <text x="545" y="195" fill="#bf4520" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ATOR</text>
+      <text x="605" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Política</text>
+      <text x="605" y="244" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">obs 1 447</text>
+      <text x="605" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">MLP 512-256-128 ELU</text>
+      <text x="605" y="272" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">histórico 5 · 50 Hz</text>
+
+      <rect x="760" y="200" width="160" height="100" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="200" width="160" height="100" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="840" y="230" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Atuador PD</text>
+      <text x="840" y="248" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ganhos da Unitree</text>
+      <text x="840" y="262" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">atraso 0–1 → 0–3</text>
+      <text x="840" y="276" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">cintura 50 N·m/eixo</text>
+
+      <rect x="560" y="60" width="140" height="60" rx="6" fill="#f5f5f5"/>
+      <rect x="560" y="60" width="140" height="60" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="630" y="86" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Recompensa</text>
+      <text x="630" y="104" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">por tarefa · seção 05</text>
+
+      <rect x="760" y="70" width="160" height="60" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="70" width="160" height="60" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="840" y="96" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PPO + crítico</text>
+      <text x="840" y="114" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">24 passos/env · γ 0,99</text>
+
+      <!-- legend -->
+      <line x1="560" y1="440" x2="580" y2="440" stroke="#bf4520" stroke-width="1.2" marker-end="url(#pa-acc)"/>
+      <text x="588" y="443" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">o que a política decide</text>
+      <line x1="560" y1="460" x2="580" y2="460" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pa)"/>
+      <text x="588" y="463" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">dado que existe também no robô real</text>
+      <line x1="560" y1="480" x2="580" y2="480" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#pa-link)"/>
+      <text x="588" y="483" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">só no treino (estado verdadeiro, atualização)</text>
+    </svg>
+  </div>
+  <p class="callout">Tudo o que entra na política tem fonte no robô real; o estado verdadeiro só alimenta a recompensa e o crítico.</p>
+
+  <!-- ============================================================ 2 -->
+  <h2><span class="num">02</span>O que a política vê</h2>
+  <p class="lead">Ordem do vetor do ator (<code>specs/g1-v3-interface-real.md</code> §2.1). O ruído só existe no treino.</p>
+  <div class="tw"><table>
+    <tr><th>#</th><th>bloco</th><th>por passo</th><th>com histórico</th><th>escala e ruído</th><th>no treino vem de</th></tr>
+    <tr><td class="n">1</td><td>velocidade angular da base</td><td class="n">3</td><td class="n">15</td><td>× 0,2; ±0,2; viés por episódio ±0,05 rad/s após o portão do ANDAR</td><td>IMU simulada</td></tr>
+    <tr><td class="n">2</td><td>gravidade projetada</td><td class="n">3</td><td class="n">15</td><td>±0,05; inclinação fixa da IMU até ±1° (substitui a DR de gravidade, PD-40)</td><td>IMU simulada</td></tr>
+    <tr><td class="n">3</td><td>comando (vx, vy, wz)</td><td class="n">3</td><td class="n">15</td><td>—</td><td>controlador de cadeia</td></tr>
+    <tr><td class="n">4</td><td>juntas − <code>q_de_pé</code></td><td class="n">29</td><td class="n">145</td><td>±0,01; viés de encoder ±0,015</td><td>sim</td></tr>
+    <tr><td class="n">5</td><td>velocidade das juntas</td><td class="n">29</td><td class="n">145</td><td>× 0,05; ±1,5</td><td>sim</td></tr>
+    <tr><td class="n">6</td><td>última ação (crua)</td><td class="n">29</td><td class="n">145</td><td>—</td><td>memória</td></tr>
+    <tr><td class="n">7</td><td>one-hot da tarefa</td><td class="n">6</td><td class="n">30</td><td>ANDAR, REORIENTAR (reservado), PEGAR, CARREGAR, BOTAR, LEVANTAR (reservado)</td><td>controlador de cadeia</td></tr>
+    <tr><td class="n">8</td><td>caixa e alvo</td><td class="n">11</td><td class="n">55</td><td>centro 3, orientação 3 (reduzida pela simetria do cubo), meia aresta 1, idade 1, alvo 3 (zero no ANDAR e no CARREGAR)</td><td>estimador simulado + controlador <span class="tag novo">opção A, 22/10</span></td></tr>
+    <tr><td class="n">9</td><td>mapa de elevação</td><td class="n">882</td><td class="n">—</td><td>441 alturas + 441 confianças, 21 × 21 de 10 cm; sem histórico</td><td>lidar simulado + filtro de Kalman</td></tr>
+    <tr><td></td><td><b>total</b></td><td></td><td class="n"><b>1 447</b></td><td></td><td></td></tr>
+  </table></div>
+  <ul class="plain">
+    <li><b>Crítico:</b> a mesma observação sem ruído, mais os privilegiados: velocidade linear da base, pose verdadeira da caixa e do alvo, índice do alvo macro e a referência dele (8), nível de cada tarefa, degrau do refino, massa da caixa, força normal do robô na caixa (S §6.2).</li>
+    <li><b>Ação:</b> 29 alvos de posição, escala 0,25, em torno de <code>q_de_pé</code>; PD com os ganhos da Unitree (quadril 100, joelho 150, tornozelo 40, <code>waist_yaw</code> 200, cintura 40, braços 40).</li>
+  </ul>
+
+  <h3 style="margin-top:1.4rem;font-size:0.95rem">Percepção, em detalhe</h3>
+  <div class="tw"><table>
+    <tr><th>peça</th><th>como funciona no treino</th><th>decisão</th></tr>
+    <tr><td>lidar (MID-360)</td><td>205 raios por passo de 20 ms, o padrão real em fluxo (1 025 a cada 0,1 s), na pose do MID-360 no <code>torso_link</code>; vê terreno, mobília e o próprio robô</td><td>PD-5 <span class="tag">aceita 22/10</span></td></tr>
+    <tr><td>filtro do corpo</td><td>sai todo ponto a menos de 0,7 m do lidar, em todas as tarefas, e todo ponto a menos de 3 cm das cápsulas do robô; a caixa estimada não entra</td><td>PD-10 <span class="tag novo">raio 22/10</span></td></tr>
+    <tr><td>mapa</td><td>Kalman por célula, média dos z por célula; mapa interno de 51 × 51 (5,1 m) que segue a base; entrega o recorte de 21 × 21 (2 × 2 m), alturas sobre o pé mais baixo, corte em 1,0 m</td><td>PD-8, PD-42</td></tr>
+    <tr><td>odometria simulada</td><td>pose verdadeira mais passeio aleatório: 0,002 m/√m no início, 0,0075 m/√m no refino</td><td>PD-18, PD-44</td></tr>
+    <tr><td>estimador da caixa</td><td>a 30 Hz, com 33 ms de atraso; vale com o centro no FOV do RGB (69° × 42°), a 0,28–3,0 m e ≥ 3 de 9 pontos sem oclusão dos braços; sem leitura, repete a última, presa ao mundo, e a idade cresce</td><td>PD-11 <span class="tag novo">FOV RGB 15/10</span></td></tr>
+    <tr><td>erros do estimador</td><td>início: posição σ 0,5 cm, orientação σ 1°, perda 0,5%. Refino: depth 2% da distância, orientação por viés por episódio (mediana 5,3°, p90 15,3°) + 1° por leitura, perda 2,2% e rajadas de 0,3–1,0 s, viés de ±2 cm na posição e na meia aresta, alvo do BOTAR ±5 cm xy e ±3 cm z; alvo do PEGAR = a caixa estimada</td><td>H5 <span class="tag novo">15/10</span></td></tr>
+  </table></div>
+
+  <!-- ============================================================ 3 -->
+  <h2><span class="num">03</span>Os três episódios</h2>
+  <p class="lead">Cada env recebe uma fatia no reset e fica com ela até o próximo reset. Episódio de até 20 s. PEGAR e BOTAR não têm relógio: terminam no aviso do detector de fim mais um atraso sorteado. As durações abaixo são indicativas.</p>
+  <div class="diagram-container">
+    <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="fatias-title fatias-desc">
+      <title id="fatias-title">As fatias de episódio ANDAR, B e C</title>
+      <desc id="fatias-desc">Linha do tempo de 20 s com os trechos de cada fatia: ANDAR inteiro; B com espera, PEGAR e CARREGAR; C com espera, PEGAR, CARREGAR parado, BOTAR e espera final.</desc>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <!-- axis: x0=140, 40 px/s -->
+      <line x1="140" y1="236" x2="940" y2="236" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <g font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75" text-anchor="middle">
+        <text x="140" y="252">0 s</text><text x="340" y="252">5</text><text x="540" y="252">10</text><text x="740" y="252">15</text><text x="940" y="252">20</text>
+      </g>
+      <g font-family="'Geist', sans-serif" font-size="12" font-weight="600" fill="#2d3142">
+        <text x="24" y="64">ANDAR</text><text x="24" y="124">B</text><text x="24" y="184">C</text>
+      </g>
+      <g font-family="'Geist Mono', monospace" font-size="8" fill="#4f5d75">
+        <text x="24" y="78">locomoção</text><text x="24" y="138">pegar e carregar</text><text x="24" y="198">pegar e botar</text>
+      </g>
+      <!-- ANDAR lane -->
+      <rect x="140" y="44" width="800" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="540" y="62" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ANDAR · comando novo a cada 3–8 s · célula sorteada pelo balanceador</text>
+      <text x="540" y="76" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">reto · parado · baixo · giro andando · giro no lugar · terreno</text>
+      <!-- B lane -->
+      <rect x="140" y="104" width="32" height="40" rx="4" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="156" y="128" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">esp.</text>
+      <rect x="176" y="104" width="224" height="40" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+      <text x="288" y="122" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PEGAR · P0 → P4</text>
+      <text x="288" y="136" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">sem relógio · + 0–1 s</text>
+      <rect x="404" y="104" width="232" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="520" y="122" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CARREGAR · 4–7 s</text>
+      <text x="520" y="136" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">um comando, sorteado na abertura</text>
+      <text x="648" y="128" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">fim da cadeia → time_out · pior caso 16,0 s</text>
+      <!-- C lane -->
+      <rect x="140" y="164" width="32" height="40" rx="4" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="156" y="188" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">esp.</text>
+      <rect x="176" y="164" width="200" height="40" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+      <text x="276" y="182" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PEGAR</text>
+      <text x="276" y="196" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">laje ≥ 0,30 m</text>
+      <rect x="380" y="164" width="32" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="396" y="188" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">carr.</text>
+      <rect x="416" y="164" width="240" height="40" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+      <text x="536" y="182" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">BOTAR · B1 → B4</text>
+      <text x="536" y="196" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">laje de destino aparece aqui</text>
+      <rect x="660" y="164" width="44" height="40" rx="4" fill="rgba(79,93,117,0.06)" stroke="#5a6580" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="682" y="188" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0–1,5</text>
+      <rect x="708" y="164" width="60" height="40" rx="4" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="738" y="188" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">parado 1,5</text>
+      <text x="780" y="188" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">pior caso 18,2 s</text>
+      <!-- legend -->
+      <rect x="140" y="270" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+      <text x="160" y="279" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">manipulação com alvos macro e potencial</text>
+      <rect x="400" y="270" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="420" y="279" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">trecho por passo (rastreio de comando)</text>
+      <rect x="640" y="270" width="14" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="660" y="279" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">ANDAR parado (espera)</text>
+    </svg>
+  </div>
+  <ul class="plain">
+    <li><b>Espera inicial</b> de 0,5–1,0 s antes de toda manipulação. <b>Espera final</b> do BOTAR de 0–1,5 s com o one-hot ainda em BOTAR (o controlador demora a trocar), e depois 1,5 s de ANDAR parado.</li>
+    <li><b>Não treinado, por decisão:</b> CARREGAR andando → parado → BOTAR e a troca de comando no meio do CARREGAR. O 24800 fechou os ciclos assim (dono, 15/10).</li>
+    <li><b>Caixa perdida</b> com <code>CAIXA_PERDIDA_VIRA_ANDAR</code>: a tarefa vira ANDAR parado até o fim; a volta à pose de pé paga uma vez; nada paga por passo depois.</li>
+  </ul>
+
+  <!-- ============================================================ 4 -->
+  <h2><span class="num">04</span>Os alvos macro da manipulação</h2>
+  <p class="lead">PEGAR e BOTAR não rastreiam pose. O potencial puxa para um alvo de cada vez, e cada alvo fechado paga um bônus. Pelve, tronco e recuo vêm da IK como referência macro, e as cercas só cortam a pose absurda.</p>
+  <div class="diagram-container">
+    <svg viewBox="0 0 1000 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="alvos-title alvos-desc">
+      <title id="alvos-title">Alvos macro P0 a P4 e B1 a B4</title>
+      <desc id="alvos-desc">A cadeia do PEGAR vai de palmas à frente da caixa até a caixa no peito; o CARREGAR liga ao BOTAR, que vai de caixa sobre o alvo até o robô de pé sem caixa.</desc>
+      <defs>
+        <marker id="al" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <text x="24" y="30" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" letter-spacing="0.12em">PEGAR</text>
+      <text x="24" y="190" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" letter-spacing="0.12em">BOTAR</text>
+      <!-- arrows row 1 -->
+      <line x1="192" y1="84" x2="220" y2="84" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <line x1="388" y1="84" x2="416" y2="84" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <line x1="584" y1="84" x2="612" y2="84" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <line x1="780" y1="84" x2="808" y2="84" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <!-- P4 to B1 via CARREGAR -->
+      <path d="M 892 124 L 892 152 Q 892 160 884 160 L 214 160 Q 206 160 206 168 L 206 200" fill="none" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#al)"/>
+      <rect x="500" y="166" width="168" height="14" fill="#f5f5f5"/>
+      <text x="584" y="176" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CARREGAR · CAIXA NO PEITO</text>
+      <!-- arrows row 2 -->
+      <line x1="290" y1="244" x2="318" y2="244" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <line x1="486" y1="244" x2="514" y2="244" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <line x1="682" y1="244" x2="710" y2="244" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#al)"/>
+      <!-- row 1 nodes -->
+      <g font-family="'Geist', sans-serif">
+        <rect x="24" y="44" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="108" y="68" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">P0 · frente</text>
+        <text x="108" y="86" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">palmas 5 cm à frente</text>
+        <text x="108" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">alinhadas às faces</text>
+        <text x="108" y="114" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">fecha a 3 cm</text>
+
+        <rect x="220" y="44" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="304" y="68" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">P1 · entrada</text>
+        <text x="304" y="86" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">palmas avançam</text>
+        <text x="304" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">ao centro das faces</text>
+        <text x="304" y="114" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">fecha a 3 cm</text>
+
+        <rect x="416" y="44" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="500" y="68" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">P2 · pega</text>
+        <text x="500" y="86" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">contato nas duas mãos</text>
+        <text x="500" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">sem força mínima</text>
+        <text x="500" y="114" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">abre a janela da caixa</text>
+
+        <rect x="612" y="44" width="168" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="696" y="68" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">P3 · livre</text>
+        <text x="696" y="86" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">caixa 5 cm acima</text>
+        <text x="696" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">nivelada, sem apoio</text>
+        <text x="696" y="114" font-size="9" fill="#bf4520" font-family="'Geist Mono', monospace" text-anchor="middle">onde o C3 tombava</text>
+
+        <rect x="808" y="44" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="892" y="68" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">P4 · peito</text>
+        <text x="892" y="86" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">caixa a 0,90 m</text>
+        <text x="892" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">pose de pé com caixa</text>
+        <text x="892" y="114" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">5 cm e 3 cm por 0,5 s</text>
+      </g>
+      <!-- row 2 nodes -->
+      <g font-family="'Geist', sans-serif">
+        <rect x="122" y="204" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="206" y="228" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">B1 · sobre o alvo</text>
+        <text x="206" y="246" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">caixa 5 cm acima</text>
+        <text x="206" y="260" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">do alvo de soltura</text>
+        <text x="206" y="274" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">fecha a 3 cm</text>
+
+        <rect x="318" y="204" width="168" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="402" y="228" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">B2 · apoiada</text>
+        <text x="402" y="246" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">≤ 0,10 m do alvo</text>
+        <text x="402" y="260" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">apoio ≥ 0,8·m·g, 0,3 s</text>
+        <text x="402" y="274" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">pouso ≤ 1,0 → 0,25 m/s</text>
+
+        <rect x="514" y="204" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="598" y="228" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">B3 · solta</text>
+        <text x="598" y="246" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">palmas ≥ 5 cm</text>
+        <text x="598" y="260" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">caixa parada, 0,5 s</text>
+        <text x="598" y="274" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">desloca &lt; 2 cm</text>
+
+        <rect x="710" y="204" width="168" height="80" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="794" y="228" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">B4 · de pé</text>
+        <text x="794" y="246" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">pose de pé sem caixa</text>
+        <text x="794" y="260" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">pelve 3 cm, tronco 5°</text>
+        <text x="794" y="274" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">por 0,5 s</text>
+      </g>
+      <text x="24" y="314" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">Invariantes: P0–P2 a caixa desloca menos de meia aresta na laje · P2–B2 caixa nivelada (30° → 15°) e duas mãos · B2–B4 caixa parada, &lt; 2 cm do ponto de apoio. Quebrar zera a proximidade (rampa) e impede o avanço.</text>
+    </svg>
+  </div>
+  <ul class="plain">
+    <li><b>Potencial:</b> <code>r = γ·Φ(s') − Φ(s)</code>, γ 0,99; Φ ∈ [0, 1] é a proximidade ao alvo corrente, com σ igual à distância no início do alvo. Ir e voltar paga zero; pairar paga zero. No B1 e no B2, Φ da caixa vezes <code>exp(−(v/σ)²)</code> da velocidade vertical perto da laje (σ 1,0 → 0,35 m/s).</li>
+    <li><b>Laje de destino:</b> o alvo fica 0,15 m para dentro da borda perto; a laje sai ±0,10 m de lado e girada ±10°, e se afasta para manter o canto perto à mesma distância [C38] <span class="tag novo">PD-47, 15/10</span>.</li>
+  </ul>
+
+  <!-- ============================================================ 5 -->
+  <h2><span class="num">05</span>A recompensa, por tarefa</h2>
+  <p class="lead">Regra geral: no PEGAR, no BOTAR e depois da caixa perdida, nenhum termo paga positivo por passo. O único ganho é o potencial e os bônus. ✓ = ativo; — = desligado.</p>
+  <div class="tw"><table>
+    <tr><th>termo</th><th>peso</th><th>ANDAR</th><th>PEGAR</th><th>CARREGAR</th><th>BOTAR</th><th>nota</th></tr>
+    <tr><td>rastreio linear e angular, normalizado</td><td class="n">1,0; 0,5</td><td>✓</td><td>só deriva</td><td>✓ × qualidade</td><td>só deriva</td><td>parado = 0, perfeito = 1; canal zero: <code>exp(−v²/σ₀²) − 1</code>, σ₀ 0,10 m/s e 0,15 rad/s <span class="tag novo">PD-49</span></td></tr>
+    <tr><td>comprimento do passo no toque</td><td class="n">0,5</td><td>✓</td><td>—</td><td>✓</td><td>—</td><td><code>min(L/L_alvo, 1)²</code> × rastreio <span class="tag novo">PD-48</span>; L_alvo 0,20 m a 0,5 m/s</td></tr>
+    <tr><td><code>alive</code></td><td class="n">0,15</td><td>✓</td><td>0</td><td>✓</td><td>0</td><td></td></tr>
+    <tr><td>altura do pé (sobre o terreno)</td><td class="n">1,0</td><td>✓</td><td>0</td><td>✓</td><td>0</td><td>alvo 0,1 m</td></tr>
+    <tr><td>escorrego do pé</td><td class="n">−0,2</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>reguladores da Unitree</td><td class="n">vz −2; giro xy −0,05; q̇ −0,001; q̈ −2,5e−7; action_rate −0,05; energia −2e−5</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>limite de junta (mole a 95%, pela banda)</td><td class="n">−5, a medir</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>batente = 1 por junta</td></tr>
+    <tr><td>desvio dos braços</td><td class="n">−0,1</td><td>✓</td><td>—</td><td>✓</td><td>—</td><td>ANDAR: pose de pé; CARREGAR: pose de pé com caixa</td></tr>
+    <tr><td>desvio da cintura, hip_roll/yaw; tronco plano; altura da base</td><td class="n">−1; −1; −5; −10</td><td>✓</td><td>—</td><td>✓</td><td>—</td><td>base 0,78 m</td></tr>
+    <tr><td>cercas de postura (7)</td><td class="n">Parte 0 <span class="tag">PD-30</span></td><td>✓ sem sola</td><td>✓</td><td>✓ sem sola</td><td>✓</td><td>sola 5°, coxa 30°, tronco IK+15°, CoM 3 cm, torque 80% (soma do par na cintura e no tornozelo <span class="tag novo">PD-45</span>), pelve ±8 cm, recuo ±8 cm</td></tr>
+    <tr><td>contato fora dos pés</td><td class="n">−1</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>caixa fora da janela P2–B3 conta</td></tr>
+    <tr><td>contato com a laje</td><td class="n">−2,0/sensor</td><td>—</td><td>✓</td><td>—</td><td>✓</td><td>rampa a partir de 50 N → 10 N no refino</td></tr>
+    <tr><td>freio por nível</td><td class="n">−6/29 × 1,5^k</td><td>—</td><td>✓</td><td>✓</td><td>✓</td><td>k = níveis abertos; nunca desce (catraca mantida, 22/10)</td></tr>
+    <tr><td><code>ProgressoDoAlvo</code> (potencial)</td><td class="n">Parte 0 <span class="tag">PD-32</span></td><td>—</td><td>✓</td><td>—</td><td>✓</td><td>1,5 × o pior trecho de custo/ganho</td></tr>
+    <tr><td><code>B_alvo</code> (bônus por alvo)</td><td class="n">Parte 0 <span class="tag">PD-31</span></td><td>—</td><td>✓</td><td>—</td><td>✓</td><td>1,5 × o custo do trecho até o alvo</td></tr>
+    <tr><td><code>Sacudida</code></td><td class="n">0 → refino <span class="tag">PD-34</span></td><td>—</td><td>✓</td><td>✓</td><td>✓</td><td>p50 do 23250 vale 10% do rastreio</td></tr>
+    <tr><td><code>r_aperto</code> (menor aperto)</td><td class="n">0 → refino</td><td>—</td><td>✓</td><td>✓</td><td>✓</td><td>P3–B2; <code>F_ref</code> 49 N</td></tr>
+    <tr><td>terminação</td><td class="n">−200 × dt</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>perda da caixa: 1,2 × a desigualdade (2) <span class="tag">PD-33</span></td></tr>
+  </table></div>
+
+  <h3 style="margin-top:1.4rem;font-size:0.95rem">Terminações</h3>
+  <div class="tw"><table>
+    <tr><th>terminação</th><th>quando</th></tr>
+    <tr><td><code>time_out</code></td><td>sempre; não é falha; acaba no fim da cadeia</td></tr>
+    <tr><td>inclinação &gt; 46° ou base &lt; 0,2 m</td><td>ANDAR e CARREGAR</td></tr>
+    <tr><td><code>fell_over</code>: inclinação 70° ou joelho &lt; 5 cm do chão</td><td>PEGAR e BOTAR</td></tr>
+    <tr><td>caixa perdida (no chão, solta fora do alvo &gt; 1,2 m/s, ou fora da laje no P0–P2)</td><td>com a chave ligada, vira ANDAR parado em vez de terminar</td></tr>
+    <tr><td>chegada da caixa à laje acima do limiar</td><td>1,0 m/s → 0,25 m/s no refino</td></tr>
+    <tr><td>junta no batente; <code>hip_yaw</code> &gt; 1 rad</td><td>só no refino</td></tr>
+  </table></div>
+
+  <!-- ============================================================ 6 -->
+  <h2><span class="num">06</span>O currículo</h2>
+  <p class="lead">Só o ANDAR abre no começo, com 100% dos envs. Cada fatia abre quando a tarefa de que ela depende passa no primeiro portão. Dentro de cada tarefa, células por tipo e níveis que só sobem.</p>
+  <div class="diagram-container">
+    <svg viewBox="0 0 1000 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="curr-title curr-desc">
+      <title id="curr-title">Ordem de abertura do currículo</title>
+      <desc id="curr-desc">ANDAR sozinho, depois a fatia B quando reto e parado passam no portão, depois a fatia C quando o PEGAR passa no nível 0, depois níveis e terreno e por fim o refino em cinco degraus.</desc>
+      <defs><marker id="cu" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <line x1="172" y1="96" x2="220" y2="96" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cu)"/>
+      <line x1="372" y1="96" x2="420" y2="96" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cu)"/>
+      <line x1="572" y1="96" x2="620" y2="96" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cu)"/>
+      <line x1="772" y1="96" x2="820" y2="96" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cu)"/>
+      <g font-family="'Geist', sans-serif">
+        <rect x="20" y="40" width="152" height="120" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="96" y="64" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">Fase 0 · ANDAR</text>
+        <text x="96" y="84" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">100% dos envs</text>
+        <text x="96" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">reto e parado</text>
+        <text x="96" y="116" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">teto 0,25 m/s</text>
+        <text x="96" y="140" font-size="9" fill="#5a6580" font-family="'Geist Mono', monospace" text-anchor="middle">receita da Unitree</text>
+
+        <rect x="220" y="40" width="152" height="120" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="296" y="64" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">Abre a fatia B</text>
+        <text x="296" y="84" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">quando reto e parado</text>
+        <text x="296" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">passam em 0,75</text>
+        <text x="296" y="116" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">PEGAR 0,55 m · 1 kg</text>
+        <text x="296" y="140" font-size="9" fill="#5a6580" font-family="'Geist Mono', monospace" text-anchor="middle">DR de atrito e CoM*</text>
+
+        <rect x="420" y="40" width="152" height="120" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="496" y="64" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">Abre a fatia C</text>
+        <text x="496" y="84" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">quando o PEGAR passa</text>
+        <text x="496" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">no nível 0</text>
+        <text x="496" y="116" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">BOTAR 0,55 m</text>
+        <text x="496" y="140" font-size="9" fill="#5a6580" font-family="'Geist Mono', monospace" text-anchor="middle">piso por fatia 0,20</text>
+
+        <rect x="620" y="40" width="152" height="120" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="696" y="64" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">Níveis e terreno</text>
+        <text x="696" y="84" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">velocidade até 1,5 m/s</text>
+        <text x="696" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">lajes até 0,04 m · 5 kg</text>
+        <text x="696" y="116" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">terreno no fim</text>
+        <text x="696" y="140" font-size="9" fill="#5a6580" font-family="'Geist Mono', monospace" text-anchor="middle">nada desce</text>
+
+        <rect x="820" y="40" width="160" height="120" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="900" y="64" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">Refino · 5 degraus</text>
+        <text x="900" y="84" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">por tarefa, ≥ 0,75</text>
+        <text x="900" y="100" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">por 100 its</text>
+        <text x="900" y="116" font-size="9" fill="#4f5d75" font-family="'Geist Mono', monospace" text-anchor="middle">DR pelo degrau global</text>
+        <text x="900" y="140" font-size="9" fill="#5a6580" font-family="'Geist Mono', monospace" text-anchor="middle">nunca desce</text>
+      </g>
+      <text x="20" y="196" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">* a DR do CoM da caixa fica atrás de uma chave desligada (PD-38). Balanceadores: F = piso + (1 − n·piso)·(D + ε)/Σ(D + ε); fatias piso 0,20; subtarefas piso 0,10, ε 0,02, portão 0,75.</text>
+    </svg>
+  </div>
+
+  <div class="tw"><table>
+    <tr><th>tarefa</th><th>células (balanceador de subtarefas)</th><th>níveis</th><th>sucesso que move o nível</th></tr>
+    <tr><td>ANDAR</td><td>reto (4 direções) e parado → baixo (0,05–0,25) → giro andando → giro no lugar → terreno</td><td>frente 0,25 → 0,5 → 0,75 → 1,0 → 1,25 → 1,5 m/s; trás e lado até 1,0; giro 0,25 → 1,0 rad/s; o nível k sorteia entre 0,25 e o teto. Terreno depois do último nível: degrau 0,20 m, rampa 20°, obstáculo 0,15 m</td><td>razão de deslocamento ≥ 0,50 por segmento; parado: deriva &lt; 0,10 m e &lt; 0,25 rad a partir de 1,5 s depois da abertura e de cada empurrão <span class="tag novo">PD-15</span></td></tr>
+    <tr><td>CARREGAR (B)</td><td>reto, giro no lugar, arco, terreno</td><td>os do ANDAR; terreno com tetos de 0,75 e 0,667</td><td>a mesma razão, sem perder a caixa <span class="tag novo">PD-50</span>; no terreno, caixa ≤ 15°</td></tr>
+    <tr><td>PEGAR</td><td>um nível por vez</td><td>(0,55 m; 1 kg) → (0,45; 2) → (0,30; 3) → (0,15; 4) → (0,04; 5); altura e massa sorteadas até o nível</td><td>P4 fechado, trecho seguinte sem terminação e sem perder a caixa</td></tr>
+    <tr><td>BOTAR</td><td>um nível por vez</td><td>destino 0,55 → 0,45 → 0,30 → 0,15 → 0,04 m; massa da faixa já dominada no PEGAR</td><td>B4 fechado, ANDAR parado final sem terminação e sem perder a caixa</td></tr>
+  </table></div>
+
+  <h3 style="margin-top:1.4rem;font-size:0.95rem">O refino, degrau 0 → 5</h3>
+  <div class="tw"><table>
+    <tr><th>regra</th><th>tarefas</th><th>degrau 0 → degrau 5</th></tr>
+    <tr><td>contato com a laje</td><td>PEGAR, BOTAR</td><td class="n">50 → 10 N</td></tr>
+    <tr><td>nivelamento da caixa</td><td>PEGAR, CARREGAR, BOTAR</td><td class="n">30° → 15°</td></tr>
+    <tr><td>aperto (<code>r_aperto</code>)</td><td>PEGAR, CARREGAR, BOTAR</td><td>peso 0 → medido na Parte 0</td></tr>
+    <tr><td>sacudida</td><td>PEGAR, CARREGAR, BOTAR</td><td>peso 0 → regra da PD-34</td></tr>
+    <tr><td>chegada da caixa (terminação)</td><td>BOTAR</td><td class="n">1,0 → 0,25 m/s</td></tr>
+    <tr><td>σ do pouso devagar</td><td>BOTAR</td><td class="n">1,0 → 0,35 m/s</td></tr>
+    <tr><td>batente e <code>hip_yaw</code> &gt; 1 rad</td><td>todas</td><td>desligada → ligada</td></tr>
+    <tr><td>DR de atuação, atraso, estimador</td><td>todas, pelo degrau global (o menor entre as tarefas) <span class="tag novo">PD-41</span></td><td>PD 1,0 → 0,9–1,1; força do motor → 0,9–1,1 (braços 0,8–1,1); <code>solref</code> 0,02 → 0,015–0,03; atraso → 0–3; RFI 0,05 → 0,1; estimador "início" → "refino"</td></tr>
+  </table></div>
+
+  <!-- ============================================================ 7 -->
+  <h2><span class="num">07</span>A cena e a DR</h2>
+  <div class="tw"><table>
+    <tr><th>quando entra</th><th>o que</th><th>valor</th></tr>
+    <tr><td>startup, desde a it 0</td><td>atrito do pé; massa do tronco; viés de encoder; tamanho da caixa</td><td>0,3–1,0; −1 a +3 kg; ±0,015 rad; meia aresta 0,07–0,13, 8 variantes por mundo</td></tr>
+    <tr><td>reset, desde a it 0</td><td>massa da caixa; atraso; estimador</td><td>1 a m_k kg; 0–1 passo; magnitude "início"</td></tr>
+    <tr><td>intervalo, desde a it 0</td><td>empurrão</td><td>±0,5 m/s em x e y, a cada 5 s</td></tr>
+    <tr><td>portão do ANDAR</td><td>viés da IMU</td><td>±0,05 rad/s; inclinação ±1°</td></tr>
+    <tr><td>portão do nível 0 do PEGAR</td><td>atrito dos pads; atrito da laje; atraso <span class="tag novo">PD-46</span></td><td>pads 0,6–1,0, borda de baixo desce 0,025 por nível até 0,5; laje 0,3–1,0; 0–2 passos</td></tr>
+    <tr><td>níveis do PEGAR e do CARREGAR</td><td>força na caixa (CARREGAR)</td><td>impulso 5–20 N, 0,1–0,3 s, a cada 3–8 s</td></tr>
+    <tr><td>fixo</td><td>atrito por material <span class="tag novo">PD-46</span></td><td>caixa <code>priority</code> 0 e μ 0,3; carcaça do robô (pulso, tronco, dorso) μ 0,3; laje <code>priority</code> 3</td></tr>
+    <tr><td>fora</td><td>CoM da caixa; gravidade</td><td>chave desligada (PD-38); sai (PD-40)</td></tr>
+  </table></div>
+  <ul class="plain">
+    <li><b>Contato:</b> cone piramidal, <code>impratio</code> 1,0. A caixa desce 4–8 cm em 6 s entre as palmas por fluência; a política vê a caixa e corrige.</li>
+    <li><b>Atuador:</b> 50 N·m por eixo na cintura e no tornozelo (o real tem 50, confirmado pelo dono); a cerca de torque cobra a soma do par.</li>
+    <li><b>Terreno:</b> grade de subterrenos do mjlab (rampa, escadas, chão irregular, obstáculos), plataforma de 2 m; a fatia C fica no plano.</li>
+  </ul>
+
+  <!-- ============================================================ 8 -->
+  <h2><span class="num">08</span>Como o treino roda</h2>
+  <div class="tw"><table>
+    <tr><th>item</th><th>valor</th></tr>
+    <tr><td>algoritmo</td><td>rsl_rl PPO: 24 passos por env, lr 1e−3 adaptativo, entropia 0,01, γ 0,99, λ 0,95, std inicial 1,0, redes 512-256-128 ELU</td></tr>
+    <tr><td>passo</td><td>política a 50 Hz (20 ms); física a 5 ms</td></tr>
+    <tr><td>orçamento</td><td>30 000 its numa corrida só, do zero. É o mesmo orçamento da tarefa de locomoção do G1 no mjlab</td></tr>
+    <tr><td>plataforma</td><td>Docker no RunPod, 4090 ou L40S; o container clona a branch <code>g1_v3</code>; envs e s/it a medir no 1º run <span class="tag novo">PD-22</span></td></tr>
+    <tr><td>antes do treino</td><td>Parte 0 (fase B): medidas e pesos, com o seu portão; smoke uma vez, no fim (fase I)</td></tr>
+    <tr><td>log</td><td><code>Curriculum/v3/*</code> (frações, sucesso por célula, níveis, degraus, atraso, μ mínimo dos pads); estado do currículo no checkpoint</td></tr>
+  </table></div>
+
+  <!-- ============================================================ 9 -->
+  <h2><span class="num">09</span>Pontos para conferir</h2>
+  <div class="check">
+    <h3>O que a validação de 15/10 apontou e que continua no desenho, por decisão</h3>
+    <ul class="plain">
+      <li>Uma política PPO só, do zero, para 4 tarefas e terreno, sem precedente no robô real; o C3 nunca formou política competente do zero.</li>
+      <li>30 000 its é o orçamento da locomoção sozinha; aqui ele cobre também a manipulação, o terreno e o refino.</li>
+      <li>A catraca (freio e refino só sobem) fica: se o sucesso cair abaixo de 0,60 por 300 its depois de um degrau, o conserto é manual.</li>
+      <li>As emendas do ciclo não são treinadas (decisão sustentada pela medida do 24800).</li>
+      <li>O corte de 0,7 m apaga o chão perto dos pés no agachamento fundo do PEGAR e do BOTAR, e lajes altas perto do corpo.</li>
+      <li>A política recebe a caixa da câmera; com a caixa fora do FOV do RGB (quase todo o BOTAR), a leitura fica velha e presa ao mundo.</li>
+      <li>REORIENTAR, LEVANTAR, prateleira e o estimador real da caixa ficam fora da v3.</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <span>g1_training · v3 · visão geral do treino</span>
+    <span>fontes: specs/g1-v3.md · specs/g1-v3-interface-real.md · docs/planos/2026-10-14-implementacao-g1-v3.md</span>
+  </div>
+</div>
+</body>
+</html>
