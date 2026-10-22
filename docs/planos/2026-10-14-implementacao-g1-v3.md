@@ -259,8 +259,8 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-7 | variância do transporte | `P += q_d·‖Δxy‖ + q_r·abs(Δψ) + q_t·Δt`, com `q_d` (2 cm)²/m, `q_r` (2 cm)²/rad, `q_t` (0,5 cm)²/s | PERC §0: cresce sobretudo com o deslocamento e devagar com o tempo |
 | PD-8 | mapa interno | 51 × 51 células de 10 cm (5,1 m), centrado na base, eixos no rumo | D5 (5 × 5 m); célula central = a base |
 | PD-9 | grupo da mobília | caixa e laje no grupo de geom 1; o lidar inclui os grupos 0 (terreno), 1 (mobília) e 3 (colisão do robô) | o grupo 2 tem 35 malhas visuais do robô (viabilidade D8) |
-| PD-10 | filtro do corpo e caixa na mão | cápsulas das geoms de colisão, margem 3 cm; a caixa sai pelo volume da caixa ESTIMADA (meia aresta + 3 cm) quando o centro estimado fica a ≤ 0,45 m do meio das duas palmas | sem `pegou` (decisão de 14/10); só sinais que o real tem |
-| PD-11 | oclusão da D435i | 9 pontos da caixa (centro e 8 cantos) testados contra as cápsulas dos braços; a leitura vale com o centro no campo de visão (87° × 58°), na faixa 0,28–3,0 m, e com ≥ 3 pontos sem oclusão | S §13: reproduzir a visibilidade real; mesma lista de cápsulas da PD-10 |
+| PD-10 | filtro do corpo e caixa na mão (DONO, 22/10) | cápsulas das geoms de colisão, margem 3 cm; e todo ponto a menos de `raio_min` 0,7 m do lidar sai, em todas as tarefas. A caixa estimada NÃO entra no filtro | a caixa nas mãos fica a 0,3–0,64 m do lidar (quina de baixo da frente, com 8 cm de escorregamento); o chão de pé fica a ~1,2 m. O corte não depende de estimar a caixa, da cinemática dela nem do one-hot, e é o mesmo no sim e no real. A versão anterior (volume da caixa estimada) vazava com a leitura velha presa ao mundo; a máscara pela câmera não cobre a face que só o lidar vê. Preço aceito: tudo a menos de 0,7 m do sensor some, inclusive o chão perto dos pés no agachamento fundo do PEGAR e do BOTAR (só no plano) |
+| PD-11 | oclusão da D435i | 9 pontos da caixa (centro e 8 cantos) testados contra as cápsulas dos braços; a leitura vale com o centro no campo de visão (87° × 58°), na faixa 0,28–3,0 m, e com ≥ 3 pontos sem oclusão; o campo de visão é o do RGB, 69° × 42°, onde roda a detecção (DONO, 15/10; era o do depth, 87° × 58°) | S §13: reproduzir a visibilidade real; mesma lista de cápsulas da PD-10 |
 | PD-12 | células do balanceador | uma célula por TIPO de subtarefa (ANDAR: reto, parado, baixo, giro andando, giro no lugar, terreno). O nível da tarefa sobe quando todas as células abertas passam no portão e todos os tipos já abriram. A EMA da tarefa recomeça na primeira medida depois da subida. Mínimo de 50 its entre subidas | com uma célula por (tipo, nível), o piso 0,10 estoura com mais de 10 células; "o nível k sorteia entre 0,25 e o teto" já inclui os níveis de baixo |
 | PD-13 | EMA do sucesso | uma atualização por iteração, com os segmentos e episódios que fecharam nela, α 0,05 | o mesmo α do balanceador do `g1_limpo` (`Cadeia.balanceador_alpha`) |
 | PD-14 | déficit das fatias | ANDAR = células do ANDAR; B = células do PEGAR e do CARREGAR; C = célula do BOTAR | a S §11.1 fala em déficit "da tarefa", e as fatias juntam tarefas |
@@ -473,13 +473,15 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `plataforma` | 2,0 | S §12 |
 | `DR` | ver §6.8 | | S §12, DR §5 |
 | `Estimador` | `taxa_hz`, `latencia_s`, `idade_max` | 30; 0,033; 2,0 | I §2.3; `lidar_sim/sensores/tipos.py` |
-| | `fov_h_graus`, `fov_v_graus`, `alcance` | 87; 58; (0,28; 3,0) | PD-11 |
+| | `fov_h_graus`, `fov_v_graus`, `alcance` | 69; 42; (0,28; 3,0) | PD-11 |
+| | `vies_meia`, `vies_alvo_botar_xy`, `vies_alvo_botar_z`, `ori_persistente` | início (0,005; 0,01; 0,005; True); refino (0,02; 0,05; 0,03; True) | S §13 (dono, 15/10) |
 | | `pontos_visiveis_min` | 3 | PD-11 |
 | | `sigma_pos`, `sigma_ori_graus`, `perda`, `deriva_odo` | início (0,005; 1,0; 0,005; 0,002 m/√m); refino: 2% da distância, mediana 5,3°, 2,2%, 0,0075 m/√m | PD-18; S §13 |
 | | `deriva_rumo` | início 0,002 rad/√m; refino 0,005 rad/√m | PD-18 |
 | | `d435_pos`, `d435_pitch` | (0,0576235; 0,01753; 0,42987); 0,8307767 | `lidar_sim/sensores/montagem.py` |
 | `Percepcao` | `ligada` | True | S §4 (`PERCEPCAO_LIDAR`) |
 | | `celula`, `n_recorte`, `n_interno`, `altura_clip` | 0,10; 21; 51; 1,0 | I §2.4; PD-8 |
+| | `raio_min` | 0,7 | PD-10 |
 | | `raios_por_passo`, `alcance` | 205; (0,1; 6,0) | PD-5 |
 | | `ruido_alcance`, `ruido_angulo_graus`, `perda`, `ruido_incl_graus` | 0,02; 0,15; 0,01; 0,5 | PERC §2 |
 | | `sigma_ref`, `q_desloc`, `q_giro`, `q_tempo` | 0,05; 4e−4; 4e−4; 2,5e−5 | PD-6, PD-7 |
@@ -630,8 +632,8 @@ def pontos_no_frame_do_mapa(dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w
     # (pontos (E,R,3), validos (E,R)): ruído de alcance e de ângulo, perda, alcance, e um giro de
     # inclinação sorteado por leitura (σ ruido_incl_graus, o erro do roll e do pitch do IMU, PERC §2);
     # x e y no frame do rumo, z = altura do ponto − z do pé mais baixo (I §2.4 passo 3)
-def filtra_corpo(pontos_w, validos, capsulas_w, raios, caixa_pos_w, caixa_rot_w, caixa_meia,
-                 caixa_ativa, margem) -> torch.Tensor: ...      # validos (E,R); PD-10
+def filtra_corpo(pontos_w, validos, capsulas_w, raios, sensor_pos_w, raio_min,
+                 margem) -> torch.Tensor: ...      # validos (E,R); PD-10
 class FiltroDeElevacao:
     def __init__(self, n, device, k: Percepcao): ...
     def reinicia(self, ids): ...                                # altura 0, variância ∞ (nunca vista)
@@ -1016,8 +1018,8 @@ Ondas: C0 (testes) → C1.
   - 5 pontos na mesma célula com ruído de 2 cm dão a média, e não o máximo: |h| < 1 cm (PD-42);
   - ordem do `recorte`: o índice 0 é (x = +1,0; y = +1,0), o 440 é (−1,0; −1,0), as confianças
     começam no 441 (I §2.4);
-  - `filtra_corpo`: ponto a menos de raio + margem de uma cápsula sai; ponto dentro da caixa ativa
-    + 3 cm sai; com a caixa a 0,50 m do meio das palmas, ela não filtra (PD-10);
+  - `filtra_corpo`: ponto a menos de raio + margem de uma cápsula sai; ponto a 0,69 m do sensor sai
+    e a 0,71 m fica; o chão a 1,2 m abaixo do sensor fica (PD-10);
   - `PadraoMid360.direcoes(200) == direcoes(0)`.
 
 ### C1 — `percepcao_lidar.py` (Sonnet)
@@ -1480,7 +1482,7 @@ leitura a idade cresce 0,02 s por passo e para em 2 s; ruído de posição com �
 visibilidade da D435i`.
 
 **E3 — `comando.py`, cadeia B (Sonnet).** No `CadeiaCmd`:
-1. Abertura do PEGAR: `v3_alvo_w` = centro da caixa (o controlador escolhe a caixa, S §6.4);
+1. Abertura do PEGAR: `v3_alvo_w` = centro da caixa ESTIMADA na abertura, com os erros do estimador (o controlador escolhe a caixa vista, S §6.4; dono, 15/10);
    `v3_caixa_pega_w` = o mesmo; `v3_alvo_idx` = P0; σ = distância inicial das palmas ao alvo P0.
 2. A cada passo, no PEGAR: o `ok_agora` de cada alvo pela §6.2 `Alvos` (P0, P1: as duas palmas a ≤ 3
    cm; P2: as duas palmas em contato; P3: caixa sem apoio e inclinação ≤ limite do degrau; P4: caixa a
@@ -1686,8 +1688,11 @@ caixa (`dr.body_com_offset`) fica atrás da chave `DR.com_caixa` = False (PD-38)
 escala por degrau.
 
 **H5 — estimador no refino (Sonnet).** A magnitude do `EstimadorCaixa` e da `Odometria` sobe do
-"início" ao "refino" pelo degrau (§6.2 `Estimador`), mais o viés por episódio (até ±2 cm, ±1–2°) e
-as rajadas de perda de 0,3–1,0 s (DR §3.5).
+"início" ao "refino" pelo degrau (§6.2 `Estimador`), mais o viés por episódio (até ±2 cm na posição e ±2 cm na meia aresta; dono, 06/10 e 15/10) e
+as rajadas de perda de 0,3–1,0 s (DR §3.5). A orientação erra por um viés por episódio sorteado da
+distribuição medida (mediana 5,3°, p90 15,3°) mais 1° por leitura, no lugar do ruído independente. O
+alvo do BOTAR leva viés por episódio de ±5 cm em xy e ±3 cm em z. Latência e taxa ficam em 33 ms e
+30 Hz (dono, 15/10).
 
 **H6 — métricas e log (Haiku).** Degrau por tarefa; std da ação por junta (S §14).
 
@@ -1867,3 +1872,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-14 | revisão inteira do plano: 25 correções (PD-35 a PD-44, alturas de queda livre, teste do mapa parado, referência macro por alvo, dono único da odometria, média por célula, módulos puros sem import entre si, eventos e buffers que faltavam no contrato, tabelas quebradas) | `docs/relatorios/2026-10-14-plano-v3-achados.md` |
 | 2026-10-15 | cena, três decisões do dono depois da validação de viabilidade: cerca de torque pela soma nos pares acoplados da cintura e dos tornozelos (PD-45); atrito por material, com a caixa em `priority` 0 e o DR de μ nos pads e na laje (PD-46); laje de destino com o alvo a 0,15 m da borda perto, ±0,10 m de lado e giro de ±10° (PD-47). Corrige também o alvo no centro da laje de 0,60 m, que punha a borda perto dentro do corpo [C38]. Contagem: ~+20 linhas no pacote (`cena.py`, `eventos.py`, `alvos.py`, `recompensas.py`), nenhum termo novo | `docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2 e §6.1; respostas do dono em 15/10 |
 | 2026-10-15 | currículo e recompensa, quatro decisões do dono depois da validação de viabilidade: âncora de 1,5 s no sucesso do canal zero (PD-15); `passo` ao quadrado por toque (PD-48); σ próprio no canal zero do rastreio, 0,10 m/s e 0,15 rad/s (PD-49); `não v3_perdeu` em todo sucesso do PEGAR, do CARREGAR e do BOTAR (PD-50). Contagem: ~+14 linhas no pacote, nenhum termo novo, nenhum peso muda | `docs/relatorios/2026-10-15-viabilidade-v3.md` §2.1, itens 1 a 4; respostas do dono em 15/10 |
+| 2026-10-22 | estimador e mapa, decisões do dono de 15/10 e 22/10: máscara do lidar por raio de 0,7 m em volta do sensor, sem a caixa estimada (PD-10); FOV do RGB na visibilidade (PD-11); viés de tamanho, orientação persistente, alvo do BOTAR com viés e alvo do PEGAR pela caixa estimada (H5, E); latência fica em 33 ms a 30 Hz. O rastreio da caixa por Kalman (câmera + lidar + mãos) segue em desenho, fora do plano | discussão de 15/10 a 22/10; `vault/_sistema/inbox.md` |
