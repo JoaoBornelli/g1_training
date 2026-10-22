@@ -1876,3 +1876,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | PD-5 e PD-12 aceitas pelo dono | respostas do dono em 22/10 |
 | 2026-10-22 | PD-30 a PD-34 aceitas pelo dono, com as margens propostas (50%; 1,5; 1,5; 1,2; 10%) | respostas do dono em 22/10 |
 | 2026-10-22 | PD-38 e PD-40 aceitas; PD-41 refeita para um degrau global, o menor entre as tarefas, para toda a DR e o atraso. Fecha a revisão das PD | respostas do dono em 22/10 |
+| 2026-10-22 | catraca do freio e do refino: o dono mantém 'nada desce' (opção A); um travamento depois de um degrau se detecta no log (s < 0,60 por 300 its depois de um degrau) e se trata à mão | resposta do dono em 22/10; viabilidade §2.1, item 6 |
