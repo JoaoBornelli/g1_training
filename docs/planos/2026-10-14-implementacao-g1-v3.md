@@ -1877,3 +1877,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | PD-30 a PD-34 aceitas pelo dono, com as margens propostas (50%; 1,5; 1,5; 1,2; 10%) | respostas do dono em 22/10 |
 | 2026-10-22 | PD-38 e PD-40 aceitas; PD-41 refeita para um degrau global, o menor entre as tarefas, para toda a DR e o atraso. Fecha a revisão das PD | respostas do dono em 22/10 |
 | 2026-10-22 | catraca do freio e do refino: o dono mantém 'nada desce' (opção A); um travamento depois de um degrau se detecta no log (s < 0,60 por 300 its depois de um degrau) e se trata à mão | resposta do dono em 22/10; viabilidade §2.1, item 6 |
+| 2026-10-22 | fatos do robô real (dono): mão = pad de palma, 29 DoF; limite da cintura e do tornozelo = 50 N·m por eixo (o treino segue em 50, com a cerca pela soma do par, PD-45); envelope de produto = lajes de 0,04 a 0,55 m e cubos de 14 a 26 cm até 5 kg, igual ao do treino. Nada muda no plano | respostas do dono em 22/10 |
