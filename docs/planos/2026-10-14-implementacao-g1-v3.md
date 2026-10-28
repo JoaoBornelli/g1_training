@@ -1,7 +1,8 @@
 # Plano de implementação da v3 (`g1_v3/`)
 
 Data: 2026-10-14. Branch: `g1_v3`. Pedido do dono: "inicie a implementação do g1-v3 para que eu
-possa começar a testar um treinamento no kaggle". O plano vai a um workflow de agentes Sonnet e
+possa começar a testar um treinamento no kaggle" (a plataforma passou ao Docker no RunPod em 22/10,
+PD-22). O plano vai a um workflow de agentes Sonnet e
 Haiku, orquestrado por Opus.
 
 Base, nesta ordem de autoridade (a mesma da spec):
@@ -36,16 +37,16 @@ Decisões do dono nesta sessão (14/10), já na inbox do vault:
 O plano cria o pacote `g1_v3/` em nove fases, de A a I. As fases A, B e C produzem as funções
 puras e os números da Parte 0. A fase D é a Parte 1 (pacote, locomoção e lidar). As fases E, F, G
 e H são as Partes 2, 3, 3b e 4. A fase I é o fim: o dono roda o smoke, o orquestrador corrige, e o
-dono lança o treino na Kaggle.
+dono lança o treino no RunPod.
 
 O treino começa do zero, com 100% dos envs no ANDAR (fase 0 do currículo). O currículo abre a
 cadeia B, a cadeia C e o refino sozinho, pelos balanceadores (S §11). Por isso a primeira corrida
-na Kaggle já usa o pacote inteiro, e os portões de play das Partes 1 a 4 (S §15) se conferem nos
+no RunPod já usa o pacote inteiro, e os portões de play das Partes 1 a 4 (S §15) se conferem nos
 checkpoints, na ordem em que o currículo abre as tarefas.
 
 ```
 A preparação ──► B Parte 0 (puro) ──┐
-     └─────────► C percepção fase 1 ┴─► D Parte 1 ─► E Parte 2 ─► F Parte 3 ─► G Parte 3b ─► H Parte 4 ─► I smoke + Kaggle
+     └─────────► C percepção fase 1 ┴─► D Parte 1 ─► E Parte 2 ─► F Parte 3 ─► G Parte 3b ─► H Parte 4 ─► I smoke + RunPod
 ```
 
 Seções do enunciado que o plano atende: E §1 (ciclo do galpão, ordem de aprendizado), E §2
@@ -68,7 +69,7 @@ Seções do enunciado que o plano atende: E §1 (ciclo do galpão, ordem de apre
 | `registra_juntas_v3.py` (MuJoCo clássico, sem viewer) | dono ou orquestrador, quando o dono pedir | exceção registrada em 05/10 |
 | commit local | orquestrador | depois de cada tarefa, com o teste verde |
 | push, `gh`, operação remota | dono | proibido para agentes e orquestrador |
-| treino na Kaggle | dono | fase I |
+| imagem Docker, pod no RunPod e treino | dono | fase I (PD-22) |
 
 ### 1.2 Modelos
 
@@ -141,7 +142,7 @@ detalhe)` (`g1_limpo/smoke.py:50-55`), `secao(t)` (`:58-59`), envs em CPU com 2 
 | plays com juntas, ação, força | CSV na raiz do repo (21700 a 24800, 5000 a 6050) | 130 colunas | `q_*`, `a_*`, `alvo_pd_*`, `fn_E`, `fn_D`, `fn_tot`, poses da raiz, da caixa e da laje |
 | cercas medidas nos plays | `g1_limpo/ik/agachado/cercas_nos_plays.txt` | — | S §16 item 11 |
 | driver antigo | `pilota.py` (657), `registra_juntas.py` (558), na raiz | — | `monta_observacao` em `pilota.py:167-274` |
-| notebooks | `g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb` (10 células) | — | molde do notebook da v3 |
+| notebook antigo | `g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb` (10 células) | — | as lições que a entrada do container (D13) herda: chave `RETOMA` explícita, nome novo de `RUN`, checagem da CUDA e das versões |
 | padrão do MID-360 | `~/orca/workspaces/g1_training/lidar_sim/sensores/mid360.csv` | 800 000 linhas (4 s) | colunas tempo, azimute, zênite; URL da Livox em `sensores/lidar.py:17-18` |
 | montagem dos sensores | `lidar_sim/sensores/montagem.py` | — | `MID360_POS`, `MID360_QUAT`, `D435_POS`, `D435_PITCH` |
 | ruído do lidar | `lidar_sim/sensores/tipos.py` | — | alcance σ 2 cm, ângulo σ 0,15°, perda 1%, D435 depth 58° vertical, 30 Hz, 33 ms |
@@ -217,7 +218,7 @@ No fim da fase H:
 - `python -m unittest discover -s g1_v3/testes -t .` passa, sem env.
 - O registro `import g1_v3.tarefa` registra a task `Mjlab-G1-V3` sem erro e sem construir env.
 - `g1_v3/smoke.py` tem uma seção por mecanismo das Partes 1 a 4.
-- `g1_v3/kaggle/g1_v3_kaggle.ipynb` existe, lido e conferido por JSON.
+- `g1_v3/container/entrada.sh` existe e o `test_entrada` passa em modo seco.
 - `pilota_v3.py` e `registra_juntas_v3.py` existem na raiz.
 - `docs/relatorios/2026-10-??-v3-parte0.md` tem os números aceitos pelo dono, já no `knobs.py`.
 
@@ -225,7 +226,7 @@ No fim da fase I:
 
 - O smoke do dono passa.
 - `python -m g1_v3.exporta_cena --paridade` passa (observação do env = `monta_observacao`).
-- O treino roda na Kaggle e os portões de play da S §15 são conferidos nos checkpoints (§13.3).
+- O treino roda no RunPod e os portões de play da S §15 são conferidos nos checkpoints (§13.3).
 
 ---
 
@@ -342,7 +343,7 @@ g1_v3/
                            mid360_passos.npz, gera_capsulas.py, capsulas.npz
   parte0/                  comum.py e os scripts dos itens da Parte 0
   testes/                  __init__.py e test_*.py (unittest)
-  kaggle/g1_v3_kaggle.ipynb
+  container/entrada.sh     o que a imagem do RunPod chama depois do clone (D13, PD-22)
 pilota_v3.py               raiz do repo: driver de play e `monta_observacao` (puro + mujoco)
 registra_juntas_v3.py      raiz do repo: play por roteiro, grava CSV
 ```
@@ -1075,14 +1076,14 @@ Ondas:
 | D-1 | D1 `cena.py` | D-0 |
 | D-2 | D2 `observacoes.py`, D2b `estimador.Odometria`, D3 `comando.py`, D4 `curriculo.py`, D5 `recompensas.py`, D6 `terminacoes.py`, D7 `eventos.py`, D8 `metricas.py`, D9 `algoritmo.py` + `runner.py` | D-1 |
 | D-3 | D10 `env_cfg.py`, `tarefa.py`, `train.py`, `play.py` | D-2 |
-| D-4 | D11 `exporta_cena.py` + `pilota_v3.py` + `registra_juntas_v3.py`; D12 smoke da Parte 1; D13 notebook | D-3 |
+| D-4 | D11 `exporta_cena.py` + `pilota_v3.py` + `registra_juntas_v3.py`; D12 smoke da Parte 1; D13 entrada do container | D-3 |
 | D-5 | D14 revisão (Opus) | D-4 |
 
 ### D0 — testes da Parte 1 (Haiku, lane de testes)
 
 - Arquivos: `g1_v3/testes/test_cfg.py`, `test_recompensas.py`, `test_terminacoes.py`,
   `test_observacoes.py`, `test_comando.py`, `test_curriculo.py`, `test_eventos.py`,
-  `test_algoritmo.py`, `test_odometria.py`.
+  `test_algoritmo.py`, `test_odometria.py`, `test_entrada.py`.
 - Regra: os testes chamam os núcleos puros dos módulos com tensores sintéticos. Só o `test_cfg`
   chama `make_env_cfg()`, e nenhum teste constrói `ManagerBasedRlEnv`.
 - Casos: os listados em cada tarefa abaixo, na linha "Teste".
@@ -1375,7 +1376,10 @@ Ondas:
     do `knobs` chega ao cfg. No play: sem corrupção, sem `empurrao`, episódio de 10⁹ s.
   - `tarefa.py`: `TASK_ID = "Mjlab-G1-V3"`, `rl_cfg()` (o `unitree_g1_ppo_runner_cfg` com
     `experiment_name` "g1_v3", `obs_normalization` False no ator e no crítico, `class_name` =
-    `CAMINHO`) e o `register_mjlab_task` com `runner_cls=RunnerV3`.
+    `CAMINHO`) e o `register_mjlab_task` com `runner_cls=RunnerV3`. Uma segunda task,
+    `TASK_ID_SEM_PERCEPCAO = "Mjlab-G1-V3-SemPercepcao"`, com o mesmo cfg e `Percepcao.ligada = False`,
+    só para a corrida de custo do I5 (substitui a chave `PERCEPCAO` do notebook antigo); o teste
+    confere as duas no registro.
   - `train.py` e `play.py`: cópias de `g1_limpo/train.py` e `play.py` com `import g1_v3.tarefa`.
 - Teste (`test_cfg`): `make_env_cfg()` monta sem erro; os nomes e a ordem dos termos da §6.5; os
   pesos iguais ao `knobs`; cada recompensa tem a tupla `tarefas` da tabela da §D5; o último termo do
@@ -1422,25 +1426,54 @@ Ondas:
   passo com e sem `Percepcao.ligada` (imprime; fase 5c em CPU).
 - Contagem: o smoke fica fora da meta. Commit: `test(v3): smoke da Parte 1`.
 
-### D13 — notebook da Kaggle (Haiku)
+### D13 — ponto de entrada do container no RunPod (Sonnet)
 
-- Arquivos: `g1_v3/kaggle/g1_v3_kaggle.ipynb`.
-- Origem: `g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb` (10 células) e as regras de
-  `specs/g1-limpo-notebook-colab.md`.
-- Células: (0) título, pré-requisitos e o aviso do push da branch (PD-22); (1) `nvidia-smi` com
-  assert de GPU; (2) `pip install -q --no-warn-conflicts mjlab==1.5.3`; (3) checagem de CUDA num
-  subprocesso; (4) `RUN`, `BRANCH = "g1_v3"`, `RETOMA`, `MUJOCO_GL=egl`, clone `--depth 1`,
-  `sys.path`; (5) `acha_checkpoint`, `sobe_checkpoint` (dataset `g1-v3`) e `empacota`; (6)
-  TensorBoard; (7) markdown do treino; (8) config: `NUM_ENVS = 4096`, `HORAS_LIMITE = 10,5`,
-  `SEG_POR_ITER = 12,0` (estimativa: 6,9 do `g1_limpo` × 1,8 do terreno, viabilidade C7; trocar pela
-  medida), `PERCEPCAO` (True; a corrida de custo da fase 5c usa False e True, 50 its cada; com False,
-  `cfg.env = make_env_cfg(dataclasses.replace(ATIVO, percepcao=dataclasses.replace(ATIVO.percepcao,
-  ligada=False)))`),
-  `max_iterations`, resume pelo `RunnerV3`, `launch_training(g1_v3.tarefa.TASK_ID, cfg)` em
-  `try/finally` com `empacota()` e `sobe_checkpoint()`; (9) markdown "o que olhar no log", com as
-  chaves da §6.7.
-- Teste: o JSON abre; as células têm a ordem acima; nenhuma célula tem `!git push` nem `gh`.
-- Commit: `feat(v3): notebook da Kaggle`.
+- Arquivos: `g1_v3/container/entrada.sh`; o teste `g1_v3/testes/test_entrada.py` sai da lane D0.
+- Origem: as lições do `g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb` (células 1 a 5 e 8) e a CLI
+  do mjlab 1.5.3 (`mjlab/scripts/train.py:71-95`, `mjlab/utils/os.py:23-60`), que o `train.py` da
+  D10 já chama.
+- Contrato com a imagem (PD-22; a imagem é do dono). A imagem traz o Python, o torch com CUDA e
+  `mjlab==1.5.3` (ele pina `mujoco-warp` e `rsl-rl-lib` 5.4.0). Ao subir, ela clona
+  `--branch g1_v3 --depth 1` em `$RAIZ` e chama `bash $RAIZ/g1_v3/container/entrada.sh`. O repo não
+  instala pacote nenhum.
+- Variáveis de ambiente do pod:
+
+  | variável | padrão | o que faz |
+  |---|---|---|
+  | `RUN` | — (obrigatória) | nome da corrida; nome novo a cada mudança de conjunto |
+  | `RETOMA` | — (obrigatória, 0 ou 1) | chave explícita: a retomada nunca sai da presença de um checkpoint |
+  | `ITERS` | 30000 | its DESTA sessão (o rsl_rl soma à it do checkpoint: `total_it = start_it + num_learning_iterations`) |
+  | `NUM_ENVS` | 4096 | envs; o I5 mede 4 096 e 8 192 |
+  | `PERCEPCAO` | 1 | 0 escolhe `Mjlab-G1-V3-SemPercepcao` (só o I5) |
+  | `SAIDA` | `/workspace/g1_v3` | raiz dos logs e dos checkpoints, no volume do pod; o destino final fica para depois (PD-22) |
+  | `TENSORBOARD` | 1 | sobe o TensorBoard na porta 6006 em segundo plano |
+  | `SECO` | 0 | 1 pula as checagens de GPU e só imprime o comando final (para o teste) |
+
+- O que fazer, nesta ordem:
+  1. `set -euo pipefail`; `export MUJOCO_GL=egl`; falha com mensagem se `RUN` ou `RETOMA` faltam, ou
+     se `RETOMA` não é 0 nem 1.
+  2. Sem `SECO`: `nvidia-smi` com saída não vazia; num subprocesso Python, `torch.cuda.is_available()`
+     verdadeiro, `importlib.metadata.version("mjlab") == "1.5.3"` e `version("rsl-rl-lib") == "5.4.0"`
+     (o `RslRlModelCfg` do 1.5.1 quebra o 5.4.0, notebook antigo célula 2); imprime as versões do
+     torch e do mujoco, o nome da GPU e `git -C $RAIZ log --oneline -1`.
+  3. A pasta do experimento é `$SAIDA/g1_v3` (`experiment_name` da D10). Com `RETOMA=0`: falha se já
+     existe nela uma pasta `*_$RUN`. Com `RETOMA=1`: escolhe a pasta `*_$RUN` mais nova que tem um
+     `model_*.pt` (uma sessão que caiu antes do primeiro checkpoint fica para trás); sem nenhuma,
+     falha.
+  4. Monta o comando: `python -m g1_v3.train <task> --env.scene.num-envs $NUM_ENVS --agent.run-name
+     $RUN --agent.max-iterations $ITERS --agent.logger tensorboard --log-root $SAIDA`; com
+     `RETOMA=1`, mais `--agent.resume --agent.load-run '^<pasta>$'` (o bool do tyro é um flag sem
+     valor; o mjlab acha o `model_*.pt` de maior número dentro da pasta).
+  5. Com `TENSORBOARD=1` e sem `SECO`: `tensorboard --logdir $SAIDA --port 6006 --bind_all &`.
+  6. Com `SECO=1`: imprime o comando e sai com 0. Senão, `cd $RAIZ` e `exec` do comando.
+- Teste (`test_entrada`, CPU, `SECO=1`, `SAIDA` num diretório temporário, por `subprocess`):
+  `bash -n` passa; sem `RUN`, sem `RETOMA` ou com `RETOMA=2` → código ≠ 0; `RETOMA=0` com uma pasta
+  `2026-01-01_00-00-00_x` → ≠ 0; `RETOMA=0` limpo → o comando tem `Mjlab-G1-V3 `,
+  `--agent.run-name x`, `--log-root <tmp>` e não tem `--agent.resume`; `RETOMA=1` com duas pastas
+  `*_x`, a mais nova sem `model_*.pt` → `--agent.load-run '^<a mais velha>$'`; `RETOMA=1` sem pasta →
+  ≠ 0; `PERCEPCAO=0` → `Mjlab-G1-V3-SemPercepcao`; o texto do script não tem `git push`, `gh ` nem
+  `pip`.
+- Contagem: 0 → ~60 (script) e ~80 (teste). Commit: `feat(v3): ponto de entrada do container (RunPod)`.
 
 ### D14 — revisão da Parte 1 (Opus)
 
@@ -1723,7 +1756,7 @@ degrau 5; 37. `com_caixa` ligado por 200 passos em 16 mundos sem erro de heap (d
 
 ---
 
-## 13. Fase I — smoke, exportação e treino na Kaggle
+## 13. Fase I — smoke, exportação e treino no RunPod
 
 ### 13.1 Antes do primeiro run
 
@@ -1732,13 +1765,17 @@ degrau 5; 37. `com_caixa` ligado por 200 passos em 16 mundos sem erro de heap (d
 | I1 | dono | `cd ~/Documents/g1_training && .venv/bin/python -m g1_v3.smoke` | `N ok / 0 falhas`; cada falha volta ao orquestrador, que corrige e devolve |
 | I2 | dono | `.venv/bin/python -m g1_v3.exporta_cena --saida ~/g1_pilota_v3/` e `--paridade --cena ~/g1_pilota_v3/` | paridade 1e−5 em todos os blocos |
 | I3 | dono | `registra_juntas_v3.py` com a política aleatória, 10 s de ANDAR | o CSV sai e o robô não explode (sanidade da cena exportada) |
-| I4 | dono | `git push origin g1_v3`; na Kaggle, o dataset `g1-v3` e os segredos `KAGGLE_USERNAME` e `KAGGLE_KEY` (os mesmos do `g1_limpo`) | o notebook clona a branch e sobe o checkpoint (PD-22) |
-| I5 | dono | notebook com `PERCEPCAO = False`, 50 its; depois `True`, 50 its | s/it das duas; o dono aceita o custo (fase 5c, PERC §9) |
+| I4 | dono | `git push origin g1_v3`; a imagem Docker com o contrato da D13 publicada; um pod no RunPod (4090 ou L40S) com o volume em `/workspace` e a porta 6006 exposta | o log do pod mostra o commit certo do clone, a GPU e as versões (mjlab 1.5.3, rsl-rl-lib 5.4.0) |
+| I5 | dono | corridas de custo de 50 its, `RETOMA=0`: `RUN=v3_custo_sem PERCEPCAO=0` e `RUN=v3_custo_com PERCEPCAO=1`, com `NUM_ENVS=4096`; na L40S, também `RUN=v3_custo_8k NUM_ENVS=8192` | s/it (`Collection time` + `Learning time`) e memória da GPU de cada; o dono aceita o custo e fixa a GPU e o `NUM_ENVS` (fase 5c, PERC §9) |
+| I6 | dono | `RUN=v3_custo_com RETOMA=1 ITERS=10` no mesmo pod | o log segue da it 50, o `RunnerV3` não avisa "checkpoint sem currículo" e o `Curriculum/*` continua de onde parou |
 
 ### 13.2 O treino
 
-Uma corrida só, do zero, com o currículo inteiro: `RUN = "v3_zero01"`, 4 096 envs, sessões de 10,5 h
-com resume pelo `RunnerV3`. O currículo começa com 100% de ANDAR (E §1 "Ordem de aprendizado").
+Uma corrida só, do zero, com o currículo inteiro: `RUN=v3_zero01 RETOMA=0 ITERS=30000`, com a GPU e
+o `NUM_ENVS` do I5. O currículo começa com 100% de ANDAR (E §1 "Ordem de aprendizado"). Se o pod
+para, a mesma corrida segue com `RETOMA=1` e `ITERS` = as its que faltam. O checkpoint sai a cada
+`save_interval` (50 its) em `$SAIDA/g1_v3/<data>_v3_zero01/`, no volume do pod; copiar para fora do
+pod fica com o dono até o destino final ser decidido (PD-22).
 
 ### 13.3 Portões, na ordem em que o currículo abre
 
@@ -1779,18 +1816,17 @@ Comando único: `cd ~/Documents/g1_training && .venv/bin/python -m unittest disc
 
 | fator | número | fonte | o que o plano faz |
 |---|---|---|---|
-| s/it do `g1_limpo` na Kaggle (T4, 4 096 envs) | 6,9–7,0 | notebooks | ponto de partida do `SEG_POR_ITER` |
+| s/it do `g1_limpo` na Kaggle (T4, 4 096 envs) | 6,9–7,0 | notebooks | só referência; a GPU do RunPod é outra e o I5 mede de novo (PD-22) |
 | terreno no modelo único (1 410 geoms) | ×1,8 a 2,1 no `env.step` em CPU | viabilidade C7, L1 | aceito pelo dono (terreno desde 06/10); I5 mede na GPU |
 | raycast | 205 raios por passo (PD-5), contra 1 024 por passo | viabilidade D7: 2 025 raios = 10–14% do passo em CPU | ~1/5 do custo de 1 024 por passo |
 | filtro de elevação | 51 × 51 células × 4 096 envs; 205 pontos por passo | D7: 26 ms com P 256 em CPU | `custo_filtro.py` mede em CPU; I5 na GPU |
 | filtro do corpo | 205 pontos × ~40 cápsulas × 4 096 envs por passo | — | uma operação vetorizada; I5 mede |
 | primeira camada do ator | 1 447 × 512 (contra 565 × 512) | S §19.1 | sem mudança de rede (fase 5c decide) |
-| orçamento | 30 000 its ([F34]) | S §1 | a 12–15 s/it, ~100–125 h de GPU |
+| orçamento | 30 000 its ([F34]) | S §1 | na T4, 12–15 s/it dariam ~100–125 h; no RunPod, tempo e custo saem do s/it do I5 |
 
-Risco de prazo: a 12–15 s/it, os 30 000 its pedem ~10 a 12 sessões de 10,5 h. A cota semanal de GPU
-da Kaggle (cerca de 30 h; conferir na conta) leva o treino a ~4 semanas. O Colab roda 8 192 envs
-(memória `g1-colab-8192-kaggle-4096`); o notebook já detecta o host pela regra da
-`specs/g1-limpo-notebook-colab.md`, e a troca de host é decisão do dono.
+Risco de custo: o tempo e o custo dos 30 000 its dependem do s/it na GPU escolhida (4090 ou
+L40S), medido no I5. O orçamento por GPU fica para depois do plano (PD-22). Um pod que para no
+meio não perde a corrida: o checkpoint fica no volume e o `RETOMA=1` segue dele (I6).
 
 ---
 
@@ -1834,7 +1870,7 @@ Sem eles a conta dá ~5 550. A S §17 manda refazer a conta na Parte 1; esta é 
 | os números da Parte 0 não fecham | fase B | o portão da B6 para o plano; o dono decide |
 | o smoke só no fim junta muitos defeitos | fase I | o `test_cfg` constrói o cfg em toda fase; reservar uma rodada de correção na fase I |
 | a fluência da caixa entre as palmas (4–8 cm em 6 s) | Partes 2 a 4 | aceita (L2, 14/10): a política vê a caixa e corrige |
-| a cota da Kaggle | fase I | §15 |
+| o custo de GPU no RunPod e a parada do pod | fase I | §15; I5 mede o s/it; I6 prova a retomada |
 | a ordem das juntas do MJCF diferir da do SDK | contrato | `test_knobs` e seção 4 do smoke |
 | o mapa nasce frio no reset | B e C | aceito; a espera de 0,5–1,0 s enche a frente (sanidade 4.4.1) |
 
@@ -1899,3 +1935,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | fatos do robô real (dono): mão = pad de palma, 29 DoF; limite da cintura e do tornozelo = 50 N·m por eixo (o treino segue em 50, com a cerca pela soma do par, PD-45); envelope de produto = lajes de 0,04 a 0,55 m e cubos de 14 a 26 cm até 5 kg, igual ao do treino. Nada muda no plano | respostas do dono em 22/10 |
 | 2026-10-22 | canal da caixa (dono): opção A, a política recebe a leitura da câmera (estimador simulado no treino; D435i + box-vision no real), como em 14/10. O rastreio por Kalman (câmera + lidar + mãos) fica como extensão depois do primeiro treino, sem mudar o formato dos 11 canais. Plano pronto para o despacho pela fase A | resposta do dono em 22/10 |
 | 2026-10-28 | percepção treino × real (dono, 28/10): `raio_min` 0,85 m (o braço + 5 cm, medido por FK) e o mesmo `filtra_corpo` na entrada da odometria real (PD-10); a variância da medida por célula ganha o erro comum da leitura e o piso `sigma_fixo` 2 cm, e o mapa gira pelo mesmo viés do IMU da gravidade, para a confiança não depender da densidade de pontos (PD-42, PD-6; teste de invariância na C0); o driver real faz deskew por ponto e entrega os pontos a cada 20 ms (PD-5); o `mapa` entra no atraso por episódio (PD-25, §6.8); a odometria ganha os termos de giro (PD-18, D2b); contrato do detector na I §2.3. A decimação de pontos no driver foi descartada | `docs/relatorios/2026-10-22-percepcao-sim-real.md` §5 |
+| 2026-10-28 | plataforma (dono, 28/10): a PD-22 chega às tarefas. A D13 deixa de ser o notebook da Kaggle e vira `g1_v3/container/entrada.sh`, o ponto de entrada que a imagem do RunPod chama depois do clone (variáveis `RUN`, `RETOMA`, `ITERS`, `NUM_ENVS`, `PERCEPCAO`, `SAIDA`, `TENSORBOARD`, `SECO`; checagem de GPU e de versões; retomada pela pasta mais nova com checkpoint), com o `test_entrada` em modo seco. A D10 registra `Mjlab-G1-V3-SemPercepcao` para o I5. A fase I troca I4 e I5 pelo pod, mede 4 096 e 8 192 envs e ganha o I6 (retomada). §0, §1.1, §2.1, §3, §6.1, §15 e §17 deixam a Kaggle | pedido do dono depois da checagem de alinhamento |
