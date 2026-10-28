@@ -292,5 +292,7 @@ depois, se os testes mostrarem aviso de pega sem caixa.
 8. FEITO (14/10): o IMU é o `imu_state` do `LowState`, lido como o da raiz (pelve), como no deploy
    da Unitree (§2.1).
 
-Ficam para a fase 1 da percepção: a fórmula da confiança do mapa. Fica para os plays: o limiar de
+9. FEITO (28/10): a fórmula da confiança do mapa, com o piso da variância (§2.4; plano PD-6, PD-42).
+
+Fica para os plays: o limiar de
 "juntas quase paradas" do detector (§4.2).

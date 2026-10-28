@@ -146,6 +146,10 @@ detalhe)` (`g1_limpo/smoke.py:50-55`), `secao(t)` (`:58-59`), envs em CPU com 2 
 | montagem dos sensores | `lidar_sim/sensores/montagem.py` | — | `MID360_POS`, `MID360_QUAT`, `D435_POS`, `D435_PITCH` |
 | ruído do lidar | `lidar_sim/sensores/tipos.py` | — | alcance σ 2 cm, ângulo σ 0,15°, perda 1%, D435 depth 58° vertical, 30 Hz, 33 ms |
 
+Todo caminho `lidar_sim/...` deste plano é relativo a `~/orca/workspaces/g1_training/`: o `lidar_sim`
+fica fora do repo e sem git. A v3 só lê dele na fase A (A2 copia os números para o `knobs.py`; A4
+grava o `.npz` no git); depois da fase A, nada da v3 depende dele.
+
 Ambiente: mjlab 1.5.3, rsl-rl-lib 5.4.0, mujoco 3.10.0, torch 2.13 em `.venv/`. O `pytest` não está
 instalado; os testes usam `unittest` da stdlib (PD-2).
 
