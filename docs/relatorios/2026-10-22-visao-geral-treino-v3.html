@@ -148,7 +148,7 @@
       <rect x="260" y="200" width="160" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
       <text x="340" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Lidar e mapa</text>
       <text x="340" y="243" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">205 raios/passo</text>
-      <text x="340" y="257" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">corte 0,7 m · Kalman</text>
+      <text x="340" y="257" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">corte 0,85 m · Kalman</text>
       <text x="340" y="271" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">recorte 2 × 2 m</text>
 
       <rect x="260" y="320" width="160" height="60" rx="6" fill="#f5f5f5"/>
@@ -222,10 +222,10 @@
   <h3 style="margin-top:1.4rem;font-size:0.95rem">Percepção, em detalhe</h3>
   <div class="tw"><table>
     <tr><th>peça</th><th>como funciona no treino</th><th>decisão</th></tr>
-    <tr><td>lidar (MID-360)</td><td>205 raios por passo de 20 ms, o padrão real em fluxo (1 025 a cada 0,1 s), na pose do MID-360 no <code>torso_link</code>; vê terreno, mobília e o próprio robô</td><td>PD-5 <span class="tag">aceita 22/10</span></td></tr>
-    <tr><td>filtro do corpo</td><td>sai todo ponto a menos de 0,7 m do lidar, em todas as tarefas, e todo ponto a menos de 3 cm das cápsulas do robô; a caixa estimada não entra</td><td>PD-10 <span class="tag novo">raio 22/10</span></td></tr>
-    <tr><td>mapa</td><td>Kalman por célula, média dos z por célula; mapa interno de 51 × 51 (5,1 m) que segue a base; entrega o recorte de 21 × 21 (2 × 2 m), alturas sobre o pé mais baixo, corte em 1,0 m</td><td>PD-8, PD-42</td></tr>
-    <tr><td>odometria simulada</td><td>pose verdadeira mais passeio aleatório: 0,002 m/√m no início, 0,0075 m/√m no refino</td><td>PD-18, PD-44</td></tr>
+    <tr><td>lidar (MID-360)</td><td>205 raios por passo de 20 ms, o padrão real em fluxo (1 025 a cada 0,1 s), na pose do MID-360 no <code>torso_link</code>; vê terreno, mobília e o próprio robô. No real, o driver entrega os pontos a cada 20 ms, com deskew por ponto</td><td>PD-5 <span class="tag">aceita 22/10; driver 28/10</span></td></tr>
+    <tr><td>filtro do corpo</td><td>sai todo ponto a menos de 0,85 m do lidar (o braço + 5 cm), em todas as tarefas; o mesmo filtro limpa a entrada da odometria real; e todo ponto a menos de 3 cm das cápsulas do robô; a caixa estimada não entra</td><td>PD-10 <span class="tag novo">raio 28/10</span></td></tr>
+    <tr><td>mapa</td><td>Kalman por célula, média dos z por célula; variância da medida com o erro comum da leitura e piso de (2 cm)², para a confiança não depender da densidade de pontos; pontos girados pelo mesmo viés do IMU da gravidade; atraso de 0–1 passo; mapa interno de 51 × 51 (5,1 m) que segue a base; entrega o recorte de 21 × 21 (2 × 2 m), alturas sobre o pé mais baixo, corte em 1,0 m</td><td>PD-8, PD-42 <span class="tag">28/10</span></td></tr>
+    <tr><td>odometria simulada</td><td>pose verdadeira mais passeio aleatório pela distância e pelo ângulo girado: 0,002 m/√m e 0,5° e 1 cm por volta no início; 0,0075 m/√m e 2° e 2 cm por volta no refino</td><td>PD-18 <span class="tag">giro 28/10</span>, PD-44</td></tr>
     <tr><td>estimador da caixa</td><td>a 30 Hz, com 33 ms de atraso; vale com o centro no FOV do RGB (69° × 42°), a 0,28–3,0 m e ≥ 3 de 9 pontos sem oclusão dos braços; sem leitura, repete a última, presa ao mundo, e a idade cresce</td><td>PD-11 <span class="tag novo">FOV RGB 15/10</span></td></tr>
     <tr><td>erros do estimador</td><td>início: posição σ 0,5 cm, orientação σ 1°, perda 0,5%. Refino: depth 2% da distância, orientação por viés por episódio (mediana 5,3°, p90 15,3°) + 1° por leitura, perda 2,2% e rajadas de 0,3–1,0 s, viés de ±2 cm na posição e na meia aresta, alvo do BOTAR ±5 cm xy e ±3 cm z; alvo do PEGAR = a caixa estimada</td><td>H5 <span class="tag novo">15/10</span></td></tr>
   </table></div>
@@ -536,7 +536,7 @@
       <li>30 000 its é o orçamento da locomoção sozinha; aqui ele cobre também a manipulação, o terreno e o refino.</li>
       <li>A catraca (freio e refino só sobem) fica: se o sucesso cair abaixo de 0,60 por 300 its depois de um degrau, o conserto é manual.</li>
       <li>As emendas do ciclo não são treinadas (decisão sustentada pela medida do 24800).</li>
-      <li>O corte de 0,7 m apaga o chão perto dos pés no agachamento fundo do PEGAR e do BOTAR, e lajes altas perto do corpo.</li>
+      <li>O corte de 0,85 m apaga o chão perto dos pés no agachamento fundo do PEGAR e do BOTAR, e lajes altas perto do corpo.</li>
       <li>A política recebe a caixa da câmera; com a caixa fora do FOV do RGB (quase todo o BOTAR), a leitura fica velha e presa ao mundo.</li>
       <li>REORIENTAR, LEVANTAR, prateleira e o estimador real da caixa ficam fora da v3.</li>
     </ul>

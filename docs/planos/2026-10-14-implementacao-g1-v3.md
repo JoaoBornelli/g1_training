@@ -254,12 +254,12 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-2 | testes | `unittest` da stdlib, em `g1_v3/testes/` | o `pytest` não está no venv, e instalar é do dono |
 | PD-3 | FK sem física (ACEITA pelo dono, 22/10) | o agente roda `gera_referencias.py`, `gera_capsulas.py` e os scripts da Parte 0 que usam `parte0/comum.fk` (MuJoCo clássico, só `mj_kinematics`, sem física, sem viewer, segundos) | não é simulação; evita parar o workflow. Se o dono vetar, ele roda os comandos |
 | PD-4 | ponto da palma | o site `left_palm`/`right_palm` do `g1.xml` (pos 0,08 0 0 na mão) | o robô real calcula o mesmo ponto pela FK |
-| PD-5 | lidar em fluxo (ACEITA pelo dono, 22/10) | 205 raios por passo de 20 ms (1 025 por 0,1 s), cada passo com o trecho seguinte do bloco do CSV | mesma densidade da D6 (1 024 por 0,1 s), 1/5 do custo de raycast por passo; a distorção de movimento aparece como no `lidar_sim` |
-| PD-6 | confiança da célula | `c = σ_ref² / (σ_ref² + P)`, σ_ref 5 cm; célula nunca vista: `c = 0` | I §2.4 deixou a fórmula para a fase 1; uma leitura (σ 2 cm) dá 0,86 |
+| PD-5 | lidar em fluxo (ACEITA pelo dono, 22/10) | 205 raios por passo de 20 ms (1 025 por 0,1 s), cada passo com o trecho seguinte do bloco do CSV; cada ponto vai ao mapa pela pose do passo em que o raio sai. No robô real, o driver entrega ao filtro, a cada passo de 20 ms, os pontos que chegaram desde o passo anterior, cada um levado ao mundo pela pose do sensor no carimbo de tempo dele (deskew: IMU, odometria, FK das juntas); o terreno parado cai no mesmo lugar no treino e no real (dono, 28/10) | mesma densidade da D6 (1 024 por 0,1 s), 1/5 do custo de raycast por passo. A densidade real (~20 mil pontos por 0,1 s) não muda a confiança (PD-42) |
+| PD-6 | confiança da célula | `c = σ_ref² / (σ_ref² + P)`, σ_ref 5 cm; célula nunca vista: `c = 0` | I §2.4 deixou a fórmula para a fase 1; com o piso da PD-42, a célula vista satura em 0,862 (1 leitura no real, 2 no treino, a 2 m) e cai só pelo transporte (PD-7): 0,758 depois de 1 m |
 | PD-7 | variância do transporte | `P += q_d·‖Δxy‖ + q_r·abs(Δψ) + q_t·Δt`, com `q_d` (2 cm)²/m, `q_r` (2 cm)²/rad, `q_t` (0,5 cm)²/s | PERC §0: cresce sobretudo com o deslocamento e devagar com o tempo |
 | PD-8 | mapa interno | 51 × 51 células de 10 cm (5,1 m), centrado na base, eixos no rumo | D5 (5 × 5 m); célula central = a base |
 | PD-9 | grupo da mobília | caixa e laje no grupo de geom 1; o lidar inclui os grupos 0 (terreno), 1 (mobília) e 3 (colisão do robô) | o grupo 2 tem 35 malhas visuais do robô (viabilidade D8) |
-| PD-10 | filtro do corpo e caixa na mão (DONO, 22/10) | cápsulas das geoms de colisão, margem 3 cm; e todo ponto a menos de `raio_min` 0,7 m do lidar sai, em todas as tarefas. A caixa estimada NÃO entra no filtro | a caixa nas mãos fica a 0,3–0,64 m do lidar (quina de baixo da frente, com 8 cm de escorregamento); o chão de pé fica a ~1,2 m. O corte não depende de estimar a caixa, da cinemática dela nem do one-hot, e é o mesmo no sim e no real. A versão anterior (volume da caixa estimada) vazava com a leitura velha presa ao mundo; a máscara pela câmera não cobre a face que só o lidar vê. Preço aceito: tudo a menos de 0,7 m do sensor some, inclusive o chão perto dos pés no agachamento fundo do PEGAR e do BOTAR (só no plano) |
+| PD-10 | filtro do corpo e caixa na mão (DONO, 22/10) | cápsulas das geoms de colisão, margem 3 cm; e todo ponto a menos de `raio_min` 0,85 m do lidar sai, em todas as tarefas (0,7 até 28/10). A caixa estimada NÃO entra no filtro. O mesmo `filtra_corpo` limpa a entrada da odometria real (KISS-ICP): um ponto que anda com o robô não entra no casamento de nuvens (dono, 28/10) | 0,85 = o braço + 5 cm: FK sem física, ponto da mão mais longe do MID-360 a 0,64 m (frente), 0,74 (lado, T), 0,45 (cima), 0,77 (baixo) e 0,80 no máximo de 20 000 poses nos limites; de pé com os braços soltos, a mão já fica a 0,74 m. O raio tira o braço e a caixa sem depender da forma das cápsulas; as cápsulas tiram pernas e pés. A caixa nas mãos fica a 0,3–0,64 m do lidar (quina de baixo da frente, com 8 cm de escorregamento); o lidar fica a 1,30 m da sola de pé e a 0,61–0,64 m no agachamento fundo. O corte não depende de estimar a caixa, da cinemática dela nem do one-hot, e é o mesmo no sim e no real. A versão anterior (volume da caixa estimada) vazava com a leitura velha presa ao mundo; a máscara pela câmera não cobre a face que só o lidar vê. Preço aceito: tudo a menos de 0,85 m do sensor some, inclusive o chão a 0,43–0,58 m na horizontal no agachamento fundo do PEGAR e do BOTAR e o topo da laje alta bem perto do robô |
 | PD-11 | oclusão da D435i | 9 pontos da caixa (centro e 8 cantos) testados contra as cápsulas dos braços; a leitura vale com o centro no campo de visão (87° × 58°), na faixa 0,28–3,0 m, e com ≥ 3 pontos sem oclusão; o campo de visão é o do RGB, 69° × 42°, onde roda a detecção (DONO, 15/10; era o do depth, 87° × 58°) | S §13: reproduzir a visibilidade real; mesma lista de cápsulas da PD-10 |
 | PD-12 | células do balanceador (ACEITA pelo dono, 22/10) | uma célula por TIPO de subtarefa (ANDAR: reto, parado, baixo, giro andando, giro no lugar, terreno). O nível da tarefa sobe quando todas as células abertas passam no portão e todos os tipos já abriram. A EMA da tarefa recomeça na primeira medida depois da subida. Mínimo de 50 its entre subidas | com uma célula por (tipo, nível), o piso 0,10 estoura com mais de 10 células; "o nível k sorteia entre 0,25 e o teto" já inclui os níveis de baixo |
 | PD-13 | EMA do sucesso | uma atualização por iteração, com os segmentos e episódios que fecharam nela, α 0,05 | o mesmo α do balanceador do `g1_limpo` (`Cadeia.balanceador_alpha`) |
@@ -267,14 +267,14 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-15 | sucesso com canal zero | posição deriva < 0,10 m e rumo deriva < 0,25 rad, medidas a partir de uma âncora que fica `ancora_s` 1,5 s depois da abertura do segmento e passa a 1,5 s depois de cada empurrão (DONO, 15/10); um segmento que fecha antes da âncora não registra. Antes de 15/10 a deriva contava o segmento inteiro, e a frenagem do 24800 (0,126 m de 0,5 m/s; 0,62 m de 1,5 m/s, `lidar_sim/cenarios/curva_model_24800.json`) reprovava o parado acima de ~0,5 m/s e travava o nível do ANDAR e o terreno | S §11.3 "abaixo de um limiar" sem número; 0,10 m é o do aceite do giro no lugar (S §15) |
 | PD-16 | passo de lado | `L` = projeção, na direção do comando, de (pé que toca − pé de apoio), MENOS a mesma projeção na pose de pé (`q_de_pé`) | sem isto, o passo de lado recebe a largura da base (0,23 m) de graça |
 | PD-17 | crítico | sem mapa perfeito; o crítico recebe o mapa do filtro | a S §19.1 só propõe; um segundo raycast dobra o custo |
-| PD-18 | estimador "baixo" desde o começo | posição σ 0,5 cm, orientação σ 1°, perda 0,5%, latência 33 ms, 30 Hz, deriva da odometria 0,002 m/√m (0,4 cm em 4 m; o refino vai a 0,0075 m/√m = 1,5 cm em 4 m, o ATE do ESKF) | a S §13 diz "baixo" sem número (sanidade 4.5.2); a deriva cresce com a raiz da distância, e não com a distância (D2b) |
+| PD-18 | estimador "baixo" desde o começo | posição σ 0,5 cm, orientação σ 1°, perda 0,5%, latência 33 ms, 30 Hz, deriva da odometria 0,002 m/√m (0,4 cm em 4 m; o refino vai a 0,0075 m/√m = 1,5 cm em 4 m, o ATE do ESKF); deriva no giro 0,5° e 1 cm por volta (refino 2° e 2 cm por volta), hipótese até medir no G1 (dono, 28/10) | a S §13 diz "baixo" sem número (sanidade 4.5.2); a deriva cresce com a raiz da distância e do ângulo girado, e não com eles (D2b). Os quatro termos são o modelo de movimento de odometria (Thrun, *Probabilistic Robotics*, cap. 5); sem os termos de giro, o giro no lugar não tinha erro de rumo |
 | PD-19 | mãos no invariante | `g_mãos = (mãos em contato) / 2` | S §9.1 pede rampa por grandeza; contato é contagem |
 | PD-20 | terreno do CARREGAR | só nas colunas com plataforma de 2 m; linha máxima por coluna `⌊f·(R−1)⌋`, com f 0,75 (escada, rampa) e 0,667 (obstáculo), R = 10 | S §11.2 tetos do CARREGAR; a dificuldade do mjlab é linear na linha |
 | PD-21 | alturas | pelve, joelhos, pés e caixa medidos contra o terreno por `TerrainHeightSensorCfg`, desde a Parte 1 | D3, D4, L7; vale também no plano |
 | PD-22 | código na plataforma de treino (DONO, 22/10) | o treino roda em Docker no RunPod (4090 ou L40S), no mjlab; o container clona a branch `g1_v3` do GitHub ao subir; o dono faz o push antes da corrida e publica a imagem. O notebook da Kaggle sai; o ponto de entrada vira um script de treino que o container chama. Os detalhes da imagem, do registro, do destino dos checkpoints e o orçamento por GPU ficam para depois do plano e da implementação | nada sobe ao GitHub sem o dono; as contas de 12–15 s/it e a cota de ~30 h/semana eram da T4 da Kaggle e serão medidas de novo |
 | PD-23 | Δ das rampas (o item 2 da Parte 0 confere) | deslocamento B2–B4: 2 cm; deslocamento P0–P2: a/2; tronco: 15°; recuo: 8 cm; CoM: 3 cm; inclinação: 15° (decidido) | B04 deixou os Δ que faltam para a Parte 0 |
 | PD-24 | DR | as faixas só alargam, por nível e por degrau de refino; nunca estreitam | S §11.5 "ele nunca desce" |
-| PD-25 | atraso por termo | cada termo de propriocepção sorteia o próprio lag por episódio | superconjunto do real (o real tem um lag só); evita API privada |
+| PD-25 | atraso por termo | cada termo de propriocepção e o `mapa` sorteiam o próprio lag por episódio (o mapa desde 28/10: no real, os pontos chegam ao filtro com o atraso do caminho) | superconjunto do real (o real tem um lag só); evita API privada |
 | PD-26 | detector "juntas quase paradas" | média de abs(q̇) das 29 juntas na janela de 0,5 s < 0,2 rad/s | proposta da I §4.2 |
 | PD-27 | chave da caixa perdida | `CAIXA_PERDIDA_VIRA_ANDAR = True` | o aceite da S §15 "caixa perdida" usa a chave ligada |
 | PD-28 | atraso maior por nível | a capacidade do atraso é 0–3 passos desde o build; o teto corrente sobe mudando o `max_lag` dos buffers (0–1 → 0–2 → 0–3) | o `DelayBuffer` sorteia em `[min_lag, max_lag]` lendo o atributo a cada sorteio |
@@ -291,7 +291,7 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-39 | "caixa parada" no B3 | ‖v_caixa‖ < 0,05 m/s | S §8.2 sem número |
 | PD-40 | gravidade ±0,1 m/s² (DR §3.7) (ACEITA pelo dono, 22/10) | sai | o mjlab 1.5.3 não tem DR de gravidade por mundo; o viés de inclinação do IMU (±1°, §6.8) cobre o mesmo efeito na observação |
 | PD-41 | DR por degrau (DONO, 22/10) | um degrau GLOBAL para toda a DR do refino (PD, força do motor, `solref`, atraso, estimador, RFI): o MENOR degrau entre as tarefas. Todos os envs sorteiam com ele no reset; o `max_lag` do atraso segue o mesmo degrau. Substitui o degrau da tarefa principal da fatia | a regra mais simples: uma só, sem escolha por fatia e sem exceção para o atraso; nenhuma tarefa nova sofre DR forte cedo. Preço aceito: a tarefa adiantada refina com a DR da mais atrasada |
-| PD-42 | z por célula no filtro | a MÉDIA dos z da leitura na célula, com variância σ_m²/n | o máximo de n pontos com ruído de 2 cm sobe o chão em ~+2 cm com 5 pontos; o desvio da PERC §0 ("a altura dos pontos de contato") fica na média |
+| PD-42 | z por célula no filtro | a MÉDIA dos z da leitura na célula, com variância `R = σ_leitura² + σ_m²/n`, `σ_leitura = σ_incl·d̄` (o erro comum da leitura; d̄ = distância média dos pontos da célula); depois do Kalman, `P ≥ σ_fixo²`, `σ_fixo` 2 cm (dono, 28/10; antes, `σ_m²/n`) | os pontos de uma leitura não erram de forma independente: a inclinação do IMU, a extrínseca e o viés do encoder (zero da altura) são os mesmos em todos, e os dois últimos em todas as leituras do episódio; a média não reduz esse erro. Com `σ_m²/n`, a confiança dependia da densidade de pontos (treino 0,854 contra real 0,992 na primeira leitura). O piso é o erro que nenhuma média tira (±1° fixo do IMU a 2 m ≈ 2 cm; viés do encoder no pé ≈ 1 cm). Além disso, o máximo de n pontos com ruído de 2 cm sobe o chão em ~+2 cm com 5 pontos; o desvio da PERC §0 ("a altura dos pontos de contato") fica na média |
 | PD-43 | import dos módulos puros | não importam uns aos outros; recebem os knobs como argumento | carga por caminho no sim do real e no robô (PERC §2) |
 | PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; `Mapa` e `Caixa` só leem | dois termos dando o passo dobrariam a deriva |
 | PD-45 | cerca de torque nos pares acoplados (DONO, 15/10) | nos pares (`waist_pitch`, `waist_roll`), (`left_ankle_pitch`, `left_ankle_roll`) e (`right_ankle_pitch`, `right_ankle_roll`), a fração é (\|τp\| + \|τr\|)/`tau_par` com `tau_par` 50; nas outras juntas segue \|τ_j\|/`tau_max_j`. O atuador fica em 50 N·m por eixo | dois motores 5020 movem o pitch e o roll de cada par juntos: com engrenagem 1:1 (hipótese do mjlab, `g1_constants.py`), o real tem \|τp\| + \|τr\| ≤ 50. O `unitree_rl_lab` treina com 25 por eixo; o `MIMIC_CFG` da Unitree, com 50. MEDIDO nos plays do C3 (torque pelo PD): o roll da cintura tem p95 de 12–16 N·m; a soma passa de 40 em 1,5–10,7% dos passos com caixa, contra 0,8–3,8% por junta. Fica a pergunta à Unitree: se o pitch puro tem só 25, os 5 kg nas lajes baixas saem (`docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2, item 8) |
@@ -478,13 +478,15 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `pontos_visiveis_min` | 3 | PD-11 |
 | | `sigma_pos`, `sigma_ori_graus`, `perda`, `deriva_odo` | início (0,005; 1,0; 0,005; 0,002 m/√m); refino: 2% da distância, mediana 5,3°, 2,2%, 0,0075 m/√m | PD-18; S §13 |
 | | `deriva_rumo` | início 0,002 rad/√m; refino 0,005 rad/√m | PD-18 |
+| | `deriva_pos_giro`, `deriva_rumo_giro` | início (0,004 m/√rad; 0,0035 rad/√rad) = 1 cm e 0,5° por volta; refino (0,008; 0,014) = 2 cm e 2° por volta | PD-18 (dono, 28/10) |
 | | `d435_pos`, `d435_pitch` | (0,0576235; 0,01753; 0,42987); 0,8307767 | `lidar_sim/sensores/montagem.py` |
 | `Percepcao` | `ligada` | True | S §4 (`PERCEPCAO_LIDAR`) |
 | | `celula`, `n_recorte`, `n_interno`, `altura_clip` | 0,10; 21; 51; 1,0 | I §2.4; PD-8 |
-| | `raio_min` | 0,7 | PD-10 |
+| | `raio_min` | 0,85 | PD-10 |
 | | `raios_por_passo`, `alcance` | 205; (0,1; 6,0) | PD-5 |
 | | `ruido_alcance`, `ruido_angulo_graus`, `perda`, `ruido_incl_graus` | 0,02; 0,15; 0,01; 0,5 | PERC §2 |
 | | `sigma_ref`, `q_desloc`, `q_giro`, `q_tempo` | 0,05; 4e−4; 4e−4; 2,5e−5 | PD-6, PD-7 |
+| | `sigma_fixo` | 0,02 | PD-42 |
 | | `margem_corpo`, `raio_caixa_na_mao` | 0,03; 0,45 | PD-10 |
 | | `mid360_pos`, `mid360_quat` | (0,0002835; 0,00003; 0,428434); (0; 0,99967; 0; −0,02556) | PERC §2; `montagem.py` |
 | `Refino` | `regras` | ver §6.9 | S §11.5 |
@@ -610,7 +612,8 @@ def visivel(cam_pos_w, cam_rot_w, pontos_w, capsulas_w, raios, k: Estimador) -> 
 class Odometria:
     def __init__(self, n, device, k: Estimador, gerador): ...
     def reinicia(self, ids, pos_w, quat_w): ...
-    def passo(self, pos_w, quat_w, deriva_por_m: float): ...   # pose verdadeira + passeio aleatório por deslocamento
+    def passo(self, pos_w, quat_w, deriva: dict): ...   # pose verdadeira + passeio aleatório pelo deslocamento
+        # e pelo ângulo girado; deriva: odo, rumo, pos_giro, rumo_giro da magnitude corrente (PD-18)
     pos_w: torch.Tensor; quat_w: torch.Tensor                  # (E,3), (E,4) estimadas
 class EstimadorCaixa:
     def __init__(self, n, device, k: Estimador, gerador): ...
@@ -628,9 +631,10 @@ class PadraoMid360:
     def __init__(self, caminho_npz: str, device: str): ...   # `mid360_passos.npz`["dirs"] (200, 205, 3)
     def direcoes(self, passo: int) -> torch.Tensor: ...      # (205,3) no frame do sensor
 def pontos_no_frame_do_mapa(dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w, rumo,
-                            z_pe_min_w, k: Percepcao, gerador) -> tuple[torch.Tensor, torch.Tensor]: ...
-    # (pontos (E,R,3), validos (E,R)): ruído de alcance e de ângulo, perda, alcance, e um giro de
-    # inclinação sorteado por leitura (σ ruido_incl_graus, o erro do roll e do pitch do IMU, PERC §2);
+                            z_pe_min_w, incl_imu, k: Percepcao, gerador) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # (pontos (E,R,3), validos (E,R)): ruído de alcance e de ângulo, perda, alcance, o giro fixo do IMU
+    # do episódio (incl_imu (E,3,3) = `v3_incl_imu`, o MESMO da observação da gravidade; PD-42) e um
+    # giro de inclinação sorteado por leitura (σ ruido_incl_graus, PERC §2);
     # x e y no frame do rumo, z = altura do ponto − z do pé mais baixo (I §2.4 passo 3)
 def filtra_corpo(pontos_w, validos, capsulas_w, raios, sensor_pos_w, raio_min,
                  margem) -> torch.Tensor: ...      # validos (E,R); PD-10
@@ -638,7 +642,8 @@ class FiltroDeElevacao:
     def __init__(self, n, device, k: Percepcao): ...
     def reinicia(self, ids): ...                                # altura 0, variância ∞ (nunca vista)
     def prediz(self, dxy_rumo, dpsi, dt): ...                   # transporte + PD-7
-    def atualiza(self, pontos, validos): ...                    # Kalman por célula; média dos z por célula e leitura (PD-42)
+    def atualiza(self, pontos, validos, sensor_pos): ...        # Kalman por célula; média dos z por célula e leitura,
+                                                                # R com o erro comum da leitura e piso σ_fixo² (PD-42)
     def recorte(self) -> torch.Tensor: ...                      # (E,882): 441 alturas, depois 441 confianças (I §2.4)
 ```
 
@@ -677,7 +682,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 **Observações do ator** (`actor`, `enable_corruption=True`): `giro_base`, `gravidade`, `comando`,
 `juntas`, `vel_juntas`, `acao`, `tarefa`, `caixa`, `mapa`. Histórico 5 em todos menos `mapa`.
 Ruído: `giro_base` ±0,2, `gravidade` ±0,05, `juntas` ±0,01 (com `biased=True`), `vel_juntas` ±1,5.
-Atraso 0–1 em `giro_base`, `gravidade`, `juntas`, `vel_juntas` (PD-25, PD-28).
+Atraso 0–1 em `giro_base`, `gravidade`, `juntas`, `vel_juntas` e `mapa` (PD-25, PD-28).
 
 **Observações do crítico** (`critic`, sem corrupção): os nove do ator, sem ruído e sem atraso;
 depois `vel_lin_base` (3, histórico 5); depois, sem histórico: `caixa_verdade` (7), `alvo_verdade`
@@ -731,7 +736,7 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 | | viés de encoder | ±0,015 rad |
 | | tamanho da caixa | meia aresta 0,07–0,13, 8 variantes por mundo |
 | reset, desde a it 0 | massa da caixa | 1 a m_k kg pelo nível do PEGAR |
-| | atraso da ação e da propriocepção | 0–1 passo, por episódio |
+| | atraso da ação, da propriocepção e do mapa | 0–1 passo, por episódio |
 | | estimador | magnitude "início" (PD-18) |
 | intervalo, desde a it 0 | empurrão | ±0,5 m/s em x e y, a cada 5 s |
 | ANDAR no portão (nível 0) | viés por episódio no giro da base e inclinação fixa do IMU (evento `vies_imu`, E1; termos `giro_base` e `gravidade`, E8) | ±0,05 rad/s; ±1° |
@@ -1007,20 +1012,26 @@ Ondas: C0 (testes) → C1.
 - Casos (portão da fase 1, PERC §0):
   - um degrau de 0,15 m nos pontos sintéticos vira um salto de 0,15 ± 0,02 m entre as células
     antes e depois da borda;
-  - chão plano com ruído de 2 cm: depois de 3 leituras, |h| < 1 cm e confiança > 0,9;
+  - chão plano com ruído de 2 cm: depois de 3 leituras, |h| < 1 cm e confiança = σ_ref²/(σ_ref² +
+    σ_fixo²) = 0,862 ± 0,001 (o piso, PD-42);
   - transportar 0,10 m para a frente desloca o mapa em uma célula;
   - girar 90° no lugar leva a célula (x = +0,5; y = 0) para (x = 0; y = −0,5) em ± 1 célula;
   - célula nunca vista: altura 0 e confiança 0;
   - a base inclinada 10° em pitch não muda a altura do chão (± 1 cm);
   - o robô agachado 20 cm (sensor 0,20 m mais baixo, pés no chão) vê o chão em 0 (PERC §0);
   - depois de 1 m de transporte sem leitura e com Δt = 0, a confiança de uma célula vista uma vez
-    (um ponto) cai para `σ_ref² / (σ_ref² + σ_m² + q_desloc·1)` ± 1e−6 (PD-6, PD-7);
+    (um ponto) cai para `σ_ref² / (σ_ref² + max(R, σ_fixo²) + q_desloc·1)` ± 1e−6, com R da PD-42 (PD-6, PD-7);
   - 5 pontos na mesma célula com ruído de 2 cm dão a média, e não o máximo: |h| < 1 cm (PD-42);
   - ordem do `recorte`: o índice 0 é (x = +1,0; y = +1,0), o 440 é (−1,0; −1,0), as confianças
     começam no 441 (I §2.4);
-  - `filtra_corpo`: ponto a menos de raio + margem de uma cápsula sai; ponto a 0,69 m do sensor sai
-    e a 0,71 m fica; o chão a 1,2 m abaixo do sensor fica (PD-10);
-  - `PadraoMid360.direcoes(200) == direcoes(0)`.
+  - `filtra_corpo`: ponto a menos de raio + margem de uma cápsula sai; ponto a 0,84 m do sensor sai
+    e a 0,86 m fica; o chão a 1,2 m abaixo do sensor fica (PD-10);
+  - `PadraoMid360.direcoes(200) == direcoes(0)`;
+  - invariância à densidade (PD-42): chão plano com degrau de 0,15 m, a mesma trajetória a 1 m/s,
+    pontos sintéticos a 205 e a 4 000 por passo com o mesmo modelo de ruído (o mesmo giro de
+    inclinação por leitura nos dois); depois de 2 leituras por célula, o recorte tem altura igual em
+    ± 1 cm e confiança igual em ± 0,03 nos dois;
+  - o giro fixo do IMU (`incl_imu` de 1° em pitch) inclina o chão de 1,7 cm a 1 m em `pontos_no_frame_do_mapa`.
 
 ### C1 — `percepcao_lidar.py` (Sonnet)
 
@@ -1032,15 +1043,16 @@ Ondas: C0 (testes) → C1.
     `P += q_desloc·|Δxy| + q_giro·|Δψ| + q_tempo·Δt` (PD-7);
   - `atualiza`: índice de célula de cada ponto válido; os inválidos vão a um índice de descarte
     (PERC §4 passo 4); por célula, a média dos z da leitura (`scatter_reduce` "mean") e a contagem
-    n; Kalman com `σ_m²/n`, `σ_m² = ruido_alcance² + (2,0 m · σ_ângulo)²`; célula nunca vista recebe
-    `h = z`, `P = σ_m²/n` (PD-42);
+    n e a distância média d̄ ao sensor; Kalman com `R = (σ_incl·d̄)² + σ_m²/n`, `σ_m² = ruido_alcance² +
+    (d̄ · σ_ângulo)²`, `σ_incl` = `ruido_incl_graus` em rad; célula nunca vista recebe `h = z`, `P = R`;
+    depois da atualização, `P = max(P, σ_fixo²)` (PD-42);
   - `recorte`: as células 15..35 em x e em y, na ordem da I §2.4; altura cortada em ±1 m; nunca
     vista → altura 0, confiança 0;
   - zero import do mjlab e do `mujoco`; o sim do real e o robô carregam o arquivo por
     `importlib.util.spec_from_file_location` (PERC §2).
 - Desempenho: um script `g1_v3/parte0/custo_filtro.py` mede `prediz` + `atualiza` + `recorte` com
   4 096 envs e 205 pontos em CPU e imprime o tempo; referência: 26 ms com P 256 (viabilidade D7).
-- Teste: `test_percepcao`. Contagem: 0 → ~350. Commit: `feat(v3): filtro de elevação puro (fase 1)`.
+- Teste: `test_percepcao`. Contagem: 0 → ~360. Commit: `feat(v3): filtro de elevação puro (fase 1)`.
 
 ---
 
@@ -1163,11 +1175,14 @@ Ondas:
 ### D2b — `Odometria` em `estimador.py` (Sonnet)
 
 - O que fazer: a classe `Odometria` da §6.3. Modelo: a cada passo, o erro de posição recebe um
-  incremento normal com variância `deriva²·|Δp|` por eixo, e o erro de rumo `deriva_rumo²·|Δp|`;
-  `deriva` em m/√m (§13: 1,5 cm em 4 m → 0,0075 m/√m no refino).
+  incremento normal com variância `deriva_odo²·|Δp| + deriva_pos_giro²·|Δψ|` por eixo, e o erro de
+  rumo `deriva_rumo²·|Δp| + deriva_rumo_giro²·|Δψ|` (PD-18; Δψ = o giro verdadeiro do passo);
+  `deriva_odo` em m/√m (§13: 1,5 cm em 4 m → 0,0075 m/√m no refino), os termos de giro por √rad.
 - Teste (`test_odometria`): deriva 0 → a odometria = a verdade; deriva 0,0075, 10 000 envs andando
   4 m em passos de 1 cm → desvio padrão do erro final 1,5 ± 0,1 cm.
-- Contagem: 0 → ~60. Commit: `feat(v3): odometria simulada`.
+  Mais: só giro no lugar, magnitude do refino, uma volta → desvio do rumo 2° ± 0,1 e da posição
+  2 cm ± 0,1; só translação → os termos de giro não somam nada.
+- Contagem: 0 → ~64. Commit: `feat(v3): odometria simulada`.
 
 ### D3 — `comando.py` (Sonnet)
 
@@ -1545,7 +1560,7 @@ fração de avisos do detector (S §14). Commit: `feat(v3): métricas da manipul
 **E8 — `observacoes.py` (Sonnet).** A classe `Caixa` troca o `caixa_zero`: a cada passo (uma vez),
 `visivel` (site `d435`, 9 pontos da caixa, cápsulas dos braços), `v3_estimador.passo`,
 e a saída `saida_b` + `alvo_no_frame_da_base` (alvo zero no CARREGAR; os 11 canais zero no ANDAR,
-inclusive nas esperas, [C13]). O filtro do corpo do `Mapa` passa a usar a caixa estimada (PD-10).
+inclusive nas esperas, [C13]). O `Mapa` passa a girar os pontos pelo `v3_incl_imu` (na fase D, a identidade; PD-42). A caixa estimada não entra no filtro do corpo (PD-10).
 Os canais do crítico (`caixa_verdade`, `alvo_verdade`, `alvo_macro`, `referencia`, `massa`,
 `forca_caixa`) passam a ler os buffers. `giro_base` vira função própria (o sensor do mjlab +
 `v3_vies_giro`) e `gravidade` passa por `v3_incl_imu` (DR §3.4); o ruído do mjlab fica igual.
@@ -1794,7 +1809,7 @@ Comparável com a S §17: sem o smoke, sem as ferramentas (`inspeciona`, `leitur
 | `algoritmo.py` + `runner.py` | 372 | 200 |
 | `env_cfg.py` + `__init__.py` + `tarefa.py` + `train.py` + `play.py` | 1 169 | 600 |
 | `alvos.py`, `potencial.py`, `balanceador.py` (novos) | — | 700 |
-| `estimador.py`, `percepcao_lidar.py` (novos) | — | 650 |
+| `estimador.py`, `percepcao_lidar.py` (novos) | — | 665 |
 | **total** | **9 581** | **~6 550** (−32%) |
 
 A meta de ~5 000 da S §17 é de 02/10 e não conta o que entrou depois: o filtro de elevação (~350), o
@@ -1879,3 +1894,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | catraca do freio e do refino: o dono mantém 'nada desce' (opção A); um travamento depois de um degrau se detecta no log (s < 0,60 por 300 its depois de um degrau) e se trata à mão | resposta do dono em 22/10; viabilidade §2.1, item 6 |
 | 2026-10-22 | fatos do robô real (dono): mão = pad de palma, 29 DoF; limite da cintura e do tornozelo = 50 N·m por eixo (o treino segue em 50, com a cerca pela soma do par, PD-45); envelope de produto = lajes de 0,04 a 0,55 m e cubos de 14 a 26 cm até 5 kg, igual ao do treino. Nada muda no plano | respostas do dono em 22/10 |
 | 2026-10-22 | canal da caixa (dono): opção A, a política recebe a leitura da câmera (estimador simulado no treino; D435i + box-vision no real), como em 14/10. O rastreio por Kalman (câmera + lidar + mãos) fica como extensão depois do primeiro treino, sem mudar o formato dos 11 canais. Plano pronto para o despacho pela fase A | resposta do dono em 22/10 |
+| 2026-10-28 | percepção treino × real (dono, 28/10): `raio_min` 0,85 m (o braço + 5 cm, medido por FK) e o mesmo `filtra_corpo` na entrada da odometria real (PD-10); a variância da medida por célula ganha o erro comum da leitura e o piso `sigma_fixo` 2 cm, e o mapa gira pelo mesmo viés do IMU da gravidade, para a confiança não depender da densidade de pontos (PD-42, PD-6; teste de invariância na C0); o driver real faz deskew por ponto e entrega os pontos a cada 20 ms (PD-5); o `mapa` entra no atraso por episódio (PD-25, §6.8); a odometria ganha os termos de giro (PD-18, D2b); contrato do detector na I §2.3. A decimação de pontos no driver foi descartada | `docs/relatorios/2026-10-22-percepcao-sim-real.md` §5 |

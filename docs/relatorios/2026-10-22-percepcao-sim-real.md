@@ -60,7 +60,7 @@ faixa em uma situação comum (giro, PEGAR, superfície ruim). **B** = efeito pe
 4. **C3:** a leitura parcial da caixa no PEGAR; o real erra, e o treino não.
 5. **C1:** a distribuição do estimador ainda é hipótese.
 
-## 5. Correções propostas (28/10, sem decisão do dono ainda)
+## 5. Correções (28/10, APROVADAS pelo dono e aplicadas no plano e nas specs)
 
 Enunciado: E §2 "Terreno" (o mapa); I §2.3 (a caixa). Regra: corrigir o modelo que causa a
 diferença, e não imitar no robô real uma limitação do treino. A decimação de 1 em 20 pontos no

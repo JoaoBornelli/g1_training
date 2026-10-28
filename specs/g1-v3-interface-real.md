@@ -24,7 +24,8 @@ não reproduz torna o modelo inútil no robô.
    ├─ monta a observação (1 447 números, §2) ───────────────────────────────┘
    ├─ roda o ator (rede 512-256-128, ELU)
    └─ escreve: LowCmd (29 alvos de junta + kp + kd, §3)
- odometria: ESKF com lidar + IMU (pose da base no mundo, para o estimador, o filtro e o controlador)
+ odometria: ESKF com lidar + IMU (pose da base no mundo, para o estimador, o filtro e o controlador);
+   a entrada de lidar passa pelo MESMO filtro do corpo do mapa (raio 0,85 m + cápsulas, §2.4 passo 2)
 ```
 
 O driver, o estimador, o filtro e a odometria rodam NO ROBÔ. O controlador de alto nível só manda
@@ -111,6 +112,11 @@ com a caixa nas mãos. Quando a câmera não vê a caixa (braços na frente, cai
 depth, de 0,175 a 0,28 m), o estimador mantém a última leitura ancorada no mundo e a idade cresce. O
 modelo aprende a lidar com a leitura velha. A spec §13 dizia "caixa na mão pela cinemática das palmas
 depois de `pegou`"; isso saiu, porque `pegou` é um evento do simulador que o robô real não mede.
+**Contrato do detector — DEFINIDO (dono, 28/10).** Sem certeza (caixa parcial, mão na frente), o
+detector entrega "sem leitura", nunca um centro deslocado: o treino só tem leitura boa ou nenhuma.
+O critério de certeza é o da PD-11 do plano (centro no FOV do RGB, 0,28–3,0 m, ≥ 3 de 9 pontos sem
+oclusão) até o detector ser medido; aí a PD-11 passa a seguir o detector.
+
 Consequência: no treino, o estimador simulado tem de reproduzir a visibilidade real da câmera D435i
 (posição na cabeça, campo de visão, alcance mínimo do depth, oclusão pelos braços), porque é ela que
 decide quando a leitura envelhece.
@@ -120,17 +126,27 @@ decide quando a leitura envelhece.
 **Como ele é gerado, passo a passo** (plano de percepção §0; o mesmo código roda no treino e no robô):
 
 1. **Pontos.** O lidar MID-360 fica na cabeça. No robô real, o SDK da Livox entrega cerca de 20 mil
-   pontos a cada 0,1 s. No treino, um lidar simplificado lança 1 024 raios a cada 0,1 s, da mesma
-   pose, e o raycast vê o chão, o terreno, a caixa e o próprio robô.
+   pontos a cada 0,1 s. No treino, um lidar simplificado lança 205 raios a cada passo de 20 ms
+   (1 025 a cada 0,1 s), da pose do passo, e o raycast vê o chão, o terreno, a caixa e o próprio
+   robô. A densidade maior do real não muda a confiança (passo 4). DEFINIDO (dono, 28/10): a cada
+   passo de 20 ms, o driver entrega ao filtro os pontos que chegaram desde o passo anterior.
 2. **Referencial.** Cada ponto vai do sensor para a base pela cinemática das juntas medidas (o
    lidar está no tronco, que gira com a cintura), e da base para um referencial alinhado à gravidade
-   pelo IMU. O rumo segue o da base.
+   pelo IMU. O rumo segue o da base. DEFINIDO (dono, 28/10): cada ponto usa a pose do sensor no
+   carimbo de tempo DELE (deskew: orientação pelo IMU, posição pela odometria, montagem pela
+   cinemática daquele instante); o treino calcula cada ponto na pose do passo em que o raio sai, e
+   o terreno parado cai no mesmo lugar nos dois. Sai do mapa todo ponto a menos de 0,85 m do lidar
+   (o braço + 5 cm, medido por cinemática) e todo ponto a menos de 3 cm das cápsulas do corpo.
 3. **Zero da escala.** A altura de cada ponto é medida contra o pé mais baixo do robô (cinemática):
    chão plano = 0, degrau de 15 cm = +0,15, mesmo com o robô agachado.
 4. **Filtro de Kalman por célula**, num mapa interno de 5 × 5 m com células de 10 cm:
    - a cada 20 ms, o mapa se desloca com o movimento da base (odometria), e a incerteza de cada
      célula cresce com o deslocamento;
-   - a cada 0,1 s, os pontos novos atualizam a altura e a incerteza das células onde caem.
+   - a cada 20 ms, os pontos novos atualizam a altura e a incerteza das células onde caem: a
+     média dos z na célula, com a variância da medida = o erro comum da leitura (inclinação do IMU
+     × distância) + o erro de cada ponto ÷ n; depois, a incerteza nunca fica abaixo de (2 cm)², o
+     erro que nenhuma média tira (viés fixo do IMU, montagem, encoder). Com isso, a confiança de
+     uma célula vista é a mesma com 1 000 ou com 20 000 pontos por 0,1 s (plano PD-42).
 5. **Recorte.** O modelo recebe as 21 × 21 células de 2 × 2 m em volta da base: a altura (m, cortada
    em ±1 m) e a confiança (0 = nunca vista, 1 = certa).
 
@@ -139,7 +155,7 @@ decide quando a leitura envelhece.
 | células | 21 × 21, 10 cm, centradas na base | DEFINIDO |
 | eixos | x para a frente, y para a esquerda, alinhados ao rumo da base; roll e pitch fora | DEFINIDO |
 | altura | ponto de contato − pé mais baixo, m, cortada em ±1 | DEFINIDO |
-| confiança | de 0 a 1, da variância da célula | DEFINIDO (a fórmula: A DEFINIR na fase 1) |
+| confiança | `σ_ref² / (σ_ref² + P)`, σ_ref 5 cm; nunca vista = 0; célula vista satura em 0,862 | DEFINIDO (plano PD-6, PD-42) |
 | ordem no vetor | as 441 alturas, depois as 441 confianças; cada uma por linha, de x = +1,0 a −1,0 m, e dentro da linha de y = +1,0 a −1,0 m | DEFINIDO |
 | escala | × 1 | DEFINIDO |
 
