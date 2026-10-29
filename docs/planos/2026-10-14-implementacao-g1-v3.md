@@ -952,6 +952,39 @@ def n_chegada(primeiro_contato, vz_ant, limite) -> torch.Tensor: ...
 # velocidade do pouso muda o retorno (o fator dentro do Φ telescopa). Sem termo novo: muda a forma do bônus.
 ```
 
+#### Fase G: núcleos puros (29/10)
+
+```python
+# eventos.py (G1)
+def cena_na_plataforma(terreno_b, k_ter: Terreno, k_cena: Cena, gerador) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # (rumo (E,) rad, desloc (E,2) m). terreno_b (E,) bool: fatia B em episódio de terreno (coluna > 0 no
+    # `terrain_types`). Com terreno_b: rumo = k·π/2, k uniforme em {0, 1, 2, 3} (uma das 4 bordas da plataforma), e
+    # desloc = R(rumo)·(laje_do_centro − prateleira_xy[0], 0): o centro da laje fica a `Terreno.laje_do_centro` (0,75 m)
+    # do centro da plataforma, rumo à borda. Sem terreno_b: rumo 0 e desloc 0 (o layout plano de hoje, sem mudança).
+    # ⚠ Um uniforme por env sobre o gerador (o sorteio sai no device dele).
+# posiciona_cena (B e C): laje = origem + desloc + R(rumo)·prateleira_xy, girada para rumo; caixa = origem + desloc +
+#   R(rumo)·(caixa_xy + (dx, dy)); v3_caixa_xy = desloc + R(rumo)·(caixa_xy + (dx, dy)); v3_rumo_cena = rumo. Toda
+#   conta base → mundo passa por `alvos.base_para_mundo` (F9 R3).
+# _base_da_pega: xy = origem + v3_caixa_xy − R(v3_rumo_cena)·(d, 0); yaw = v3_rumo_cena + o jitter da faixa (S4).
+# Decisão do dono (29/10): a laje fica a 0,75 m; o robô fica onde a S4 o põe (0,48–0,95 m da borda, e não os
+# 0,5–0,65 m da viab. D10); a `fracao_fora_da_plataforma` (G4) mede na fase I.
+
+# comando.py (G3)
+def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho, t_ancora, perdeu,
+                        carregar, k: Comando, incl_max_seg, terreno) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # o de hoje, e mais: sucesso &= ~(carregar & terreno & (incl_max_seg > k.incl_max_terreno_graus)) (S §11.3: no
+    # CARREGAR do TERRENO, a caixa a ≤ 15° em todo passo). incl_max_seg (E,) graus; terreno (E,) bool, a célula do
+    # segmento é `terreno`.
+# O `twist` escreve o `v3_incl_max_seg`: zero na abertura do segmento; max(v3_incl_max_seg, inclinação da caixa em
+# graus) a cada passo. O B4 da caixa perdida mede a pelve como o detector (`z_pe_min`, R6), e não pelo `h` (F9).
+
+# metricas.py (G4)
+# fracao_fora_da_plataforma: por env, a fração dos passos de CARREGAR em episódio de terreno da fatia B com a base
+#   fora do quadrado da plataforma (‖xy da base − xy da origem‖∞ > plataforma/2); média só sobre os envs com o
+#   evento (`_media_dos_com_evento`, F9 M5).
+# O log do currículo (`curriculo.py`) ganha `nivel_terreno_<tarefa>` (`Curriculo.nivel_terreno`) para ANDAR e CARREGAR.
+```
+
 ### 6.4 Buffers do env
 
 Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padrão de
@@ -982,8 +1015,9 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_sigma`, `v3_relogio_alvo`, `v3_phi` | (E,): σ do alvo corrente [C20]; relógio do avanço; Φ do passo anterior, com a sentinela −1 = sem alvo (Φ ∈ [0, 1]; nasce −1 no `garante_v3` e a cadeia volta a −1 no reset). O passo com `v3_phi` < 0 é a ENTRADA no alvo e paga 0, como a saída (PD-36; 29/10) | `comando.cadeia`; `recompensas.progresso` (`v3_phi`) | `recompensas` |
 | `v3_avancou`, `v3_b_pagos` | (E,) bool; (E,) soma dos `B_alvo` pagos desde o P2 (só os avanços com o alvo velho ≥ P2; a cadeia zera no reset do episódio; 29/10) | `comando.cadeia`; `recompensas` | `recompensas` |
 | `v3_p4_fechado`, `v3_b4_fechado`, `v3_perdeu_agora` | (E,) bool | `comando.cadeia` | `comando`, `terminacoes`, `recompensas` |
-| `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia`; o `v3_vz_caixa_ant` = a vz da caixa, escrita pela cadeia no fim do `compute`, todo passo e para todo env: a cadeia roda depois das terminações, das recompensas, das métricas e do reset, e então a terminação `chegada` e a métrica `velocidade_de_chegada` leem a vz do passo anterior; num env reiniciado o valor é o do pós-reset (F-2, 29/10) | `recompensas`, `terminacoes`, `comando.twist` |
+| `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) graus | `comando.cadeia` (o `v3_incl_max_seg` é do `comando.twist`: zero na abertura do segmento, o máximo da inclinação da caixa a cada passo; G3, 29/10); o `v3_vz_caixa_ant` = a vz da caixa, escrita pela cadeia no fim do `compute`, todo passo e para todo env: a cadeia roda depois das terminações, das recompensas, das métricas e do reset, e então a terminação `chegada` e a métrica `velocidade_de_chegada` leem a vz do passo anterior; num env reiniciado o valor é o do pós-reset (F-2, 29/10) | `recompensas`, `terminacoes`, `comando.twist` |
 | `v3_v_chegada` | (E,) m/s, positiva na descida; −1 = sem toque | `comando.cadeia`: −1 no reset e na abertura do BOTAR; no primeiro contato caixa × laje do BOTAR com o valor ainda −1, max(−`v3_vz_caixa_ant`, 0), lido ANTES de a cadeia reescrever o `v3_vz_caixa_ant` (F9 P3). `v3_ponto_apoio` = a posição da caixa no fecho do B2 (F9 P1) | `recompensas.progresso` (o B_alvo[B2]), `metricas.velocidade_de_chegada` |
+| `v3_rumo_cena` | (E,) rad | `eventos.posiciona_cena` (o `garante_v3` cria com 0): o rumo da cena de B e C, 0 no plano e k·π/2 no terreno (G1) | `eventos._base_da_pega` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
 | `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio, em s desde o começo do episódio (−∞ sem empurrão; o `sorteia_fatia` volta a −∞ no reset); (E,4) pose da âncora do canal zero (x, y, rumo, instante). O evento grava `episode_length_buf · step_dt`; o `twist` mede no relógio próprio, zerado no reset do comando, porque o mjlab reseta os comandos antes de zerar o `episode_length_buf` (`manager_based_rl_env.py:581-590`); os dois diferem em até 1 passo (29/10) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
 
@@ -2079,12 +2113,15 @@ cm sobre a laje não termina no degrau 0 (queda livre: 0,99 m/s < 1,0), e de 10 
 Atende: S §16 Parte 3b, §11.2 (TERRENO do CARREGAR), §12 (terreno); viabilidade D1, D2, D3, D4,
 D10, L5. Enunciado: E §2 "Terreno", E §4.4.
 
-Ondas: G0 → {G1, G2, G3, G4} → {G5, G6} → G7 (revisão).
+Ondas: {G1, G2, G3, G4} (cada lane escreve primeiro o teste que falha) → {G5, G6} → G7 (revisão). A G2 já está no
+código da fase D (`balanceador.py:143-151`, `eventos.escolhe_celula_terreno`): a lane da G4 só a confere com teste. Contrato:
+§6.3 "Fase G: núcleos puros".
 
 **G1 — `eventos.py` (Sonnet).** Fatia B em episódio de terreno: a origem é o centro da plataforma de
 2 m de uma coluna com plataforma; a laje fica a 0,75 m do centro, na direção de uma das 4 bordas; a
 caixa sobre ela; o robô atrás da laje, de frente para a borda, a 0,5–0,65 m dela (viab. D10). Teste: o
-núcleo põe o robô dentro da plataforma, a ≤ 0,65 m da borda e de frente para ela.
+núcleo põe a laje a 0,75 m do centro, rumo à borda sorteada, e o robô dentro da plataforma e de frente para a borda
+(a distância à borda segue a S4: 0,48–0,95 m; decisão do dono, 29/10).
 
 **G2 — `curriculo.py` e `balanceador.py` (Haiku).** A célula `terreno` do CARREGAR abre pela regra da
 §6.3; a linha máxima por coluna pela PD-20.
@@ -2364,3 +2401,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | onda F-2: o `v3_vz_caixa_ant` volta ao `comando.cadeia` (§6.4). Escrito pela terminação, ele já era a vz do passo corrente quando a métrica `velocidade_de_chegada` lia, porque as métricas rodam depois das terminações. O sensor `apoio_caixa` ganha `track_air_time=True` (o `compute_first_contact` exige) e o primeiro contato dele é (E,1): a terminação e a métrica leem a coluna 0 | conferência do orquestrador depois da F3 e da F6 |
 | 2026-10-29 | F4 e F-2a: sai o `Recompensa.recuo_carregar` (§6.2). O `recuo_IK` da `cerca_recuo` no CARREGAR passa a ser o transporte da IK (`ref.caixa_transporte_b`), a mesma fonte do P4: um número só para a caixa no peito | lanes F4 e F-2a |
 | 2026-10-29 | revisão F9 (`docs/relatorios/2026-10-29-v3-revisao-parte3.md`), decisões do dono: P1, o `v3_ponto_apoio` nasce no fecho do B2 (invariante B3–B4); P2, o portão do tronco do Φ é de um lado só, relu(incl − IK), e vale 1 no B4; P3, o B_alvo[B2] paga vezes o núcleo da velocidade de chegada (`v3_v_chegada`, §6.4), com o σ do pouso do degrau; P4, a `altura_pe` paga zero com o comando do twist zero (o ANDAR parado final pagava 1,725 contra ≤ 0,20 da escada B1–B4; com o pé parado o termo vale exp(0) = 1; desvio da conta "parado" da S §9.2); P5, o `v3_aviso` é o latch do aviso no trecho, e o canal do alvo do ator no BOTAR zera com ele, como o driver (R2, R5); P6, o PEGAR só fica pendente de registro depois que o P0 abre (sem leitura da caixa a falha é da percepção); P7, o reset por `time_out` com o BOTAR pendente registra com falhou = False (o `time_out` não é terminação, S §10). Fora do dono: S1, a `cerca_pelve` com índice −1 usa a pose de pé; S3, o `afasta` desconta o `palma_face`; S4, o `recompensas.ref_do_alvo` público é a fonte da `referencia` do crítico; R3, `alvos.base_para_mundo` único, um yaw só, e as tolerâncias do B4 (`Alvos.tol_pelve_b4`, `tol_tronco_b4_graus`) com o default lido do `Detector` (`tol_pelve`, `tol_tronco_graus`; I §4.2: são as mesmas): um literal só; M12, o chão do driver em z = 0 na coluna `plano` | revisão F9 e respostas do dono |
+| 2026-10-29 | contrato da fase G (§6.3 "Fase G: núcleos puros", §6.4 `v3_rumo_cena` e `v3_incl_max_seg` com o `twist` de escritor): a cena de B no terreno gira para uma das 4 bordas e anda até a laje ficar a 0,75 m do centro; o sucesso do segmento do CARREGAR no terreno exige a caixa ≤ 15° em todo passo (`Comando.incl_max_terreno_graus`); `fracao_fora_da_plataforma` e o nível de terreno no log. Decisão do dono: a laje a 0,75 m vale e o robô fica onde a S4 o põe (0,48–0,95 m da borda; a viab. D10 pedia 0,5–0,65), medido na fase I. A G2 já estava na fase D | conferência do orquestrador e resposta do dono |
