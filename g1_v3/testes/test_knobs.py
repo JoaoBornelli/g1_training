@@ -65,6 +65,25 @@ class TestKnobs(unittest.TestCase):
         with self.assertRaises(dataclasses.FrozenInstanceError):
             Contrato().escala_acao = 1.0  # §6.2: escala_acao = 0,25
 
+    def test_dr_e_refino(self):
+        # §6.2, contrato de 29/10: o DR (§6.8) e o Refino (§6.9) entram no agregador.
+        k = Knobs()
+        self.assertFalse(k.dr.com_caixa)  # PD-38: dr.body_com_offset corrompeu a heap; nasce desligada
+        self.assertEqual(tuple(k.dr.atraso_refino), (0, 3))
+        self.assertEqual(k.dr.degrau_atraso_refino, 3)  # PD-41
+        self.assertEqual(k.refino.degrau_batente, 1)
+        # Cada regra resolve para o par (início, fim) da seção que ela aponta: o número mora num lugar só.
+        esperado = {"laje_joelho_N": (50.0, 10.0), "incl_lim": (30.0, 15.0),
+                    "chegada": (1.0, 0.25), "sigma_pouso": (1.0, 0.35)}
+        achado = {}
+        for regra, tarefas, secao, campo in k.refino.regras:
+            s = getattr(k, secao)
+            par = (tuple(getattr(s, c) for c in campo) if isinstance(campo, tuple)
+                   else tuple(getattr(s, campo)))
+            achado[regra] = par
+            self.assertTrue(set(tarefas) <= set(TAREFAS), regra)
+        self.assertEqual(achado, esperado)
+
     def test_knobs_nao_importa_torch_nem_mjlab(self):
         # Subprocesso limpo: o sys.modules deste processo já tem o que o unittest carregou.
         # Conta só os módulos que o próprio import de g1_v3.knobs trouxe.
