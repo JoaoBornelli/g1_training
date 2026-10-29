@@ -105,11 +105,15 @@ def _dt(dados) -> float:
 
 
 def custos_por_s(dados, k=ATIVO) -> dict[str, float]:
-    """Valor por segundo (S §9.2, pesos da v3; negativo = custo). NaN sem `a_*` ou `alvo_pd_*`."""
+    """Valor por segundo no retorno do mjlab (S §9.2, pesos da v3; negativo = custo). NaN sem `a_*` ou `alvo_pd_*`.
+
+    ⚠ O mjlab soma valor·peso·dt por passo (`scale_by_dt`), então o retorno por segundo é peso·média(valor):
+    soma por passo ÷ número de passos, e não ÷ duração (isso daria 1/dt = 50 vezes mais).
+    """
     r = k.recompensa
     q = _colunas(dados, "q_")
     dt = _dt(dados)
-    dur = len(q) * dt
+    dur = len(q)  # passos: retorno por s = peso·média(valor) (ver a docstring)
     qd = np.gradient(q, dt, axis=0)
     qdd = np.gradient(qd, dt, axis=0)
     out = {"taxa_acao": np.nan, "vel_junta": r.vel_junta * np.sum(qd ** 2) / dur,

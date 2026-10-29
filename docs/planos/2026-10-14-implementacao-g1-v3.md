@@ -1037,6 +1037,12 @@ depois o 15) → B6.
 
 ### B5 — os scripts dos itens (Sonnet; um agente por item, em paralelo)
 
+Unidade (29/10): toda conta da Parte 0 está no retorno do mjlab (`scale_by_dt` = True): um termo de valor x e
+peso w soma w·x·dt por passo. Custo ou ganho por segundo = w·média(x) (`custos_por_s`). Um bônus pago num passo
+(`B_alvo` dentro do valor do `progresso`) soma `B_alvo`·dt; para cobrir um custo acumulado C (custo por s × duração
+do trecho), `B_alvo` = 1,5·C/dt. O termo `progresso` soma w_p·(γΦ′ − Φ)·dt por passo; o ganho de Φ por segundo da
+PD-32 usa a mesma unidade.
+
 Cada script roda com `python -m g1_v3.parte0.<nome>`, imprime uma tabela e grava
 `g1_v3/parte0/saida/<nome>.txt`. O agente roda o script e entrega a saída. Os itens 1, 2, 4, 6 e 8
 correm em paralelo; o 3 vem depois deles, e o 15 depois do 3 (ele usa a `perda_caixa` do 3).
@@ -2044,3 +2050,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | contrato do `DR` e do `Refino` na §6.2 (a A2 achou só "ver §6.8/§6.9", sem nomes de campo). Os nomes seguem os eventos da D7 e da H4 e a chave `DR.com_caixa` (PD-38); o `Refino` aponta para os pares que já moram em `Recompensa`, `Alvos` e `Terminacao`, e o `laje_joelho_N` vira par (50; 10). O tamanho da caixa fica só na `Cena`. O `jitter_z` sai da linha da `Cena`: não existe no `g1_limpo`, e o `prateleira_jitter_z` já está em `prateleira_*`. Os campos do `Knobs` são as seções em minúsculo (`contrato`, `cena`, ..., `dr`, `refino`). Contagem: ~+45 linhas no `knobs.py` | orquestrador, durante a fase A |
 | 2026-10-29 | contrato da §6.3 fechado para as lanes B0 e C0: convenções (wxyz, `ids` long, `gerador` None sem ruído, `dt` float); `Curriculo.celulas` público com os ids 0..11 na ordem da B3, `it` público, a regra da EMA (s = x na primeira medida, s começa em 0) e o `estado()` só com tipos do Python; formas de `pontos_no_frame_do_mapa`, `filtra_corpo` (cápsulas (E,K,2,3), como o `visivel`), `prediz` e `atualiza`; os giros de inclinação agem em volta do sensor. Nenhuma função nova | perguntas das lanes B0 e C0 |
 | 2026-10-29 | nível de terreno no `Curriculo` (a B3 pedia 0..12 dentro da célula `terreno`, sem interface na §6.3): `k_ter` no construtor e `nivel_terreno(tarefa)`; teto 12 no ANDAR e 9 no CARREGAR; o refino do ANDAR e do CARREGAR espera o último nível de terreno; "seguidas" zera a contagem | pergunta da lane B3 |
+| 2026-10-29 | unidade da Parte 0 no cabeçalho da B5: o retorno do mjlab (`scale_by_dt`); custo por s = w·média(x); `B_alvo` que cobre o custo C de um trecho = 1,5·C/dt. O `custos_por_s` dividia pela duração e dava 50 vezes o custo por s | item 6 da B5 |
