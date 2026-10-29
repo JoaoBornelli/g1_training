@@ -124,7 +124,8 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     # k_principal: nucleo(d, σ), vezes o fator de pouso no B1 e no B2 (velocidade vertical por diferença finita)
     z = caixa[:, 2]
     v = np.diff(z, prepend=z[0]) / DT
-    pouso = P.fator_pouso(_t(v), _t(z - A_CAIXA - C.TOPO_BOTAR), R.sigma_pouso[0], R.altura_pouso).numpy()
+    pouso = P.fator_pouso(_t(v), _t(z - A_CAIXA - C.TOPO_BOTAR), R.sigma_pouso[0], R.altura_pouso,
+                              R.altura_pouso_inicio).numpy()
     k = P.nucleo(_t(d), _t(sigma)).numpy() * np.where(np.isin(idx, POUSO), pouso, 1.0)
     # g: desloc. P0–P2 (x_lim = 1,0·a, Δ = 0,5·a); desloc. B2–B4; inclinação (x_lim = 30°, a fase aprender)
     maos = np.isin(idx, MAOS)

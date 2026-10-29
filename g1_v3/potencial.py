@@ -46,14 +46,19 @@ def progresso(phi_novo: torch.Tensor, phi_velho: torch.Tensor, gamma) -> torch.T
     return gamma * phi_novo - phi_velho
 
 
-def fator_pouso(v_vertical: torch.Tensor, fundo_sobre_laje: torch.Tensor, sigma, altura) -> torch.Tensor:
-    """exp(−(v/σ)²) quando o fundo da caixa está abaixo de `altura`; 1 fora disso (S §9.1, A10).
+def fator_pouso(v_vertical: torch.Tensor, fundo_sobre_laje: torch.Tensor, sigma, altura,
+                altura_inicio) -> torch.Tensor:
+    """1 − s·(1 − exp(−(v/σ)²)), com s = clip((altura_inicio − fundo)/(altura_inicio − altura), 0, 1).
 
+    S §9.1 (A10) e D3 da Parte 0 (dono, 29/10): o fator entra gradual em `altura_inicio` (0,10 m)
+    e fica pleno em `altura` (0,05 m). Acima de `altura_inicio` vale 1; abaixo de `altura`, o
+    exp(−(v/σ)²) inteiro. Sem degrau: com o degrau antigo em `altura`, Φ cortava no passo de
+    entrada na janela.
     Multiplica o k_principal da caixa no B1 e no B2. Sem termo novo: é só o fator do pouso.
     ⚠ A velocidade entra ao quadrado: cair e subir pagam igual. O sinal não importa aqui.
     """
-    dentro = torch.exp(-((v_vertical / sigma) ** 2))
-    return torch.where(fundo_sobre_laje < altura, dentro, torch.ones_like(dentro))
+    s = torch.clamp((altura_inicio - fundo_sobre_laje) / (altura_inicio - altura), 0.0, 1.0)
+    return 1.0 - s * (1.0 - torch.exp(-((v_vertical / sigma) ** 2)))
 
 
 def custo_aperto(F_esq: torch.Tensor, F_dir: torch.Tensor, F_ref) -> torch.Tensor:

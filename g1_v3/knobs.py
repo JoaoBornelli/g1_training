@@ -281,7 +281,8 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     perda_caixa: float | None = None  # S §10: sai da Parte 0, item 3
     devolve_b_alvo: float | None = None  # S §10: sai da Parte 0, item 3
     sigma_pouso: tuple = (1.0, 0.35)  # S §9.1: σ do pouso (m/s), (início; refino)
-    altura_pouso: float = 0.05  # S §9.1: altura do pouso (m)
+    altura_pouso: float = 0.05  # S §9.1: altura do pouso (m), fator pleno abaixo dela
+    altura_pouso_inicio: float = 0.10  # S §9.1; D3 da Parte 0 (dono, 29/10): o fator entra aos 0,10 m e fica pleno aos 0,05 m
 
 
 @dataclass(frozen=True)

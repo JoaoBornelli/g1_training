@@ -11,13 +11,13 @@ PEGAR  (laje 0,30 m, a = 0.10 m, 177 passos)
 
 BOTAR  (laje 0,15 m, a = 0.10 m, 216 passos)
   trecho      alvo passos  Φ início     Φ fim     min ΔΦ        Σ r
-  ate_B1      B1       51    0.0000    0.9987  -1.26e-03    +0.7592
+  ate_B1      B1       51    0.0000    0.9987  -3.74e-02    +0.7633
   B1_B2       B2       40    0.3678    1.0000  +0.00e+00    -0.3323
   B3          B3       50    0.3679    1.0000  +0.00e+00    -0.4358
   B4          B4       75    0.0000    1.0000  +0.00e+00    -0.4987
 
 Critérios (linha do item 1 do plano):
-1. Φ não desce dentro de cada alvo: FALHA; pior ΔΦ = -1.26e-03 (BOTAR, alvo B1); tolerância -1e-09
+1. Φ não desce dentro de cada alvo: FALHA; pior ΔΦ = -3.74e-02 (BOTAR, alvo B1); tolerância -1e-09
 2. Pairar a 1 cm por 2 s soma ≤ 0: OK; maior soma = -3.64e-01
      P0: σ = 0.3481, Φ parado = 0.9992, Σ r = -9.89e-01
      P1: σ = 0.1493, Φ parado = 0.9955, Σ r = -9.86e-01
