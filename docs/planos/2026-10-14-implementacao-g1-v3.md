@@ -284,7 +284,7 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-27 | chave da caixa perdida | `CAIXA_PERDIDA_VIRA_ANDAR = True` | o aceite da S §15 "caixa perdida" usa a chave ligada |
 | PD-28 | atraso maior por nível | a capacidade do atraso é 0–3 passos desde o build; o teto corrente sobe mudando o `max_lag` dos buffers (0–1 → 0–2 → 0–3) | o `DelayBuffer` sorteia em `[min_lag, max_lag]` lendo o atributo a cada sorteio |
 | PD-29 | frame da caixa | eixo x da caixa = a normal horizontal de face mais alinhada à frente do robô (rumo da base), z = a normal de face mais perto da vertical do mundo, y = z × x | S §8.1: "o par de faces é o mais alinhado com as palmas" |
-| PD-30 | regra de peso das cercas (item 3) (ACEITA pelo dono, 22/10) | o peso de cada cerca faz o custo médio por segundo dela, no PEGAR dos plays do C3, valer 50% do ganho médio por segundo do `ProgressoDoAlvo` no caminho roteirizado | a S §16 item 11 diz "a escala por unidade sai do item 3 contra o Φ" sem a regra; o dono aceita ou troca no portão da Parte 0 |
+| PD-30 | regra de peso das cercas (item 3) (ACEITA pelo dono, 22/10; refeita 29/10, D4) | o peso de cada cerca faz o custo médio por segundo dela, no PEGAR dos plays do C3 e só nos passos em que ela age, valer 50% do ganho médio por segundo do `ProgressoDoAlvo` no caminho roteirizado (a média com os passos parados dava −29/m ao CoM, que age em 1,8% dos passos) | a S §16 item 11 diz "a escala por unidade sai do item 3 contra o Φ" sem a regra; o dono aceita ou troca no portão da Parte 0 |
 | PD-31 | `B_alvo` (item 3) (ACEITA pelo dono, 22/10) | 1,5 × o custo dos reguladores no trecho até o alvo, no ponto de operação | S §9.4: "o bônus de cada alvo tem de cobrir o custo dos reguladores no trecho até ele"; 1,5 é a margem |
 | PD-32 | peso do `progresso` (item 3) (ACEITA pelo dono, 22/10) | 1,5 × o maior quociente, entre os trechos, de custo dos reguladores por segundo sobre ganho de Φ por segundo no caminho roteirizado | o gradiente do potencial tem de vencer os reguladores no ponto de operação (CLAUDE.md, "gradiente de recompensa") |
 | PD-33 | `perda_caixa` (item 3) (ACEITA pelo dono, 22/10) | 1,2 × o lado direito da desigualdade (2) da S §10; `devolve_b_alvo` = True só se a escada não fechar com custo fixo | S §10, L4.1 |
@@ -462,7 +462,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `sacudida`, `aperto`, `F_ref` | `None`; `None` (Parte 0, item 15); 49,0 | S §8.2, §11.5 |
 | | `terminacao` | −200,0 | S §10 |
 | | `perda_caixa`, `devolve_b_alvo` | `None`; `None` (Parte 0, item 3) | S §10 |
-| | `sigma_pouso`, `altura_pouso` | (1,0; 0,35); 0,05 | S §9.1 |
+| | `sigma_pouso`, `altura_pouso`, `altura_pouso_inicio` | (1,0; 0,35); 0,05; 0,10 | S §9.1; D3 da Parte 0 (dono, 29/10): o fator entra aos 0,10 m e fica pleno aos 0,05 m |
 | `Terminacao` | `incl_marcha`, `base_min` | 0,8; 0,20 | S §10 |
 | | `incl_manip_graus`, `joelho_min` | 70; 0,05 | S §10 |
 | | `caixa_folga_chao`, `v_solta` | o valor do `g1_limpo/knobs.py` `Terminacao`; 1,2 | S §10 |
@@ -563,8 +563,10 @@ def nucleo(d, sigma) -> torch.Tensor: ...                 # exp(−(d/σ)²)  [C
 def rampa(x, x_lim, delta) -> torch.Tensor: ...           # clip(1 − (x − x_lim)/delta, 0, 1)  (S §9.1, B04)
 def phi(k_principal, portoes: list[torch.Tensor]) -> torch.Tensor: ...   # k · Π g
 def progresso(phi_novo, phi_velho, gamma) -> torch.Tensor: ...           # γΦ(s') − Φ(s)
-def fator_pouso(v_vertical, fundo_sobre_laje, sigma, altura) -> torch.Tensor: ...
-    # exp(−(v/σ)²) quando fundo_sobre_laje < altura; 1 fora disso (S §9.1, A10)
+def fator_pouso(v_vertical, fundo_sobre_laje, sigma, altura, altura_inicio) -> torch.Tensor: ...
+    # 1 − s·(1 − exp(−(v/σ)²)), s = clip((altura_inicio − fundo)/(altura_inicio − altura), 0, 1): 1 acima de
+    # altura_inicio, pleno abaixo de altura (S §9.1, A10). ⚠ Gradual (D3 da Parte 0, dono 29/10): o degrau
+    # em `altura` cortava Φ no passo de entrada na janela
 def custo_aperto(F_esq, F_dir, F_ref) -> torch.Tensor: ...  # 1 − exp(−min(F_esq,F_dir)/F_ref); peso −w (S §8.2, B02)
 def dobradica(x, limite) -> torch.Tensor: ...             # relu(x − limite)  (cercas, S §9.3)
 def excesso_de_junta(q, centro, meio, mole) -> torch.Tensor: ...  # Σ relu(|q−c|/m − mole)/(1−mole)  (S §9.2)
@@ -1053,7 +1055,7 @@ o número por arquivo e o número de todos juntos:
 | trecho | arquivos (`fase`) |
 |---|---|
 | PEGAR | `23250_k2`, `23250_topo004`, `24800_botar_t015`, `24800_mu06_m3`, `24800_mu10_m1`, `24800_mu10_m5` (`pegar`) |
-| CARREGAR | `23250_topo004`, `24800_mu06_m3`, `24800_mu10_m1`, `24800_mu10_m5` (`carregar`, 500 passos, 0,30 m/s) |
+| CARREGAR | `23250_topo004` (0,69 m/s), `24800_mu06_m3`, `24800_mu10_m1`, `24800_mu10_m5` (0,30 m/s) (`carregar`, 500 passos); no item 8 o critério do `L_alvo` não se aplica a eles: são o passo miúdo da E §4.1 (D2 da Parte 0, dono 29/10) |
 | BOTAR | `23250_k2`, `24800_botar_t015` (`botar`) |
 | ANDAR andando | `5000_botar`, `5350_botar` (`andar`, 300 passos, 0,65 m/s) |
 | ANDAR parado | `5000_andar_parado`, `5350_andar_parado`, `5800_andar_parado` (`parado`) |
@@ -1067,7 +1069,7 @@ o número por arquivo e o número de todos juntos:
 | `item4_balanceador.py` | 4 | `Curriculo` com curvas sintéticas de sucesso por iteração (logísticas), uma presa em 0,3 | frações por iteração | nenhuma fatia trava a outra (toda fatia aberta recebe ≥ piso); com todas no portão, as frações vão a 1/3 ± 0,02 |
 | `item6_comando_baixo.py` | 6 | `custos_por_s` nos CSV do ANDAR andando contra os do ANDAR parado (tabela acima) | para c = 0,05; 0,10; 0,25; 0,5; 1,0 (linear e giro): ganho por s de executar (rastreio normalizado = 1) contra a estátua (0) e contra a marcha no lugar (rastreio 0, passo 0), e o custo por s de começar e manter a marcha | executar vence a estátua e a marcha no lugar em todo c |
 | `item8_passo.py` | 8 | FK dos pés nos CSV do ANDAR andando e do CARREGAR (tabela acima); toques pelo pé a < 2 cm do chão | `L_alvo` por nível de velocidade contra o passo medido; fração de voo; passo de lado com a PD-16 | `L_alvo` ≤ 1,2 × o maior passo medido na mesma velocidade e ≤ 0,60 m; o termo satura em `L_alvo` (passo maior não paga mais); o passo de lado parado (pés na largura da base) paga 0 |
-| `item15_aperto.py` | 15 | S §8.2 (110–125 N por face no `model_24800`) | derivada de `custo_aperto` no ponto de operação; ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s; `sacudida` pela mesma regra (PD-34) | derivada em 117,5 N ≥ 20% da derivada em `F_ref` (fica 25%, S §8.2); `w` ≤ 0,5 × `perda_caixa` ÷ (ganho de afrouxar em 20 s) |
+| `item15_aperto.py` | 15 | S §8.2 (110–125 N por face no `model_24800`) | derivada de `custo_aperto` no ponto de operação; ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s; `sacudida` pela mesma regra (PD-34) | derivada em 117,5 N ≥ 20% da derivada em `F_ref` (fica 25%, S §8.2); `w` ≤ 0,5 × `perda_caixa` SEM o aperto evitado ÷ (ganho de afrouxar numa rampa de 20 s) (D6 e D8 da Parte 0, dono 29/10); depois o item 3 põe na perda o aperto evitado com esse `w` |
 
 ### B6 — relatório e portão da Parte 0 (Opus)
 
@@ -1677,7 +1679,7 @@ falha com queda no CARREGAR e com a caixa perdida no CARREGAR, chave ligada (PD-
 
 | termo | núcleo | máscara |
 |---|---|---|
-| `progresso` | `r = w_p·(γ·Φ(s′, i′) − Φ(s, i)) + B_alvo[i]·avançou`; `Φ = k_principal · Π g`; `k_principal`: P0–P2 e B3, a média das distâncias das duas palmas aos alvos no frame da caixa; P3, P4, B1, B2, a distância da caixa ao alvo (vezes `fator_pouso` em B1 e B2); B4, `√((Δpelve/0,03)² + (Δtronco/5°)²)`; σ = `v3_sigma`. `g`: rampas da §6.2 `Alvos` (invariantes P0–P2, P2–B2, B2–B4; faixa do tronco, do recuo e do CoM, este só com os dois pés no chão, PD-35) e `g_mãos` (PD-19). No passo em que o índice vira −1 (troca de tarefa), r = 0 (PD-36) | `v3_alvo_idx` ≥ 0 |
+| `progresso` | `r = w_p·(γ·Φ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou` no passo do avanço (o Φ do alvo VELHO no estado novo; D1 da Parte 0, dono 29/10: com Φ(s′, i′) o passo do avanço cobrava a queda de Φ e o `B_alvo` não cobria em 7 de 8 alvos), e `w_p·(γ·Φ(s′, i) − Φ(s, i))` nos outros passos; `Φ = k_principal · Π g`; `k_principal`: P0–P2 e B3, a média das distâncias das duas palmas aos alvos no frame da caixa; P3, P4, B1, B2, a distância da caixa ao alvo (vezes `fator_pouso` em B1 e B2); B4, `√((Δpelve/0,03)² + (Δtronco/5°)²)`; σ = `v3_sigma`. `g`: rampas da §6.2 `Alvos` (invariantes P0–P2, P2–B2, B2–B4; faixa do tronco, do recuo e do CoM, este só com os dois pés no chão, PD-35) e `g_mãos` (PD-19). No passo em que o índice vira −1 (troca de tarefa), r = 0 (PD-36) | `v3_alvo_idx` ≥ 0 |
 | `qualidade` (fator do rastreio no CARREGAR) | `núcleo(‖caixa − alvo_transporte‖; 0,05) · rampa(incl) · g_mãos`, aplicado só à parte positiva do rastreio: `q·max(r,0) + min(r,0)` (PD-37) | CARREGAR |
 | `contato_laje` | soma de `contato_mesa` (`g1_limpo/recompensas.py:180-212`) nos três sensores da laje, `joelho_N` pelo degrau (§6.9) | PEGAR, BOTAR |
 | `freio` | cópia de `velocidade_por_regime` (`:1179-1329`) com `mascara` no lugar de `limpo_estado`, `v3_freio` no lugar de `limpo_freio`, e o comando zero lido do `twist` | PEGAR, CARREGAR, BOTAR |
@@ -2059,3 +2061,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | nível de terreno no `Curriculo` (a B3 pedia 0..12 dentro da célula `terreno`, sem interface na §6.3): `k_ter` no construtor e `nivel_terreno(tarefa)`; teto 12 no ANDAR e 9 no CARREGAR; o refino do ANDAR e do CARREGAR espera o último nível de terreno; "seguidas" zera a contagem | pergunta da lane B3 |
 | 2026-10-29 | unidade da Parte 0 no cabeçalho da B5: o retorno do mjlab (`scale_by_dt`); custo por s = w·média(x); `B_alvo` que cobre o custo C de um trecho = 1,5·C/dt. O `custos_por_s` dividia pela duração e dava 50 vezes o custo por s | item 6 da B5 |
 | 2026-10-29 | transporte do mapa (C1) e critério da invariância (C0), decisões do dono: o mapa anda em células inteiras e guarda o resto e o rumo, com o giro no `recorte` (a célula mais perto a cada passo congelava o mapa a 50 Hz); o teste de densidade compara média ≤ 1 cm e p95 ≤ 3 cm fora da borda do degrau, e |Δc| ≤ 0,03 em 90% das células. Achado: na borda lateral da vista a confiança do caso de 205 pontos fica menor (lê a célula menos vezes); a frase da PD-5 "a densidade não muda a confiança" não vale ali, e o erro é conservador. Contagem: `percepcao_lidar.py` +10 linhas; custo +7% | diagnóstico de 29/10 (`test_recorte_com_2_leituras_nao_depende_da_densidade`) |
+| 2026-10-29 | portão da Parte 0, decisões do dono (`docs/relatorios/2026-10-29-v3-parte0.md` §3): D1 o `progresso` usa o Φ do alvo velho no passo do avanço; D2 o `L_alvo` fica, e o critério do item 8 não vale nos plays de CARREGAR (passo miúdo); D3 `fator_pouso` gradual de 0,10 a 0,05 m (`altura_pouso_inicio`); D4 cercas pela média só nos passos em que agem (PD-30); D5 o custo do filtro fica para o I5, em GPU; D6 o teto do `aperto` sai da perda sem o aperto evitado; D7 `sacudida` = 0,05 (spec); D8 ganho de afrouxar numa rampa de 20 s. Contagem: `potencial.py` +2, `knobs.py` +1; um campo novo (`altura_pouso_inicio`), nenhum termo novo | portão da B6 |
