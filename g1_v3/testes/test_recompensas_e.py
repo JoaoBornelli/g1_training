@@ -68,7 +68,8 @@ class _Caminho:
             T(np.linalg.norm(xy - self.pts["caixa0"][:2], axis=1)),
             T(np.linalg.norm(xy - self.pts["apoio"][:2], axis=1)),
             T(self.tr["incl"]), K.incl_inicio_graus, T(contatos),
-            T(np.abs(self.dtronco)), T(np.abs(np.linalg.norm(xy, axis=1) - np.nan_to_num(rec))),
+            T(np.maximum(self.dtronco, 0)),  # F9 P2: o portão do tronco é de um lado só; o chamador passa relu(incl − IK)
+            T(np.abs(np.linalg.norm(xy, axis=1) - np.nan_to_num(rec))),
             torch.zeros(self.n, dtype=torch.float64), torch.zeros(self.n, dtype=torch.bool), self.a, K)
         return recompensas.phi_do_alvo(self.idx, T(self.res["d"]), T(self.res["sigma"]), T(fator), portoes)
 
@@ -97,13 +98,9 @@ class TestPassoAPassoComItem1(unittest.TestCase):
         np.testing.assert_allclose(c.phi().numpy(), c.res["phi"], atol=TOL, rtol=0)
 
     def test_phi_botar_bate_com_item1(self):
-        # Teste E4: phi_do_alvo no caminho do BOTAR bate, passo a passo, com item1_phi["phi"] (1e-5).
-        # ⚠ DÚVIDA (F9 P2): no B4 o portão do tronco vale 1, mas o `item1_phi` (parte0, fora desta lane) ainda tem a rampa
-        # de |incl − IK|; por isso o B4 só é checado no sentido (o Φ sobe), e o item1 deve ser atualizado.
+        # Teste E4: phi_do_alvo no caminho do BOTAR bate, passo a passo, com item1_phi["phi"] (1e-5)
         c = self.botar
-        fora = c.tr["indice"] != alvos.B4
-        np.testing.assert_allclose(c.phi().numpy()[fora], c.res["phi"][fora], atol=TOL, rtol=0)
-        self.assertTrue(np.all(c.phi().numpy()[~fora] >= c.res["phi"][~fora] - TOL))
+        np.testing.assert_allclose(c.phi().numpy(), c.res["phi"], atol=TOL, rtol=0)
 
 
 class TestDistancia(unittest.TestCase):

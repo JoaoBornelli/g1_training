@@ -379,7 +379,10 @@ def idade_das_leituras(env) -> torch.Tensor:
 
 
 def fracao_avisos(env) -> torch.Tensor:
-    """Fração dos passos com o aviso do detector de fim (`v3_aviso`), por env. Sem peso.
+    """Fração dos passos depois do primeiro aviso do detector de fim no trecho, por env. Sem peso.
+
+    `v3_aviso` é o latch do aviso no trecho (F9 P5): conta os passos a partir do primeiro aviso, e não os
+    passos com o aviso do instante.
 
     Sem `reduce` no cfg: o padrão é `sum / step_count`, que é a fração pedida.
     """

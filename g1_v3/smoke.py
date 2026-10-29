@@ -578,7 +578,9 @@ def s17_abertura_do_pegar_poe_alvo_em_p0_e_sigma():
         _assenta_fatia_b(env)  # ⚠ E11 M3: a cena se põe e assenta antes da abertura, como no treino
         _le_caixa_valida(env)  # S5b: o PEGAR abre depois da primeira leitura válida (estado do estimador forçado)
         cad = _abre_trecho_de(env, "PEGAR")  # ⚠ força: abre o trecho de PEGAR como o `compute` abriria
+        # F9 P6 (E11 S5b): o P0 abre em `_abre_p0`, que só o `compute` chama; sem ele o `cad.pega` não sobe.
         m = cad._mede()
+        cad._abre_p0(m)
         check("PEGAR aberto em todos os mundos (`cad.pega`)", bool(cad.pega.all()))
         check("alvo corrente = P0", bool((env.v3_alvo_idx == P0).all()), str(env.v3_alvo_idx.tolist()))
         check("alvo da caixa = pega estimada (v3_alvo_w = v3_caixa_pega_w)",

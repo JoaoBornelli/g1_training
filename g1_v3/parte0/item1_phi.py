@@ -139,7 +139,9 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     contato = np.linalg.norm(palmas - caixa[:, None, :] - ALVO_P1, axis=2) <= K.tol_palma
     g_maos = np.where(maos, contato.sum(1) / 2.0, 1.0)
     # faixa: tronco e recuo (x = |desvio| da referência); o recuo não vale no B4. O CoM não entra (ver a saída)
-    g_tron = _g(np.abs(np.degrees(tr["tronco"] - refs["tronco"][idx])), K.faixa_tronco_graus, K.delta_tronco_graus)
+    # F9 P2 (29/10): um lado só e 1 no B4; a saída gravada em `parte0/saida/item1_phi.txt` é da forma antiga (o dono aceitou: o B_alvo não muda)
+    g_tron = np.where(idx == 8, 1.0,_g(np.maximum(np.degrees(tr["tronco"] - refs["tronco"][idx]), 0.0),
+                                         K.faixa_tronco_graus, K.delta_tronco_graus))
     rec_ref = refs["recuo"][idx]
     g_rec = np.where(np.isnan(rec_ref), 1.0,
                      _g(np.abs(np.linalg.norm(caixa[:, :2], axis=1) - np.nan_to_num(rec_ref)),
