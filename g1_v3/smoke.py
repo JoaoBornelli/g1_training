@@ -84,12 +84,6 @@ def _grade_recorte():
     return gx.reshape(-1), gy.reshape(-1)
 
 
-def _rumo(q: torch.Tensor) -> torch.Tensor:
-    """Rumo (yaw) de um quaternion wxyz (E,4)."""
-    w, x, y, z = q.unbind(-1)
-    return torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-
-
 # =============================================================================
 def s01_cfg_e_registro():
     from mjlab.tasks.registry import list_tasks, load_env_cfg
@@ -205,6 +199,7 @@ def s05_mapa_troca_local_directions():
 
 
 def s06_mapa_parado_e_com_passo():
+    from g1_v3.estimador import yaw
     from g1_v3.knobs import ATIVO
 
     p = ATIVO.percepcao
@@ -233,7 +228,7 @@ def s06_mapa_parado_e_com_passo():
         # verdadeira depois do forward (comando.py:254), e cada passo de 2 cm entra como um Δ pequeno.
         for _ in range(50):
             pose = robo.data.root_link_pose_w.clone()
-            psi = _rumo(pose[:, 3:7])
+            psi = yaw(pose[:, 3:7])
             pose[:, 0] += 0.02 * torch.cos(psi)
             pose[:, 1] += 0.02 * torch.sin(psi)
             robo.write_root_link_pose_to_sim(pose)

@@ -29,7 +29,7 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g1_v3 import alvos, knobs
 from g1_v3.balanceador import TAREFAS as CADEIA
-from g1_v3.estimador import _yaw
+from g1_v3.estimador import yaw
 from g1_v3.percepcao_lidar import filtra_corpo, pontos_no_frame_do_mapa
 
 if TYPE_CHECKING:
@@ -150,7 +150,7 @@ def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
     z_ref = env.v3_odo.pos_w[:, 2] + (z_pe - base_pos[:, 2])
     # O ruído do lidar sai do `v3_gerador` (§6.4); o teste determinístico chama `passo_de_percepcao` com None.
     return passo_de_percepcao(env.v3_filtro, lidar.data.distances, dirs_s, lidar.data.pos_w,
-                              matrix_from_quat(lidar.data.quat_w), base_pos, _yaw(base_quat), z_pe,
+                              matrix_from_quat(lidar.data.quat_w), base_pos, yaw(base_quat), z_pe,
                               env.v3_incl_imu, capsulas_w, raios, dxy_b, dpsi, z_ref, env.step_dt,
                               K.percepcao, env.v3_gerador)
 
