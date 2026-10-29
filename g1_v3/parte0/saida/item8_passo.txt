@@ -1,0 +1,21 @@
+item 8, passo: L_min 0.2 m, fator_T (0.8, 1.4), toque < 0.02 m do chão
+arquivo           trecho      v med  toques   L med   L max  L_alvo    voo  toq/s  L_alvo ≤ 1,2·max              L_alvo ≤ 0,60         
+5000_botar        ANDAR andando  0.642      31   0.114   0.266   0.257  0.000   5.18  OK (0.257 ≤ 0.319)            OK (0.257 ≤ 0.60)     
+5350_botar        ANDAR andando  0.663      25   0.142   0.307   0.265  0.003   4.18  OK (0.265 ≤ 0.368)            OK (0.265 ≤ 0.60)     
+23250_topo004     CARREGAR    0.686      53   0.110   0.153   0.275  0.000   5.31  FALHA (0.275 ≤ 0.184)         OK (0.275 ≤ 0.60)     
+24800_mu06_m3     CARREGAR    0.296       0       -   0.000   0.200  0.000   0.00  FALHA (0.200 ≤ 0.000)         OK (0.200 ≤ 0.60)     
+24800_mu10_m1     CARREGAR    0.351       2  -0.002   0.045   0.200  0.000   0.20  FALHA (0.200 ≤ 0.054)         OK (0.200 ≤ 0.60)     
+24800_mu10_m5     CARREGAR    0.294       4   0.013   0.051   0.200  0.000   0.40  FALHA (0.200 ≤ 0.061)         OK (0.200 ≤ 0.60)     
+todos juntos, por nível de velocidade (plays no nível mais perto do v médio):
+  nível 0.25  plays 3  v 0.314  toques 6  L med 0.008  L max 0.051  L_alvo 0.200  FALHA (0.200 ≤ 0.061)         OK (0.200 ≤ 0.60)
+  nível 0.75  plays 3  v 0.664  toques 109  L med 0.118  L max 0.307  L_alvo 0.265  OK (0.265 ≤ 0.368)            OK (0.265 ≤ 0.60)
+L_alvo por nível de velocidade (sem CSV nesse nível: o passo não foi medido):
+  0.25: 0.175  0.5: 0.200  0.75: 0.300  1.0: 0.400  1.25: 0.500  1.5: 0.600
+passo de lado parado (pés na largura da base, comando lateral (0,1)):
+  toque esquerdo: L 0.0000 m, r 0.0000
+  toque direito: L 0.0000 m, r 0.0000
+  comando para a frente na pose de pé: L 0.0000 m
+  OK (paga 0 nos dois pés)
+saturação do termo (r = 1 em L ≥ L_alvo, r = 0,25 em L_alvo/2), nos níveis:
+  OK (6 de 6 níveis)
+critérios: 13 OK, 5 FALHA
