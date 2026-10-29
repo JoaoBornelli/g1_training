@@ -43,7 +43,7 @@ RECOMPENSAS = ("rastreio_linear", "rastreio_angular", "passo", "vivo", "altura_p
                "cerca_tronco", "cerca_com", "cerca_torque", "cerca_pelve", "cerca_recuo", "contato_fora",
                "contato_laje", "freio", "progresso", "sacudida", "aperto", "perda_caixa", "terminacao")
 TERMINACOES = ("time_out", "queda", "caixa_perdida", "chegada", "batente")
-EVENTOS = ("fatia", "base", "juntas", "cena", "carga", "atrito_pad", "atrito_laje", "vies_imu", "pd",
+EVENTOS = ("fatia", "cena", "base", "juntas", "carga", "atrito_pad", "atrito_laje", "vies_imu", "pd",
            "forca_motor", "solref", "com_caixa", "filtros",            # reset
            "atrito_pe", "massa_tronco", "vies_encoder", "tamanho_caixa", "atraso",  # startup
            "empurrao", "forca_caixa", "rfi")                            # intervalo
@@ -53,9 +53,10 @@ TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
 PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
+ANDAR_PEGAR_BOTAR = ("ANDAR", "PEGAR", "BOTAR")  # E11 R1: o `progresso` não vale no CARREGAR
 # Fase E (§6.5, §6.6, E8): recompensas e terminação novas. Os pesos do `progresso` e do `perda_caixa` são ±1 no cfg.
 TAREFAS_E = {
-    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": TODAS,
+    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": ANDAR_PEGAR_BOTAR,
     "perda_caixa": TODAS,
 }
 TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR}

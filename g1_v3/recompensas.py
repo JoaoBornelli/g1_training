@@ -267,14 +267,17 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
 
 
 def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, w_p, gamma) -> torch.Tensor:
-    """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou, zero na troca (PD-36; D1 da Parte 0) e na entrada no alvo
-    (`phi_ant` < 0 é a sentinela "sem alvo" no passo anterior; E4).
+    """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou. O ΔΦ vai a zero na troca (PD-36; D1 da Parte 0) e na entrada
+    no alvo (`phi_ant` < 0 é a sentinela "sem alvo" no passo anterior; E4). O B_alvo paga também no passo da troca,
+    que é o fecho do B4 (E11 R3, 29/10); na entrada no alvo ele não paga (`phi_ant` < 0 sem troca).
 
     `phi_velho_no_novo` é Φ(s′, i) do alvo VELHO no passo do avanço (e do alvo corrente nos outros). `w_p` é a
     escala do knob (o `RewardTermCfg` tem peso 1,0; a escala mora aqui). Pairar com γ < 1 soma ≤ 0.
     """
-    r = w_p * potencial.progresso(phi_velho_no_novo, phi_ant, gamma) + b_alvo * avancou.float()
-    return torch.where(troca | (phi_ant < 0), torch.zeros_like(r), r)
+    dphi = w_p * potencial.progresso(phi_velho_no_novo, phi_ant, gamma)
+    dphi = torch.where(troca | (phi_ant < 0), torch.zeros_like(dphi), dphi)
+    paga = avancou & (troca | (phi_ant >= 0))
+    return dphi + b_alvo * paga.float()
 
 
 def n_qualidade(d_transporte, incl_graus, incl_lim_graus, contatos, k) -> torch.Tensor:
@@ -302,14 +305,14 @@ def margem_com(com_xy, cantos_xy) -> torch.Tensor:
     todos os cantos ficam de um lado dela. Pares de cantos iguais (a mesma quina dos dois pés) dão reta nula e
     saem pela `comp`. Sem aresta válida, devolve 1e3 (dentro de tudo).
     """
-    K = cantos_xy.shape[1]
-    ii, jj = torch.triu_indices(K, K, 1, device=cantos_xy.device)
+    n_cantos = cantos_xy.shape[1]
+    ii, jj = torch.triu_indices(n_cantos, n_cantos, 1, device=cantos_xy.device)
     a, b = cantos_xy[:, ii], cantos_xy[:, jj]  # (E,P,2)
     t = b - a
     nrm = torch.stack([-t[..., 1], t[..., 0]], dim=-1)  # normal de cada reta
     comp = nrm.norm(dim=-1)
     u = nrm / comp.clamp(min=_EPS).unsqueeze(-1)
-    s = ((cantos_xy.unsqueeze(1) - a.unsqueeze(2)) * u.unsqueeze(2)).sum(-1)  # (E,P,K)
+    s = ((cantos_xy.unsqueeze(1) - a.unsqueeze(2)) * u.unsqueeze(2)).sum(-1)  # (E,P,n_cantos)
     dentro = (s >= -_EPS).all(-1)
     fora = (s <= _EPS).all(-1)
     valida = (dentro | fora) & (comp > _EPS)
@@ -693,13 +696,15 @@ def contato_fora(env, tarefas):
 
 def progresso(env, tarefas):
     """Potencial do alvo corrente (E4; §6.3, §6.5). No passo do avanço, Φ do alvo VELHO no estado novo e
-    B_alvo[velho]; no passo em que o índice vira −1, zero (PD-36). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
+    B_alvo[velho]; no passo em que o índice vira −1, só o ΔΦ vai a zero (PD-36) e o B_alvo[B4] paga (E11 R3). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
     e soma `v3_b_pagos` (só os avanços com o alvo velho ≥ P2). Pelo `avancou` do comando, o velho é `alvo_idx − 1`
     (a ordem P0…B4 é sequencial), salvo no fecho do P4, que mantém o índice (`v3_p4_fechado`; S2, 29/10): aí o
-    alvo que paga é o P4. O σ do velho é `v3_sigma_velho` (S3). Sem `paga`: a volta à pose de pé também paga (S §10)."""
+    alvo que paga é o P4. O σ do velho é `v3_sigma_velho` (S3). Sem `paga`: a volta à pose de pé também paga (S §10).
+    No fecho do B4 o índice vira −1 (troca): o alvo que paga é o B4 (E11 R3, 29/10), e só o ΔΦ vai a zero."""
     idx, av = env.v3_alvo_idx, env.v3_avancou
     troca = idx < 0
-    i_ef = torch.where(av & (idx >= 0) & ~((idx == _P4) & env.v3_p4_fechado), idx - 1, idx)  # quem paga neste passo
+    velho = torch.where(av & (idx >= 0) & ~((idx == _P4) & env.v3_p4_fechado), idx - 1, idx)
+    i_ef = torch.where(av & troca, torch.full_like(idx, _B4), velho)  # quem paga neste passo
     phi_ef = _phi_env(env, i_ef, torch.where(av, env.v3_sigma_velho, env.v3_sigma))
     phi_novo = phi_ef
     if av.any():  # Φ do alvo corrente só no avanço (M10)
@@ -708,7 +713,7 @@ def progresso(env, tarefas):
     b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
     b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
     r = n_progresso(phi_ef, env.v3_phi, av, b, troca, R.progresso, R.gamma)
-    pagos = av & ~troca & (i_ef >= alvos.P2)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
+    pagos = av & (i_ef >= alvos.P2)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
     env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(pagos, b, torch.zeros_like(b))
     env.v3_phi[:] = phi_novo
     return _fim(env, tarefas, r)

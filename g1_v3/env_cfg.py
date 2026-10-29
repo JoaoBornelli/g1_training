@@ -32,6 +32,8 @@ TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
 PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
+# E11 R1 (29/10): o `progresso` não vale no CARREGAR (o índice fica no P4 e o termo cobraria (1 − γ)·w_p·Φ(P4)).
+ANDAR_PEGAR_BOTAR = ("ANDAR", "PEGAR", "BOTAR")
 
 # §6.5, na ordem do dict. Nome = função em `recompensas` = campo de `knobs.Recompensa` (o peso cru).
 _RECOMPENSAS = (
@@ -43,7 +45,7 @@ _RECOMPENSAS = (
     ("tronco_plano", ANDAR_CARREGAR), ("altura_base", ANDAR_CARREGAR), ("cerca_sola", PEGAR_BOTAR),
     ("cerca_giro", TODAS), ("cerca_tronco", TODAS), ("cerca_com", TODAS), ("cerca_torque", TODAS),
     ("cerca_pelve", TODAS), ("cerca_recuo", PEGAR_CARREGAR_BOTAR), ("contato_fora", TODAS),
-    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", TODAS),
+    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", ANDAR_PEGAR_BOTAR),
     ("perda_caixa", TODAS), ("terminacao", TODAS),
 )
 # Pesos que NÃO vêm do `knobs`: o `progresso` e o `perda_caixa` entram com ±1 no cfg, e a escala mora no núcleo
@@ -136,11 +138,12 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     # ------------------------------------------------------------ 7. eventos (§6.5 na ordem; §6.8 os da fase D)
     eventos_ = {
         "fatia": EventTermCfg(func=eventos.sorteia_fatia, mode="reset", params={"k_ter": k.terreno}),
+        # ⚠ E11 S4 (29/10): a `cena` roda ANTES da `base`: a base das fatias B e C se põe em relação à caixa.
+        "cena": EventTermCfg(func=eventos.posiciona_cena, mode="reset"),
         "base": EventTermCfg(func=eventos.reset_base_por_fatia, mode="reset", params={
             "faixa_andar": dict(c.reset_base_andar), "faixa_manipula": dict(c.reset_base_manipula)}),
         "juntas": EventTermCfg(func=reset_joints_by_offset, mode="reset",
                                params={"position_range": (0.0, 0.0), "velocity_range": (0.0, 0.0)}),
-        "cena": EventTermCfg(func=eventos.posiciona_cena, mode="reset"),
         "carga": EventTermCfg(func=eventos.carga, mode="reset"),
         "atrito_pad": EventTermCfg(func=eventos.atrito_pad, mode="reset", params={
             "asset_cfg": SceneEntityCfg("robot", geom_names=cena.PALM_PAD_GEOMS)}),
