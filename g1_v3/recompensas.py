@@ -265,13 +265,14 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
 
 
 def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, w_p, gamma) -> torch.Tensor:
-    """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou, zero na troca (PD-36; D1 da Parte 0).
+    """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou, zero na troca (PD-36; D1 da Parte 0) e na entrada no alvo
+    (`phi_ant` < 0 é a sentinela "sem alvo" no passo anterior; E4).
 
     `phi_velho_no_novo` é Φ(s′, i) do alvo VELHO no passo do avanço (e do alvo corrente nos outros). `w_p` é a
     escala do knob (o `RewardTermCfg` tem peso 1,0; a escala mora aqui). Pairar com γ < 1 soma ≤ 0.
     """
     r = w_p * potencial.progresso(phi_velho_no_novo, phi_ant, gamma) + b_alvo * avancou.float()
-    return torch.where(troca, torch.zeros_like(r), r)
+    return torch.where(troca | (phi_ant < 0), torch.zeros_like(r), r)
 
 
 def n_qualidade(d_transporte, incl_graus, incl_lim_graus, contatos, k) -> torch.Tensor:
@@ -399,12 +400,12 @@ def _por_degrau(env, ini, fim):
     return ini + (fim - ini) * env.v3_degrau.float() / ATIVO.balanceador.degraus
 
 
-def _incl_lim(env):
+def incl_lim(env):
     """`incl_lim` dos invariantes: 30° → 15° pelo degrau (§6.9)."""
     return _por_degrau(env, K.incl_inicio_graus, K.incl_fim_graus)
 
 
-def _incl_torso(env):
+def incl_torso(env):
     """Inclinação (graus) do torso do robô, do vertical (E,). Mesma medida da `cerca_tronco`."""
     robo = env.scene["robot"]
     return _incl_graus(robo.data.body_link_pose_w[:, robo.find_bodies(("torso_link",))[0], 3:7])[:, 0]
@@ -465,7 +466,7 @@ def _phi_env(env, indice):
     ref_do = _ref_do_alvo(env, indice)
     dpelve = env.scene["altura_pelve"].data.heights[:, 0] - ref_do[:, 6]
     d = distancia_do_alvo(indice, palmas_c, caixa_w, _alvo_w(env, indice), dpelve,
-                          _incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
+                          incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
     # fator de pouso: B1 e B2, com o fundo da caixa sobre a laje de destino (D3 da Parte 0)
     fundo = caixa_w[:, 2] - a - (env.scene.env_origins[:, 2] + env.v3_topo_destino)
     pouso = potencial.fator_pouso(caixa.data.root_link_lin_vel_w[:, 2], fundo, R.sigma_pouso[0],
@@ -474,8 +475,8 @@ def _phi_env(env, indice):
     cantos, com, dois = _pes_e_com(env)
     portoes = portoes_do_alvo(
         indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), (xy - env.v3_ponto_apoio[:, :2]).norm(dim=-1),
-        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), _incl_lim(env), _contato_palmas(env),
-        (_incl_torso(env) - torch.rad2deg(ref_do[:, 7])).abs(), (rec - _recuo_ref(env, indice)).abs(),
+        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), _contato_palmas(env),
+        (incl_torso(env) - torch.rad2deg(ref_do[:, 7])).abs(), (rec - _recuo_ref(env, indice)).abs(),
         torch.relu(R.lim_com - margem_com(com, cantos)), dois, a, K)
     return phi_do_alvo(indice, d, env.v3_sigma, fator, portoes)
 
@@ -486,7 +487,7 @@ def _qualidade(env):
     p4 = torch.full_like(env.v3_alvo_idx, _P4)
     d = (caixa.data.root_link_pos_w - _alvo_w(env, p4)).norm(dim=-1)
     incl = torch.rad2deg(alvos.inclinacao_da_caixa(caixa.data.root_link_quat_w))
-    return n_qualidade(d, incl, _incl_lim(env), _contato_palmas(env), K)
+    return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K)
 
 
 def _rastreio_com_qualidade(env, linear):
@@ -638,7 +639,7 @@ def cerca_tronco(env, tarefas):
 
     ⚠ tronco_IK = 0 no ANDAR e no CARREGAR; no PEGAR e no BOTAR, o tronco do alvo corrente (rad → graus).
     """
-    incl = _incl_torso(env)
+    incl = incl_torso(env)
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
     ik = torch.where(manip, torch.rad2deg(_ref_alvo(env)[:, 7]), torch.zeros_like(incl))
     return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus))
@@ -699,17 +700,20 @@ def contato_fora(env, tarefas):
 
 def progresso(env, tarefas):
     """Potencial do alvo corrente (E4; §6.3, §6.5). No passo do avanço, Φ do alvo VELHO no estado novo e
-    B_alvo[velho]; no passo em que o índice vira −1, zero (PD-36). Grava `v3_phi` (Φ do alvo corrente) e soma
-    `v3_b_pagos`. Pelo `avancou` do comando, o velho é `alvo_idx − 1` (a ordem P0…B4 é sequencial)."""
+    B_alvo[velho]; no passo em que o índice vira −1, zero (PD-36). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
+    e soma `v3_b_pagos` (só os avanços com o alvo velho ≥ P2). Pelo `avancou` do comando, o velho é `alvo_idx − 1`
+    (a ordem P0…B4 é sequencial)."""
     idx, av = env.v3_alvo_idx, env.v3_avancou
     troca = idx < 0
     i_ef = torch.where(av & (idx >= 0), idx - 1, idx)  # alvo que paga neste passo (o velho no avanço)
     phi_ef = _phi_env(env, i_ef)
     phi_novo = torch.where(av, _phi_env(env, idx), phi_ef)  # Φ do alvo corrente, para o próximo passo
+    phi_novo = torch.where(troca, torch.full_like(phi_novo, -1.0), phi_novo)  # sentinela: sem alvo
     b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
     b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
     r = n_progresso(phi_ef, env.v3_phi, av, b, troca, R.progresso, R.gamma)
-    env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(av & ~troca, b, torch.zeros_like(b))
+    pagos = av & ~troca & (i_ef >= alvos.P2)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
+    env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(pagos, b, torch.zeros_like(b))
     env.v3_phi[:] = phi_novo
     return _fim(env, tarefas, r, paga=True)
 
@@ -730,7 +734,6 @@ def freio(env, tarefas):
     """Freio: `velocidade_por_regime` do g1_limpo (E4). Regime pelo comando (`twist`), com a dobradiça do excesso
     de velocidade sobre o teto da tabela; o preço cresce por degrau (`freio_fator ** v3_freio`). PEGAR, CARREGAR, BOTAR.
 
-    ⚠ Os limiares de regime (`freio_limiar_andar`, `freio_limiar_correr`) não estão no knobs: ver o relatório.
     """
     cmd = env.command_manager.get_command("twist")
     total = cmd[:, :2].norm(dim=-1) + cmd[:, 2].abs()

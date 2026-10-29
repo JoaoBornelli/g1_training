@@ -24,7 +24,7 @@ _CAMINHO_MID360 = str(knobs.caminho("g1_v3/dados/mid360_passos.npz"))  # PD-5, g
 _LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_freio", "v3_degrau")
 _BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_p4_fechado", "v3_b4_fechado",
           "v3_perdeu_agora")
-_ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo", "v3_phi",
+_ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo",
               "v3_b_pagos", "v3_vz_caixa_ant", "v3_incl_max_seg")
 _VETORES = {"v3_caixa_pega_w": 3, "v3_alvo_w": 3, "v3_ponto_apoio": 3, "v3_vies_giro": 3, "v3_ancora": 4,
             "v3_mapa_obs": 882, "v3_caixa_obs": 11}  # 882 = mapa do ator (I §2.4); 11 = caixa_obs (§6.4)
@@ -73,6 +73,7 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     for nome in _ESCALARES:
         _cria(env, nome, (), torch.float32)
     _cria(env, "v3_t_empurrao", (), torch.float32, float("-inf"))
+    _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; o passo de entrada no alvo paga 0 (E4)
     for nome, dim in _VETORES.items():
         _cria(env, nome, (dim,), torch.float32)
     if not hasattr(env, "v3_incl_imu"):  # (E,3,3) giro fixo do IMU: começa na identidade, não em zeros

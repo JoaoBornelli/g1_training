@@ -178,6 +178,7 @@ class Alvos:  # S §8.2; PD-23
     incl_inicio_graus: float = 30.0  # S §8.2, §9.1: inclinação inicial da caixa (graus)
     incl_fim_graus: float = 15.0  # S §8.2, §9.1: inclinação final da caixa (graus)
     delta_incl_graus: float = 15.0  # S §8.2, §9.1: tolerância de inclinação (graus)
+    sigma_min: float = 0.01  # E3: piso do σ do alvo métrico (m); σ = 0 daria NaN no núcleo
     desloc_p0p2_frac: float = 1.0  # S §8.2; PD-23: deslocamento P0–P2, × meia aresta
     delta_p0p2_frac: float = 0.5  # S §8.2; PD-23: tolerância P0–P2, × meia aresta
     desloc_b2b4: float = 0.02  # S §8.2; PD-23: deslocamento B2–B4 (m)
@@ -261,6 +262,10 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     laje_saturacao_N: float = 100.0  # S §9.2: força em que a multa satura; g1_limpo/knobs.py Contato
     freio: float = -6 / 29  # S §9.2, §11.4: peso do freio por degrau (−6/29 ≈ −0,207)
     freio_fator: float = 1.5  # S §9.2, §11.4
+    # Regime do freio pelo total do comando (|v| + |ω|): parado abaixo do 1º, correndo a partir do 2º (g1_limpo
+    # `velocidade_por_regime`; 29/10: saíram do literal do `freio`)
+    freio_limiar_andar: float = 0.05
+    freio_limiar_correr: float = 1.5
     # Tetos de velocidade por família de junta: (regex, rad/s). Cópia de g1_limpo/knobs.py Tarefa.
     vel_max_parado: tuple = (  # g1_limpo/knobs.py Tarefa:762-767 (vel_max_standing)
         (r".*hip_pitch.*", 1.5), (r".*hip_roll.*", 1.5), (r".*hip_yaw.*", 1.5),

@@ -155,6 +155,12 @@ class TestProgresso(unittest.TestCase):
                                     1.0, R.gamma)
         self.assertEqual(float(r[0]), 0.0)
 
+    def test_entrada_no_alvo_paga_zero(self):
+        # Teste E4: o passo com `phi_ant` = −1 (sem alvo antes) é a entrada no alvo e paga 0, sem o salto de Φ + 1
+        r = recompensas.n_progresso(torch.tensor([0.5]), torch.tensor([-1.0]), torch.tensor([False]),
+                                    torch.tensor([0.0]), torch.tensor([False]), 1.0, R.gamma)
+        self.assertEqual(float(r[0]), 0.0)
+
     def test_avanco_usa_phi_do_alvo_velho_no_estado_novo_mais_b_alvo(self):
         # Teste E4 (D1 da Parte 0): no passo do avanço, Φ(s′, i) do alvo VELHO + B_alvo; 0,99·0,8 − 0,6 + 0,5
         r = recompensas.n_progresso(torch.tensor([0.8]), torch.tensor([0.6]), torch.tensor([True]),

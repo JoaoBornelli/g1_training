@@ -34,8 +34,6 @@ _EPS = 1e-6
 A, D, T, CENA = ATIVO.alvos, ATIVO.detector, ATIVO.terminacao, ATIVO.cena
 # Tempo de permanência por alvo, na ordem de ALVOS (S §8.2): só P4, B2, B3 e B4 têm tempo.
 _TEMPOS = (0.0, 0.0, 0.0, 0.0, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
-# Piso do σ do alvo ("mínimo 1 cm", E3): σ = 0 daria NaN no núcleo. ⚠ Não há campo no knobs para ele: reportado.
-_SIGMA_MIN = 0.01
 
 
 # --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------
@@ -263,9 +261,6 @@ class CadeiaCmd(CommandTerm):
         rumo, caixa_p, caixa_q = d.heading_w, caixa.root_link_pos_w, caixa.root_link_quat_w
         palmas_w = d.site_pos_w[:, self.sit_palmas]  # (E,2,3)
         R = alvos.frame_da_caixa(caixa_q, rumo)
-        # tronco = inclinação do torso do vertical (a mesma medida da `cerca_tronco`, como em recompensas)
-        q_torso = d.body_link_quat_w[:, env.scene["robot"].find_bodies(("torso_link",))[0]][:, 0]
-        cos_tronco = 1.0 - 2.0 * (q_torso[:, 1] ** 2 + q_torso[:, 2] ** 2)
         m = dict(
             h=h, base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, rumo=rumo, caixa_p=caixa_p,
             chao_z=d.root_link_pos_w[:, 2] - h, palmas_w=palmas_w,
@@ -277,7 +272,7 @@ class CadeiaCmd(CommandTerm):
                    <= CENA.prateleira_meia_xy).all(-1),
             h_caixa=env.scene["altura_caixa"].data.heights[:, 0],
             v_rel=(caixa.root_link_lin_vel_w - d.root_link_lin_vel_w).norm(dim=-1),
-            tronco_graus=torch.rad2deg(torch.acos(cos_tronco.clamp(-1.0, 1.0))),
+            tronco_graus=recompensas.incl_torso(env),  # a mesma medida da `cerca_tronco`
         )
         return m
 
@@ -296,7 +291,7 @@ class CadeiaCmd(CommandTerm):
                                              dpelve, m["tronco_graus"], env.v3_meia, A)
 
     def _sigma(self, m, indice) -> torch.Tensor:
-        return self._dist(m, indice).clamp(min=_SIGMA_MIN)
+        return self._dist(m, indice).clamp(min=A.sigma_min)
 
     def _abre_pegar(self, ids, m) -> None:
         # Abertura do PEGAR (E3, item 1): P0, e a pega e o alvo na caixa ESTIMADA (com os erros do estimador, S §6.4).
@@ -345,7 +340,7 @@ class CadeiaCmd(CommandTerm):
             A.incl_inicio_graus, m["contatos"], zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
         inv = g["desloc"] * g["incl"] * g["maos"]
         pega = (env.v3_tarefa == PEGAR) & ~env.v3_p4_fechado
-        ok_pega = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], A.incl_inicio_graus,
+        ok_pega = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], recompensas.incl_lim(env),
                                  d_caixa_p4, d_pelve_p4, inv, A) & pega
         pose = ((m["h"] - ref.pelve_de_pe).abs() <= A.tol_pelve_b4) & (m["tronco_graus"] <= A.tol_tronco_b4_graus)
         ok = ok_pega | ((idx == B4) & pose & env.v3_perdeu)
@@ -452,6 +447,8 @@ class CadeiaCmd(CommandTerm):
             getattr(env, nome)[env_ids] = False
         env.v3_relogio_alvo[env_ids] = 0.0
         env.v3_sigma[env_ids] = 1.0  # neutro: o alvo −1 não o usa, e σ = 0 daria NaN
+        env.v3_phi[env_ids] = -1.0  # sem alvo no início do episódio: a entrada no alvo paga 0 (E4)
+        env.v3_b_pagos[env_ids] = 0.0
         self.rel_fim[env_ids] = 0.0
         fat = env.v3_fatia[env_ids]
         self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])
