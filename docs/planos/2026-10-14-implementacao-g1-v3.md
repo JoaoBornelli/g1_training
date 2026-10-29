@@ -407,6 +407,8 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `destino_borda`, `destino_jitter_y`, `destino_giro_max_graus` | 0,15; 0,10; 10 | PD-47 |
 | | `grupo_mobilia` | 1 | PD-9 |
 | | `prateleira_*`, `caixa_xy`, `caixa_jitter_y`, `jitter_x_max`, `reset_base_manipula` | os valores do `g1_limpo/knobs.py` `Cena` e `Nivel` | cópia |
+| | `reset_base_andar` | (("x", (−0,5; 0,5)), ("y", (−0,5; 0,5)), ("yaw", (−π; π))), no formato do `reset_base_manipula` | D7 (29/10) |
+| | `prioridade_laje` | 3 | PD-46 (29/10: sai da `cena`) |
 | | `njmax`, `nconmax`, `impratio`, `cone` | 800; 300; 1,0; "pyramidal" | `g1_limpo/knobs.py:103-106`; S §12 (L2) |
 | | `extent` | 2,5 | `g1_limpo/knobs.py:86` |
 | `Comando` | `frente_tetos` | (0,25; 0,5; 0,75; 1,0; 1,25; 1,5) | S §11.2 |
@@ -452,6 +454,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `desvio_bracos`, `desvio_cintura`, `desvio_quadril`, `tronco_plano`, `altura_base`, `alvo_base` | −0,1; −1,0; −1,0; −5,0; −10,0; 0,78 | S §9.2 |
 | | `cerca_sola`, `cerca_giro`, `cerca_tronco`, `cerca_com`, `cerca_torque`, `cerca_pelve`, `cerca_recuo` | `None` (Parte 0, item 3) | S §9.3; PD-30 |
 | | `lim_sola_graus`, `lim_giro_graus`, `lim_tronco_graus`, `lim_com`, `lim_torque`, `banda_torque`, `lim_pelve`, `lim_recuo` | 5; 30; 15; 0,03; 0,8; 0,2; 0,08; 0,08 | S §9.3 |
+| | `recuo_carregar` | 0,25 m (o `recuo_IK` do CARREGAR na `cerca_recuo`) | D5 (29/10) |
 | | `tau_max` | por regex: joelho e `hip_roll` 139; `hip_pitch`, `hip_yaw`, `waist_yaw` 88; cintura e tornozelo 50; ombro, cotovelo, `wrist_roll` 25; `wrist_pitch`, `wrist_yaw` 5 | S §9.3 |
 | | `pares_torque`, `tau_par` | ((`waist_pitch_joint`, `waist_roll_joint`), (`left_ankle_pitch_joint`, `left_ankle_roll_joint`), (`right_ankle_pitch_joint`, `right_ankle_roll_joint`)); 50,0 | PD-45 |
 | | `contato_fora`, `contato_fora_N` | −1,0; 1,0 | S §9.2 |
@@ -478,8 +481,10 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `colunas` | (`plano`, `escada`, `escada_inv`, `rampa`, `rampa_inv`, `escada_aleatoria`, `irregular`, `obstaculos`, `caixas`) | D1; a ordem das colunas do gerador (29/10: o `eventos` lê daqui, sem importar a `cena`) |
 | | `linha_max_carregar` | por coluna (nome, linha): `escada`, `escada_inv`, `rampa`, `rampa_inv`, `escada_aleatoria` 9; `obstaculos` 8; `caixas` 7. Uma coluna tem plataforma de 2 m se e só se está aqui | PD-20 |
 | | `plataforma` | 2,0 | S §12 |
+| | `borda` | 20,0 m (`border_width` do gerador) | D1 (29/10: sai da `cena`) |
 | `DR` | `atrito_pe`, `massa_tronco`, `vies_encoder` | (0,3; 1,0); (−1,0; 3,0) kg; 0,015 rad | §6.8 startup; o tamanho da caixa mora em `Cena.caixa_meia_faixa` e `caixa_n_variantes` |
 | | `atraso_inicio`, `atraso_portao`, `atraso_refino`, `degrau_atraso_refino` | (0; 1); (0; 2); (0; 3) passos; 3 | §6.8; PD-25, PD-28, PD-41 |
+| | `ruido_obs` | (("giro_base", 0,2), ("gravidade", 0,05), ("juntas", 0,01), ("vel_juntas", 1,5)) | §6.5 (29/10: sai do `observacoes`); a capacidade dos buffers de atraso da observação é `atraso_refino[1]` |
 | | `empurrao`, `periodo_empurrao_s` | 0,5 m/s (± em x e y); 5,0 | §6.8 intervalo |
 | | `vies_imu_giro`, `vies_imu_incl_graus` | 0,05 rad/s; 1,0 | §6.8 ANDAR no portão |
 | | `atrito_pad`, `atrito_laje`, `passo_mu_pad`, `mu_pad_min` | (0,6; 1,0); (0,3; 1,0); 0,025; 0,5 | §6.8; PD-46 |
@@ -606,7 +611,9 @@ class Curriculo:
     def fracoes_fatias(self) -> torch.Tensor: ...          # (3,) ANDAR, B, C; fatia fechada = 0
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]: ...
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor: ...     # (n,) long
-    def sorteia_celulas(self, tarefa: str, n: int, gerador) -> torch.Tensor: ...  # (n,) ids de célula
+    def sorteia_celulas(self, tarefa: str, n: int, gerador, sem_tipo: str | None = None) -> torch.Tensor: ...
+        # (n,) ids de célula; com `sem_tipo`, a fração da célula desse tipo vale 0 antes do sorteio (29/10:
+        # o `twist` sorteia sem a célula `terreno` fora do episódio de terreno, §6.4 `v3_celula`)
     def nivel(self, tarefa: str) -> int: ...
     def nivel_terreno(self, tarefa: str) -> int: ...       # linha do gerador dentro da célula `terreno`: ANDAR
         # 0..linhas−1, CARREGAR 0..max(linha_max_carregar) (a D7 corta por coluna), PEGAR e BOTAR 0;
@@ -814,7 +821,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_fatia` | (E,) long | `eventos.sorteia_fatia` | `comando`, `eventos` |
 | `v3_trecho` | (E,) long | `comando.cadeia` | `comando`, `metricas` |
 | `v3_tarefa` | (E,) long, índice em `TAREFAS` | `comando.cadeia` | todos |
-| `v3_celula` | (E,) long | `comando.twist` | `comando`, `curriculo` |
+| `v3_celula` | (E,) long; −1 = sem célula. O episódio é de terreno se e só se `scene["terrain"].terrain_types` ≠ 0 (coluna 0 = `plano`), escrito pelo `eventos.sorteia_fatia` antes do reset dos comandos. Num trecho que anda de episódio de terreno, o `twist` fixa a célula `terreno` da tarefa; fora dele, sorteia com `sem_tipo="terreno"` (29/10) | `comando.twist` (o único) | `comando`, `curriculo` |
 | `v3_alvo_idx` | (E,) long, −1 a 8 | `comando.cadeia` | `recompensas`, `observacoes`, `metricas` |
 | `v3_pegou`, `v3_perdeu` | (E,) bool | `comando.cadeia` | `recompensas`, `terminacoes` (privilegiado, só sim) |
 | `v3_meia`, `v3_massa` | (E,) | `eventos` | todos |
@@ -830,7 +837,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_p4_fechado`, `v3_b4_fechado`, `v3_perdeu_agora` | (E,) bool | `comando.cadeia` | `comando`, `terminacoes`, `recompensas` |
 | `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia` | `recompensas`, `terminacoes`, `comando.twist` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
-| `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio (−∞ sem empurrão); (E,4) pose da âncora do canal zero (x, y, rumo, instante) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
+| `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio, em s desde o começo do episódio (−∞ sem empurrão; o `sorteia_fatia` volta a −∞ no reset); (E,4) pose da âncora do canal zero (x, y, rumo, instante). O evento grava `episode_length_buf · step_dt`; o `twist` mede no relógio próprio, zerado no reset do comando, porque o mjlab reseta os comandos antes de zerar o `episode_length_buf` (`manager_based_rl_env.py:581-590`); os dois diferem em até 1 passo (29/10) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
 
 ### 6.5 Termos (nomes exatos, na ordem do dict)
 
@@ -843,9 +850,10 @@ Atraso 0–1 em `giro_base`, `gravidade`, `juntas`, `vel_juntas` e `mapa` (PD-25
 nascem com capacidade 0–3 (D2).
 
 **Observações do crítico** (`critic`, sem corrupção): os nove do ator, sem ruído e sem atraso;
-depois `vel_lin_base` (3, histórico 5); depois, sem histórico: `caixa_verdade` (7), `alvo_verdade`
-(3), `alvo_macro` (10: one-hot de P0–B4 e "nenhum"), `referencia` (8: palmas 6, pelve 1, tronco 1),
-`niveis` (4, nível/n de cada tarefa), `degrau` (1, /5), `massa` (1, /5 kg), `forca_caixa` (1, /100
+depois `vel_lin_base` (3, histórico 5); depois, sem histórico: `caixa_verdade` (7: posição da caixa
+no frame da base 3, rotvec do quat da caixa no frame da base 3, meia aresta 1; zero sem caixa),
+`alvo_verdade` (3), `alvo_macro` (10: one-hot de P0–B4 e "nenhum"), `referencia` (8: palmas 6, pelve
+1, tronco 1), `niveis` (4, nível / último índice do nível de cada tarefa, a conta do `Curriculo`), `degrau` (1, /5), `massa` (1, /5 kg), `forca_caixa` (1, /100
 N); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem histórico; o grupo da
 vantagem, D9).
 
@@ -860,8 +868,8 @@ vantagem, D9).
 **Eventos:** reset, nesta ordem: `fatia`, `base`, `juntas`, `cena`, `carga`, `atrito_pad`,
 `atrito_laje`, `vies_imu`, `pd`, `forca_motor`, `solref`, `com_caixa`, `filtros`; startup: `atrito_pe`,
 `massa_tronco`, `vies_encoder`, `tamanho_caixa`, `atraso`; intervalo: `empurrao`, `forca_caixa`,
-`rfi`. Cada fase acrescenta os seus (D: `fatia`, `base`, `juntas`, `filtros`, startup, `empurrao`;
-E: `cena`, `carga`, `atrito_pad`, `atrito_laje`, `vies_imu`; H: `pd`, `forca_motor`, `solref`, `com_caixa`,
+`rfi`. Cada fase acrescenta os seus (D: `fatia`, `base`, `juntas`, `filtros`, os startup menos
+`tamanho_caixa`, `empurrao`; E: `cena`, `carga`, `atrito_pad`, `atrito_laje`, `vies_imu`, `tamanho_caixa`; H: `pd`, `forca_motor`, `solref`, `com_caixa`,
 `forca_caixa`, `rfi`).
 
 **Terminações (nota):** a chave `time_out` usa a função `fim_da_cadeia` (D6), com `time_out=True`.
@@ -1350,7 +1358,10 @@ Ondas:
 - Origem: `g1_limpo/observacoes.py:59-83` (one-hot) e o padrão de termo do mjlab
   (`velocity_env_cfg.py:77-109`).
 - O que fazer:
-  - `grupos(k) -> dict[str, ObservationGroupCfg]` com os termos da §6.5. `giro_base`,
+  - `grupos(k: Knobs) -> dict[str, ObservationGroupCfg]` com os termos da §6.5 (29/10: recebe o
+    agregador; lê `k.contrato.blocos_ator`, `k.dr.ruido_obs`, a capacidade `k.dr.atraso_refino[1]`
+    e `k.percepcao.ligada`; sem a percepção, o `mapa` sai dos dois grupos). O ruído do lidar no
+    `passo_de_percepcao` usa o `v3_gerador`. `giro_base`,
     `gravidade`, `comando`, `juntas`, `vel_juntas`, `acao` e `vel_lin_base` usam as funções do mjlab
     (`mdp.builtin_sensor` "robot/imu_ang_vel" e "robot/imu_lin_vel", `mdp.projected_gravity`,
     `mdp.generated_commands` com "twist", `mdp.joint_pos_rel` com `biased=True`, `mdp.joint_vel_rel`,
@@ -1502,10 +1513,10 @@ Ondas:
   | `cerca_sola` | Σ_pés em contato relu(incl_graus − 5) | sites dos pés | PEGAR, BOTAR |
   | `cerca_giro` | relu(max(−q_hip_yaw_E, 0)_graus − 30) + relu(max(q_hip_yaw_D, 0)_graus − 30) | — | todas |
   | `cerca_tronco` | relu(incl_tronco_graus − (tronco_IK_graus + 15)); tronco_IK = 0 no ANDAR e no CARREGAR, a referência do alvo corrente no PEGAR e no BOTAR | `torso_link` | todas |
-  | `cerca_com` | relu(0,03 − margem) só com os dois pés em contato (PD-35); margem = distância com sinal do CoM combinado (robô + caixa presa) às arestas do fecho convexo dos 8 cantos das solas | `subtree_com` da raiz, massa da caixa | todas |
+  | `cerca_com` | relu(0,03 − margem) só com os dois pés em contato (PD-35); margem = distância com sinal do CoM combinado (robô + caixa presa) às arestas do fecho convexo dos 8 cantos das solas | `env.sim.data.subtree_com[:, raiz]` e `env.sim.model.body_subtreemass[:, raiz]`, raiz = `robot.indexing.root_body_id` (os campos do modelo têm forma (mundos, corpos); 29/10), massa da caixa | todas |
   | `cerca_torque` | Σ_j relu(f_j − 0,8)/0,2, com f_j = abs(τ_j)/τ_max_j nas juntas soltas e, em cada par de `pares_torque`, um termo só com f = (abs(τ_p) + abs(τ_r))/`tau_par` (PD-45) | `qfrc_actuator` | todas |
   | `cerca_pelve` | relu(abs(h_pelve − pelve_IK) − 0,08); pelve_IK = `pelve_de_pe` no ANDAR, `pelve_com_caixa(a)` no CARREGAR, a referência do alvo no PEGAR e no BOTAR | `altura_pelve` | todas |
-  | `cerca_recuo` | relu(abs(recuo − recuo_IK) − 0,08); recuo_IK = 0,25 no CARREGAR, a referência do alvo no PEGAR e no BOTAR | pelve, caixa | PEGAR, CARREGAR, BOTAR (a fase E liga) |
+  | `cerca_recuo` | relu(abs(recuo − recuo_IK) − 0,08); recuo = ‖xy da caixa − xy da pelve‖ no mundo, a mesma medida da `grade_recuo` (`dados/gera_referencias.py:109`); recuo_IK = `Recompensa.recuo_carregar` no CARREGAR, `v3_ref.recuo(v3_topo, v3_meia)` no PEGAR e no BOTAR (29/10) | pelve, caixa | PEGAR, CARREGAR, BOTAR (a fase E liga) |
   | `contato_fora` | nº de corpos fora dos pés com força > 1 N no chão + contatos de autocolisão (+ a caixa fora da janela da pega, fase E) | `nao_pes_chao`, `auto_colisao` | todas |
   | `terminacao` | 1 numa terminação que não é `time_out`; peso −200 (× dt = −4) | — | todas |
 
@@ -1544,7 +1555,9 @@ Ondas:
     `linha_max_carregar` da coluna, PD-20), e fixa a célula `terreno`; os outros ficam na coluna 0. Escreve
     `terrain.terrain_levels[ids]`, `terrain.terrain_types[ids]` e `scene.env_origins[ids]` =
     `terrain_origins[linha, coluna]` (`terrain_entity.py:216-233`).
-  - `base` (reset): fatia ANDAR: ±0,5 m em x e y e rumo livre, sobre a origem; fatias B e C: a faixa
+  - Todo sorteio usa o `v3_gerador` (§6.4). O `sorteia_fatia` não escreve `v3_celula`: escreve o
+    terreno, e o `twist` lê o `terrain_types` (§6.4, 29/10).
+  - `base` (reset): fatia ANDAR: `Cena.reset_base_andar` (±0,5 m em x e y e rumo livre), sobre a origem; fatias B e C: a faixa
     `Cena.reset_base_manipula`, como o `reset_base_por_elo`. z = origem + `pelve_de_pe` + 0,01.
   - `juntas` (reset): `mdp.reset_joints_by_offset` com faixa 0 (o default é o `q_de_pé`).
   - `filtros` (reset): `v3_filtro.reinicia`, `v3_odo.reinicia`.
@@ -2171,3 +2184,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | núcleos da D5 e da D6 (`n_<termo>`, `comprimento_do_passo`, `n_queda`, `n_fim_da_cadeia`), `spec_caixa`/`spec_laje`/`terreno_cfg` da cena, "todas" = as 4 tarefas da cadeia, o conjunto de termos da fase D, a fórmula do teto da coluna `caixas` (0,2 + 0,8·t) e a API de registro, na §6.3 | perguntas da lane D0-1 |
 | 2026-10-29 | §6.4: `v3_gerador` (o gerador dos sorteios e do ruído, com a semente do cfg) e `v3_iter`; o `garante_v3` cria a `v3_odo` com o `v3_gerador`; o `v3_freio` e o `v3_degrau` ficam com o `comando.cadeia`, como a §6.4 já dizia, e a D4 deixa de escrevê-los | pergunta da lane D4 |
 | 2026-10-29 | D8: sai o `atraso_medio` (atributo privado do mjlab; o `atraso_max` vai ao log pela E6) e o `momento_angular` (pede sensor novo); o limiar do mapa visto vira `Percepcao.limiar_visto` = 0,5 | perguntas da lane D8 |
+| 2026-10-29 | dúvidas da onda D-2: o `twist` é o único escritor de `v3_celula` e lê o episódio de terreno no `terrain_types` (`sorteia_celulas` ganha `sem_tipo`); a unidade do `v3_t_empurrao` e o relógio do `twist`; o `tamanho_caixa` vai à fase E; `grupos(k: Knobs)` (o `mapa` sai sem a percepção; ruído e capacidade do atraso no `knobs`); a composição de `caixa_verdade` e o divisor de `niveis`; o `cerca_com` usa o `subtree_com` e o `body_subtreemass` da raiz; o recuo é a distância no plano da `grade_recuo`; campos novos `Cena.reset_base_andar`, `Cena.prioridade_laje`, `Terreno.borda`, `DR.ruido_obs`, `Recompensa.recuo_carregar` | as lanes D2, D3, D5 e D7 acharam a §6 aberta; o `body_mass` tem forma (mundos, corpos) e o `root_com_pos_w` é o CoM da pelve, não o do robô |
