@@ -1,8 +1,8 @@
 """Terminações da v3 da fase D: o fim da cadeia (`time_out`) e a queda (plano §6.5, D6; PD-21).
 
 Cada termo é um núcleo puro sobre tensores (`n_*`) mais um invólucro fino que lê o env. O teste
-chama o núcleo com tensores sintéticos. Nesta fase só `fim_da_cadeia` e `queda`: `caixa_perdida`
-e `batente` são das fases E e H.
+chama o núcleo com tensores sintéticos. `fim_da_cadeia`, `queda` (D) e `caixa_perdida` (E);
+`batente` é da fase H.
 
 ⚠ TERMINAR SÓ O QUE NÃO TEM COMO SER PAGO (princípio do g1_limpo/terminacoes.py). A queda é o
 caso que o robô não recupera. Nas tarefas de andar, a inclinação de marcha (0,8 rad) e a pelve
@@ -58,6 +58,15 @@ def fim_da_cadeia(env: ManagerBasedRlEnv) -> torch.Tensor:
     return n_fim_da_cadeia(env.episode_length_buf, env.max_episode_length, env.v3_fim)
 
 
+def n_caixa_perdida(perdeu_agora, vira_andar: bool) -> torch.Tensor:
+    """(E,) bool. A caixa caiu neste passo e a chave `caixa_perdida_vira_andar` está desligada (PD-27).
+
+    Ligada, a perda vira ANDAR (`v3_tarefa`, no `comando.cadeia`) e o episódio segue: nunca termina aqui.
+    ⚠ `perdeu_agora` é o instante da perda; o termo acaba no passo em que ela acontece, não depois.
+    """
+    return perdeu_agora & (not vira_andar)
+
+
 def queda(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
     """Invólucro de `n_queda`. Lê o robô e os sensores de altura da `cena.sensores` (PD-21).
 
@@ -84,4 +93,16 @@ def queda(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
     cai = n_queda(env.v3_tarefa, incl, z_pelve, z_chao_pelve, z_joelho, z_chao_joelho,
                   ATIVO.terminacao)
     # ⚠ torch.where, e não multiplicação: um NaN de um env fora da tarefa não pode vazar.
+    return torch.where(mascara(env, tarefas), cai, torch.zeros_like(cai))
+
+
+def caixa_perdida(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
+    """Invólucro de `n_caixa_perdida`. Lê `v3_perdeu_agora` e a chave `ATIVO.cadeia` (PD-27).
+
+    ⚠ `curriculo.mascara` é importado aqui dentro, pelo mesmo motivo de `queda`.
+    """
+    from g1_v3.curriculo import mascara
+
+    cai = n_caixa_perdida(env.v3_perdeu_agora, ATIVO.cadeia.caixa_perdida_vira_andar)
+    # ⚠ torch.where, e não multiplicação: o mesmo motivo de `queda`.
     return torch.where(mascara(env, tarefas), cai, torch.zeros_like(cai))

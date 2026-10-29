@@ -1,7 +1,7 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
-⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3) e,
-só para a anotação, `knobs.Knobs`.
+⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3),
+`alvos` (os índices P0–B4 e `inclinacao_da_caixa`) e, só para a anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
 apaga a medição dela, em silêncio. Medir num manager separado desacopla as duas coisas: o peso
@@ -22,6 +22,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
+from g1_v3.alvos import P0, P1, P2, P3, inclinacao_da_caixa
 from g1_v3.recompensas import comprimento_do_passo
 
 if TYPE_CHECKING:
@@ -37,6 +38,13 @@ __all__ = [
     "forca_de_pouso",
     "passo_medio",
     "fracao_mapa_visto",
+    "phi_medio_do_alvo",
+    "tempo_no_alvo",
+    "inclinacao_da_caixa_no_p3",
+    "forca_robo_caixa",
+    "deslocamento_da_caixa",
+    "idade_das_leituras",
+    "fracao_avisos",
 ]
 
 # nomes da cena v3 (`cena.py`): o sensor de contato dos pés, o de altura e os sítios. Os
@@ -45,6 +53,10 @@ PES_CHAO = "pes_chao"
 ALTURA_DO_PE = "altura_pes"
 SITIOS_DOS_PES = ("left_foot", "right_foot")
 COMANDO = "twist"
+CAIXA = "box"
+CAIXA_ROBO = "caixa_robo"
+# a ordem é a dos índices de `alvos` (P0 = 0 … B4 = 8): o nome do termo sai daqui
+_NOMES_ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")
 
 
 def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
@@ -199,6 +211,118 @@ def fracao_mapa_visto(env, limiar: float) -> torch.Tensor:
     return (conf > limiar).float().mean(dim=-1)
 
 
+class phi_medio_do_alvo:
+    """Média do Φ (`v3_phi`) nos passos em que o alvo é `alvo`, por env. Sem peso.
+
+    ⚠ Φ é o potencial do passo ANTERIOR (§6.4): o valor do passo em que o `v3_alvo_idx` é `alvo`.
+    ⚠ `reduce="last"` no cfg: o valor é a média CORRENTE desde o reset, como `passo_medio`.
+    """
+
+    def __init__(self, cfg, env):
+        self.soma = torch.zeros(env.num_envs, device=env.device)
+        self.n = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env, alvo: int) -> torch.Tensor:
+        ok = env.v3_alvo_idx == alvo
+        self.soma = self.soma + torch.where(ok, env.v3_phi, torch.zeros_like(self.soma))
+        self.n = self.n + ok.float()
+        return self.soma / self.n.clamp(min=1.0)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.soma[env_ids] = 0.0
+        self.n[env_ids] = 0.0
+
+
+class tempo_no_alvo:
+    """Segundos em que o alvo corrente é `alvo`, até o instante, por env. Sem peso.
+
+    ⚠ `reduce="last"` no cfg: o valor é o total corrente, e o último passo é o do episódio.
+    """
+
+    def __init__(self, cfg, env):
+        self.passos = torch.zeros(env.num_envs, device=env.device)
+        self.dt = env.step_dt
+
+    def __call__(self, env, alvo: int) -> torch.Tensor:
+        self.passos = self.passos + (env.v3_alvo_idx == alvo).float()
+        return self.passos * self.dt
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.passos[env_ids] = 0.0
+
+
+def inclinacao_da_caixa_no_p3(env) -> torch.Tensor:
+    """Inclinação da caixa (rad) no passo em que o alvo é P3, zero fora dele. Sem peso.
+
+    ⚠ `reduce="max"` no cfg: o PICO no P3 (S §14), e não a média do episódio.
+    """
+    incl = inclinacao_da_caixa(env.scene[CAIXA].data.root_link_quat_w)
+    return torch.where(env.v3_alvo_idx == P3, incl, torch.zeros_like(incl))
+
+
+def forca_robo_caixa(env, sensor_name: str = CAIXA_ROBO) -> torch.Tensor:
+    """Força total robô → caixa, em newtons: a soma dos módulos das fatias do sensor, por env.
+
+    ⚠ Soma de MÓDULOS, e não do vetor: as duas palmas apertam em sentidos opostos (`cena.py`) e a
+    soma vetorial se cancela. O `caixa_robo` tem 12 fatias, com força (E, 12, 3).
+    """
+    f = env.scene[sensor_name].data.force
+    return torch.norm(f, dim=-1).sum(dim=-1)
+
+
+class deslocamento_da_caixa:
+    """Quanto a caixa andou desde o primeiro passo de P0, nos passos de P0 a P2, por env (m). Sem peso.
+
+    ⚠ A âncora é a posição no PRIMEIRO passo em que o alvo é P0 do episódio. Fora de P0–P2 o valor é zero.
+    ⚠ `reduce="max"` no cfg: o maior deslocamento do episódio na laje.
+    """
+
+    def __init__(self, cfg, env):
+        self.ancora = torch.zeros(env.num_envs, 3, device=env.device)
+        self.marcada = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def __call__(self, env) -> torch.Tensor:
+        alvo = env.v3_alvo_idx
+        pos = env.scene[CAIXA].data.root_link_pos_w
+        novo = (alvo == P0) & ~self.marcada
+        self.ancora = torch.where(novo[:, None], pos, self.ancora)
+        self.marcada = self.marcada | novo
+        na_laje = (alvo == P0) | (alvo == P1) | (alvo == P2)
+        desl = torch.norm(pos - self.ancora, dim=-1)
+        return torch.where(self.marcada & na_laje, desl, torch.zeros_like(desl))
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.marcada[env_ids] = False
+
+
+def idade_das_leituras(env) -> torch.Tensor:
+    """Idade (s) média da leitura do estimador da caixa, por env. Sem peso.
+
+    A idade é a coluna 7 da `saida_b` (E,8) do `v3_estimador`, com a odometria `v3_odo`.
+    ⚠ Se o `v3_estimador` ainda não existe no env (a fase E ainda não o criou), devolve zeros:
+    zero aqui quer dizer "sem medida", e não "leitura nova".
+    """
+    est = getattr(env, "v3_estimador", None)
+    odo = getattr(env, "v3_odo", None)
+    if est is None or odo is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return est.saida_b(odo, env.scene["robot"].data.root_link_quat_w)[:, 7]
+
+
+def fracao_avisos(env) -> torch.Tensor:
+    """Fração dos passos com o aviso do detector de fim (`v3_aviso`), por env. Sem peso.
+
+    Sem `reduce` no cfg: o padrão é `sum / step_count`, que é a fração pedida.
+    """
+    return env.v3_aviso.float()
+
+
 def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     """Os termos, montados aqui e em nenhum outro lugar.
 
@@ -209,7 +333,7 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     Fora da lista do g1_limpo, de propósito (decisão do dono, 29/10): `momento_angular` e
     `atraso_medio`.
     """
-    return {
+    m = {
         "tempo_de_voo": MetricsTermCfg(func=tempo_de_voo, params={"sensor_name": PES_CHAO}),
         "pico_de_altura": MetricsTermCfg(
             func=pico_de_altura,
@@ -234,3 +358,13 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
         "fracao_mapa_visto": MetricsTermCfg(
             func=fracao_mapa_visto, params={"limiar": k.percepcao.limiar_visto}),
     }
+    # Manipulação (E7, S §14): diagnóstico, sem peso. O Φ e o tempo saem por alvo: nove de cada.
+    for i, nome in enumerate(_NOMES_ALVOS):
+        m[f"phi_{nome}"] = MetricsTermCfg(func=phi_medio_do_alvo, reduce="last", params={"alvo": i})
+        m[f"tempo_{nome}"] = MetricsTermCfg(func=tempo_no_alvo, reduce="last", params={"alvo": i})
+    m["inclinacao_caixa_p3"] = MetricsTermCfg(func=inclinacao_da_caixa_no_p3, reduce="max")
+    m["forca_robo_caixa"] = MetricsTermCfg(func=forca_robo_caixa, params={"sensor_name": CAIXA_ROBO})
+    m["deslocamento_caixa_laje"] = MetricsTermCfg(func=deslocamento_da_caixa, reduce="max")
+    m["idade_leituras"] = MetricsTermCfg(func=idade_das_leituras)
+    m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
+    return m
