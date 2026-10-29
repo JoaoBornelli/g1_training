@@ -15,7 +15,7 @@ O que sai, e nada mais:
                         `ckpt`, `giro_ang`, `fracao_mapa_visto`, `a_<junta>`, `alvo_pd_<junta>`,
                         a FORÇA NA CAIXA (`fn_E`, `fn_D`, `fn_tot`, `fz_rob`, `n_rob`), `rel_x/y/z`,
                         `aviso_fim` (0/1, o detector de fim), `idade_caixa` (s) e `alvo_x/y/z` (m, mundo; NaN
-                        fora do PEGAR e antes da primeira leitura válida da caixa)
+                        fora do PEGAR e do BOTAR, e no PEGAR antes da primeira leitura válida da caixa)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 
 ⚠ O DRIVER É A BASE. Nada de física extra aqui (sem --atrito, --massa, --mu-caixa...): a cena é a que
@@ -60,20 +60,21 @@ def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
 # ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
 # Por isso todo roteiro abre na espera e não numa aproximação.
 #
-# As duas cadeias que o treino fecha depois do PEGAR, uma em cada entrada. Na v3 cada fase é a tecla
-# do teclado: `v` = PEGAR, `n` = BOTAR, `z` = ANDAR, `b` = CARREGAR.
-#   botar     PEGAR -> BOTAR -> ANDAR. A caixa vai para a laje e o robô sai sem ela.
+# As cadeias do treino, uma em cada entrada. Na v3 cada fase é a tecla do teclado: `v` = PEGAR, `n` = BOTAR,
+# `z` = ANDAR, `b` = CARREGAR.
+#   c         cadeia C (F7): PEGAR -> CARREGAR parado -> BOTAR -> ANDAR parado. A caixa vai para a laje de destino
+#             (o alvo é o topo da laje + a) e o robô sai sem ela. A laje e a caixa ficam onde o BOTAR as deixou.
 #   carregar  roteiro B (cadeia B, E9): ANDAR parado -> PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
 #             O PEGAR dura o tempo do roteiro; o aviso de fim vai só para a coluna `aviso_fim`.
 ROTEIROS = {
-    "botar": ("espera:ANDAR:1.0,"
-              "pegar:PEGAR:3.0,"
-              "espera:BOTAR:1.0,"
-              # ⚠ 2,0 s, e não 0,5. A sonda de forma lê os ÚLTIMOS 0,3 s da fase (a aproximação
-              # do instante de fecho). Com 0,5 s a janela pegava 60% da fase, ainda assentando.
-              "botar:BOTAR:2.0,"
-              "espera:ANDAR:1.0,"
-              "andar:ANDAR:6.0:0.8"),
+    "c": ("espera:ANDAR:1.0,"
+          "pegar:PEGAR:7.0,"
+          "espera:CARREGAR:1.0,"
+          # ⚠ 7,0 s, a mesma janela do PEGAR. No treino o BOTAR termina pelo detector (mais U[0; 1,5] s de atraso), com
+          # B2 + B3 + B4 = 1,3 s de permanência e o trajeto até a laje. O aviso sai em `aviso_fim`, e o roteiro não corta nele.
+          # ⚠ DÚVIDA: 7,0 s é chute; o tempo de aproximação não foi medido. Confira `aviso_fim` na fase I.
+          "botar:BOTAR:7.0,"
+          "parado:ANDAR:1.5"),
     "carregar": ("espera:ANDAR:1.0,"
                  "pegar:PEGAR:7.0,"
                  "espera:CARREGAR:1.0,"
@@ -104,6 +105,9 @@ class Fase:
         """A laje sai no `CARREGAR` sempre, e no `ANDAR` quando ele marcha.
 
         ⚠ NO `CARREGAR` A MARCHA NÃO ENTRA NA CONTA: quem está em `CARREGAR` já não tem laje na frente.
+        ⚠ DÚVIDA: o treino só tira a laje no CARREGAR que ANDA na fatia B (`comando.py:501`, `laje_fora`). O CARREGAR
+        PARADO da C (roteiro `c`, 1,0 s) e o da B (`espera:CARREGAR`) deixariam a laje do reset na frente, e aqui ela sai.
+        Não mudei: a regra é a mesma para o roteiro B, e mudá-la muda o B. Decidir na fase I.
         Nota: o `pilota_v3` NÃO move a laje nem a caixa (só o reset as põe no lugar). A limpeza fica como está,
         espelha o `estaciona_cena` da fase E (no ANDAR a laje e a caixa saem; §2.2).
         """
@@ -194,7 +198,7 @@ def main() -> None:
     ap.add_argument("--cena", required=True, help="pasta com cena.mjb, cena.npz e contrato.json")
     ap.add_argument("--checkpoint", required=True, help="o model_*.pt da v3")
     ap.add_argument("--saida", default="juntas", help="prefixo dos arquivos de saída")
-    ap.add_argument("--roteiro", default="botar",
+    ap.add_argument("--roteiro", default="c",
                     help=f"um nome pronto ({', '.join(ROTEIROS)}) ou "
                          "rotulo:TAREFA:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
@@ -276,8 +280,9 @@ def main() -> None:
             for fase in fases:
                 piloto.tarefa = TAREFAS.index(fase.tarefa)
                 piloto.twist[:] = (fase.vx, 0.0, 0.0)
-                if fase.tarefa == "PEGAR":
-                    visao.abre_pegar()  # o alvo do PEGAR é a caixa VISTA, na primeira leitura válida (S5b; como a tecla)
+                if fase.tarefa in ("PEGAR", "BOTAR"):
+                    # Como a tecla: o alvo do PEGAR é a caixa VISTA (S5b); o do BOTAR é a laje de destino (F7).
+                    visao.abre(piloto.tarefa, m, d)
                 if fase.tarefa in TAREFAS_QUE_CAPTURAM_CIMA:
                     cima_b = gira_inverso(d.qpos[adr_caixa + 3:adr_caixa + 7], EZ)
                 if fase.limpa_laje or fase.limpa_caixa:
@@ -306,9 +311,9 @@ def main() -> None:
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
                           "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt}
-                    # O alvo gravado é o PONTO do PEGAR, a caixa vista (o que o driver manda; I §4.1). O
-                    # `alvos.caixa_alvo_w` pede o índice P0..B4, que é estado do controlador e o driver não tem.
-                    ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa == "PEGAR" and visao.aberto
+                    # O alvo gravado é o PONTO do PEGAR (a caixa vista) ou o de soltura do BOTAR (a laje, F7), o que o
+                    # driver manda; I §4.1. O `alvos.caixa_alvo_w` pede o índice P0..B4, que o driver não tem.
+                    ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa in ("PEGAR", "BOTAR") and visao.aberto
                                   else (float("nan"),) * 3)
                     ln.update(alvo_x=ax, alvo_y=ay, alvo_z=az)
                     ln["giro_ang"] = angulo_de_tombo(d.qpos[adr_caixa + 3:adr_caixa + 7], cima_b)

@@ -254,6 +254,12 @@ class Percepcao:
         return mapa
 
 
+def _base_para_mundo(base_xy: np.ndarray, rumo: float, p: np.ndarray) -> np.ndarray:
+    """O frame da base → mundo: base + R(rumo)·p. A mesma conta do `_base_para_mundo` do `eventos.py`, em numpy."""
+    c, s = np.cos(rumo), np.sin(rumo)
+    return base_xy + np.array([c * p[0] - s * p[1], s * p[0] + c * p[1]])
+
+
 class Visao:
     """A caixa no laço: o `EstimadorCaixa` sobre a D435i, e o detector de fim (I §2.3, §4.2; E9).
 
@@ -262,8 +268,10 @@ class Visao:
     A odometria é a do `Percepcao` (o mesmo `odo`), e por isso `passo` roda DEPOIS dele.
 
     Visibilidade só pelas 8 cápsulas dos braços, e bloco zerado no ANDAR, como o treino. O alvo do PEGAR é a caixa
-    VISTA: a primeira leitura válida depois da tecla (`abre_pegar`), no mundo pela odometria (S5b; `comando.py:305`).
-    Sem leitura, o PEGAR espera com alvo zero. ⚠ BOTAR: o alvo de soltura é da F7; aqui o BOTAR só ganha o aviso.
+    VISTA: a primeira leitura válida depois da tecla (`abre`), no mundo pela odometria (S5b; `comando.py:305`).
+    Sem leitura, o PEGAR espera com alvo zero. O BOTAR (F7) abre com a laje de destino no nível 0 (θ = y = longe = 0,
+    como `eventos.posiciona_destino`): o alvo de soltura é o topo da laje + a, FIXO, no mundo pela pose verdadeira da
+    base. Depois do primeiro aviso do detector o alvo vira zero, como o treino depois do B4 (`comando.py`, índice −1).
     ⚠ `reinicia` no reset da cena, junto com o `Percepcao`.
     """
 
@@ -283,20 +291,50 @@ class Visao:
         # Os 8 cantos da caixa no frame dela, em ordem fixa. O centro é o ponto 0 (o que `visivel` exige).
         self.cantos = np.array([[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)])
         self.relogio = torch.zeros(1)
-        self.alvo_w = torch.zeros(1, 3)  # alvo do PEGAR no mundo (m); zero fora dele
-        self.aberto = False              # o alvo do PEGAR abre na primeira leitura válida (S5b)
+        self.alvo_w = torch.zeros(1, 3)  # alvo da tarefa no mundo (m); zero fora dela
+        self.aberto = False              # PEGAR: abre na primeira leitura válida (S5b); BOTAR: abre na tecla (F7)
+        self.fechado = False             # BOTAR: o detector já deu aviso, o alvo some (como o índice −1 do treino)
         self.tarefa_ant = -1
+        # ⚠ A laje é mocap: o BOTAR escreve a pose dela (`_abre_botar`). O `registra_juntas_v3` faz a mesma conta.
+        self.id_mocap_laje = int(m.body_mocapid[int(c["id_laje"])])
+        if self.id_mocap_laje < 0:
+            raise AssertionError("a laje não é mocap nesta cena: o BOTAR não tem como pô-la na frente")
 
     def reinicia(self) -> None:
         self.est.reinicia(torch.tensor([0]))
         self.relogio.zero_()
         self.alvo_w.zero_()
         self.aberto = False
+        self.fechado = False
 
-    def abre_pegar(self) -> None:
-        """A tecla do PEGAR: o alvo fica pendente até a caixa ser vista (S5b). Até lá o PEGAR espera em pé."""
+    def abre(self, tarefa: int, m: mujoco.MjModel, d: mujoco.MjData) -> None:
+        """A tecla do PEGAR ou do BOTAR: abre o alvo da tarefa (F7; uma abertura só, com a tarefa como argumento).
+
+        PEGAR: o alvo fica pendente até a caixa ser vista (S5b). Até lá o PEGAR espera em pé.
+        BOTAR: a laje de destino no nível 0 (`eventos.posiciona_destino` com θ = y = longe = 0). O alvo de soltura
+        vai para o topo + a, no mundo pela pose VERDADEIRA da base, e a laje (mocap) é escrita nessa pose.
+        """
         self.alvo_w.zero_()
         self.aberto = False
+        self.fechado = False
+        if tarefa != _BOTAR:
+            return
+        k = _KN.cena
+        # ⚠ DÚVIDA: o z do chão é 0. O contrato do `exporta_cena` não o fixa; o treino usa `env_origins` z + topo.
+        topo = float(_KN.niveis.botar[0])
+        zero = torch.zeros(1, dtype=torch.float64)
+        recuo = self.p.ref.recuo(torch.tensor([topo]), self.a).double()  # longe = 0
+        alvo_b, centro_b = _AL.laje_destino(recuo, zero, zero, k.prateleira_meia_xy, k.destino_borda)
+        base_xy, rumo = d.xpos[self.base][:2].copy(), _yaw(d.xquat[self.base])
+        alvo_xy = _base_para_mundo(base_xy, rumo, alvo_b[0].numpy())
+        centro_xy = _base_para_mundo(base_xy, rumo, centro_b[0].numpy())
+        # A laje gira para rumo + θ (θ = 0) e o centro dela fica `prateleira_meia_z` abaixo do topo (`eventos._laje`).
+        d.mocap_pos[self.id_mocap_laje] = (centro_xy[0], centro_xy[1], topo - k.prateleira_meia_z)
+        d.mocap_quat[self.id_mocap_laje] = (np.cos(rumo / 2.0), 0.0, 0.0, np.sin(rumo / 2.0))
+        mujoco.mj_forward(m, d)
+        # O alvo de soltura: topo + a, como `_abre_botar` (a caixa fica com o centro a meia aresta acima do topo).
+        self.alvo_w = torch.tensor([[alvo_xy[0], alvo_xy[1], topo + float(self.meia)]], dtype=torch.float32)
+        self.aberto = True
 
     def passo(self, m: mujoco.MjModel, d: mujoco.MjData, tarefa: int) -> np.ndarray:
         """O bloco da caixa deste passo (11 canais, I §2.3): centro 3, rotvec 3, meia 1, idade 1, alvo 3 (base)."""
@@ -324,7 +362,8 @@ class Visao:
             self.alvo_w = _ES.do_frame_da_base(saida[:, :3], self.p.odo).clone()
             self.aberto = True
         alvo = np.zeros(3)
-        if tarefa == _PEGAR and self.aberto:
+        # ⚠ BOTAR: o alvo de soltura é fixo até o primeiro aviso do detector (F7); depois, zero, como o índice −1.
+        if self.aberto and (tarefa == _PEGAR or (tarefa == _BOTAR and not self.fechado)):
             alvo = _ES.alvo_no_frame_da_base(self.alvo_w, self.p.odo)[0].numpy().astype(np.float64)
         return np.concatenate([saida[0].numpy().astype(np.float64), alvo])
 
@@ -352,7 +391,12 @@ class Visao:
             torch.as_tensor(palmas, dtype=torch.float32)[None],
             torch.as_tensor(d.qvel[self.ids_v], dtype=torch.float32)[None],
             ref_pelve, ref_palmas, self.relogio, _DT, _KN.detector)
-        return bool(aviso[0])
+        fim = bool(aviso[0])
+        # ⚠ DÚVIDA: o aviso do BOTAR aproxima o B4 fechado com a pose de pé. As tolerâncias do B4 (`Alvos.tol_pelve_b4`,
+        # `tol_tronco_b4_graus`) podem diferir das do `Detector` (`tol_pelve`, `tol_tronco_graus`); o treino usa as do B4.
+        if tarefa == _BOTAR and fim:
+            self.fechado = True
+        return fim
 
 
 # ------------------------------------------------------------------- a observação
@@ -591,7 +635,7 @@ class Piloto:
         self.tarefa = TAREFAS.index("ANDAR")
         self.fator = 1.0
         self.reset_pedido = False
-        self.pegar_pedido = False  # a tecla do PEGAR abre o alvo (a caixa vista) no laço
+        self.abertura_pedida: int | None = None  # a tecla do PEGAR ou do BOTAR abre o alvo da tarefa no laço (F7)
         self.aviso = ""
         self.rumo_ref: float | None = None  # rumo segurado na marcha reta; None fora dela
 
@@ -647,7 +691,7 @@ class Piloto:
             self.twist[:] = 0.0
         elif acao.startswith("tarefa:"):
             self.tarefa = TAREFAS.index(acao.split(":", 1)[1])
-            self.pegar_pedido = self.tarefa == _PEGAR
+            self.abertura_pedida = self.tarefa if self.tarefa in (_PEGAR, _BOTAR) else None
         elif acao == "teto-":
             self._escala_tetos(0.8)
         elif acao == "teto+":
@@ -755,9 +799,9 @@ def main() -> None:
                 piloto.twist[:] = 0.0
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
-            if piloto.pegar_pedido:
-                visao.abre_pegar()
-                piloto.pegar_pedido = False
+            if piloto.abertura_pedida is not None:
+                visao.abre(piloto.abertura_pedida, m, d)
+                piloto.abertura_pedida = None
 
             twist_pol = piloto.twist_da_politica(_yaw(d.xquat[percepcao.base]))
             mapa = percepcao.passo(m, d)
