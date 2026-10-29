@@ -473,14 +473,25 @@ def _abre_trecho_de(env, tarefa: str, fatia: int = 1, ultimo: bool = False):
     return cad
 
 
+def _poe_caixa_parada(env, pose):
+    """Põe a caixa na `pose` (n, 7) com velocidade zero: a escrita da s27 (e do `_abre_botar_c`, M2)."""
+    env.scene["box"].write_root_link_pose_to_sim(pose)
+    env.scene["box"].write_root_link_velocity_to_sim(torch.zeros(pose.shape[0], 6, device=pose.device))
+
+
 def _abre_botar_c(env):
     """Fatia C forçada e o trecho de BOTAR aberto em todos os mundos (o caminho do `compute`). Devolve o `cadeia`.
 
-    ⚠ Estado forçado: o reset sorteou ANDAR (fatia A). O BOTAR abre a laje de destino (`posiciona_destino`) e não põe
-    a caixa: as seções que querem a caixa a põem à mão. Quem chama faz o `env.reset()` antes.
+    ⚠ Estado forçado: o reset sorteou ANDAR (fatia A). O BOTAR abre a laje de destino (`posiciona_destino`). A caixa
+    fica parada sobre a soltura (M2, F9): sem isto ela fica longe do robô, perde a laje quando ela sai e cai 20 m.
+    Quem chama faz o `env.reset()` antes.
     """
     from g1_v3.comando import FATIA_C
     cad = _abre_trecho_de(env, "BOTAR", FATIA_C)
+    pose = torch.zeros(env.num_envs, 7, device=env.device)
+    pose[:, :3] = env.v3_alvo_w
+    pose[:, 3] = 1.0
+    _poe_caixa_parada(env, pose)
     env.sim.forward()  # ⚠ a leitura das poses depois da escrita da laje pede o forward (como em s06)
     return cad
 
@@ -896,8 +907,7 @@ def s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina():
             pose[:, :3] = env.v3_alvo_w
             pose[:, 2] += altura
             pose[:, 3] = 1.0
-            caixa.write_root_link_pose_to_sim(pose)
-            caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev))
+            _poe_caixa_parada(env, pose)
             env.sim.forward()
             topo_w = env.scene.env_origins[:, 2] + env.v3_topo_destino
             gap0 = caixa.data.root_link_pos_w[:, 2] - env.v3_meia - topo_w
@@ -906,15 +916,16 @@ def s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina():
             k_toque = math.ceil(math.sqrt(2 * altura / g) / dt) - 1
             zeros = _zeros(env)
             passos = math.ceil(0.3 / dt)
-            cheg, toque, palma = [], [], []
+            cheg, toque, robo = [], [], []
             for _ in range(passos):
                 env.step(zeros)
                 # ⚠ o termo lê-se pelo `termination_manager` (o valor do último `compute`); depois do passo, o mundo que
                 # terminou já foi reiniciado, então as poses só valem antes do disparo
                 cheg.append(env.termination_manager.get_term("chegada").clone())
                 toque.append(env.scene["apoio_caixa"].data.found.amax(-1) > 0)
-                palma.append((env.scene["palma_E"].data.found.amax(-1) > 0) | (env.scene["palma_D"].data.found.amax(-1) > 0))
-            return dict(gap0=gap0, cheg=torch.stack(cheg), toque=torch.stack(toque), palma=torch.stack(palma),
+                # M3 (F9): o toque do robô é a caixa × subárvore do pelve (`caixa_robo`), e não só as palmas
+                robo.append(env.scene["caixa_robo"].data.found.amax(-1) > 0)
+            return dict(gap0=gap0, cheg=torch.stack(cheg), toque=torch.stack(toque), robo=torch.stack(robo),
                         k_toque=k_toque, altura=altura)
         finally:
             env.close()
@@ -925,15 +936,15 @@ def s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina():
     check("5 cm: a caixa toca a laje nos 0,3 s", bool(d5["toque"].any(dim=0).all()))
     check("5 cm: a chegada nunca dispara (0,99 m/s < 1,0)", not bool(d5["cheg"].any()),
           f"disparos {int(d5['cheg'].sum())}")
-    check("5 cm: as palmas não tocam a caixa antes do toque", not bool(d5["palma"][:d5["k_toque"]].any()))
+    check("5 cm: o robô não toca a caixa antes do toque", not bool(d5["robo"][:d5["k_toque"]].any()))
     # 10 cm: queda livre de 1,40 m/s: dispara no passo do toque (± 2 passos, pelo tempo da queda livre)
     check("10 cm: fundo a 10 cm do topo", bool(torch.allclose(d10["gap0"], torch.full_like(d10["gap0"], 0.10), atol=1e-4)))
     primeiro = d10["cheg"].float().argmax(dim=0)
     check("10 cm: a chegada dispara em todo mundo (1,40 m/s)", bool(d10["cheg"].any(dim=0).all()))
-    # ⚠ DÚVIDA: a tolerância de ± 2 passos é escolha desta seção; o plano não a fixa
+    # Veredito F9: a conta dá o passo exato (`k_toque`); a folga de ± 2 passos é só para o arredondamento do disparo.
     check("10 cm: o disparo é no passo do toque (± 2 passos da queda livre)",
           bool(((primeiro - d10["k_toque"]).abs() <= 2).all()), f"primeiro {primeiro.tolist()}, toque {d10['k_toque']}")
-    check("10 cm: as palmas não tocam a caixa antes do toque", not bool(d10["palma"][:d10["k_toque"]].any()))
+    check("10 cm: o robô não toca a caixa antes do toque", not bool(d10["robo"][:d10["k_toque"]].any()))
 
 
 def s28_one_hot_fica_em_botar_durante_o_atraso():
@@ -946,7 +957,7 @@ def s28_one_hot_fica_em_botar_durante_o_atraso():
         n, dt, dev = env.num_envs, env.step_dt, env.device
         i_botar = TAREFAS.index("BOTAR")
         atraso_max = ATIVO.cadeia.atraso_botar_s[1]
-        margem = 2 * dt  # ⚠ DÚVIDA: o plano pede "uma margem" sem valor; escolha desta seção: 2 passos
+        margem = 2 * dt  # Veredito F9: a margem de 2 passos serve; o defeito da s28 é a base de 0,5 s (M1), não a margem
         zeros = _zeros(env)
         aviso0 = torch.full((n,), -1, dtype=torch.long, device=dev)  # passo do primeiro aviso, −1 = não veio
         troca = torch.full((n,), -1, dtype=torch.long, device=dev)  # passo em que o trecho sai do BOTAR, −1 = não saiu
@@ -968,9 +979,11 @@ def s28_one_hot_fica_em_botar_durante_o_atraso():
         check("aviso do BOTAR em até 1,5 s (a pose de pé sem caixa)", bool(((aviso0 >= 0) & (t_aviso <= 1.5)).all()),
               f"aviso em {t_aviso.tolist()} s")
         check("aviso não antes de 0,5 s de pose estável", bool((t_aviso >= 0.5 - dt).all()), f"{t_aviso.tolist()} s")
-        limite = 0.5 + atraso_max + margem
-        check("trecho sai do BOTAR até 0,5 s + atraso máximo + margem", bool(((troca >= 0) & (t_troca <= limite)).all()),
-              f"troca em {t_troca.tolist()} s, limite {limite:.2f} s")
+        # M1 (F9): o limite conta do aviso MEDIDO (o primeiro passo com v3_aviso), e não de 0,5 s fixos
+        atraso = t_troca - t_aviso
+        check("trecho sai do BOTAR até atraso máximo + margem depois do aviso",
+              bool(((troca >= 0) & (aviso0 >= 0) & (atraso <= atraso_max + margem)).all()),
+              f"troca {atraso.tolist()} s depois do aviso, limite {atraso_max + margem:.2f} s")
         check("tarefa e one-hot em BOTAR de todo passo do aviso até a troca", bool(ok.all()))
     finally:
         env.close()

@@ -72,7 +72,7 @@ ROTEIROS = {
           "espera:CARREGAR:1.0,"
           # ⚠ 7,0 s, a mesma janela do PEGAR. No treino o BOTAR termina pelo detector (mais U[0; 1,5] s de atraso), com
           # B2 + B3 + B4 = 1,3 s de permanência e o trajeto até a laje. O aviso sai em `aviso_fim`, e o roteiro não corta nele.
-          # ⚠ DÚVIDA: 7,0 s é chute; o tempo de aproximação não foi medido. Confira `aviso_fim` na fase I.
+          # M11 (F9): a duração se confere pela coluna `aviso_fim` na fase I (o treino troca em aviso + U[0; 1,5] s).
           "botar:BOTAR:7.0,"
           "parado:ANDAR:1.5"),
     "carregar": ("espera:ANDAR:1.0,"
@@ -102,16 +102,14 @@ class Fase:
 
     @property
     def limpa_laje(self) -> bool:
-        """A laje sai no `CARREGAR` sempre, e no `ANDAR` quando ele marcha.
+        """A laje sai só no `CARREGAR` que ANDA (com marcha), e no `ANDAR` quando ele marcha.
 
-        ⚠ NO `CARREGAR` A MARCHA NÃO ENTRA NA CONTA: quem está em `CARREGAR` já não tem laje na frente.
-        ⚠ DÚVIDA: o treino só tira a laje no CARREGAR que ANDA na fatia B (`comando.py:501`, `laje_fora`). O CARREGAR
-        PARADO da C (roteiro `c`, 1,0 s) e o da B (`espera:CARREGAR`) deixariam a laje do reset na frente, e aqui ela sai.
-        Não mudei: a regra é a mesma para o roteiro B, e mudá-la muda o B. Decidir na fase I.
-        Nota: o `pilota_v3` NÃO move a laje nem a caixa (só o reset as põe no lugar). A limpeza fica como está,
-        espelha o `estaciona_cena` da fase E (no ANDAR a laje e a caixa saem; §2.2).
+        M10 (F9): como o treino (`comando.py:501`, `laje_fora` na abertura do CARREGAR que anda). No CARREGAR parado
+        (a espera dos roteiros B e C) a laje fica.
+        Nota: o `pilota_v3` NÃO move a laje nem a caixa (só o reset as põe no lugar). A limpeza espelha o
+        `estaciona_cena` da fase E (no ANDAR a laje e a caixa saem; §2.2).
         """
-        return self.tarefa == "CARREGAR" or self.limpa_caixa
+        return self._marcha and self.tarefa in ("ANDAR", "CARREGAR")
 
 
 def analisa_roteiro(texto: str) -> list[Fase]:
