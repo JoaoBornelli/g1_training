@@ -406,7 +406,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `caixa_priority`, `caixa_atrito`, `robo_atrito` | 0; (0,3; 0,02; 0,001); (0,3; 0,02; 0,001) | PD-46 |
 | | `destino_borda`, `destino_jitter_y`, `destino_giro_max_graus` | 0,15; 0,10; 10 | PD-47 |
 | | `grupo_mobilia` | 1 | PD-9 |
-| | `prateleira_*`, `caixa_xy`, `caixa_jitter_y`, `jitter_x_max`, `jitter_z`, `reset_base_manipula` | os valores do `g1_limpo/knobs.py` `Cena` e `Nivel` | cópia |
+| | `prateleira_*`, `caixa_xy`, `caixa_jitter_y`, `jitter_x_max`, `reset_base_manipula` | os valores do `g1_limpo/knobs.py` `Cena` e `Nivel` | cópia |
 | | `njmax`, `nconmax`, `impratio`, `cone` | 800; 300; 1,0; "pyramidal" | `g1_limpo/knobs.py:103-106`; S §12 (L2) |
 | | `extent` | 2,5 | `g1_limpo/knobs.py:86` |
 | `Comando` | `frente_tetos` | (0,25; 0,5; 0,75; 1,0; 1,25; 1,5) | S §11.2 |
@@ -455,7 +455,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `tau_max` | por regex: joelho e `hip_roll` 139; `hip_pitch`, `hip_yaw`, `waist_yaw` 88; cintura e tornozelo 50; ombro, cotovelo, `wrist_roll` 25; `wrist_pitch`, `wrist_yaw` 5 | S §9.3 |
 | | `pares_torque`, `tau_par` | ((`waist_pitch_joint`, `waist_roll_joint`), (`left_ankle_pitch_joint`, `left_ankle_roll_joint`), (`right_ankle_pitch_joint`, `right_ankle_roll_joint`)); 50,0 | PD-45 |
 | | `contato_fora`, `contato_fora_N` | −1,0; 1,0 | S §9.2 |
-| | `contato_laje`, `laje_joelho_N`, `laje_saturacao_N` | −2,0; 50; 100 | S §9.2; `g1_limpo/knobs.py` `Contato` |
+| | `contato_laje`, `laje_joelho_N`, `laje_saturacao_N` | −2,0; (50; 10) (início; refino, §6.9); 100 | S §9.2; `g1_limpo/knobs.py` `Contato` |
 | | `freio`, `freio_fator`, `vel_max_parado`, `vel_max_andando`, `vel_max_correndo` | −6/29; 1,5; os do `g1_limpo/knobs.py` `Tarefa` | S §9.2, §11.4 |
 | | `progresso`, `b_alvo` (9 valores, um por alvo) | `None`; `None` (Parte 0, item 3) | S §9.4 |
 | | `gamma` | 0,99 | S §9.1 |
@@ -477,7 +477,15 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `tetos_andar` | degrau 0,20; rampa 0,36; obstáculo 0,15 | S §11.2 |
 | | `linha_max_carregar` | escadas e rampas 9; `obstaculos` 8; `caixas` 7 | PD-20 |
 | | `plataforma` | 2,0 | S §12 |
-| `DR` | ver §6.8 | | S §12, DR §5 |
+| `DR` | `atrito_pe`, `massa_tronco`, `vies_encoder`, `tamanho_caixa`, `variantes_caixa` | (0,3; 1,0); (−1,0; 3,0) kg; 0,015 rad; (0,07; 0,13); 8 | §6.8 startup |
+| | `atraso_inicio`, `atraso_portao`, `atraso_refino`, `degrau_atraso_refino` | (0; 1); (0; 2); (0; 3) passos; 3 | §6.8; PD-25, PD-28, PD-41 |
+| | `empurrao`, `periodo_empurrao_s` | 0,5 m/s (± em x e y); 5,0 | §6.8 intervalo |
+| | `vies_imu_giro`, `vies_imu_incl_graus` | 0,05 rad/s; 1,0 | §6.8 ANDAR no portão |
+| | `atrito_pad`, `atrito_laje`, `passo_mu_pad`, `mu_pad_min` | (0,6; 1,0); (0,3; 1,0); 0,025; 0,5 | §6.8; PD-46 |
+| | `com_caixa`, `com_caixa_frac0`, `com_caixa_frac_max` | False; (0,2; 0,2); (0,3; 0,2) (xy; z, × meia aresta) | §6.8; PD-38: a chave liga o `dr.body_com_offset` |
+| | `forca_caixa_N`, `forca_caixa_dur_s`, `forca_caixa_periodo_s` | (5; 20); (0,1; 0,3); (3; 8) | §6.8 CARREGAR |
+| | `rfi` | (0,05; 0,1) × `tau_max` (início; refino) | §6.8 |
+| | `pd`, `forca_motor`, `forca_motor_bracos`, `solref`, `solref_base` | (0,9; 1,1); (0,9; 1,1); (0,8; 1,1); (0,015; 0,03); 0,02 (faixas no degrau global 5; degrau 0 = 1,0 e `solref_base`) | §6.8 refino; PD-41 |
 | `Estimador` | `taxa_hz`, `latencia_s`, `idade_max` | 30; 0,033; 2,0 | I §2.3; `lidar_sim/sensores/tipos.py` |
 | | `fov_h_graus`, `fov_v_graus`, `alcance` | 69; 42; (0,28; 3,0) | PD-11 |
 | | `vies_meia`, `vies_alvo_botar_xy`, `vies_alvo_botar_z`, `ori_persistente` | início (0,005; 0,01; 0,005; True); refino (0,02; 0,05; 0,03; True) | S §13 (dono, 15/10) |
@@ -495,7 +503,8 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `sigma_fixo` | 0,02 | PD-42 |
 | | `margem_corpo` | 0,03 | PD-10 |
 | | `mid360_pos`, `mid360_quat` | (0,0002835; 0,00003; 0,428434); (0; 0,99967; 0; −0,02556) | PERC §2; `montagem.py` |
-| `Refino` | `regras` | ver §6.9 | S §11.5 |
+| `Refino` | `regras` | tuplas (regra, tarefas, seção, campo): `laje_joelho_N` (PEGAR, BOTAR; `recompensa.laje_joelho_N`); `incl_lim` (PEGAR, CARREGAR, BOTAR; `alvos`, (`incl_inicio_graus`, `incl_fim_graus`)); `chegada` (BOTAR; `terminacao.chegada`); `sigma_pouso` (BOTAR; `recompensa.sigma_pouso`). O campo é um par (início; refino), ou dois nomes (início, fim) | §6.9; S §11.5 |
+| | `fator_por_degrau`, `tarefas_fator`, `degrau_batente` | (`aperto`, `sacudida`); (PEGAR, CARREGAR, BOTAR); 1 | §6.9: peso × d/5; batente e `hip_yaw` do degrau 1 em diante |
 
 ### 6.3 Funções puras
 
@@ -2008,3 +2017,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-28 | percepção treino × real (dono, 28/10): `raio_min` 0,85 m (o braço + 5 cm, medido por FK) e o mesmo `filtra_corpo` na entrada da odometria real (PD-10); a variância da medida por célula ganha o erro comum da leitura e o piso `sigma_fixo` 2 cm, e o mapa gira pelo mesmo viés do IMU da gravidade, para a confiança não depender da densidade de pontos (PD-42, PD-6; teste de invariância na C0); o driver real faz deskew por ponto e entrega os pontos a cada 20 ms (PD-5); o `mapa` entra no atraso por episódio (PD-25, §6.8); a odometria ganha os termos de giro (PD-18, D2b); contrato do detector na I §2.3. A decimação de pontos no driver foi descartada | `docs/relatorios/2026-10-22-percepcao-sim-real.md` §5 |
 | 2026-10-28 | plataforma (dono, 28/10): a PD-22 chega às tarefas. A D13 deixa de ser o notebook da Kaggle e vira `g1_v3/container/entrada.sh`, o ponto de entrada que a imagem do RunPod chama depois do clone (variáveis `RUN`, `RETOMA`, `ITERS`, `NUM_ENVS`, `PERCEPCAO`, `SAIDA`, `TENSORBOARD`, `SECO`; checagem de GPU e de versões; retomada pela pasta mais nova com checkpoint), com o `test_entrada` em modo seco. A D10 registra `Mjlab-G1-V3-SemPercepcao` para o I5. A fase I troca I4 e I5 pelo pod, mede 4 096 e 8 192 envs e ganha o I6 (retomada). §0, §1.1, §2.1, §3, §6.1, §15 e §17 deixam a Kaggle | pedido do dono depois da checagem de alinhamento |
 | 2026-10-29 | revisão do plano, 14 correções (o dono aprovou; a 12, tudo em Sonnet, ficou fora: a implementação segue com agentes Haiku). (1) transporte vertical do mapa pelo `z_ref`, o pé mais baixo no frame da odometria (PD-7, C0, C1, D2, D11; I §2.4 e PERC §0). (2) `atualiza_percepcao` com a guarda no env: o filtro e o estimador rodam uma vez por passo, e não uma por grupo (D2, E8, §6.4). (3) R = 13 e `linha_max_carregar` inteira: o teto do CARREGAR chega a 0,15 m e 0,27 (PD-20, D1, D7, B3, §6.2, §15). (4) atraso da observação com capacidade 0–3 desde o build (D2, D7, §2.3, §6.5). (5) máscara bool com `torch.where` e nenhum NaN como "não usado" (§6.3, §6.6, B0, D4). (6) odometria integrada no frame da base, com `delta_b()` (§6.3, D2b). (7) `pontos_w` para o `filtra_corpo` e `dist` para o d̄ (§6.3, C1). (8) PD-25 no lugar da PD-14, sem a PD-15 no `tarefa_critico`, prefixo "viab." nos itens da viabilidade. (9) sai o `raio_caixa_na_mao`. (10) estimador e DR do refino pelo degrau global (§6.9, H5). (11) lista dos CSV da Parte 0 pela coluna `fase` (B5). (13) `passos_por_iteracao` no `knobs`. (14) o `Curriculo` conta as próprias iterações, e a retomada não trava os níveis (§6.3, B0, D4). (15) `random_rough` com `scale_with_difficulty` (D1). Contagem: ~+25 linhas no pacote (`observacoes.py` +10, `estimador.py` +10, `percepcao_lidar.py` +3, `balanceador.py` +2), nenhum termo novo | `docs/relatorios/2026-10-29-revisao-plano-v3.md`; resposta do dono em 29/10 |
+| 2026-10-29 | contrato do `DR` e do `Refino` na §6.2 (a A2 achou só "ver §6.8/§6.9", sem nomes de campo). Os nomes seguem os eventos da D7 e da H4 e a chave `DR.com_caixa` (PD-38); o `Refino` aponta para os pares que já moram em `Recompensa`, `Alvos` e `Terminacao`, e o `laje_joelho_N` vira par (50; 10). O `jitter_z` sai da linha da `Cena`: não existe no `g1_limpo`, e o `prateleira_jitter_z` já está em `prateleira_*`. Os campos do `Knobs` são as seções em minúsculo (`contrato`, `cena`, ..., `dr`, `refino`). Contagem: ~+45 linhas no `knobs.py` | orquestrador, durante a fase A |
