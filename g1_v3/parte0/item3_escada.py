@@ -17,9 +17,12 @@ from pathlib import Path
 
 import numpy as np
 
+import re
+
 from g1_v3.knobs import ATIVO, caminho
 from g1_v3.parte0 import comum as C
 from g1_v3.parte0 import item1_phi as I1
+from g1_v3.parte0 import item15_aperto as I15
 
 R = ATIVO.recompensa
 DT = C.DT
@@ -57,6 +60,17 @@ def emite(texto=""):
 
 def f3(x):
     return "nan" if x is None or not np.isfinite(x) else f"{x:+.4f}"
+
+
+ITEM15 = Path(__file__).resolve().parent / "saida" / "item15_aperto.txt"
+
+
+def w_aperto() -> float:
+    """w proposto do item 15 (primeira coluna da linha 'w proposto'). Sem a linha, para a rodada."""
+    m = re.search(r"^\s*w proposto \(1 algarismo[^\n]*?([0-9.]+)\s+[0-9.]+\s*$", ITEM15.read_text(encoding="utf-8"), re.M)
+    if m is None:
+        raise SystemExit(f"w proposto não achado em {ITEM15}")
+    return float(m.group(1))
 
 
 def _carrega(nome, fase):
@@ -166,19 +180,21 @@ def main():
     B_pos = {NOMES[p["alvo"]]: p["B"] for p in viagem}  # um B por alvo; os P e B aparecem uma vez
     soma_p03 = sum(B_pos[n] for n in ("P0", "P1", "P2", "P3"))
     soma_b = sum(B_pos[n] for n in ("B1", "B2", "B3", "B4"))
-    perda_passo = MARGEM_PERDA * (soma_p03 + w_p * PHI_MAX)  # knob perda_caixa (passo)
-    perda_r = perda_passo * DT
     volta_r = w_p * PHI_MAX * DT
     mergulho_r = (B_pos["P0"] + w_p * PHI_MAX) * DT
     reguladores_r = c_b * EPISODIO
-    lado1_dir = reguladores_r + soma_b * DT
-    lado2_dir = (soma_p03 + w_p * PHI_MAX) * DT
+    w_ap = w_aperto()  # lido da saída do item 15
+    r_ap_r = w_ap * I15.custo(I15.F_OPERACAO) * I15.JANELA  # r_aperto que a perda evita (retorno)
+    lado1_dir = reguladores_r + soma_b * DT + r_ap_r
+    lado2_dir = (soma_p03 + w_p * PHI_MAX) * DT + r_ap_r
+    perda_r = MARGEM_PERDA * lado2_dir  # retorno
+    perda_passo = perda_r / DT  # knob perda_caixa (por passo)
     ineq = [
         ("queda > perda", QUEDA, perda_r),
         ("perda > volta", perda_r, volta_r),
         ("queda > mergulho", QUEDA, mergulho_r),
-        ("(1) queda > reguladores até 20 s no BOTAR + B_alvo restantes", QUEDA, lado1_dir),
-        ("(2) perda > B_alvo P0–P3 + Φ máx·w_p (perda = 1,2 × lado direito)", perda_r, lado2_dir),
+        ("(1) queda > reguladores até 20 s no BOTAR + B restantes + r_aperto", QUEDA, lado1_dir),
+        ("(2) perda > B P0–P3 + Φ máx·w_p + r_aperto (perda = 1,2 × lado direito)", perda_r, lado2_dir),
     ]
     fecha_fixo = all(e > d for _, e, d in ineq[:4])
     devolve = not fecha_fixo
@@ -244,6 +260,8 @@ def main():
               f"{'OK' if esq > dir_ else 'FALHA'}")
     emite(f"  queda (knob terminacao, por passo) = {-R.terminacao:.1f}; reguladores BOTAR até 20 s = "
           f"{reguladores_r:+.4f} ret; ΣB P0–P3 = {soma_p03:.4f} passo; ΣB B1–B4 = {soma_b:.4f} passo; w_p = {w_p:.4f}")
+    emite(f"  r_aperto evitado = w_aperto {w_ap} × custo_aperto(117,5; 117,5; F_ref) {I15.custo(I15.F_OPERACAO):.4f} × "
+          f"{I15.JANELA:.0f} s = {r_ap_r:.4f} retorno ({r_ap_r / DT:.4f} por passo)")
     emite(f"  perda_caixa = 1,2 × lado direito de (2): retorno {perda_r:.4f}; por passo (knob) = retorno/dt = "
           f"{perda_passo:.4f}")
     emite(f"  devolve_b_alvo = {devolve} (True só se a escada (queda > perda > volta, queda > mergulho, (1)) "
@@ -293,8 +311,11 @@ def main():
         "9. Cercas: média por passo sobre os 6 PEGAR (torque NaN fora); peso = −0,5·G ÷ média (sinal negativo, como "
         "custos_por_s).",
         "10. Escada (1): queda = |terminacao|·dt; reguladores até os 20 s do episódio no BOTAR = custo/s × 20 "
-        "(limite superior: o plano não fixa quando o BOTAR começa); B_alvo restantes = B1–B4 (queda logo no início).",
-        "11. Escada (2): perda = 1,2 × (ΣB P0–P3 + w_p·Φ máx), Φ máx = 1; r_aperto = 0 (item 15 ainda não feito).",
+        "(limite superior: o plano não fixa quando o BOTAR começa); B_alvo restantes = B1–B4 (queda logo no início); "
+        "+ r_aperto.",
+        "11. Escada (2): perda = 1,2 × (ΣB P0–P3 + w_p·Φ máx + r_aperto), Φ máx = 1. r_aperto = w_aperto (linha "
+        "'proposto' da saída do item 15, primeira coluna) × custo_aperto(117,5; 117,5; F_ref) × 20 s, retorno. "
+        "Laço: o item 15 lê perda_caixa desta saída para o seu w máximo; rodar o item 15 de novo pode mudar w_aperto.",
         "12. Volta à pose de pé = w_p·Φ máx (paga uma vez, como potencial, sem bônus). Mergulho = B_P0 + w_p·Φ máx.",
         "13. perda_caixa (peso −1) paga perda·dt no passo da perda, como a terminação paga −200·dt.",
         "14. devolve_b_alvo = True só se (queda > perda), (perda > volta), (queda > mergulho) e (1) não fecham com a "
