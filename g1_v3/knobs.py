@@ -379,6 +379,7 @@ class Percepcao:  # I §2.4; PERC §2; PD-5..PD-10, PD-42
     margem_corpo: float = 0.03  # PD-10: margem do filtro do corpo (m)
     mid360_pos: tuple = (0.0002835, 0.00003, 0.428434)  # PERC §2; montagem.py: posição do MID-360 (m)
     mid360_quat: tuple = (0.0, 0.99967, 0.0, -0.02556)  # PERC §2; montagem.py: quaternion do MID-360
+    limiar_visto: float = 0.5  # D8: célula do recorte conta como vista com confiança acima disto
 
 
 @dataclass(frozen=True)
