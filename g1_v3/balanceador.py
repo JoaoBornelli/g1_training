@@ -49,8 +49,9 @@ class Celula:
 class Curriculo:
     """Estado inteiro do currículo: células, níveis, fatias, refino. Puro e serializável."""
 
-    def __init__(self, k_bal, k_niv, k_com, k_ter):
+    def __init__(self, k_bal, k_niv, k_com, k_ter, k_dr=None):
         self.k = k_bal
+        self.k_dr = k_dr  # DR (§6.8); sem ele, `dr()` devolve {}
         # ⚠ ANDAR e CARREGAR têm 6 níveis de velocidade (`frente_tetos`); PEGAR e BOTAR, as tabelas de Niveis
         self.max_nivel = {"ANDAR": len(k_com.frente_tetos) - 1, "CARREGAR": len(k_com.frente_tetos) - 1,
                           "PEGAR": len(k_niv.pegar) - 1, "BOTAR": len(k_niv.botar) - 1}
@@ -68,6 +69,9 @@ class Curriculo:
         self._ult = dict.fromkeys(TAREFAS, 0)
         self._degrau = dict.fromkeys(TAREFAS, 0)
         self._cont = dict.fromkeys(TAREFAS, 0)
+        # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
+        # "vies": o ANDAR passou no portão (reto e parado); "subida": o PEGAR ou o CARREGAR já subiu de nível
+        self._dr = {"portao0": False, "vies": False, "subida": False}
 
     # --- consultas internas ---------------------------------------------------------------------
 
@@ -98,7 +102,7 @@ class Curriculo:
     def fecha_iteracao(self) -> None:
         # ⚠ ordem do fecho (os testes fixam): 1) EMA com o que a iteração registrou; 2) contador do refino,
         # ANTES das subidas, para que a célula recém-subida (s velho, n_medidas = 0) não conte no nível novo;
-        # 3) aberturas (B e C, cadeias, terreno); 4) subidas de nível.
+        # 3) aberturas (B e C, cadeias, terreno); 4) subidas de nível; 5) travas do DR (com o s já atualizado).
         # EMA (PD-13), uma atualização por iteração: com n > 0, x = n_sucesso/n; se n_medidas = 0, s = x;
         # senão s += alfa·(x − s). n = 0 não muda s. s começa em 0.
         # Subir de nível zera n_medidas das células da tarefa: a EMA recomeça na 1ª medida depois da subida.
@@ -113,6 +117,14 @@ class Curriculo:
             self._conta_refino(t)
         self._abre()
         self._sobe()
+        self._trava_dr()
+
+    def _trava_dr(self) -> None:
+        # §6.8: as travas do DR só ligam. Com o s já atualizado, o mesmo fecho que abre a fatia B liga o "vies"
+        self._dr["portao0"] = self._dr["portao0"] or self.nivel_passou("PEGAR") >= 0
+        self._dr["vies"] = self._dr["vies"] or (self._passa(_POS[("ANDAR", "reto")]) and
+                                                self._passa(_POS[("ANDAR", "parado")]))
+        self._dr["subida"] = self._dr["subida"] or self._nivel["PEGAR"] + self._nivel["CARREGAR"] > 0
 
     def _abre(self) -> None:
         # S §11.1 e §11.2 (tabela da §6.3). Um passo por fecho e por cadeia: a célula nova entra com s = 0,
@@ -233,6 +245,32 @@ class Curriculo:
     def degrau(self, tarefa: str) -> int:
         return self._degrau[tarefa]
 
+    def nivel_passou(self, tarefa: str) -> int:
+        # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa
+        i = self._de(tarefa)[0]
+        return self._nivel[tarefa] if self._passa(i) else self._nivel[tarefa] - 1
+
+    def dr(self) -> dict:
+        # §6.8: o estado de DR que o env aplica, só tipos do Python. Sobe no fecho e nunca desce (as travas).
+        # ⚠ "com_caixa" só age com `DR.com_caixa` (PD-38): desligada, o vetor fica [0, 0].
+        if self.k_dr is None:
+            return {}
+        d, p0, sub = self.k_dr, self._dr["portao0"], self._dr["subida"]
+        mu = d.atrito_pad[0]
+        if p0:
+            mu = max(d.mu_pad_min, d.atrito_pad[0] - d.passo_mu_pad * (self._nivel["PEGAR"] + self._nivel["CARREGAR"]))
+        com = d.com_caixa_frac_max if sub else d.com_caixa_frac0 if p0 else (0, 0)
+        return {
+            "vies_imu": self._dr["vies"],
+            "atrito_pad": p0,
+            "atrito_laje": p0,
+            "mu_min_pad": float(mu),
+            "com_caixa": [float(x) for x in com] if d.com_caixa else [0.0, 0.0],
+            "atraso_max": d.atraso_portao[1] if p0 else d.atraso_inicio[1],
+            "forca_caixa": sub,
+            "rfi": d.rfi[0] if sub else 0.0,
+        }
+
     # --- estado do checkpoint -------------------------------------------------------------------
 
     def estado(self) -> dict:
@@ -242,6 +280,7 @@ class Curriculo:
             "acum": [[n, s] for n, s in zip(self._acum_n, self._acum_suc)],
             "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "ult": self._ult[t],
                             "degrau": self._degrau[t], "cont": self._cont[t]} for t in TAREFAS},
+            "dr": dict(self._dr),
         }
 
     def carrega(self, estado: dict) -> None:
@@ -254,3 +293,4 @@ class Curriculo:
             d = estado["tarefas"][t]
             self._nivel[t], self._nivel_ter[t] = d["nivel"], d["nivel_ter"]
             self._ult[t], self._degrau[t], self._cont[t] = d["ult"], d["degrau"], d["cont"]
+        self._dr = dict(estado["dr"])

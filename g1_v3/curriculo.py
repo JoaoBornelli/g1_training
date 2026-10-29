@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from g1_v3 import alvos, balanceador, estimador, knobs, percepcao_lidar
+from g1_v3 import alvos, balanceador, estimador, eventos, knobs, percepcao_lidar
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -39,12 +39,12 @@ def _cria(env: "ManagerBasedRlEnv", nome: str, forma: tuple, dtipo, valor=0) -> 
 def garante_v3(env: "ManagerBasedRlEnv") -> None:
     """Cria os buffers `v3_*` da §6.4 que ainda não existem. Idempotente (padrão de `g1_limpo/curriculo.py:61-97`).
 
-    ⚠ `v3_estimador` fica para a fase E. `v3_odo` usa um gerador próprio, semeado pela seed do cfg: com
-    `None` o ruído da odometria sairia desligado em silêncio.
+    ⚠ `v3_odo` usa um gerador próprio, semeado pela seed do cfg: com `None` o ruído da odometria sairia
+    desligado em silêncio.
     """
     n, dev = env.num_envs, env.device
     if not hasattr(env, "v3_cur"):
-        env.v3_cur = balanceador.Curriculo(_K.balanceador, _K.niveis, _K.comando, _K.terreno)
+        env.v3_cur = balanceador.Curriculo(_K.balanceador, _K.niveis, _K.comando, _K.terreno, k_dr=_K.dr)
     if not hasattr(env, "v3_ref"):  # §6.4: uma instância de alvos.Referencias (float64)
         env.v3_ref = alvos.Referencias(_CAMINHO_REF, dev)
     if not hasattr(env, "v3_filtro"):
@@ -62,6 +62,8 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
         env.v3_gerador.manual_seed(getattr(getattr(env, "cfg", None), "seed", None) or 0)
     if not hasattr(env, "v3_odo"):
         env.v3_odo = estimador.Odometria(n, dev, _K.estimador, env.v3_gerador)
+    if not hasattr(env, "v3_estimador"):  # §6.4 (fase E): o estimador da caixa, com o mesmo gerador
+        env.v3_estimador = estimador.EstimadorCaixa(n, dev, _K.estimador, env.v3_gerador)
     for nome in _LONGOS:
         _cria(env, nome, (), torch.long)
     _cria(env, "v3_alvo_idx", (), torch.long, -1)
@@ -96,7 +98,9 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
        publica como `Curriculum/v3/<k>`.
 
     ⚠ `v3_freio` e `v3_degrau` NÃO são escritos aqui: são do `comando.cadeia` (§6.4).
-    ⚠ `atraso_max` e `mu_min_pad` (§6.7) entram na fase E.
+    ⚠ `atraso_max` (DR, §6.8; PD-28) vai aos buffers só quando passa do teto inicial: o startup do env já
+    põe o teto inicial (`env_cfg`), e um checkpoint retomado com o teto alto o põe de novo aqui.
+    Os demais campos do `dr()` ficam lá para os consumidores.
     """
     garante_v3(env)
     cur = env.v3_cur
@@ -104,6 +108,9 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     if env.v3_iter >= 0 and it != env.v3_iter:
         cur.fecha_iteracao()
     env.v3_iter = it
+    teto = cur.dr()["atraso_max"]
+    if teto != _K.dr.atraso_inicio[1]:
+        eventos.atraso(env, env_ids, teto, _K.contrato.decimacao)
     frac = cur.fracoes_fatias()
     log = {"frac_ANDAR": frac[0].item(), "frac_B": frac[1].item(), "frac_C": frac[2].item()}
     for c in cur.celulas:
