@@ -71,12 +71,6 @@ def _zeros(env):
     return torch.zeros(env.num_envs, len(JUNTAS), device=env.device)
 
 
-def _parado(env) -> None:
-    # ⚠ DÚVIDA: o `TwistV3` pode reescrever `vel_command_b` a cada passo (`_update_command`). Se reescrever, a seção
-    # 6 mede o robô andando e não parado. Confirmar com o dono antes de confiar no número.
-    env.command_manager.get_term("twist").vel_command_b.zero_()
-
-
 def _grade_recorte():
     """(441,) x e y de cada célula do recorte, no frame da base (I §2.4).
 
@@ -140,9 +134,8 @@ def s03_blocos_e_historico():
         for nome, canais, _escala, hist in c.blocos_ator:
             tam = canais * max(hist, 1)
             if hist > 1:
-                # ⚠ DÚVIDA: o layout do histórico no vetor é tempo-maior (CircularBuffer.buffer, reshape(E, -1),
-                # observation_manager.py:353-356). Se sair canal-maior, a comparação abaixo falha por layout.
-                v = obs["actor"][:, off:off + tam].reshape(obs["actor"].shape[0], hist, canais)
+                # ⚠ layout tempo-maior, mais antigo primeiro (observation_manager.py:60-65; exporta_cena.py:99-101)
+                v =obs["actor"][:, off:off + tam].reshape(obs["actor"].shape[0], hist, canais)
                 iguais = all(torch.equal(v[:, 0], v[:, i]) for i in range(1, hist))
                 check(f"{nome}: os {hist} lugares do histórico iguais depois do reset", iguais)
             off += tam
@@ -159,15 +152,16 @@ def s04_pd_e_acao_zero():
     try:
         env.reset()
         robo = env.scene["robot"]
-        # ⚠ DÚVIDA: a ordem de `robo.joint_names` pode não ser a de JUNTAS (I §2.2 diz que é a do MJCF). O índice abaixo
-        # reordena pela lista, e o check falha se a ordem do robô for outra.
+        # o índice reordena por nome; o check abaixo confere que a ordem do robô é a de JUNTAS (os índices de
+        # `recompensas.py` supõem essa ordem)
         idx = [robo.joint_names.index(j) for j in JUNTAS]
+        check("ordem das juntas = JUNTAS", list(robo.joint_names) == list(JUNTAS))
         qpe = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=env.device)
         check("default_joint_pos = q_de_pé", torch.allclose(robo.data.default_joint_pos[:, idx], qpe.expand(4, -1), atol=1e-4))
 
         env.step(_zeros(env))
         # ⚠ JointPositionAction subtrai o encoder_bias antes de escrever o alvo (envs/mdp/actions/actions.py:222-223):
-        # o alvo com ação zero é q_de_pé − viés, e não q_de_pé puro. O check usa a forma do código; DÚVIDA com o plano.
+        # o alvo com ação zero é q_de_pé − viés, e não q_de_pé puro.
         alvo = robo.data.joint_pos_target[:, idx]
         bias = robo.data.encoder_bias[:, idx]
         check("ação zero → alvo do PD = q_de_pé (− viés do encoder)", torch.allclose(alvo, qpe.expand(4, -1) - bias, atol=1e-4))
@@ -224,7 +218,7 @@ def s06_mapa_parado_e_com_passo():
         perto = (gx ** 2 + gy ** 2).sqrt() < 0.8
         frente = gx > 0.05  # 10 linhas com x ≥ 0,1: 210 células (I §2.4 mediu 205 de 210)
 
-        _parado(env)
+        # parado: a ação zero deixa o robô parado (o `TwistV3._update_command` é `pass`, comando.py:440-441)
         for _ in range(20):
             env.step(_zeros(env))
         # ⚠ o mapa é 441 alturas e depois 441 confianças (percepcao_lidar.recorte, E,882); vista = confiança > limiar_visto
@@ -234,16 +228,16 @@ def s06_mapa_parado_e_com_passo():
         check("parado 20 passos: nenhuma célula a menos de 0,8 m vista (o lidar não vê o chão perto, I §2.4)",
               not bool(vista[plano][:, perto].any()))
 
-        # base movida 1,0 m para a frente por escrita da pose, em 50 passos
-        pose = robo.data.root_link_pose_w.clone()
-        psi = _rumo(pose[:, 3:7])
-        pose[:, 0] += torch.cos(psi)
-        pose[:, 1] += torch.sin(psi)
-        robo.write_root_link_pose_to_sim(pose)
-        env.sim.forward()  # ⚠ entity/data.py:39: ler a pose depois de escrevê-la exige sim.forward()
-        # ⚠ DÚVIDA: a odometria da v3 (`v3_odo`) não sabe do teleporte: o mapa pode não ficar no lugar certo e este
-        # check pode falhar por isso, e não por bug do mapa. Confirmar na fase I.
+        # base movida 1,0 m para a frente em 50 passos de 2 cm: escrita da pose, `sim.forward()` e um passo.
+        # ⚠ ler a pose depois de escrevê-la exige `sim.forward()` (entity/data.py:39). A odometria da v3 lê a pose
+        # verdadeira depois do forward (comando.py:254), e cada passo de 2 cm entra como um Δ pequeno.
         for _ in range(50):
+            pose = robo.data.root_link_pose_w.clone()
+            psi = _rumo(pose[:, 3:7])
+            pose[:, 0] += 0.02 * torch.cos(psi)
+            pose[:, 1] += 0.02 * torch.sin(psi)
+            robo.write_root_link_pose_to_sim(pose)
+            env.sim.forward()
             env.step(_zeros(env))
         mapa = env.v3_mapa_obs
         h, conf = mapa[:, :441], mapa[:, 441:]
@@ -283,8 +277,8 @@ def s08_lags_constantes_no_episodio():
     try:
         env.reset()
         robo = env.scene["robot"]
-        # ⚠ DÚVIDA: `_delay_buffer` e `_group_obs_term_delay_buffer` são privados do mjlab (actuator.py:219,
-        # observation_manager.py:397). Não há API pública para o lag; se o mjlab mudar, esta seção quebra.
+        # ⚠ `_delay_buffer` e `_group_obs_term_delay_buffer` são atributos privados do mjlab 1.5.3, que o entrada.sh
+        # pina (actuator.py:219, observation_manager.py:397). Sem API pública para o lag: se o mjlab mudar, esta seção quebra.
         bufs_atuador = [a._delay_buffer for a in robo.actuators if getattr(a, "_delay_buffer", None) is not None]
         bufs_obs = [env.observation_manager._group_obs_term_delay_buffer["actor"][t]
                     for t in ("giro_base", "gravidade", "juntas", "vel_juntas", "mapa")]
@@ -324,14 +318,27 @@ def s09_recompensas_finitas_e_vivo():
         # reward_buf = núcleo × peso × dt (o mjlab escala por dt, managers/reward_manager.py:39); núcleo do vivo = 1
         buf = vivo.weight * env.step_dt * vivo.func(env, **vivo.params).float()
         check("vivo = 0,15·dt no ANDAR", torch.allclose(buf, torch.full_like(buf, 0.15 * env.step_dt)))
+        # de pé, ação zero: o `nao_pes_chao` tem um primário por corpo (menos os pés), e nenhum corpo fora dos pés toca o
+        # chão. Sem a exclusão dos pés, o termo valeria 1 em todo passo (cena.py:389-390).
+        for _ in range(5):
+            env.step(_zeros(env))
+        fora = env.cfg.rewards["contato_fora"]
+        check("de pé, ação zero: contato_fora = 0", bool((fora.func(env, **fora.params) == 0).all()))
     finally:
         env.close()
 
 
 def s10_queda_por_inclinacao_e_altura():
-    # ⚠ a `queda` usa a tupla "todas" (env_cfg.py; DÚVIDA registrada lá); a seção testa só os dois ramos do n_queda.
+    # ⚠ a `queda` usa a tupla TODAS (env_cfg.py:30); a seção testa só os dois ramos do n_queda.
+    from g1_v3 import terminacoes
+    from g1_v3.env_cfg import TODAS
+
     def queda_depois_de(altura=None, inclinacao=None):
-        """Escreve a pose, dá um passo e lê a terminação `queda` (a única que importa aqui)."""
+        """Escreve a pose, roda `forward` e `sense` e lê a `queda` direto, sem `step`.
+
+        ⚠ o raycast (`altura_pelve`) só atualiza no `sense` (raycast_sensor.py:691); o `step` calcula a terminação
+        antes dele. Por isso o check chama a função, e não o `termination_manager`.
+        """
         env = _abre_env(4)
         try:
             env.reset()
@@ -346,8 +353,8 @@ def s10_queda_por_inclinacao_e_altura():
                 pose[:, 2] = env.scene.env_origins[:, 2] + altura
             robo.write_root_link_pose_to_sim(pose)
             env.sim.forward()
-            env.step(_zeros(env))
-            return env.termination_manager.get_term("queda").clone()
+            env.sim.sense()
+            return terminacoes.queda(env, TODAS).clone()
         finally:
             env.close()
 
