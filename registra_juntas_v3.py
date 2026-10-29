@@ -101,9 +101,8 @@ class Fase:
         """A laje sai no `CARREGAR` sempre, e no `ANDAR` quando ele marcha.
 
         ⚠ NO `CARREGAR` A MARCHA NÃO ENTRA NA CONTA: quem está em `CARREGAR` já não tem laje na frente.
-        ⚠ DÚVIDA: o `pilota_v3` NÃO move a laje nem a caixa (só o reset as põe no lugar). Esta limpeza é
-        a do `registra_juntas.py`, que segue o treino. Se a trajetória gravada tiver de ser a do driver,
-        tire `limpa_a_cena` daqui; o plano não fecha qual das duas é a referência do registro.
+        Nota: o `pilota_v3` NÃO move a laje nem a caixa (só o reset as põe no lugar). A limpeza fica como está,
+        espelha o `estaciona_cena` da fase E (no ANDAR a laje e a caixa saem; §2.2).
         """
         return self.tarefa == "CARREGAR" or self.limpa_caixa
 
@@ -300,12 +299,12 @@ def main() -> None:
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
                           "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt}
-                    # ⚠ DÚVIDA: `alvo_x/y/z` existiam no `registra_juntas.py` (o alvo do elo). A v3 não
-                    # tem `alvo_do_elo` no driver; o alvo por tarefa (`alvos.py`) não entra aqui. Vai NaN.
+                    # Nota: `alvo_x/y/z` ficam NaN na fase D (a v3 não tem `alvo_do_elo`); preenchidos na E9,
+                    # pelo `alvos.caixa_alvo_w`.
                     ln.update(alvo_x=float("nan"), alvo_y=float("nan"), alvo_z=float("nan"))
                     ln["giro_ang"] = angulo_de_tombo(d.qpos[adr_caixa + 3:adr_caixa + 7], cima_b)
-                    # ⚠ DÚVIDA (fase E): `aviso_fim` e `idade_caixa` dependem do detector de fim e do
-                    # estimador da caixa, que a fase D não liga. Ficam vazios até a fase E.
+                    # Nota: `aviso_fim` e `idade_caixa` ficam vazios na fase D (o detector de fim e o estimador
+                    # da caixa não entram); preenchidos na E9.
                     ln["aviso_fim"] = ""
                     ln["idade_caixa"] = ""
                     # Mapa = 441 alturas e depois 441 confianças (I §2.4). Mesma conta de `metricas.py`.

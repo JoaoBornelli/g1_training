@@ -76,8 +76,8 @@ for _nome, _ch, _ in _QUADRO:
     _ini += _ch
 assert _N_QUADRO == 113, f"o quadro do histórico tem {_N_QUADRO} canais, esperado 113 (I §2.1)"
 
-# Tarefas que o teclado manda. ⚠ DÚVIDA: REORIENTAR e LEVANTAR existem no one-hot, mas a §4.1 do
-# enunciado do controlador lista só estas quatro. Por isso só elas têm tecla.
+# Tarefas que o teclado manda. REORIENTAR e LEVANTAR existem no one-hot como canais reservados, sem env (§6.3):
+# por isso só estas quatro têm tecla.
 TAREFAS_TECLADO = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 
 # Laço de rumo do driver (spec §15, cenário "rumo"; interface §4.1): wz = K × erro de rumo, em rad/s.
@@ -139,8 +139,8 @@ class Percepcao:
     ⚠ `reinicia(m, d)` no reset da cena; `passo(m, d)` uma vez por passo de política, com `d` fresco
     (`mj_forward` depois do último `mj_step`).
 
-    ⚠ DÚVIDA: a assinatura `Percepcao(m, c)` é escolha desta lane. O `exporta_cena.py` ainda não constrói a
-    classe; quando a `paridade` passar a comparar o mapa, tem de usar esta mesma forma.
+    A assinatura `Percepcao(m, c)` é a que o `exporta_cena.py` já usa (`pilota.Percepcao(m, dados)`, §20, D11);
+    a `paridade` do mapa tem de usar esta mesma forma.
     """
 
     def __init__(self, m: mujoco.MjModel, c: dict[str, np.ndarray]):
@@ -341,8 +341,8 @@ class Ator:
         indices = sorted({int(k.split(".")[0]) for k in pesos})
         dims = [tuple(pesos[f"{i}.weight"].shape) for i in indices]
 
-        # ⚠ DÚVIDA: ELU entre as camadas e nada depois da última vêm do `g1_limpo` (`activation="elu"`).
-        # Não achei a config do ator da v3 no `g1_v3/`; conferir no runner de treino antes de confiar.
+        # ELU entre as camadas e nada depois da última: o `tarefa.rl_cfg` parte do `unitree_g1_ppo_runner_cfg`
+        # (`activation="elu"`, `hidden_dims=(512, 256, 128)`, `mjlab/tasks/velocity/config/g1/rl_cfg.py:13-16`).
         camadas: list[torch.nn.Module] = []
         for k in range(len(indices)):
             saida, entrada = dims[k]
@@ -625,7 +625,8 @@ def main() -> None:
     print(f"[pilota_v3] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt * 1000:.0f} ms  decimation={decimation}  dim_obs={int(c['dim_obs'])}")
     print(cabecalho(piloto.teclas))
-    print("[pilota_v3] fase D: caixa zerada; estimador da caixa e detector de fim NÃO entram (DÚVIDA, fase E)")
+    # Nota: o estimador da caixa e o detector de fim NÃO entram no laço da fase D; entram na E9 (§20, 29/10).
+    print("[pilota_v3] fase D: caixa zerada; estimador da caixa e detector de fim NÃO entram (fase E, E9)")
 
     # ⚠ `from ... import ... as`, e NÃO `import mujoco.viewer`: a segunda forma liga `mujoco` no escopo LOCAL
     # de `main` e o `mujoco.MjData(m)` lá em cima passa a levantar `UnboundLocalError`.

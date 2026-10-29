@@ -2,8 +2,8 @@
 Escritos antes do código.
 
 Convenções: `grupo` é o índice de TAREFAS (§6.2; ANDAR = 0), o argmax das 6 últimas colunas do crítico
-(D9). `adv` e `grupo` são (N,) e a saída é (N,). O desvio é o `std()` do torch (sem correção de Bessel
-unbiased, o padrão do torch), como no g1_limpo (`a.std()`); por isso a saída tem `std()` = 1.
+(D9). `adv` e `grupo` são (N,) e a saída é (N,). O desvio é o `std()` do torch, COM correção de Bessel
+(n−1), o padrão do torch, como no g1_limpo (`a.std()`); por isso a saída tem `std()` = 1.
 
 Grupo pequeno (< 2 amostras), como no g1_limpo: o ANDAR fica com a vantagem CRUA; os outros grupos
 são normalizados pela "manipulação inteira" (todas as amostras não-ANDAR do lote, o próprio grupo

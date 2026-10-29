@@ -5,7 +5,8 @@
 eventos, currículo e métricas. O molde não fica no cfg: o `rewards`, o `events` e os demais dicts são substituídos
 inteiros, para que nenhum termo do fabricante sobreviva por engano.
 
-⚠ Todo número vem do `knobs.py`. A única constante deste módulo são as tuplas de tarefa de cada termo (§6.6).
+⚠ Todo número vem do `knobs.py`. As constantes deste módulo são as tuplas de tarefa de cada termo (§6.6), os geoms
+dos pés e o episódio de play (D10).
 """
 from __future__ import annotations
 
@@ -67,7 +68,13 @@ def _sem_none(obj, caminho: str = "knobs") -> None:
 
 
 def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
-    """O cfg da v3. `play=True`: ator sem corrupção, sem empurrão, episódio de 10⁹ s (o `v3_fim` acaba a cadeia)."""
+    """O cfg da v3. `play=True`: ator sem corrupção, sem empurrão, sem o currículo `v3`, episódio de 10⁹ s (o `v3_fim`
+    acaba a cadeia).
+
+    Do `k` só valem os pesos (`recompensa`), `comando`, `cadeia`, `estimador`, `terreno`, `cena`, `dr`, `contrato` e
+    `percepcao.ligada`. O resto dos termos (σ, limites, ruído do lidar, terminação, balanceador, currículo) lê o `ATIVO`
+    do módulo: um `k` diferente não o muda.
+    """
     _sem_none(k)
     c = k.cena
     cfg = unitree_g1_rough_env_cfg(play=play)
@@ -98,8 +105,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     teto_frente, teto_lado, teto_giro = k.comando.frente_tetos[-1], k.comando.tras_lado_teto_max, k.comando.giro_tetos[-1]
     cfg.commands = {
         "cadeia": comando.CadeiaCmdCfg(k=k.cadeia, est=k.estimador, entity_name="robot"),
-        # ⚠ DÚVIDA: `ranges` e `resampling_time_range` não vêm do plano. Pelo código do `TwistV3`, `ranges` só é
-        # lido pelo fabricante (teto de cada eixo); o sorteio é da célula. Ver o relatório.
+        # `ranges` é o envelope do `knobs` que o exportador lê (`envelope_treino`); o sorteio não o usa.
+        # `resampling_time_range` = `Comando.reamostra_s` (§6.2).
         "twist": comando.TwistV3Cfg(
             k=k.comando, entity_name="robot", resampling_time_range=k.comando.reamostra_s,
             ranges=UniformVelocityCommandCfg.Ranges(lin_vel_x=(-teto_frente, teto_frente),
@@ -115,8 +122,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     # ------------------------------------------------------------ 6. terminações (§6.5; `time_out` não conta como queda)
     cfg.terminations = {
         "time_out": TerminationTermCfg(func=terminacoes.fim_da_cadeia, time_out=True),
-        # ⚠ DÚVIDA: a tupla de tarefas da queda não está na tabela da D5. Ela é "todas": o `n_queda` separa
-        # ANDAR/CARREGAR de PEGAR/BOTAR por dentro (D6).
+        # A queda vale nas quatro tarefas (D6): o `n_queda` separa ANDAR/CARREGAR de PEGAR/BOTAR por dentro, por par.
         "queda": TerminationTermCfg(func=terminacoes.queda, params={"tarefas": TODAS}),
     }
 
@@ -149,9 +155,9 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     cfg.events = eventos_
 
     # ------------------------------------------------------------ 8. currículo (um termo só, `v3`) e métricas
-    # ⚠ DÚVIDA: o molde do mjlab zera o currículo no play. Aqui o `v3` roda também no play, porque a cadeia
-    # (fatia, trechos e alvos) vem dele. Ver o relatório.
-    cfg.curriculum = {"v3": CurriculumTermCfg(func=curriculo.v3)}
+    # D14 (29/10): no play não há o termo `v3`. O estado carregado do checkpoint fica congelado; os buffers da cadeia
+    # nascem no `CadeiaCmd.__init__`, e não no termo.
+    cfg.curriculum = {} if play else {"v3": CurriculumTermCfg(func=curriculo.v3)}
     cfg.metrics = metricas.termos(k)
 
     return cfg

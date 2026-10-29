@@ -69,7 +69,7 @@ else
 fi
 
 # 4. Comando. Sem percepção só no I5 (PERCEPCAO=0).
-# ⚠ DÚVIDA: o comando não passa --agent.experiment-name; o g1_v3 vem do default da D10. Confirmar ao criar a config.
+# O comando não passa --agent.experiment-name: a pasta é "g1_v3", o `EXPERIMENT` de `tarefa.py` (D10).
 case "$PERCEPCAO" in
   1) TASK="Mjlab-G1-V3" ;;
   0) TASK="Mjlab-G1-V3-SemPercepcao" ;;
