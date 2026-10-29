@@ -1,5 +1,6 @@
 """Eventos da v3: reset por fatia, terreno por tarefa, DR de startup e empurrão (D7 do plano, §6.5, §6.8), e a cena
-da caixa da fase E (`posiciona_cena`, `carga`, atritos, `vies_imu`; o núcleo `sorteia_topo_e_massa`, §6.3).
+da caixa da fase E (`posiciona_cena`, `carga`, atritos, `vies_imu`; o núcleo `sorteia_topo_e_massa`, §6.3), e a
+laje de destino do BOTAR (`posiciona_destino`, F2; PD-47).
 
 ⚠ Os termos de DR (`dr.geom_friction`, `dr.body_mass`, `dr.encoder_bias`) e `mdp.reset_joints_by_offset`
 entram direto no cfg (D10), sem invólucro: o fabricante já aceita `env_ids`. Aqui fica só o que é nosso.
@@ -22,6 +23,7 @@ from mjlab.envs.mdp.events import push_by_setting_velocity, reset_root_state_uni
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz, quat_mul
 
+from g1_v3 import alvos
 from g1_v3.knobs import ATIVO, Cena, Niveis
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
@@ -218,16 +220,24 @@ def empurrao(env, env_ids, velocity_range: dict):
 # ⚠ Toda escrita de z soma `env_origins[:, 2]`, e `v3_topo` fica sobre o chão local (§6.4; viab. D3).
 
 
-def _laje(env, ids, topo_w):
+def _laje(env, ids, topo_w, xy=None, yaw=None):
     # a laje é MOCAP: a pose é o CENTRO do corpo, `prateleira_meia_z` abaixo do topo pedido (g1_limpo.posiciona_cena)
+    # `xy` e `yaw` (mundo) são só do destino do BOTAR (F2); sem eles, a laje fica na posição e no rumo de sempre
     k = ATIVO.cena
     n, dev = len(ids), env.device
     origem = env.scene.env_origins[ids]
     pose = torch.zeros(n, 7, device=dev)
-    pose[:, 0] = origem[:, 0] + k.prateleira_xy[0]
-    pose[:, 1] = origem[:, 1] + k.prateleira_xy[1]
+    if xy is None:
+        pose[:, 0] = origem[:, 0] + k.prateleira_xy[0]
+        pose[:, 1] = origem[:, 1] + k.prateleira_xy[1]
+    else:
+        pose[:, :2] = xy
     pose[:, 2] = topo_w - k.prateleira_meia_z
-    pose[:, 3] = 1.0  # quat (w, x, y, z): identidade
+    if yaw is None:
+        pose[:, 3] = 1.0  # quat (w, x, y, z): identidade
+    else:
+        pose[:, 3] = torch.cos(yaw / 2)
+        pose[:, 6] = torch.sin(yaw / 2)  # rotação só em z
     env.scene["table"].write_mocap_pose_to_sim(pose, env_ids=ids)
 
 
@@ -294,6 +304,54 @@ def posiciona_cena(env, env_ids):
     env.v3_caixa_xy[ids] = torch.stack([k.caixa_xy[0] + dx, k.caixa_xy[1] + dy], -1)  # a `base` põe o robô em relação a ela
     _laje(env, ids, tw)
     _caixa(env, ids, tw, dx, dy)
+
+
+# ------------------------------------------------------------------ fase F: a laje de destino do BOTAR (F2; PD-47)
+
+
+def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerador):
+    """Núcleo puro (F2, §6.3 "Fase F"; PD-47, [C38]): a laje de destino do BOTAR de cada episódio.
+
+    Devolve (theta, y, longe, topo): θ U[±radians(destino_giro_max_graus)] em rad, y U[±destino_jitter_y] (m),
+    longe U[0; jitter_x_max[nível]] (m, só para longe, [C38]) e topo U[botar[nível]; botar[0]] sobre o chão local.
+    ⚠ Quatro uniformes por episódio, sobre o gerador (o sorteio sai no device dele).
+    """
+    u = _uniforme(gerador, (4, n), gerador.device)
+    giro = math.radians(k_cena.destino_giro_max_graus)
+    theta = (2.0 * u[0] - 1.0) * giro
+    y = (2.0 * u[1] - 1.0) * k_cena.destino_jitter_y
+    longe = u[2] * k_cena.jitter_x_max[nivel_botar]
+    topo = k_niv.botar[nivel_botar] + (k_niv.botar[0] - k_niv.botar[nivel_botar]) * u[3]
+    return theta, y, longe, topo
+
+
+def _base_para_mundo(base_xy, rumo, p):
+    # o frame da base → mundo: base + R(rumo)·p, a mesma conta de `alvos.caixa_alvo_w`
+    c, s = torch.cos(rumo), torch.sin(rumo)
+    return base_xy + torch.stack([c * p[:, 0] - s * p[:, 1], s * p[:, 0] + c * p[:, 1]], -1)
+
+
+def posiciona_destino(env, ids):
+    """Abertura do BOTAR (chamado pela cadeia, F1; não é evento do cfg): a laje de destino, PD-47.
+
+    Nível do BOTAR pelo `v3_cur`. `alvos.laje_destino` dá o alvo e o centro no frame da base, com o recuo
+    `ref.recuo(topo, a)` + longe. Leva ao mundo pelo rumo da base; a laje (mocap) gira para rumo + θ, com o topo
+    em `env_origins` z + topo. Grava `v3_topo_destino` e devolve o ponto de soltura no mundo (E,3), sobre o topo
+    da laje (a F1 soma (0, 0, a)).
+    """
+    cur, g, dev, k = env.v3_cur, env.v3_gerador, env.device, ATIVO.cena
+    f64 = torch.float64
+    theta, y, longe, topo = sorteia_destino(cur.nivel("BOTAR"), len(ids), ATIVO.niveis, k, g)
+    theta, y, longe, topo = (x.to(dev, f64) for x in (theta, y, longe, topo))
+    recuo = env.v3_ref.recuo(topo.to(env.v3_topo.dtype), env.v3_meia[ids]).to(dev, f64) + longe
+    alvo_b, centro_b = alvos.laje_destino(recuo, theta, y, k.prateleira_meia_xy, k.destino_borda)
+    robo = env.scene["robot"].data
+    base, rumo = robo.root_link_pos_w[ids, :2].to(f64), robo.heading_w[ids].to(f64)
+    topo_w = env.scene.env_origins[ids, 2].to(f64) + topo
+    _laje(env, ids, topo_w, xy=_base_para_mundo(base, rumo, centro_b), yaw=rumo + theta)
+    env.v3_topo_destino[ids] = topo.to(env.v3_topo_destino.dtype)
+    alvo_w = _base_para_mundo(base, rumo, alvo_b)
+    return torch.cat([alvo_w, topo_w[:, None]], -1)
 
 
 @requires_model_fields("geom_size", "geom_rbound", "geom_aabb")
