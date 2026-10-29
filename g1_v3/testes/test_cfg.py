@@ -51,6 +51,14 @@ EVENTOS = ("fatia", "base", "juntas", "cena", "carga", "atrito_pad", "atrito_laj
 # Tarefas de cada recompensa da D5. "todas" = ANDAR, PEGAR, CARREGAR, BOTAR (§6.3).
 TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
+PEGAR_BOTAR = ("PEGAR", "BOTAR")
+PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
+# Fase E (§6.5, §6.6, E8): recompensas e terminação novas. Os pesos do `progresso` e do `perda_caixa` são ±1 no cfg.
+TAREFAS_E = {
+    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": PEGAR_CARREGAR_BOTAR,
+    "perda_caixa": TODAS,
+}
+TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR}
 TAREFAS_D5 = {
     "rastreio_linear": TODAS, "rastreio_angular": TODAS, "passo": ANDAR_CARREGAR, "vivo": ANDAR_CARREGAR,
     "altura_pe": ANDAR_CARREGAR, "escorrego": TODAS, "vz": TODAS, "giro_xy": TODAS, "vel_junta": TODAS,
@@ -173,6 +181,23 @@ class TestEnvCfg(unittest.TestCase):
         for nome, tarefas in TAREFAS_D5.items():
             with self.subTest(termo=nome):
                 self.assertEqual(set(cfg.rewards[nome].params["tarefas"]), set(tarefas))
+
+    def test_tarefas_das_recompensas_e_da_terminacao_da_fase_e(self):
+        cfg = env_cfg.make_env_cfg()
+        for nome, tarefas in TAREFAS_E.items():
+            with self.subTest(termo=nome):
+                self.assertEqual(set(cfg.rewards[nome].params["tarefas"]), set(tarefas))
+        for nome, tarefas in TAREFAS_E_TERMINACAO.items():
+            with self.subTest(termo=nome):
+                self.assertEqual(set(cfg.terminations[nome].params["tarefas"]), set(tarefas))
+
+    def test_pesos_da_fase_e(self):
+        # contato_laje e freio vêm do knobs; progresso e perda_caixa entram com +1 e −1 (§6.3, fase E)
+        cfg = env_cfg.make_env_cfg()
+        self.assertEqual(cfg.rewards["contato_laje"].weight, ATIVO.recompensa.contato_laje)
+        self.assertEqual(cfg.rewards["freio"].weight, ATIVO.recompensa.freio)
+        self.assertEqual(cfg.rewards["progresso"].weight, 1.0)
+        self.assertEqual(cfg.rewards["perda_caixa"].weight, -1.0)
 
     def test_ultimo_termo_do_critico_e_tarefa_critico(self):
         self.assertEqual(list(env_cfg.make_env_cfg().observations["critic"].terms)[-1], "tarefa_critico")

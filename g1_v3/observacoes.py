@@ -9,8 +9,8 @@ termos com atraso nascem com `delay_max_lag` 3, e o evento `atraso` (D7) baixa o
 
 Os termos `n_*` não existem aqui: as observações não têm núcleo de recompensa. Os núcleos puros são
 `passo_de_percepcao` (o mapa, sobre tensores) e `referencia_do_alvo`; os demais termos são funções finas
-que leem o env. A guarda `atualiza_percepcao` roda o mapa uma vez por passo para o env inteiro (o ator e o
-crítico têm cada um um termo `mapa`, e sem a guarda o filtro andaria o dobro).
+que leem o env. A guarda `atualiza_percepcao` roda o mapa e a caixa estimada uma vez por passo para o env inteiro (o ator
+e o crítico têm cada um um termo `mapa` e um `caixa`, e sem a guarda o filtro e o estimador andariam o dobro).
 
 Ruído e capacidade do atraso vêm do `knobs` (`DR.ruido_obs`, `DR.atraso_refino`, §6.5); os divisores de
 normalização do crítico (degrau, massa) ficam como constantes deste módulo, porque o `knobs` não tem campo para eles.
@@ -29,7 +29,7 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g1_v3 import alvos, knobs
 from g1_v3.balanceador import TAREFAS as CADEIA
-from g1_v3.estimador import yaw
+from g1_v3.estimador import alvo_no_frame_da_base, visivel, yaw
 from g1_v3.percepcao_lidar import filtra_corpo, pontos_no_frame_do_mapa
 
 if TYPE_CHECKING:
@@ -39,9 +39,13 @@ if TYPE_CHECKING:
 
 K = knobs.ATIVO
 ANDAR = knobs.TAREFAS.index("ANDAR")
+CARREGAR = knobs.TAREFAS.index("CARREGAR")
 N_TAREFAS = len(knobs.TAREFAS)  # 6 canais one-hot (§6.5 `tarefa`)
-N_CAIXA = 11  # I §2.1: canais da caixa do ator (§6.5 `caixa`)
 N_ALVO_MACRO = len(knobs.ALVOS) + 1  # P0–B4 e "nenhum" (§6.5 `alvo_macro`)
+_CAMERA = "d435"  # site da D435i no torso (cena.py); o eixo x é o óptico (PD-11)
+# Os 9 pontos da caixa (PD-11), em fração da meia aresta: o centro (o primeiro, que o `visivel` exige) e os 8 cantos.
+_CANTOS = torch.tensor([[0.0, 0.0, 0.0]] + [[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)
+                                            for sz in (-1.0, 1.0)])
 
 # ⚠ Ruído do ator, ±, aplicado ANTES da escala (pipeline do mjlab: compute → noise → clip → scale → delay →
 # history). Os valores são `DR.ruido_obs` (§6.5).
@@ -61,8 +65,22 @@ with np.load(knobs.caminho("g1_v3/dados/capsulas.npz")) as _caps:  # PD-10: 33 c
     _P0 = torch.as_tensor(_caps["p0"], dtype=torch.float32)
     _P1 = torch.as_tensor(_caps["p1"], dtype=torch.float32)
     _RAIO = torch.as_tensor(_caps["raio"], dtype=torch.float32)
+    _BRACO = torch.as_tensor(_caps["braco"], dtype=torch.bool)  # as 8 cápsulas dos braços (PD-11: oclusão)
 _CORPO_UNICOS = list(dict.fromkeys(_CORPO))  # `find_bodies` não aceita nome repetido com preserve_order
 _IDX_CORPO = torch.tensor([_CORPO_UNICOS.index(n) for n in _CORPO], dtype=torch.long)
+
+
+def _magnitude(k: knobs.Estimador, i: int) -> dict:
+    """Magnitude `i` do `knobs.Estimador` (0 início, 1 refino), no dict do `EstimadorCaixa.passo` (§6.3, nota de 29/10).
+
+    ⚠ A posição é em metros no início e em fração da distância no refino: `sigma_pos[i]` vai para um ou outro campo.
+    """
+    return {"sigma_pos": k.sigma_pos[0] if i == 0 else 0.0, "sigma_pos_rel": k.sigma_pos[1] if i == 1 else 0.0,
+            "sigma_ori_graus": k.sigma_ori_graus[i], "perda": k.perda[i], "vies_meia": k.vies_meia[i],
+            "ori_persistente": float(k.ori_persistente[i])}
+
+
+_MAGNITUDE_INICIO = _magnitude(K.estimador, 0)
 
 # Índices de ALVOS: P0–P3 e B1–B3 usam a pose de IK da pelve e do tronco; P4 usa a pose com caixa; B4, de pé.
 _IK = [knobs.ALVOS.index(n) for n in ("P0", "P1", "P2", "P3", "B1", "B2", "B3")]
@@ -112,16 +130,16 @@ def um_de_seis(env: ManagerBasedRlEnv) -> torch.Tensor:
     return torch.nn.functional.one_hot(env.v3_tarefa, num_classes=N_TAREFAS).float()
 
 
-def caixa_zero(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Zeros (E,11) enquanto a fase D não tem a caixa estimada. A fase E troca por `caixa` (E8)."""
-    return torch.zeros(env.num_envs, N_CAIXA, device=env.device)
-
-
 def atualiza_percepcao(env: ManagerBasedRlEnv) -> None:
-    """Guarda: `_calcula_percepcao` roda uma vez por `common_step_counter`; no mesmo passo, só volta (§6.3)."""
+    """Guarda: o mapa (com o lidar ligado) e a caixa estimada rodam uma vez por `common_step_counter` (§6.3, §6.4).
+
+    No mesmo passo, só voltam: o estimador dá um passo só por passo da política, mesmo com dois grupos lendo.
+    """
     if env.v3_percepcao_passo == env.common_step_counter:
         return
-    env.v3_mapa_obs = _calcula_percepcao(env)
+    if K.percepcao.ligada:
+        env.v3_mapa_obs = _calcula_percepcao(env)
+    env.v3_caixa_obs = _calcula_caixa(env)
     env.v3_percepcao_passo = env.common_step_counter
 
 
@@ -129,6 +147,53 @@ def mapa(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Termo `mapa` do ator e do crítico: a guarda e o buffer. Histórico 0 e atraso 0–1 (§6.5)."""
     atualiza_percepcao(env)
     return env.v3_mapa_obs
+
+
+def caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Termo `caixa` do ator e do crítico (E8): `v3_caixa_obs` (E,11), a caixa estimada e o alvo (§6.5)."""
+    atualiza_percepcao(env)
+    return env.v3_caixa_obs
+
+
+def _pontos_da_caixa(pos, quat, meia) -> torch.Tensor:
+    """Os 9 pontos da caixa no mundo (E,9,3): o centro e os 8 cantos, a `meia` aresta de cada env (PD-11)."""
+    R = matrix_from_quat(quat)
+    return pos[:, None] + torch.einsum("eij,epj->epi", R, _CANTOS.to(pos)[None] * meia[:, None, None])
+
+
+def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Caixa estimada (E,11): `saida_b` (8) e o alvo corrente no frame da base (3), pelo `v3_estimador` (I §2.3).
+
+    A leitura usa a visibilidade da D435i (o site `d435`, o FOV do RGB, os 9 pontos e as cápsulas dos braços; PD-11)
+    e a distância câmera-caixa para o σ relativo.
+    ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8).
+    """
+    robo, caixa_ = env.scene["robot"], env.scene["box"]
+    ids, _ = robo.find_sites((_CAMERA,))
+    cam_pos, cam_rot = robo.data.site_pos_w[:, ids][:, 0], robo.data.site_quat_w[:, ids][:, 0]
+    pos, quat = caixa_.data.root_link_pos_w, caixa_.data.root_link_quat_w
+    capsulas, raios = _capsulas_w(robo)
+    braco = _BRACO.to(raios.device)
+    vis = visivel(cam_pos, cam_rot, _pontos_da_caixa(pos, quat, env.v3_meia), capsulas[:, braco], raios[braco],
+                  K.estimador)
+    env.v3_estimador.passo(env.common_step_counter * env.step_dt, pos, quat, env.v3_meia, vis, _MAGNITUDE_INICIO,
+                           (pos - cam_pos).norm(dim=-1))
+    odo, tarefa = env.v3_odo, env.v3_tarefa
+    saida = env.v3_estimador.saida_b(odo, robo.data.root_link_quat_w)
+    alvo = alvo_no_frame_da_base(env.v3_alvo_w, odo)
+    alvo = torch.where((tarefa == CARREGAR)[:, None], torch.zeros_like(alvo), alvo)
+    out = torch.cat([saida, alvo], -1)
+    return torch.where((tarefa == ANDAR)[:, None], torch.zeros_like(out), out)
+
+
+def giro_base(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Giro da base (E,3): o sensor do mjlab mais o viés fixo do episódio, `v3_vies_giro` (evento `vies_imu`)."""
+    return mdp_env.builtin_sensor(env, sensor_name="robot/imu_ang_vel") + env.v3_vies_giro
+
+
+def gravidade(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Gravidade projetada no frame do IMU (E,3): a do mjlab girada pela inclinação fixa `v3_incl_imu` (DR §3.4)."""
+    return torch.einsum("eij,ej->ei", env.v3_incl_imu, mdp_env.projected_gravity(env))
 
 
 def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
@@ -274,14 +339,14 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
         return cfg
 
     nove = [  # (nome, função, params do ator); o crítico tira o viés do juntas (joint_pos sem `biased`)
-        ("giro_base", mdp_env.builtin_sensor, {"sensor_name": "robot/imu_ang_vel"}),
-        ("gravidade", mdp_env.projected_gravity, {}),
+        ("giro_base", giro_base, {}),
+        ("gravidade", gravidade, {}),
         ("comando", mdp_env.generated_commands, {"command_name": "twist"}),
         ("juntas", mdp_env.joint_pos_rel, {"biased": True}),
         ("vel_juntas", mdp_env.joint_vel_rel, {}),
         ("acao", mdp_env.last_action, {}),
         ("tarefa", um_de_seis, {}),
-        ("caixa", caixa_zero, {}),
+        ("caixa", caixa, {}),
         ("mapa", mapa, {}),
     ]
     if not k.percepcao.ligada:  # sem o lidar, o `mapa` não entra no ator nem no crítico (§6.5)

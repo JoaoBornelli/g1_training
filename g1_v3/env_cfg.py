@@ -43,8 +43,12 @@ _RECOMPENSAS = (
     ("tronco_plano", ANDAR_CARREGAR), ("altura_base", ANDAR_CARREGAR), ("cerca_sola", PEGAR_BOTAR),
     ("cerca_giro", TODAS), ("cerca_tronco", TODAS), ("cerca_com", TODAS), ("cerca_torque", TODAS),
     ("cerca_pelve", TODAS), ("cerca_recuo", PEGAR_CARREGAR_BOTAR), ("contato_fora", TODAS),
-    ("terminacao", TODAS),
+    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", PEGAR_CARREGAR_BOTAR),
+    ("perda_caixa", TODAS), ("terminacao", TODAS),
 )
+# Pesos que NÃO vêm do `knobs`: o `progresso` e o `perda_caixa` entram com ±1 no cfg, e a escala mora no núcleo
+# (§6.3, bloco da fase E: w_p, B_alvo e o custo da perda ficam em `recompensas.py`).
+_PESO_FIXO = {"progresso": 1.0, "perda_caixa": -1.0}
 
 # Geoms de colisão dos pés (o mesmo nome que o molde do mjlab usa em `foot_friction`).
 _GEOMS_DOS_PES = tuple(f"{lado}_foot{i}_collision" for lado in ("left", "right") for i in range(1, 8))
@@ -115,7 +119,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     }
 
     # ------------------------------------------------------------ 5. recompensas (peso cru: o mjlab multiplica por dt)
-    cfg.rewards = {nome: RewardTermCfg(func=getattr(recompensas, nome), weight=getattr(k.recompensa, nome),
+    cfg.rewards = {nome: RewardTermCfg(func=getattr(recompensas, nome),
+                                       weight=_PESO_FIXO[nome] if nome in _PESO_FIXO else getattr(k.recompensa, nome),
                                        params={"tarefas": tarefas})
                    for nome, tarefas in _RECOMPENSAS}
 
@@ -124,6 +129,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "time_out": TerminationTermCfg(func=terminacoes.fim_da_cadeia, time_out=True),
         # A queda vale nas quatro tarefas (D6): o `n_queda` separa ANDAR/CARREGAR de PEGAR/BOTAR por dentro, por par.
         "queda": TerminationTermCfg(func=terminacoes.queda, params={"tarefas": TODAS}),
+        "caixa_perdida": TerminationTermCfg(func=terminacoes.caixa_perdida, params={"tarefas": PEGAR_CARREGAR_BOTAR}),
     }
 
     # ------------------------------------------------------------ 7. eventos (§6.5 na ordem; §6.8 os da fase D)
@@ -133,6 +139,11 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
             "faixa_andar": dict(c.reset_base_andar), "faixa_manipula": dict(c.reset_base_manipula)}),
         "juntas": EventTermCfg(func=reset_joints_by_offset, mode="reset",
                                params={"position_range": (0.0, 0.0), "velocity_range": (0.0, 0.0)}),
+        "cena": EventTermCfg(func=eventos.posiciona_cena, mode="reset"),
+        "carga": EventTermCfg(func=eventos.carga, mode="reset"),
+        "atrito_pad": EventTermCfg(func=eventos.atrito_pad, mode="reset"),
+        "atrito_laje": EventTermCfg(func=eventos.atrito_laje, mode="reset"),
+        "vies_imu": EventTermCfg(func=eventos.vies_imu, mode="reset"),
         "filtros": EventTermCfg(func=eventos.reinicia_filtros, mode="reset"),
         "atrito_pe": EventTermCfg(func=dr.geom_friction, mode="startup", params={
             "ranges": k.dr.atrito_pe, "operation": "abs", "shared_random": True,
@@ -142,6 +153,9 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=("torso_link",))}),
         "vies_encoder": EventTermCfg(func=dr.encoder_bias, mode="startup", params={
             "bias_range": (-k.dr.vies_encoder, k.dr.vies_encoder), "asset_cfg": SceneEntityCfg("robot")}),
+        "tamanho_caixa": EventTermCfg(func=eventos.tamanho_caixa, mode="startup", params={
+            "faixa": k.cena.caixa_meia_faixa, "n_variantes": k.cena.caixa_n_variantes,
+            "asset_cfg": SceneEntityCfg("box", geom_names=(cena.BOX_GEOM,))}),
         # ⚠ `atraso` baixa o teto do buffer para `atraso_inicio[1]` (1 passo); a capacidade do build fica (observacoes.py).
         "atraso": EventTermCfg(func=eventos.atraso, mode="startup", params={
             "passos_max": k.dr.atraso_inicio[1], "decimacao": k.contrato.decimacao}),
