@@ -11,8 +11,8 @@ por caminho. Uma implementação só: duas cópias divergem e a paridade passari
 A assinatura é o contrato da docstring do `exporta_cena.py` ("Contrato com o pilota_v3"). Não mexa nela
 sem mexer lá.
 
-⚠ FASE D. A caixa entra como zeros (o `caixa_zero` do treino) e o estimador da caixa e o detector de fim
-não entram aqui: são da fase E. O mapa de elevação entra, com o lidar no MuJoCo clássico.
+⚠ FASE E (cadeia B). A caixa vem do `Visao` (o `EstimadorCaixa` sobre a D435i, sem ruído) e o detector de
+fim roda como status. O mapa de elevação entra, com o lidar no MuJoCo clássico.
 
 A cena vem do `exporta_cena.py`, que LÊ o env do mjlab. Nada aqui é digitado à mão.
 """
@@ -29,7 +29,7 @@ import mujoco
 import numpy as np
 import torch
 
-__all__ = ["carrega_cena", "monta_observacao", "Percepcao", "Ator", "TAREFAS", "DIM_ATOR"]
+__all__ = ["carrega_cena", "monta_observacao", "Percepcao", "Visao", "Ator", "TAREFAS", "DIM_ATOR"]
 
 
 def _carrega(nome: str, rel: str):
@@ -58,7 +58,8 @@ _CONTRATO = _K.Contrato()   # I §2.1: blocos do ator, escalas, histórico
 _KN = _K.ATIVO             # os números do lidar, da odometria e das referências (knobs.Knobs)
 TAREFAS = _K.TAREFAS        # one-hot de 6 canais; a ordem é o índice (I §2.2)
 DIM_ATOR = _K.dim_ator()    # 1 447 canais por passo
-N_CAIXA = 11                # I §2.1: canais da caixa do ator (zeros na fase D)
+_PEGAR = TAREFAS.index("PEGAR")
+_BOTAR = TAREFAS.index("BOTAR")
 _DT = _CONTRATO.dt_fisica * _CONTRATO.decimacao   # 0,02 s: passo da política
 _HIST = _CONTRATO.historico                       # 5 passos por bloco com histórico
 # Sem acerto, o raio vale 100 m: fora do alcance útil de 6 m, como em `pontos_no_frame_do_mapa`.
@@ -168,7 +169,9 @@ class Percepcao:
         self.raios = torch.as_tensor(caps["raio"], dtype=torch.float32)
 
         # Pé: a altura do site sobre a sola (`site_pe_de_pe`, D2), lida do mesmo `referencias.npz` do treino.
-        self.site_pe_de_pe = _AL.Referencias(str(_K.caminho(_CONTRATO.referencias)), "cpu").site_pe_de_pe
+        # O `ref` inteiro é guardado: o `Visao` lê dele a pose de pé com caixa e a de pé sem caixa.
+        self.ref = _AL.Referencias(str(_K.caminho(_CONTRATO.referencias)), "cpu")
+        self.site_pe_de_pe = self.ref.site_pe_de_pe
 
         self.padrao = _PL.PadraoMid360(str(_K.caminho("g1_v3/dados/mid360_passos.npz")), "cpu")
         self.filtro = _PL.FiltroDeElevacao(1, "cpu", self.k)
@@ -183,6 +186,14 @@ class Percepcao:
         pos = torch.as_tensor(d.xpos[self.base], dtype=torch.float32)[None]
         quat = torch.as_tensor(d.xquat[self.base], dtype=torch.float32)[None]
         return pos, quat
+
+    def capsulas(self, d: mujoco.MjData) -> torch.Tensor:
+        """As 33 cápsulas do corpo na pose VIVA dos corpos, (1,K,2,3) (PD-10). Usa o filtro do mapa e a visão da caixa."""
+        pos_k = d.xpos[self.corpo_idx]
+        rot_k = d.xmat[self.corpo_idx].reshape(-1, 3, 3)
+        p0 = pos_k + np.einsum("kij,kj->ki", rot_k, self.p0)
+        p1 = pos_k + np.einsum("kij,kj->ki", rot_k, self.p1)
+        return torch.as_tensor(np.stack([p0, p1], axis=1), dtype=torch.float32)[None]
 
     def reinicia(self, m: mujoco.MjModel, d: mujoco.MjData) -> None:
         """Reset: o mapa zera, a odometria começa na pose verdadeira e o padrão volta ao trecho 0 (PD-7, PD-18)."""
@@ -229,12 +240,7 @@ class Percepcao:
             dist_t, dirs, sensor_pos, sensor_rot, pos, rumo, z_pe_t, self.incl, self.k, None)
 
         # 4. Filtro do corpo (PD-10): as cápsulas no mundo, a partir da pose VIVA dos corpos.
-        pos_k = d.xpos[self.corpo_idx]
-        rot_k = d.xmat[self.corpo_idx].reshape(-1, 3, 3)
-        p0 = pos_k + np.einsum("kij,kj->ki", rot_k, self.p0)
-        p1 = pos_k + np.einsum("kij,kj->ki", rot_k, self.p1)
-        capsulas = torch.as_tensor(np.stack([p0, p1], axis=1), dtype=torch.float32)[None]
-        validos = _PL.filtra_corpo(pontos_w, validos, capsulas, self.raios, sensor_pos,
+        validos = _PL.filtra_corpo(pontos_w, validos, self.capsulas(d), self.raios, sensor_pos,
                                    self.k.raio_min, self.k.margem_corpo)
 
         # 5. Transporte e Kalman. ⚠ `prediz` ANTES de `atualiza`: o transporte move o mapa que a leitura preenche.
@@ -243,6 +249,95 @@ class Percepcao:
         mapa = self.filtro.recorte()[0].numpy().astype(np.float64)
         self.n += 1
         return mapa
+
+
+class Visao:
+    """A caixa no laço: o `EstimadorCaixa` sobre a D435i, e o detector de fim (I §2.3, §4.2; E9).
+
+    Sem ruído e sem perda (gerador None): o driver é determinístico. A câmera é o site `d435` na pose VIVA;
+    a visibilidade é a PD-11 (`estimador.visivel`), com o centro e os 8 cantos da caixa como os 9 pontos.
+    A odometria é a do `Percepcao` (o mesmo `odo`), e por isso `passo` roda DEPOIS dele.
+
+    O alvo do PEGAR é o centro da caixa no instante da tecla (`abre_pegar`), um ponto no mundo (I §4.1). Fora do
+    PEGAR o alvo do bloco é zero. ⚠ BOTAR: o alvo de soltura é da F7; aqui o BOTAR só ganha o aviso.
+    ⚠ `reinicia` no reset da cena, junto com o `Percepcao`.
+    """
+
+    def __init__(self, m: mujoco.MjModel, c: dict[str, np.ndarray], percepcao: Percepcao):
+        self.p = percepcao
+        self.est = _ES.EstimadorCaixa(1, "cpu", _KN.estimador, None)
+        self.id_caixa = int(c["id_caixa"])
+        self.base = percepcao.base
+        self.meia = float(c["meia_aresta"])
+        self.a = torch.tensor([self.meia], dtype=torch.float32)
+        self.cam = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "d435")
+        self.torso = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
+        self.palmas = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, n) for n in ("left_palm", "right_palm")]
+        if self.cam < 0 or self.torso < 0 or min(self.palmas) < 0:
+            raise AssertionError("falta o site `d435`, o corpo `torso_link` ou os sites das palmas no modelo")
+        self.ids_v = np.asarray(c["ids_junta_qvel"], dtype=np.int64)
+        # Os 8 cantos da caixa no frame dela, em ordem fixa. O centro é o ponto 0 (o que `visivel` exige).
+        self.cantos = np.array([[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)])
+        self.relogio = torch.zeros(1)
+        self.alvo_w = torch.zeros(1, 3)  # alvo do PEGAR no mundo (m); zero fora dele
+        self.tarefa_ant = -1
+
+    def reinicia(self) -> None:
+        self.est.reinicia(torch.tensor([0]))
+        self.relogio.zero_()
+        self.alvo_w.zero_()
+
+    def abre_pegar(self, d: mujoco.MjData) -> None:
+        """O alvo do PEGAR = o centro da caixa no instante da tecla. Sem ruído, é o verdadeiro."""
+        self.alvo_w = torch.as_tensor(d.xpos[self.id_caixa], dtype=torch.float32)[None].clone()
+
+    def passo(self, m: mujoco.MjModel, d: mujoco.MjData, tarefa: int) -> np.ndarray:
+        """O bloco da caixa deste passo (11 canais, I §2.3): centro 3, rotvec 3, meia 1, idade 1, alvo 3 (base)."""
+        centro = d.xpos[self.id_caixa]
+        R = d.xmat[self.id_caixa].reshape(3, 3)
+        pontos = np.vstack([centro, centro + (self.cantos * self.meia) @ R.T])
+        cam_rot = np.zeros(4)
+        mujoco.mju_mat2Quat(cam_rot, d.site_xmat[self.cam].copy())
+        vis = _ES.visivel(
+            torch.as_tensor(d.site_xpos[self.cam], dtype=torch.float32)[None],
+            torch.as_tensor(cam_rot, dtype=torch.float32)[None],
+            torch.as_tensor(pontos, dtype=torch.float32)[None],
+            self.p.capsulas(d), self.p.raios, _KN.estimador)
+        self.est.passo(d.time, torch.as_tensor(centro, dtype=torch.float32)[None],
+                       torch.as_tensor(d.xquat[self.id_caixa], dtype=torch.float32)[None],
+                       self.a, vis, {})
+        base_q = torch.as_tensor(d.xquat[self.base], dtype=torch.float32)[None]
+        leitura = self.est.saida_b(self.p.odo, base_q)[0].numpy().astype(np.float64)
+        alvo = np.zeros(3)
+        if tarefa == _PEGAR:
+            alvo = _ES.alvo_no_frame_da_base(self.alvo_w, self.p.odo)[0].numpy().astype(np.float64)
+        return np.concatenate([leitura, alvo])
+
+    def detecta(self, d: mujoco.MjData, tarefa: int) -> bool:
+        """O aviso de fim (I §4.2) deste passo, depois do `mj_forward`. PEGAR contra a pose de pé com caixa; BOTAR
+        contra a de pé. Fora deles o relógio zera e o aviso é falso. Trocar de tarefa zera o relógio."""
+        if tarefa != self.tarefa_ant:
+            self.relogio.zero_()
+            self.tarefa_ant = tarefa
+        if tarefa not in (_PEGAR, _BOTAR):
+            return False
+        if tarefa == _PEGAR:
+            ref_pelve, ref_palmas = self.p.ref.pelve_com_caixa(self.a), self.p.ref.palmas_com_caixa_b(self.a)
+        else:
+            ref_pelve = torch.tensor([self.p.ref.pelve_de_pe])
+            ref_palmas = self.p.ref.palmas_de_pe_b[None]
+        base_p, base_q = d.xpos[self.base], d.xquat[self.base]
+        # Altura da pelve sobre o pé mais baixo (a mesma conta do `z_pe` do `Percepcao`).
+        h = float(base_p[2]) - (float(d.site_xpos[self.p.pes, 2].min()) - self.p.site_pe_de_pe)
+        cos_tronco = 1.0 - 2.0 * (d.xquat[self.torso][1] ** 2 + d.xquat[self.torso][2] ** 2)
+        tronco = float(np.arccos(np.clip(cos_tronco, -1.0, 1.0)))
+        palmas = np.stack([gira_inverso(base_q, d.site_xpos[s] - base_p) for s in self.palmas])
+        aviso, self.relogio = _AL.detecta_fim(
+            torch.tensor([h]), torch.tensor([tronco]),
+            torch.as_tensor(palmas, dtype=torch.float32)[None],
+            torch.as_tensor(d.qvel[self.ids_v], dtype=torch.float32)[None],
+            ref_pelve, ref_palmas, self.relogio, _DT, _KN.detector)
+        return bool(aviso[0])
 
 
 # ------------------------------------------------------------------- a observação
@@ -271,7 +366,7 @@ def monta_observacao(
     ⚠ `anterior` entra CRU (sem escala e sem offset): é a `action_manager.action` do mjlab. Quem escala é o
     alvo do PD (`q_default_acao + escala_acao · a`), no laço.
 
-    ⚠ `caixa` e `mapa` entram como ENTRADA: a caixa é zeros na fase D; o mapa vem do `Percepcao.passo`.
+    ⚠ `caixa` e `mapa` entram como ENTRADA: a caixa vem do `Visao.passo`; o mapa, do `Percepcao.passo`.
     """
     ids_q = np.asarray(c["ids_junta_qpos"], dtype=np.int64)
     ids_v = np.asarray(c["ids_junta_qvel"], dtype=np.int64)
@@ -481,6 +576,7 @@ class Piloto:
         self.tarefa = TAREFAS.index("ANDAR")
         self.fator = 1.0
         self.reset_pedido = False
+        self.pegar_pedido = False  # a tecla do PEGAR pede o alvo (centro da caixa) no laço
         self.aviso = ""
         self.rumo_ref: float | None = None  # rumo segurado na marcha reta; None fora dela
 
@@ -536,6 +632,7 @@ class Piloto:
             self.twist[:] = 0.0
         elif acao.startswith("tarefa:"):
             self.tarefa = TAREFAS.index(acao.split(":", 1)[1])
+            self.pegar_pedido = self.tarefa == _PEGAR
         elif acao == "teto-":
             self._escala_tetos(0.8)
         elif acao == "teto+":
@@ -571,8 +668,9 @@ class Piloto:
 
 # -------------------------------------------------------------------------- o laço
 
-def restaura(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], percepcao: Percepcao) -> None:
-    """Devolve a cena ao estado do reset do treino, e reinicia a percepção junto.
+def restaura(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], percepcao: Percepcao,
+             visao: Visao) -> None:
+    """Devolve a cena ao estado do reset do treino, e reinicia a percepção e a visão da caixa junto.
 
     ⚠ NÃO É `m.qpos0`: o `qpos0` traz a pose crua do XML e não sabe onde o evento põe a caixa e a laje. O
     exportador grava o qpos, o qvel e o mocap LIDOS do env logo depois do reset.
@@ -586,6 +684,7 @@ def restaura(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], perc
     d.ctrl[np.asarray(c["ids_atuador"], dtype=np.int64)] = np.asarray(c["q_default_acao"], dtype=np.float64)
     mujoco.mj_forward(m, d)
     percepcao.reinicia(m, d)
+    visao.reinicia()
 
 
 def main() -> None:
@@ -610,6 +709,7 @@ def main() -> None:
     tetos = np.minimum([args.vx_max, args.vy_max, args.wz_max], envelope)
     piloto = Piloto(tuple(tetos), envelope, teclas)
     percepcao = Percepcao(m, c)
+    visao = Visao(m, c, percepcao)
 
     ids_atuador = np.asarray(c["ids_atuador"], dtype=np.int64)
     q_default_acao = np.asarray(c["q_default_acao"], dtype=np.float64)
@@ -617,16 +717,14 @@ def main() -> None:
     decimation = int(c["decimation"])
     dt = float(c["physics_dt"]) * decimation
 
-    restaura(m, d, c, percepcao)
+    restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
-    caixa = np.zeros(N_CAIXA)  # ⚠ fase D: a caixa é zero, como o `caixa_zero` do treino
 
     print(f"[pilota_v3] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt * 1000:.0f} ms  decimation={decimation}  dim_obs={int(c['dim_obs'])}")
     print(cabecalho(piloto.teclas))
-    # Nota: o estimador da caixa e o detector de fim NÃO entram no laço da fase D; entram na E9 (§20, 29/10).
-    print("[pilota_v3] fase D: caixa zerada; estimador da caixa e detector de fim NÃO entram (fase E, E9)")
+    print("[pilota_v3] fase E: caixa pelo estimador da D435i (sem ruído); aviso de fim como status")
 
     # ⚠ `from ... import ... as`, e NÃO `import mujoco.viewer`: a segunda forma liga `mujoco` no escopo LOCAL
     # de `main` e o `mujoco.MjData(m)` lá em cima passa a levantar `UnboundLocalError`.
@@ -636,15 +734,20 @@ def main() -> None:
             t0 = time.perf_counter()
 
             if piloto.reset_pedido:
-                restaura(m, d, c, percepcao)
+                restaura(m, d, c, percepcao, visao)
                 acao[:] = 0.0
                 hist = None
                 piloto.twist[:] = 0.0
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
+            if piloto.pegar_pedido:
+                visao.abre_pegar(d)
+                piloto.pegar_pedido = False
 
             twist_pol = piloto.twist_da_politica(_yaw(d.xquat[percepcao.base]))
             mapa = percepcao.passo(m, d)
+            # ⚠ A ORDEM: a caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
+            caixa = visao.passo(m, d, piloto.tarefa)
             obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist)
             acao = ator(obs)
 
@@ -657,6 +760,8 @@ def main() -> None:
             mujoco.mj_forward(m, d)
 
             viewer.sync()
+            # O detector de fim roda DEPOIS do `mj_forward`: lê a pose que acabou de sair do passo.
+            aviso_fim = visao.detecta(d, piloto.tarefa)
 
             medido = np.array([d.sensordata[int(c["adr_lin_vel"])],
                                d.sensordata[int(c["adr_lin_vel"]) + 1],
@@ -666,6 +771,7 @@ def main() -> None:
                   f"rumo {twist_pol[2]:+.2f} | "
                   f"medido {medido[0]:+.2f} {medido[1]:+.2f} {medido[2]:+.2f} | "
                   f"tetos {piloto.tetos[0]:.2f}/{piloto.tetos[1]:.2f}/{piloto.tetos[2]:.2f} | "
+                  f"caixa idade {caixa[7]:.2f} | fim {'SIM' if aviso_fim else '-'} | "
                   f"tempo x{piloto.fator:g} {piloto.aviso:<60s}", end="", flush=True)
 
             atraso = dt / piloto.fator - (time.perf_counter() - t0)

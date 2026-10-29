@@ -13,7 +13,9 @@ O que sai, e nada mais:
   <saida>.csv           passo, t, fase, tarefa, one-hot, o ÂNGULO CRU das 29 juntas, a POSE DE
                         MUNDO da raiz, da caixa e da laje (7 números cada: x, y, z, qw, qx, qy, qz),
                         `ckpt`, `giro_ang`, `fracao_mapa_visto`, `a_<junta>`, `alvo_pd_<junta>`,
-                        a FORÇA NA CAIXA (`fn_E`, `fn_D`, `fn_tot`, `fz_rob`, `n_rob`) e `rel_x/y/z`
+                        a FORÇA NA CAIXA (`fn_E`, `fn_D`, `fn_tot`, `fz_rob`, `n_rob`), `rel_x/y/z`,
+                        `aviso_fim` (0/1, o detector de fim), `idade_caixa` (s) e `alvo_x/y/z` (m, mundo; NaN
+                        fora do PEGAR)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 
 ⚠ O DRIVER É A BASE. Nada de física extra aqui (sem --atrito, --massa, --mu-caixa...): a cena é a que
@@ -32,7 +34,7 @@ import mujoco
 import numpy as np
 
 import pilota_v3 as pv
-from pilota_v3 import (TAREFAS, Ator, Percepcao, Piloto, carrega_cena, gira_inverso,
+from pilota_v3 import (TAREFAS, Ator, Percepcao, Piloto, Visao, carrega_cena, gira_inverso,
                        monta_observacao, restaura)
 
 EZ = np.array([0.0, 0.0, 1.0])
@@ -48,8 +50,8 @@ TAREFAS_QUE_CAPTURAM_CIMA = ("PEGAR", "REORIENTAR")
 def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
     """Tombo da caixa em graus: o ângulo entre a normal `R·cima_b` e o `ez` de mundo.
 
-    Mesma conta do `giro_de_pe` do `registra_juntas.py`, sem o vetor de correção: a v3 não põe o giro
-    na observação (a caixa é zero no ator na fase D), então o giro só serve para ler o tombo no CSV.
+    Mesma conta do `giro_de_pe` do `registra_juntas.py`, sem o vetor de correção. É só leitura para o CSV:
+    o giro não entra no ator.
     """
     normal_w = gira_inverso(quat_caixa * CONJ, cima_b)
     return float(np.degrees(np.arccos(np.clip(normal_w @ EZ, -1.0, 1.0))))
@@ -61,7 +63,8 @@ def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
 # As duas cadeias que o treino fecha depois do PEGAR, uma em cada entrada. Na v3 cada fase é a tecla
 # do teclado: `v` = PEGAR, `n` = BOTAR, `z` = ANDAR, `b` = CARREGAR.
 #   botar     PEGAR -> BOTAR -> ANDAR. A caixa vai para a laje e o robô sai sem ela.
-#   carregar  PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
+#   carregar  roteiro B (cadeia B, E9): ANDAR parado -> PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
+#             O PEGAR dura o tempo do roteiro; o aviso de fim vai só para a coluna `aviso_fim`.
 ROTEIROS = {
     "botar": ("espera:ANDAR:1.0,"
               "pegar:PEGAR:3.0,"
@@ -247,10 +250,10 @@ def main() -> None:
     # ⚠ Limiar do mapa: o mesmo de `metricas.fracao_mapa_visto` (a fração de células VISTAS).
     limiar_visto = pv._KN.percepcao.limiar_visto
 
-    restaura(m, d, c, percepcao)
+    visao = Visao(m, c, percepcao)
+    restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
-    caixa = np.zeros(pv.N_CAIXA)  # ⚠ fase D: a caixa é zero no ator, como o `caixa_zero` do treino
     cima_b = EZ.copy()            # eixo da caixa que aponta para cima, no frame dela
     linhas: list[dict] = []
 
@@ -259,7 +262,7 @@ def main() -> None:
     print("[registra_v3] roteiro: " + "  ".join(
         f"{f.rotulo}({f.tarefa},{f.segundos:g}s" + (f",vx={f.vx:g}" if f.vx else "") + ")"
         for f in fases) + f"   × {args.voltas}")
-    print("[registra_v3] fase D: caixa zerada no ator; estimador da caixa e detector de fim NÃO entram")
+    print("[registra_v3] fase E: caixa pelo estimador da D435i (sem ruído); aviso de fim na coluna aviso_fim")
 
     viewer = None
     if not args.sem_viewer:
@@ -273,6 +276,8 @@ def main() -> None:
             for fase in fases:
                 piloto.tarefa = TAREFAS.index(fase.tarefa)
                 piloto.twist[:] = (fase.vx, 0.0, 0.0)
+                if fase.tarefa == "PEGAR":
+                    visao.abre_pegar(d)  # o alvo do PEGAR é o centro da caixa neste instante (como a tecla)
                 if fase.tarefa in TAREFAS_QUE_CAPTURAM_CIMA:
                     cima_b = gira_inverso(d.qpos[adr_caixa + 3:adr_caixa + 7], EZ)
                 if fase.limpa_laje or fase.limpa_caixa:
@@ -288,6 +293,8 @@ def main() -> None:
                     # ⚠ A ORDEM DO DRIVER: `prediz`/`atualiza` do mapa acontecem dentro de `passo`, ANTES
                     # da observação. Trocar a ordem muda o mapa que o ator vê.
                     mapa = percepcao.passo(m, d)
+                    # ⚠ A caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
+                    caixa = visao.passo(m, d, piloto.tarefa)
                     obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist)
                     acao = ator(obs)
                     d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao
@@ -299,14 +306,15 @@ def main() -> None:
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
                           "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt}
-                    # Nota: `alvo_x/y/z` ficam NaN na fase D (a v3 não tem `alvo_do_elo`); preenchidos na E9,
-                    # pelo `alvos.caixa_alvo_w`.
-                    ln.update(alvo_x=float("nan"), alvo_y=float("nan"), alvo_z=float("nan"))
+                    # ⚠ DÚVIDA (E9): o alvo gravado é o PONTO do PEGAR (centro da caixa), o que o driver manda.
+                    # O `alvos.caixa_alvo_w` pede o índice P0..B4, que é estado do controlador e o driver não tem.
+                    ax, ay, az = visao.alvo_w[0].tolist() if fase.tarefa == "PEGAR" else (float("nan"),) * 3
+                    ln.update(alvo_x=ax, alvo_y=ay, alvo_z=az)
                     ln["giro_ang"] = angulo_de_tombo(d.qpos[adr_caixa + 3:adr_caixa + 7], cima_b)
-                    # Nota: `aviso_fim` e `idade_caixa` ficam vazios na fase D (o detector de fim e o estimador
-                    # da caixa não entram); preenchidos na E9.
-                    ln["aviso_fim"] = ""
-                    ln["idade_caixa"] = ""
+                    # Status do detector, lido depois do `mj_forward` (a pose que acabou de sair do passo).
+                    ln["aviso_fim"] = int(visao.detecta(d, piloto.tarefa))
+                    # Idade da leitura que o ator viu neste passo (a `saida_b`, cortada em idade_max).
+                    ln["idade_caixa"] = float(caixa[7])
                     # Mapa = 441 alturas e depois 441 confianças (I §2.4). Mesma conta de `metricas.py`.
                     ln["fracao_mapa_visto"] = float(np.mean(mapa[len(mapa) // 2:] > limiar_visto))
                     # ⚠ A FORÇA NA CAIXA, como o treino a mede (`aperto_excessivo`): soma das NORMAIS de todo
