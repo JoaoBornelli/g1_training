@@ -587,7 +587,7 @@ class Celula:
 
 class Curriculo:
     """Estado inteiro do currículo: células, níveis, fatias, refino. Puro e serializável."""
-    def __init__(self, k_bal: Balanceador, k_niv: Niveis, k_com: Comando): ...
+    def __init__(self, k_bal: Balanceador, k_niv: Niveis, k_com: Comando, k_ter: Terreno): ...
     celulas: list[Celula]   # público; o `celula_id` é o índice nesta lista, na ordem de abertura da B3:
                             # 0..5 ANDAR (reto, parado, baixo, giro_andando, giro_lugar, terreno),
                             # 6..9 CARREGAR (reto, giro_lugar, arco, terreno), 10 PEGAR, 11 BOTAR
@@ -605,6 +605,9 @@ class Curriculo:
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor: ...     # (n,) long
     def sorteia_celulas(self, tarefa: str, n: int, gerador) -> torch.Tensor: ...  # (n,) ids de célula
     def nivel(self, tarefa: str) -> int: ...
+    def nivel_terreno(self, tarefa: str) -> int: ...       # linha do gerador dentro da célula `terreno`: ANDAR
+        # 0..linhas−1, CARREGAR 0..max(linha_max_carregar) (a D7 corta por coluna), PEGAR e BOTAR 0;
+        # sobe pela regra dos níveis (célula `terreno` no portão, carência `iters_min_nivel`)
     def niveis_abertos(self, tarefa: str) -> int: ...      # o degrau do freio (S §11.4)
     def degrau(self, tarefa: str) -> int: ...              # 0..5
     def estado(self) -> dict: ...                          # para o checkpoint; só tipos do Python (int, float,
@@ -628,7 +631,7 @@ Regras de abertura (S §11.1, §11.2; PD-12):
 | `terreno` (CARREGAR) | depois do último nível do CARREGAR, e quando o `terreno` do ANDAR passa no portão no nível de terreno 0 |
 | fatia C (BOTAR nível 0) | PEGAR nível 0 no portão |
 | nível k+1 do PEGAR e do BOTAR | célula no portão, ≥ `iters_min_nivel` |
-| refino da tarefa | último nível aberto e a média das células da tarefa ≥ portão por `iters_refino` its seguidas |
+| refino da tarefa | último nível aberto (no ANDAR e no CARREGAR, também o último nível de terreno) e a média das células da tarefa ≥ portão por `iters_refino` its seguidas (uma it fora do portão zera a contagem) |
 | degrau seguinte do refino | mesmo critério, contado de novo no degrau atual; nunca desce |
 
 **`estimador.py`**
@@ -2040,3 +2043,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | revisão do plano, 14 correções (o dono aprovou; a 12, tudo em Sonnet, ficou fora: a implementação segue com agentes Haiku). (1) transporte vertical do mapa pelo `z_ref`, o pé mais baixo no frame da odometria (PD-7, C0, C1, D2, D11; I §2.4 e PERC §0). (2) `atualiza_percepcao` com a guarda no env: o filtro e o estimador rodam uma vez por passo, e não uma por grupo (D2, E8, §6.4). (3) R = 13 e `linha_max_carregar` inteira: o teto do CARREGAR chega a 0,15 m e 0,27 (PD-20, D1, D7, B3, §6.2, §15). (4) atraso da observação com capacidade 0–3 desde o build (D2, D7, §2.3, §6.5). (5) máscara bool com `torch.where` e nenhum NaN como "não usado" (§6.3, §6.6, B0, D4). (6) odometria integrada no frame da base, com `delta_b()` (§6.3, D2b). (7) `pontos_w` para o `filtra_corpo` e `dist` para o d̄ (§6.3, C1). (8) PD-25 no lugar da PD-14, sem a PD-15 no `tarefa_critico`, prefixo "viab." nos itens da viabilidade. (9) sai o `raio_caixa_na_mao`. (10) estimador e DR do refino pelo degrau global (§6.9, H5). (11) lista dos CSV da Parte 0 pela coluna `fase` (B5). (13) `passos_por_iteracao` no `knobs`. (14) o `Curriculo` conta as próprias iterações, e a retomada não trava os níveis (§6.3, B0, D4). (15) `random_rough` com `scale_with_difficulty` (D1). Contagem: ~+25 linhas no pacote (`observacoes.py` +10, `estimador.py` +10, `percepcao_lidar.py` +3, `balanceador.py` +2), nenhum termo novo | `docs/relatorios/2026-10-29-revisao-plano-v3.md`; resposta do dono em 29/10 |
 | 2026-10-29 | contrato do `DR` e do `Refino` na §6.2 (a A2 achou só "ver §6.8/§6.9", sem nomes de campo). Os nomes seguem os eventos da D7 e da H4 e a chave `DR.com_caixa` (PD-38); o `Refino` aponta para os pares que já moram em `Recompensa`, `Alvos` e `Terminacao`, e o `laje_joelho_N` vira par (50; 10). O tamanho da caixa fica só na `Cena`. O `jitter_z` sai da linha da `Cena`: não existe no `g1_limpo`, e o `prateleira_jitter_z` já está em `prateleira_*`. Os campos do `Knobs` são as seções em minúsculo (`contrato`, `cena`, ..., `dr`, `refino`). Contagem: ~+45 linhas no `knobs.py` | orquestrador, durante a fase A |
 | 2026-10-29 | contrato da §6.3 fechado para as lanes B0 e C0: convenções (wxyz, `ids` long, `gerador` None sem ruído, `dt` float); `Curriculo.celulas` público com os ids 0..11 na ordem da B3, `it` público, a regra da EMA (s = x na primeira medida, s começa em 0) e o `estado()` só com tipos do Python; formas de `pontos_no_frame_do_mapa`, `filtra_corpo` (cápsulas (E,K,2,3), como o `visivel`), `prediz` e `atualiza`; os giros de inclinação agem em volta do sensor. Nenhuma função nova | perguntas das lanes B0 e C0 |
+| 2026-10-29 | nível de terreno no `Curriculo` (a B3 pedia 0..12 dentro da célula `terreno`, sem interface na §6.3): `k_ter` no construtor e `nivel_terreno(tarefa)`; teto 12 no ANDAR e 9 no CARREGAR; o refino do ANDAR e do CARREGAR espera o último nível de terreno; "seguidas" zera a contagem | pergunta da lane B3 |

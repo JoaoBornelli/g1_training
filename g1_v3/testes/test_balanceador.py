@@ -18,6 +18,7 @@ from g1_v3.knobs import ATIVO
 B = ATIVO.balanceador
 N = ATIVO.niveis
 COM = ATIVO.comando
+TER = ATIVO.terreno
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 PORTAO = B.portao  # 0,75 (S §11.2)
 ALFA = B.alfa      # 0,05 (PD-13)
@@ -25,7 +26,7 @@ SEM_CARENCIA = dataclasses.replace(B, iters_min_nivel=10 ** 6)
 
 
 def novo(k_bal=B):
-    return balanceador.Curriculo(k_bal, N, COM)
+    return balanceador.Curriculo(k_bal, N, COM, TER)
 
 
 def cid(cur, tarefa, tipo):
@@ -221,6 +222,37 @@ class TestRefino(unittest.TestCase):
         for _ in range(40):  # falha de verdade: o degrau não desce
             fecha(cur, falha={pegar})
             self.assertGreaterEqual(cur.degrau("PEGAR"), degrau)
+
+
+class TestNivelDeTerreno(unittest.TestCase):
+
+    def test_terreno_sobe_uma_linha_por_carencia_ate_o_teto_e_o_refino_espera(self):
+        # B3 e §6.3 (29/10): a linha do gerador sobe dentro da célula `terreno`, pela regra dos níveis;
+        # teto 12 no ANDAR (linhas − 1) e 9 no CARREGAR (o maior `linha_max_carregar`, PD-20). O refino
+        # do ANDAR espera o último nível de terreno.
+        cur = novo()
+        teto_andar = TER.linhas - 1
+        teto_carregar = max(v for _nome, v in TER.linha_max_carregar)
+        ter_andar = cid(cur, "ANDAR", "terreno")
+        historico = []
+        for _ in range(2000):
+            antes = cur.nivel_terreno("ANDAR")
+            fecha(cur)
+            depois = cur.nivel_terreno("ANDAR")
+            self.assertIn(depois - antes, (0, 1), f"it {cur.it}: o terreno pulou linha")
+            if depois > antes:
+                historico.append(cur.it)
+            if depois > 0:
+                self.assertTrue(cur.celulas[ter_andar].aberta, "linha de terreno sem a célula aberta")
+            if depois < teto_andar:
+                self.assertEqual(cur.degrau("ANDAR"), 0, f"it {cur.it}: refino antes do último terreno")
+            self.assertLessEqual(cur.nivel_terreno("CARREGAR"), teto_carregar)
+            self.assertEqual(cur.nivel_terreno("PEGAR"), 0)
+        self.assertEqual(cur.nivel_terreno("ANDAR"), teto_andar)
+        self.assertEqual(cur.nivel_terreno("CARREGAR"), teto_carregar)
+        for a, b in zip(historico, historico[1:]):
+            self.assertGreaterEqual(b - a, B.iters_min_nivel, "subida de terreno sem carência")
+        self.assertGreaterEqual(cur.degrau("ANDAR"), 1)  # com sucesso total, o refino chega
 
 
 class TestSorteioDeFatias(unittest.TestCase):
