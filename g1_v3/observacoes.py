@@ -210,7 +210,7 @@ def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
     dirs_s = env.v3_padrao.direcoes(passo)
     lidar._local_directions.copy_(env.v3_padrao.direcoes(passo + 1))
     base_pos, base_quat = robo.data.root_link_pos_w, robo.data.root_link_quat_w
-    z_pe = _z_pe_min(robo, env.v3_ref)
+    z_pe = z_pe_min(robo, env.v3_ref)
     capsulas_w, raios = _capsulas_w(robo)
     dxy_b, dpsi, _dz = env.v3_odo.delta_b()
     z_ref = env.v3_odo.pos_w[:, 2] + (z_pe - base_pos[:, 2])
@@ -221,7 +221,7 @@ def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
                               K.percepcao, env.v3_gerador)
 
 
-def _z_pe_min(robo, ref: alvos.Referencias) -> torch.Tensor:
+def z_pe_min(robo, ref: alvos.Referencias) -> torch.Tensor:
     """Altura (E,) da sola mais baixa: o menor z dos sites dos pés, menos `site_pe_de_pe` (D2).
 
     ⚠ `site_pe_de_pe` é a altura do site `left_foot` sobre a sola, medida no `gera_referencias.py` com o mesmo

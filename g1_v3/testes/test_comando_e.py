@@ -120,7 +120,8 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         # E11 S5b: sem leitura válida (a caixa nunca vista, idade = idade_max) o PEGAR fica com alvo −1 e a pega não
         # abre; o relógio espera. Com leitura válida (idade 0,5 s), abre P0 com a pega na caixa estimada, no mundo
         env = _env_falso(-1)
-        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 2.0]]))
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 2.0]]),
+                                                 tem_leitura=lambda: torch.tensor([False]))
         obj = _cadeia_sem_env(env)
         obj.pega[:] = True
         obj._sigma = lambda m, indice: torch.full((1,), 0.02)
@@ -128,7 +129,8 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         self.assertEqual(env.v3_alvo_idx.tolist(), [-1])
         self.assertTrue(obj.pega.all().item())
         self.assertEqual(env.v3_caixa_pega_w.tolist(), [[0.0, 0.0, 0.0]])
-        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 0.5]]))
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 0.5]]),
+                                                 tem_leitura=lambda: torch.tensor([True]))
         obj._abre_p0(_medidas())
         self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P0])
         # a caixa estimada no frame da base (0,3; 0; 0,1), com a base em (1; 2; 0) e rumo 0, vai a (1,3; 2; 0,1)

@@ -299,6 +299,11 @@ class EstimadorCaixa:
             self._r_meia = torch.where(tem, self._q_meia[ar, best], self._r_meia)
             self._q_t = self._q_t.masked_fill(entregue, float("nan"))
 
+    def tem_leitura(self) -> torch.Tensor:
+        """(E,) bool: a caixa já teve leitura válida, com idade < idade_max (E11 S5b: abre o P0 do PEGAR).
+        Sem leitura, a idade de `saida_b` é idade_max e esta conta dá False."""
+        return torch.isfinite(self._r_t) & (self.t - self._r_t < self.k.idade_max)
+
     def saida_b(self, odo: Odometria, base_quat_w):  # (E,8): pos_b 3, rotvec 3, meia 1, idade 1
         seen = torch.isfinite(self._r_t)
         idade = (self.t - self._r_t).clamp(max=self.k.idade_max)  # −∞ (nunca vista) → idade_max

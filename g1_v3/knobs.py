@@ -95,9 +95,8 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
     caixa_jitter_y: tuple = (-0.18, 0.18)  # g1_limpo/knobs.py Cena (cópia)
     # ⚠ por nível do PEGAR e do BOTAR (5 valores, índice = nível): o jitter em x aperta com o nível (g1_limpo/knobs.py Nivel:360)
     jitter_x_max: tuple = (0.20, 0.20, 0.20, 0.15, 0.08)
-    reset_base_manipula: tuple = (  # g1_limpo/knobs.py Cena:118 (cópia)
-        ("x", (-0.10, 0.00)), ("y", (-0.10, 0.10)), ("z", (0.01, 0.05)), ("yaw", (-0.2, 0.2)),
-    )
+    # E11 S4: só z e yaw. O x e o y da base da pega vêm da `ref.recuo` ± `faixa_recuo` (eventos `_base_da_pega`)
+    reset_base_manipula: tuple = (("z", (0.01, 0.05)), ("yaw", (-0.2, 0.2)))
     # D7 (29/10): reset da base no ANDAR, sobre a origem do terreno; rumo livre (plano §6.2)
     reset_base_andar: tuple = (("x", (-0.5, 0.5)), ("y", (-0.5, 0.5)), ("yaw", (-math.pi, math.pi)))
     # PD-46 (29/10: sai da cena.py): a laje tem priority 3, acima da caixa (0) e do robô (0; pés 1)

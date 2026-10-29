@@ -146,27 +146,45 @@ class TestProgresso(unittest.TestCase):
         phi = torch.full((1,), 0.6, dtype=torch.float64)
         fora = torch.zeros(1, dtype=torch.bool)
         b = torch.zeros(1, dtype=torch.float64)
-        soma = sum(float(recompensas.n_progresso(phi, phi, fora, b, fora, R.progresso, R.gamma)[0])
+        soma = sum(float(recompensas.n_progresso(phi, phi, fora, b, fora, fora, R.progresso, R.gamma)[0])
                    for _ in range(100))
         self.assertLessEqual(soma, 1e-9)
 
-    def test_passo_da_troca_paga_zero(self):
-        # Teste E4: o passo da troca (troca True) paga 0, mesmo com avanço e B_alvo (PD-36)
+    def test_troca_sem_avanco_paga_zero(self):
+        # Teste E11 (correção 2): troca sem avanço não paga, nem o ΔΦ nem o B_alvo[B4]
+        nao = torch.zeros(1, dtype=torch.bool)
         sim = torch.ones(1, dtype=torch.bool)
-        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), sim, torch.tensor([0.5]), sim,
+        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), nao, torch.tensor([0.5]), sim, nao,
+                                    1.0, R.gamma)
+        self.assertEqual(float(r[0]), 0.0)
+
+    def test_troca_com_fecho_do_b4_sem_perda_paga_b_alvo(self):
+        # Teste E11 (R3): o fecho do B4 (troca com avanço, sem `v3_perdeu`) paga o B_alvo[B4]; o ΔΦ vai a zero (PD-36)
+        nao = torch.zeros(1, dtype=torch.bool)
+        sim = torch.ones(1, dtype=torch.bool)
+        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), sim, torch.tensor([0.5]), sim, nao,
+                                    1.0, R.gamma)
+        self.assertAlmostEqual(float(r[0]), 0.5, places=6)
+
+    def test_troca_com_fecho_do_b4_depois_da_perda_paga_zero(self):
+        # Teste E11 (correção 2; S §10): a volta à pose de pé depois da perda não paga o B_alvo[B4] (a perda devolve)
+        sim = torch.ones(1, dtype=torch.bool)
+        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), sim, torch.tensor([0.5]), sim, sim,
                                     1.0, R.gamma)
         self.assertEqual(float(r[0]), 0.0)
 
     def test_entrada_no_alvo_paga_zero(self):
         # Teste E4: o passo com `phi_ant` = −1 (sem alvo antes) é a entrada no alvo e paga 0, sem o salto de Φ + 1
-        r = recompensas.n_progresso(torch.tensor([0.5]), torch.tensor([-1.0]), torch.tensor([False]),
-                                    torch.tensor([0.0]), torch.tensor([False]), 1.0, R.gamma)
+        nao = torch.tensor([False])
+        r = recompensas.n_progresso(torch.tensor([0.5]), torch.tensor([-1.0]), nao,
+                                    torch.tensor([0.0]), nao, nao, 1.0, R.gamma)
         self.assertEqual(float(r[0]), 0.0)
 
     def test_avanco_usa_phi_do_alvo_velho_no_estado_novo_mais_b_alvo(self):
         # Teste E4 (D1 da Parte 0): no passo do avanço, Φ(s′, i) do alvo VELHO + B_alvo; 0,99·0,8 − 0,6 + 0,5
+        nao = torch.tensor([False])
         r = recompensas.n_progresso(torch.tensor([0.8]), torch.tensor([0.6]), torch.tensor([True]),
-                                    torch.tensor([0.5]), torch.tensor([False]), 1.0, 0.99)
+                                    torch.tensor([0.5]), nao, nao, 1.0, 0.99)
         self.assertAlmostEqual(float(r[0]), 0.692, places=5)
 
 

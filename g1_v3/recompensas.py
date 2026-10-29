@@ -266,17 +266,18 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
     return torch.where(indice >= 0, phi, torch.zeros_like(phi))
 
 
-def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, w_p, gamma) -> torch.Tensor:
+def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, perdeu, w_p, gamma) -> torch.Tensor:
     """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou. O ΔΦ vai a zero na troca (PD-36; D1 da Parte 0) e na entrada
     no alvo (`phi_ant` < 0 é a sentinela "sem alvo" no passo anterior; E4). O B_alvo paga também no passo da troca,
-    que é o fecho do B4 (E11 R3, 29/10); na entrada no alvo ele não paga (`phi_ant` < 0 sem troca).
+    que é o fecho do B4 (E11 R3, 29/10), salvo com `perdeu` (a volta à pose de pé depois da perda paga como potencial,
+    S §10); na entrada no alvo ele não paga (`phi_ant` < 0 sem troca).
 
     `phi_velho_no_novo` é Φ(s′, i) do alvo VELHO no passo do avanço (e do alvo corrente nos outros). `w_p` é a
     escala do knob (o `RewardTermCfg` tem peso 1,0; a escala mora aqui). Pairar com γ < 1 soma ≤ 0.
     """
     dphi = w_p * potencial.progresso(phi_velho_no_novo, phi_ant, gamma)
     dphi = torch.where(troca | (phi_ant < 0), torch.zeros_like(dphi), dphi)
-    paga = avancou & (troca | (phi_ant >= 0))
+    paga = avancou & (troca | (phi_ant >= 0)) & ~(troca & perdeu)
     return dphi + b_alvo * paga.float()
 
 
@@ -696,7 +697,8 @@ def contato_fora(env, tarefas):
 
 def progresso(env, tarefas):
     """Potencial do alvo corrente (E4; §6.3, §6.5). No passo do avanço, Φ do alvo VELHO no estado novo e
-    B_alvo[velho]; no passo em que o índice vira −1, só o ΔΦ vai a zero (PD-36) e o B_alvo[B4] paga (E11 R3). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
+    B_alvo[velho]; no passo em que o índice vira −1, só o ΔΦ vai a zero (PD-36) e o B_alvo[B4] paga (E11 R3), salvo
+    com `v3_perdeu` (correção E11). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
     e soma `v3_b_pagos` (só os avanços com o alvo velho ≥ P2). Pelo `avancou` do comando, o velho é `alvo_idx − 1`
     (a ordem P0…B4 é sequencial), salvo no fecho do P4, que mantém o índice (`v3_p4_fechado`; S2, 29/10): aí o
     alvo que paga é o P4. O σ do velho é `v3_sigma_velho` (S3). Sem `paga`: a volta à pose de pé também paga (S §10).
@@ -712,8 +714,9 @@ def progresso(env, tarefas):
     phi_novo = torch.where(troca, torch.full_like(phi_novo, -1.0), phi_novo)  # sentinela: sem alvo
     b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
     b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
-    r = n_progresso(phi_ef, env.v3_phi, av, b, troca, R.progresso, R.gamma)
-    pagos = av & (i_ef >= alvos.P2)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
+    perdeu = env.v3_perdeu
+    r = n_progresso(phi_ef, env.v3_phi, av, b, troca, perdeu, R.progresso, R.gamma)
+    pagos = av & (i_ef >= alvos.P2) & ~(troca & perdeu)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
     env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(pagos, b, torch.zeros_like(b))
     env.v3_phi[:] = phi_novo
     return _fim(env, tarefas, r)

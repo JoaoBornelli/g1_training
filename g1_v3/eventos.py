@@ -5,9 +5,9 @@ da caixa da fase E (`posiciona_cena`, `carga`, atritos, `vies_imu`; o núcleo `s
 entram direto no cfg (D10), sem invólucro: o fabricante já aceita `env_ids`. Aqui fica só o que é nosso.
 
 ⚠ Ordem do reset (o mjlab roda CURRÍCULO → EVENTOS → COMANDO): o `v3_cur` e os buffers `v3_*` já existem
-quando `sorteia_fatia` roda. Quem os cria antes do primeiro reset é o `CadeiaCmd.__init__` (`comando.py:195`), que
-chama `garante_v3` na construção do env (§6.4); o termo `v3` do currículo roda depois dos eventos e não cria nada
-aqui. Por isso este módulo lê `env.v3_*` e não importa o `curriculo`.
+quando `sorteia_fatia` roda. Quem os cria é o `CadeiaCmd.__init__` (`comando.py:195`), que chama `garante_v3` na
+construção do env (§6.4), antes do primeiro reset e dos eventos de startup. Por isso este módulo lê `env.v3_*`
+e não importa o `curriculo`.
 
 ⚠ UM evento por entidade (padrão do g1_limpo/eventos.py): `base` é o único reset que escreve a pose da base.
 """
@@ -125,14 +125,6 @@ def sorteia_fatia(env, env_ids, k_ter):
     env.scene.env_origins[env_ids] = terreno.terrain_origins[linha, coluna]
 
 
-def _caixa_xy(env):
-    # xy da caixa de cada episódio B/C, relativo à origem do env: `posiciona_cena` escreve, a `base` lê (E11 S4).
-    # ⚠ Criado aqui só se não existe (o padrão do `v3_ref` no `curriculo`): não é um buffer do `garante_v3`.
-    if not hasattr(env, "v3_caixa_xy"):
-        env.v3_caixa_xy = torch.zeros((env.num_envs, 2), dtype=torch.float64, device=env.device)
-    return env.v3_caixa_xy
-
-
 def _base_da_pega(env, ids, faixa: dict):
     """Base das fatias B e C na partida do PEGAR (E11 S4, 29/10; E §4.3: o controlador já leva o robô à pega).
 
@@ -153,7 +145,7 @@ def _base_da_pega(env, ids, faixa: dict):
     yaw = lo_yaw + (hi_yaw - lo_yaw) * u[1]
     dz = lo_z + (hi_z - lo_z) * u[2]
     origem = env.scene.env_origins[ids].to(torch.float64)
-    xy = origem[:, :2] + _caixa_xy(env)[ids] - torch.stack([d, torch.zeros_like(d)], -1)
+    xy = origem[:, :2] + env.v3_caixa_xy[ids] - torch.stack([d, torch.zeros_like(d)], -1)
     root = robo.data.default_root_state[ids].clone()
     z = origem[:, 2] + root[:, 2].to(torch.float64) + dz
     quat = quat_mul(root[:, 3:7], quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw).to(root.dtype))
@@ -280,7 +272,7 @@ def posiciona_cena(env, env_ids):
     """Reset `cena`: sorteia topo e massa pelo núcleo e põe a laje e a caixa. A fatia ANDAR vai a `estaciona_cena`.
 
     Publica `v3_topo` (sobre o chão local) e `v3_massa`; o `carga` lê a massa daqui, por isso roda depois.
-    E11 S4: publica também o xy da caixa de B e C (`_caixa_xy`), que a `base` lê, por isso roda antes dela.
+    E11 S4: publica também o xy da caixa de B e C (`v3_caixa_xy`), que a `base` lê, por isso roda antes dela.
     ⚠ O nível vem do `v3_cur` pelo nome do contrato: `nivel("PEGAR")` e `nivel_passou("PEGAR")` (E6).
     ⚠ O jitter em x é de UM LADO (0..jx_max), como no g1_limpo, e aperta com o nível (`jitter_x_max[nível]`).
     """
@@ -299,7 +291,7 @@ def posiciona_cena(env, env_ids):
     u = _uniforme(g, (2, len(ids)), dev)
     dx = k.jitter_x_max[cur.nivel("PEGAR")] * u[0]
     dy = k.caixa_jitter_y[0] + (k.caixa_jitter_y[1] - k.caixa_jitter_y[0]) * u[1]
-    _caixa_xy(env)[ids] = torch.stack([k.caixa_xy[0] + dx, k.caixa_xy[1] + dy], -1)  # a `base` põe o robô em relação a ela
+    env.v3_caixa_xy[ids] = torch.stack([k.caixa_xy[0] + dx, k.caixa_xy[1] + dy], -1)  # a `base` põe o robô em relação a ela
     _laje(env, ids, tw)
     _caixa(env, ids, tw, dx, dy)
 

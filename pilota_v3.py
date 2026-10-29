@@ -319,8 +319,7 @@ class Visao:
             return np.zeros(11)
         base_q = torch.as_tensor(d.xquat[self.base], dtype=torch.float32)[None]
         saida = self.est.saida_b(self.p.odo, base_q)
-        # ⚠ DÚVIDA: lê `_r_t` (privado); o certo é um `tem_leitura()` público no `estimador.py` (outro dono).
-        if tarefa == _PEGAR and not self.aberto and bool(torch.isfinite(self.est._r_t)[0]):
+        if tarefa == _PEGAR and not self.aberto and bool(self.est.tem_leitura()[0]):
             # A caixa VISTA, no mundo pela odometria (como `comando.py:305`); fica fixa até a próxima tecla.
             self.alvo_w = _ES.do_frame_da_base(saida[:, :3], self.p.odo).clone()
             self.aberto = True

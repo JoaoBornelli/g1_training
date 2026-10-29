@@ -23,7 +23,7 @@ from g1_v3 import alvos, estimador, eventos, recompensas
 from g1_v3.alvos import B4, P0, P1, P2, P3, P4
 from g1_v3.curriculo import garante_v3
 from g1_v3.knobs import ATIVO, TAREFAS, Cadeia, Comando, Estimador
-from g1_v3.observacoes import _z_pe_min
+from g1_v3.observacoes import z_pe_min
 
 # Índices de TAREFAS (knobs.py): o one-hot da §6.5 e a tabela de trechos usam esta ordem.
 ANDAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3
@@ -306,7 +306,7 @@ class CadeiaCmd(CommandTerm):
             return
         odo = env.v3_odo
         est = env.v3_estimador.saida_b(odo, m["base_q"])  # (E,8): pos_b, rotvec, meia, idade
-        ids = (self._espera() & (est[:, 7] < self.cfg.est.idade_max)).nonzero().flatten()
+        ids = (self._espera() & env.v3_estimador.tem_leitura()).nonzero().flatten()
         if ids.numel() == 0:
             return
         pos = estimador.do_frame_da_base(est[:, :3], odo)[ids]
@@ -374,8 +374,8 @@ class CadeiaCmd(CommandTerm):
         # Detector de fim (E3, item 3; I §4.2): aviso da pose de pé com caixa, só nos trechos que acabam por ele.
         env, ref, a = self._env, self._env.v3_ref, self._env.v3_meia
         palmas_b = quat_apply_inverse(m["base_q"][:, None].expand(-1, 2, -1), m["palmas_w"] - m["base_p"][:, None])
-        # R6 (E11): a pelve sobre o pé mais baixo, como a I §4.2 e o treino (`_z_pe_min`), e não sobre o terreno (`h`)
-        pelve = self.robot.data.root_link_pos_w[:, 2] - _z_pe_min(self.robot, ref)
+        # R6 (E11): a pelve sobre o pé mais baixo, como a I §4.2 e o treino (`z_pe_min`), e não sobre o terreno (`h`)
+        pelve = self.robot.data.root_link_pos_w[:, 2] - z_pe_min(self.robot, ref)
         aviso_det, rel = alvos.detecta_fim(pelve, torch.deg2rad(m["tronco_graus"]), palmas_b,
                                            self.robot.data.joint_vel, ref.pelve_com_caixa(a),
                                            ref.palmas_com_caixa_b(a), self.rel_fim, dt, D)

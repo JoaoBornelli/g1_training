@@ -76,6 +76,8 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; o passo de entrada no alvo paga 0 (E4)
     for nome, dim in _VETORES.items():
         _cria(env, nome, (dim,), torch.float32)
+    if not hasattr(env, "v3_caixa_xy"):  # (E,2) float32, como os buffers de posição: xy da caixa de B e C (E11 S4)
+        env.v3_caixa_xy = torch.zeros((n, 2), dtype=torch.float32, device=dev)
     if not hasattr(env, "v3_incl_imu"):  # (E,3,3) giro fixo do IMU: começa na identidade, não em zeros
         env.v3_incl_imu = torch.eye(3, device=dev).repeat(n, 1, 1)
 
