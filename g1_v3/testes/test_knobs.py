@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from g1_v3.knobs import JUNTAS, TAREFAS, Contrato, Knobs, Recompensa, dim_ator, q_de_pe
+from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, Contrato, Knobs, Recompensa, dim_ator, q_de_pe
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -83,6 +83,21 @@ class TestKnobs(unittest.TestCase):
             achado[regra] = par
             self.assertTrue(set(tarefas) <= set(TAREFAS), regra)
         self.assertEqual(achado, esperado)
+
+    def test_nenhum_none_no_ativo(self):
+        # None = "sai da Parte 0": nenhum pode chegar ao treino. Anda tuplas e tuplas de tuplas.
+        def achar_none(nome, valor):
+            if valor is None:
+                return [nome]
+            if isinstance(valor, tuple):
+                return [n for i, v in enumerate(valor) for n in achar_none(f"{nome}[{i}]", v)]
+            return []
+        achados = []
+        for secao in dataclasses.fields(ATIVO):
+            obj = getattr(ATIVO, secao.name)
+            for campo in dataclasses.fields(obj):
+                achados += achar_none(f"{secao.name}.{campo.name}", getattr(obj, campo.name))
+        self.assertEqual(achados, [], f"None no ATIVO: {achados}")
 
     def test_knobs_nao_importa_torch_nem_mjlab(self):
         # Subprocesso limpo: o sys.modules deste processo já tem o que o unittest carregou.
