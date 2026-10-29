@@ -919,7 +919,7 @@ False ou 0 fora dos índices dele, nunca NaN (§6.6).
 # eventos.py (F2; a F5 entra aqui: o nível do BOTAR vem de `v3_cur.nivel("BOTAR")`)
 def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerador
                     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: ...
-    # (theta (n,) rad U[−destino_giro_max_graus; +], y (n,) m U[−destino_jitter_y; +], longe (n,) m
+    # (theta (n,) em rad, U[±radians(destino_giro_max_graus)], y (n,) m U[−destino_jitter_y; +], longe (n,) m
     # U[0; jitter_x_max[nivel_botar]] (o jitter só para longe, [C38]), topo (n,) m U[botar[nivel]; botar[0]])
     # O invólucro `posiciona_destino(env, ids)`: alvos.laje_destino(recuo(topo, a) + longe, theta, y,
     # prateleira_meia_xy, destino_borda) → (alvo_b, centro_b); leva ao mundo pelo rumo da base; a laje gira para
@@ -928,7 +928,8 @@ def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerad
 # comando.py (F1)
 def ok_agora_botar(indice, d_horiz_b1, d_caixa_b2, apoio_N, peso_N, afasta_palmas, apoiada, v_caixa,
                    dpelve, dtronco_graus, invariantes, k: Alvos) -> torch.Tensor: ...
-    # (E,) bool. B1: d_horiz_b1 ≤ tol_b1_horizontal (a caixa na horizontal do ponto 5 cm acima da soltura);
+    # (E,) bool. Formas: v_caixa (E,3) m/s; afasta_palmas (E,2) m, uma por palma; apoio_N e peso_N (E,) N.
+    # B1: d_horiz_b1 ≤ tol_b1_horizontal (a caixa na horizontal do ponto 5 cm acima da soltura);
     # B2: d_caixa_b2 ≤ raio_b2 e apoio_N ≥ apoio_b2_mg·peso_N; B3: as duas afasta_palmas (E,2) ≥ b3_afasta, apoiada
     # e ‖v_caixa‖ < v_parada_b3 (PD-39); B4: |dpelve| ≤ tol_pelve_b4 e |dtronco_graus| ≤ tol_tronco_b4_graus;
     # sempre `& (invariantes == 1)` (o produto `desloc · incl · maos` de `portoes_do_alvo`); P0..P4 e −1: False.
