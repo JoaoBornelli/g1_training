@@ -258,5 +258,27 @@ class TestDetectaFim(unittest.TestCase):
         self.assertFalse(any(self._roda(0.3, 100)))
 
 
+class TestBaseParaMundo(unittest.TestCase):
+    # F9 R3: núcleo único base → mundo (base + R(rumo)·p), no lugar das cópias de eventos, caixa_alvo_w e driver.
+
+    def test_rumo_90_leva_x_a_y_somado_a_base(self):
+        p = torch.tensor([[1.0, 0.0]], dtype=T)
+        out = alvos.base_para_mundo(torch.zeros(1, 2, dtype=T), t(math.pi / 2), p)
+        self.assertTrue(torch.allclose(out, torch.tensor([[0.0, 1.0]], dtype=T), atol=1e-12))
+        out = alvos.base_para_mundo(torch.tensor([[2.0, 3.0]], dtype=T), t(math.pi / 2), p)
+        self.assertTrue(torch.allclose(out, torch.tensor([[2.0, 4.0]], dtype=T), atol=1e-12))
+
+    def test_caixa_alvo_p4_com_rumo_90_usa_o_mesmo_nucleo(self):
+        # Guarda de regressão da troca na conta inline de caixa_alvo_w: P4 com rumo 90° e base (1, 2).
+        ref = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV)
+        a = torch.tensor([0.10], dtype=T)
+        base = torch.tensor([[1.0, 2.0, 0.0]], dtype=T)
+        out = alvos.caixa_alvo_w(torch.tensor([IDX["P4"]]), torch.zeros(1, 3, dtype=T), torch.zeros(1, 3, dtype=T),
+                                 base, t(math.pi / 2), torch.zeros(1, dtype=T), a, ref, K_AL)
+        tb = ref.caixa_transporte_b(a)[0]
+        esperado = alvos.base_para_mundo(base[:, :2], t(math.pi / 2), tb[None, :2])
+        self.assertTrue(torch.allclose(out[:, :2], esperado, atol=1e-9))
+
+
 if __name__ == "__main__":
     unittest.main()

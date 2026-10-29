@@ -168,8 +168,8 @@ class Alvos:  # S §8.2; PD-23
     b3_afasta: float = 0.05  # S §8.2: afastamento das palmas em B3 (m)
     tempo_b3: float = 0.5  # S §8.2: tempo de permanência em B3 (s)
     v_parada_b3: float = 0.05  # PD-39: caixa parada no B3, ‖v_caixa‖ abaixo disto (m/s)
-    tol_pelve_b4: float = 0.03  # S §8.2: tolerância da pelve em B4 (m)
-    tol_tronco_b4_graus: float = 5.0  # S §8.2: tolerância do tronco em B4 (graus)
+    tol_pelve_b4: float = Detector.tol_pelve  # S §8.2; I §4.2: a mesma tolerância do detector (m)
+    tol_tronco_b4_graus: float = Detector.tol_tronco_graus  # S §8.2; I §4.2: a mesma do detector (graus)
     tempo_b4: float = 0.5  # S §8.2: tempo de permanência em B4 (s)
     z_transporte: float = 0.90  # S §8.2: altura de transporte sobre o chão local (m); PD-21
     incl_inicio_graus: float = 30.0  # S §8.2, §9.1: inclinação inicial da caixa (graus)

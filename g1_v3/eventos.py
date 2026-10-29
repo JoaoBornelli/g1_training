@@ -23,7 +23,7 @@ from mjlab.envs.mdp.events import push_by_setting_velocity, reset_root_state_uni
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz, quat_mul
 
-from g1_v3 import alvos
+from g1_v3 import alvos, estimador
 from g1_v3.knobs import ATIVO, Cena, Niveis
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
@@ -271,7 +271,7 @@ def estaciona_cena(env, ids):
 def laje_fora(env, env_ids):
     """Chamada pelo `comando` na abertura do CARREGAR que anda (C39): tira a laje do caminho, só a laje.
 
-    A conta é a do `estaciona_cena`. A caixa NÃO se move aqui (ver DÚVIDA no relatório da E1).
+    A conta é a do `estaciona_cena`. A caixa NÃO se move aqui.
     """
     if len(env_ids) == 0:
         return
@@ -325,12 +325,6 @@ def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerad
     return theta, y, longe, topo
 
 
-def _base_para_mundo(base_xy, rumo, p):
-    # o frame da base → mundo: base + R(rumo)·p, a mesma conta de `alvos.caixa_alvo_w`
-    c, s = torch.cos(rumo), torch.sin(rumo)
-    return base_xy + torch.stack([c * p[:, 0] - s * p[:, 1], s * p[:, 0] + c * p[:, 1]], -1)
-
-
 def posiciona_destino(env, ids):
     """Abertura do BOTAR (chamado pela cadeia, F1; não é evento do cfg): a laje de destino, PD-47.
 
@@ -346,11 +340,11 @@ def posiciona_destino(env, ids):
     recuo = env.v3_ref.recuo(topo.to(env.v3_topo.dtype), env.v3_meia[ids]).to(dev, f64) + longe
     alvo_b, centro_b = alvos.laje_destino(recuo, theta, y, k.prateleira_meia_xy, k.destino_borda)
     robo = env.scene["robot"].data
-    base, rumo = robo.root_link_pos_w[ids, :2].to(f64), robo.heading_w[ids].to(f64)
+    base, rumo = robo.root_link_pos_w[ids, :2].to(f64), estimador.yaw(robo.root_link_quat_w[ids]).to(f64)
     topo_w = env.scene.env_origins[ids, 2].to(f64) + topo
-    _laje(env, ids, topo_w, xy=_base_para_mundo(base, rumo, centro_b), yaw=rumo + theta)
+    _laje(env, ids, topo_w, xy=alvos.base_para_mundo(base, rumo, centro_b), yaw=rumo + theta)
     env.v3_topo_destino[ids] = topo.to(env.v3_topo_destino.dtype)
-    alvo_w = _base_para_mundo(base, rumo, alvo_b)
+    alvo_w = alvos.base_para_mundo(base, rumo, alvo_b)
     return torch.cat([alvo_w, topo_w[:, None]], -1)
 
 

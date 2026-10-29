@@ -8,10 +8,12 @@ usam recuo e θ fixos; o canto mais perto é o de menor x no frame da base, e a 
 """
 import math
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, eventos
+from g1_v3 import alvos, estimador, eventos
 from g1_v3.knobs import ATIVO
 
 CENA = ATIVO.cena
@@ -102,6 +104,41 @@ class GeometriaDaLaje(unittest.TestCase):
                     # borda perto é a de x_local = −meia; o alvo tem de estar a 0,15 m dela
                     self.assertAlmostEqual(local_x + MEIA, BORDA, delta=TOL_MM)
                     self.assertAlmostEqual(local_y, 0.0, delta=TOL_MM)
+
+
+class _Cena(dict):  # o `env.scene`: `scene["robot"]` e `scene.env_origins`
+    env_origins = None
+
+
+class BaseEYawDaLajeDestino(unittest.TestCase):
+    # F9 R3: sai a cópia de base → mundo de `eventos` (usa `alvos.base_para_mundo`) e o rumo sai de `estimador.yaw`.
+
+    def test_nao_ha_copia_de_base_para_mundo_em_eventos(self):
+        # Antes do conserto: `eventos._base_para_mundo` existe e o teste falha.
+        self.assertFalse(hasattr(eventos, "_base_para_mundo"))
+
+    def test_rumo_da_laje_vem_do_quaternion_e_nao_de_heading_w(self):
+        # Antes do conserto: o rumo vem de `heading_w` (falso, zero) e o teste falha com yaw 0 em vez de 0,5.
+        psi = 0.5
+        quat = torch.tensor([[math.cos(psi / 2), 0.0, 0.0, math.sin(psi / 2)]], dtype=torch.float32)
+        robo = SimpleNamespace(root_link_pos_w=torch.zeros(1, 3), root_link_quat_w=quat, heading_w=torch.zeros(1))
+        cena = _Cena(robot=SimpleNamespace(data=robo))
+        cena.env_origins = torch.zeros(1, 3)
+        env = SimpleNamespace(
+            v3_cur=SimpleNamespace(nivel=lambda nome: 0), v3_gerador=torch.Generator().manual_seed(0),
+            device="cpu", scene=cena, v3_topo=torch.zeros(1), v3_topo_destino=torch.zeros(1),
+            v3_meia=torch.tensor([0.1]), v3_ref=SimpleNamespace(recuo=lambda topo, meia: torch.full((1,), 0.5)))
+        sorteio = (torch.zeros(1), torch.zeros(1), torch.zeros(1), torch.full((1,), 0.5))  # θ = 0, y = 0, longe = 0
+        capturado = {}
+
+        def laje(env_, ids, topo_w, xy=None, yaw=None):
+            capturado["yaw"] = yaw
+
+        with mock.patch.object(eventos, "sorteia_destino", return_value=sorteio), \
+                mock.patch.object(eventos, "_laje", side_effect=laje):
+            eventos.posiciona_destino(env, torch.tensor([0]))
+        esperado = estimador.yaw(quat).double()
+        self.assertTrue(torch.allclose(capturado["yaw"], esperado, atol=1e-9))
 
 
 if __name__ == "__main__":

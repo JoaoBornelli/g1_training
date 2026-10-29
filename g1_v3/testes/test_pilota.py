@@ -117,6 +117,12 @@ class TestPilota(unittest.TestCase):
             py_compile.compile(str(RAIZ / "registra_juntas_v3.py"),
                                cfile=os.path.join(tmp, "registra_juntas_v3.pyc"), doraise=True)
 
+    def test_base_para_mundo_do_driver_e_o_do_alvos(self):
+        # F9 R3: o driver não tem cópia numpy de base → mundo; usa `alvos.base_para_mundo` (carregado por `_AL`).
+        # Antes do conserto: a função não existe em `alvos` e o driver ainda define `_base_para_mundo`.
+        self.assertFalse(hasattr(PILOTA, "_base_para_mundo"))
+        self.assertTrue(hasattr(PILOTA._AL, "base_para_mundo"))
+
     def test_forma_e_blocos_do_contrato(self):
         d, c = _cena_falsa(1)
         obs, hist = _chama(d, c, _entradas(2), None)

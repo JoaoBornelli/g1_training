@@ -52,6 +52,9 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `mocap_pos_inicial` | f64 (nmocap, 3) | m; zeros (0, 3) se não há mocap |
 | `mocap_quat_inicial` | f64 (nmocap, 4) | quaternion wxyz; zeros (0, 4) se não há mocap |
 
+- Chão do driver: o plano z = 0 (F9 M12). É a coluna `plano` do terreno (`knobs.colunas[0]`, `cena.py`); a fatia C e o
+  reset do exportador são plano. O `pilota_v3` põe o topo da laje de destino sobre z = 0.
+
 ### `contrato.json` (UTF-8, `indent=2`)
 
 | chave | tipo, forma | significado |

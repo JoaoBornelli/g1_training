@@ -153,6 +153,12 @@ def palmas_alvo_caixa(indice, a, k):
     return torch.where(usa.view(-1, 1, 1), out, torch.zeros_like(out))
 
 
+def base_para_mundo(base_xy, rumo, p):
+    """Frame da base → mundo (E,2): base + R(rumo)·p (F9 R3). Núcleo único: eventos, caixa_alvo_w e o driver chamam."""
+    c, s = torch.cos(rumo), torch.sin(rumo)
+    return base_xy + torch.stack([c * p[:, 0] - s * p[:, 1], s * p[:, 0] + c * p[:, 1]], -1)
+
+
 def caixa_alvo_w(indice, caixa_na_pega_w, alvo_soltura_w, base_pos_w, rumo, chao_z, a, ref, k):
     """Posição-alvo da caixa (E,3) no mundo (S §8.2).
 
@@ -161,8 +167,7 @@ def caixa_alvo_w(indice, caixa_na_pega_w, alvo_soltura_w, base_pos_w, rumo, chao
     """
     ez = caixa_na_pega_w.new_tensor([0.0, 0.0, 1.0])
     tb = ref.caixa_transporte_b(a)
-    c, s = torch.cos(rumo), torch.sin(rumo)
-    xy4 = base_pos_w[:, :2] + torch.stack([c * tb[:, 0] - s * tb[:, 1], s * tb[:, 0] + c * tb[:, 1]], -1)
+    xy4 = base_para_mundo(base_pos_w[:, :2], rumo, tb[:, :2])
     p4 = torch.cat([xy4, (chao_z + k.z_transporte).unsqueeze(-1)], -1)
     candidatos = (
         (P3, caixa_na_pega_w + k.p3_alto * ez),

@@ -254,12 +254,6 @@ class Percepcao:
         return mapa
 
 
-def _base_para_mundo(base_xy: np.ndarray, rumo: float, p: np.ndarray) -> np.ndarray:
-    """O frame da base → mundo: base + R(rumo)·p. A mesma conta do `_base_para_mundo` do `eventos.py`, em numpy."""
-    c, s = np.cos(rumo), np.sin(rumo)
-    return base_xy + np.array([c * p[0] - s * p[1], s * p[0] + c * p[1]])
-
-
 class Visao:
     """A caixa no laço: o `EstimadorCaixa` sobre a D435i, e o detector de fim (I §2.3, §4.2; E9).
 
@@ -320,14 +314,15 @@ class Visao:
         if tarefa != _BOTAR:
             return
         k = _KN.cena
-        # ⚠ DÚVIDA: o z do chão é 0. O contrato do `exporta_cena` não o fixa; o treino usa `env_origins` z + topo.
+        # O chão é o plano z = 0, como fixa o contrato do `exporta_cena` (coluna `plano` do terreno).
         topo = float(_KN.niveis.botar[0])
         zero = torch.zeros(1, dtype=torch.float64)
         recuo = self.p.ref.recuo(torch.tensor([topo]), self.a).double()  # longe = 0
         alvo_b, centro_b = _AL.laje_destino(recuo, zero, zero, k.prateleira_meia_xy, k.destino_borda)
         base_xy, rumo = d.xpos[self.base][:2].copy(), _yaw(d.xquat[self.base])
-        alvo_xy = _base_para_mundo(base_xy, rumo, alvo_b[0].numpy())
-        centro_xy = _base_para_mundo(base_xy, rumo, centro_b[0].numpy())
+        base_t, rumo_t = torch.as_tensor(base_xy)[None], torch.tensor([rumo], dtype=torch.float64)
+        alvo_xy = _AL.base_para_mundo(base_t, rumo_t, alvo_b)[0].numpy()
+        centro_xy = _AL.base_para_mundo(base_t, rumo_t, centro_b)[0].numpy()
         # A laje gira para rumo + θ (θ = 0) e o centro dela fica `prateleira_meia_z` abaixo do topo (`eventos._laje`).
         d.mocap_pos[self.id_mocap_laje] = (centro_xy[0], centro_xy[1], topo - k.prateleira_meia_z)
         d.mocap_quat[self.id_mocap_laje] = (np.cos(rumo / 2.0), 0.0, 0.0, np.sin(rumo / 2.0))
@@ -392,8 +387,7 @@ class Visao:
             torch.as_tensor(d.qvel[self.ids_v], dtype=torch.float32)[None],
             ref_pelve, ref_palmas, self.relogio, _DT, _KN.detector)
         fim = bool(aviso[0])
-        # ⚠ DÚVIDA: o aviso do BOTAR aproxima o B4 fechado com a pose de pé. As tolerâncias do B4 (`Alvos.tol_pelve_b4`,
-        # `tol_tronco_b4_graus`) podem diferir das do `Detector` (`tol_pelve`, `tol_tronco_graus`); o treino usa as do B4.
+        # As tolerâncias do B4 leem as do `Detector` (F9 R3: um número só, I §4.2). A janela do aviso é a do latch (F9 P5, R5).
         if tarefa == _BOTAR and fim:
             self.fechado = True
         return fim

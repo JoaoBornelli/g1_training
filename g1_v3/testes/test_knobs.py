@@ -3,6 +3,7 @@
 Os números vêm do plano (§6.2, A6) e da interface real (I §2.2). Não ajustar a tolerância
 para fazer passar: se o valor sai daqui, o contrato com o robô mudou.
 """
+import ast
 import builtins
 import dataclasses
 import re
@@ -66,6 +67,21 @@ class TestKnobs(unittest.TestCase):
             setattr(Knobs(), campos[0].name, None)
         with self.assertRaises(dataclasses.FrozenInstanceError):
             Contrato().escala_acao = 1.0  # §6.2: escala_acao = 0,25
+
+    def test_tolerancias_do_b4_leem_o_detector(self):
+        # F9 R3 (I §4.2: são as mesmas): um literal só. Antes do conserto, `Alvos.tol_pelve_b4` é literal (0,03)
+        # e o teste falha na checagem do AST; os valores (0,03 m e 5°) não mudam.
+        arvore = ast.parse((RAIZ / "g1_v3" / "knobs.py").read_text(encoding="utf-8"))
+        defaults = {}
+        for no in ast.walk(arvore):
+            if isinstance(no, ast.ClassDef) and no.name == "Alvos":
+                defaults = {st.target.id: st.value for st in no.body if isinstance(st, ast.AnnAssign)}
+        for nome in ("tol_pelve_b4", "tol_tronco_b4_graus"):
+            self.assertIsInstance(defaults[nome], ast.Attribute, f"{nome} repete um literal")
+        self.assertEqual(ATIVO.alvos.tol_pelve_b4, 0.03)
+        self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, 5.0)
+        self.assertEqual(ATIVO.alvos.tol_pelve_b4, ATIVO.detector.tol_pelve)
+        self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, ATIVO.detector.tol_tronco_graus)
 
     def test_dr_e_refino(self):
         # §6.2, contrato de 29/10: o DR (§6.8) e o Refino (§6.9) entram no agregador.
