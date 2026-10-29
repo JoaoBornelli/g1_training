@@ -12,7 +12,7 @@ from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, comando, potencial, recompensas
+from g1_v3 import alvos, comando, curriculo, eventos, potencial, recompensas
 from g1_v3.comando import CadeiaCmd, caixa_perdida_agora, ok_agora_pegar, sucesso_do_pegar
 from g1_v3.knobs import ATIVO, Estimador
 
@@ -68,7 +68,7 @@ def sucesso(p4, falhou, perdeu):
 # --- E11 (29/10): invólucros da cadeia com env falso (E = 1), sem a cena --------------------------------------
 
 def _env_falso(idx, tarefa=comando.PEGAR):
-    # Só os buffers que `_alvos_pegar` e `_abre_p0` leem ou escrevem.
+    # Só os buffers que `_alvos` e `_abre_p0` leem ou escrevem.
     z, b = torch.zeros(1), torch.zeros(1, dtype=torch.bool)
     return types.SimpleNamespace(
         v3_alvo_idx=torch.tensor([idx], dtype=torch.long), v3_tarefa=torch.tensor([tarefa], dtype=torch.long),
@@ -76,6 +76,7 @@ def _env_falso(idx, tarefa=comando.PEGAR):
                                                                   pelve_de_pe=0.0),
         v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
+        v3_ponto_apoio=torch.zeros(1, 3),
         v3_sigma=torch.ones(1), v3_sigma_velho=torch.ones(1), v3_phi=torch.zeros(1),
         v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])))
 
@@ -94,7 +95,8 @@ def _medidas():
     z = torch.zeros(1)
     return dict(h=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
                 palmas_w=torch.zeros(1, 2, 3), palmas_c=torch.zeros(1, 2, 3), contatos=torch.ones(1, 2, dtype=torch.bool),
-                apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z)
+                apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
+                v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1))
 
 
 class TestCadeiaComEnvFalso(unittest.TestCase):
@@ -111,7 +113,7 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
                 mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
                 mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
                 mock.patch.object(recompensas, "portoes_do_alvo", return_value=ok_todos):
-            obj._alvos_pegar(_medidas(), 0.02)
+            obj._alvos(_medidas(), 0.02)
         self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P2])
         self.assertAlmostEqual(env.v3_sigma_velho.item(), 0.15, places=6)
         self.assertAlmostEqual(env.v3_sigma.item(), 0.02, places=6)
@@ -275,6 +277,224 @@ class TestSucessoDoPegar(unittest.TestCase):
     def test_sem_p4_fechado_nao_conta(self):
         # E3, §6.3: sem P4 fechado não há sucesso, mesmo sem falha
         self.assertFalse(sucesso(p4=False, falhou=False, perdeu=False))
+
+
+# --- F9 (29/10), lane 1: a cadeia com a tabela de `_monta` e um `v3_cur` falso (S2, S3, P3, P5, P6, P7, M6) -------
+
+PEGAR_TRECHO, ANDAR_TRECHO, BOTAR_TRECHO = 2, 1, 7  # índices de `_monta`: fatia B = ANDAR, PEGAR, CARREGAR; C = …, BOTAR
+
+
+def _cadeia_de_trechos(n=1):
+    # `CadeiaCmd` com a tabela real e um env de E = n sem a cena. `v3_cur` só guarda os registros (num, sucessos).
+    z = lambda *forma: torch.zeros(n, *forma)  # noqa: E731
+    b = lambda: torch.zeros(n, dtype=torch.bool)  # noqa: E731
+    cur = types.SimpleNamespace(registros=[], id_celula=lambda tarefa, tipo: 0, niveis_abertos=lambda nome: 0,
+                                degrau=lambda nome: 0)
+    cur.registra = lambda celula, num, suc: cur.registros.append((num, suc))
+    env = types.SimpleNamespace(
+        device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), scene={}, step_dt=DT,
+        v3_fatia=torch.full((n,), comando.FATIA_B, dtype=torch.long),
+        v3_tarefa=torch.full((n,), comando.ANDAR, dtype=torch.long), v3_trecho=torch.zeros(n, dtype=torch.long),
+        v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_relogio_alvo=z(), v3_b_pagos=z(),
+        v3_freio=torch.zeros(n, dtype=torch.long), v3_degrau=torch.zeros(n, dtype=torch.long),
+        v3_alvo_w=z(3), v3_caixa_pega_w=z(3), v3_ponto_apoio=z(3), v3_sigma=torch.ones(n),
+        v3_sigma_velho=torch.ones(n), v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),
+        v3_pegou=b(), v3_perdeu=b(), v3_p4_fechado=b(), v3_b4_fechado=b(), v3_perdeu_agora=b(), v3_avancou=b(),
+        v3_fim=b(), v3_t_empurrao=torch.full((n,), float("-inf")),
+        v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(n), pelve_de_pe=0.0,
+                                     palmas_de_pe_b=torch.zeros(n, 2, 3),
+                                     palmas_com_caixa_b=lambda a: torch.zeros(n, 2, 3)),
+        termination_manager=types.SimpleNamespace(time_outs=b()),
+        v3_odo=types.SimpleNamespace(pos_w=torch.zeros(n, 3), quat_w=torch.tensor([[1.0, 0, 0, 0]]).repeat(n, 1)),
+        v3_estimador=types.SimpleNamespace(saida_b=lambda odo, q: torch.zeros(n, 8), tem_leitura=lambda: b()))
+    obj = _cadeia_sem_env(env)
+    obj.pega, obj.bota, obj.rel_fim = b(), b(), z()
+    obj.relogio, obj.alvo_s = z(), z()
+    obj.tab, obj.faixas = comando._monta(ATIVO.cadeia, "cpu")
+    obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
+    obj._twist = lambda: types.SimpleNamespace(_resample=lambda ids: None, vel_command_b=torch.zeros(n, 3))
+    obj._sigma = lambda m, indice: torch.ones(n)
+    obj._mede = lambda: None  # sem a cena; o reset não deve chamá-lo (M6), e o teste que confere isso o troca por um Mock
+    return obj
+
+
+def _abre(obj, trecho, m=None, ids=(0,)):
+    # Abre o `trecho` nos `ids` como o `compute` (com `m`) ou o reset (sem `m`)
+    ids = torch.tensor(ids, dtype=torch.long)
+    obj._abre_trecho(ids, torch.full((len(ids),), trecho, dtype=torch.long), m)
+
+
+def _posiciona(n=1):
+    return mock.patch.object(eventos, "posiciona_destino", return_value=torch.zeros(n, 3))
+
+
+def _alvos_botar(obj, idx, m, ok=True):
+    # `_alvos` com o `ok_agora_botar` forçado e as recompensas de fora mockadas: o teste é da cadeia
+    env = obj._env
+    env.v3_alvo_idx[:] = idx
+    env.v3_tarefa[:] = comando.BOTAR
+    with mock.patch.object(comando, "ok_agora_botar", return_value=torch.tensor([ok])), \
+            mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
+            mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
+            mock.patch.object(recompensas, "portoes_do_alvo",
+                              return_value=dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))):
+        obj._alvos(m, DT)
+
+
+class TestCadeiaBotarEnvFalso(unittest.TestCase):
+
+    def test_ponto_de_apoio_nasce_no_fecho_do_b2_e_nao_no_primeiro_apoio(self):
+        # F9 S2/P1: o ponto de apoio é a caixa no fecho do B2 ("depois de apoiada", S §8.2). Um primeiro contato no B1
+        # não grava nada; o B2 que fecha grava a caixa desse passo
+        obj = _cadeia_de_trechos()
+        m = _medidas()
+        m["caixa_p"] = torch.tensor([[0.02, 0.0, 0.5]])
+        _alvos_botar(obj, comando.B1, m, ok=False)
+        self.assertEqual(obj._env.v3_ponto_apoio.tolist(), [[0.0, 0.0, 0.0]])
+        obj._env.v3_relogio_alvo[:] = A.tempo_b2 - DT  # o B2 fecha neste passo
+        m["caixa_p"] = torch.tensor([[0.03, 0.0, 0.5]])
+        _alvos_botar(obj, comando.B2, m, ok=True)
+        self.assertEqual(obj._env.v3_alvo_idx.tolist(), [comando.B3])
+        self.assertEqual([round(v, 6) for v in obj._env.v3_ponto_apoio[0].tolist()], [0.03, 0.0, 0.5])
+
+    def test_afasta_e_zero_com_a_palma_no_contato_e_o_b3_fecha_a_5_cm(self):
+        # F9 S3: `afasta` mede da face, a + palma_face. Com a palma encostada dá 0; a 5 cm além (e 1 mm), o B3 fecha
+        obj = _cadeia_de_trechos()
+        a_face = 0.1 + A.palma_face
+
+        def afasta_e_ok(y):
+            obj._env.v3_alvo_idx[:] = comando.B3
+            obj._env.v3_tarefa[:] = comando.BOTAR
+            m = _medidas()
+            m["palmas_c"] = torch.tensor([[[0.0, y, 0.0], [0.0, -y, 0.0]]])
+            capturas = []
+            real = comando.ok_agora_botar
+
+            def captura(*args):
+                out = real(*args)
+                capturas.append((args[5].clone(), out.clone()))
+                return out
+
+            with mock.patch.object(comando, "ok_agora_botar", side_effect=captura), \
+                    mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
+                    mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
+                    mock.patch.object(recompensas, "portoes_do_alvo",
+                                      return_value=dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))):
+                obj._alvos(m, DT)
+            return capturas[0]
+
+        afasta, ok = afasta_e_ok(a_face)
+        self.assertAlmostEqual(afasta.abs().max().item(), 0.0, places=6)
+        self.assertFalse(ok.item())
+        afasta, ok = afasta_e_ok(a_face + A.b3_afasta + 0.001)
+        self.assertAlmostEqual(afasta.min().item(), A.b3_afasta + 0.001, places=6)
+        self.assertTrue(ok.item())
+
+    def test_primeiro_toque_grava_a_vz_de_antes_do_pouso_e_o_segundo_nao_muda(self):
+        # F9 P3: o primeiro contato do apoio no BOTAR grava −vz do passo anterior (a descida); o segundo não muda
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        toque = {"v": torch.tensor([[True]])}
+        env.scene = {"apoio_caixa": types.SimpleNamespace(compute_first_contact=lambda dt: toque["v"])}
+        env.v3_tarefa[:] = comando.BOTAR
+        env.v3_vz_caixa_ant[:] = -1.2
+        obj._grava_chegada()
+        self.assertAlmostEqual(env.v3_v_chegada.item(), 1.2, places=6)
+        env.v3_vz_caixa_ant[:] = -0.4
+        obj._grava_chegada()  # o segundo toque
+        self.assertAlmostEqual(env.v3_v_chegada.item(), 1.2, places=6)
+
+    def test_abertura_do_botar_volta_a_v_chegada_menos_1(self):
+        # F9 P3: a abertura do BOTAR zera o buffer para o −1 (sem toque)
+        obj = _cadeia_de_trechos()
+        obj._env.v3_v_chegada[:] = 1.2
+        with _posiciona():
+            _abre(obj, BOTAR_TRECHO, _medidas())
+        self.assertEqual(obj._env.v3_v_chegada.tolist(), [-1.0])
+
+    def test_garante_v3_cria_v_chegada_com_menos_1(self):
+        env = types.SimpleNamespace(num_envs=2, device="cpu", common_step_counter=0)
+        curriculo.garante_v3(env)
+        self.assertEqual(env.v3_v_chegada.tolist(), [-1.0, -1.0])
+
+    def test_aviso_do_detector_e_latch_no_trecho(self):
+        # F9 P5/R2: `v3_aviso` é o latch do aviso no trecho. Depois do aviso, a pose que sai não o desfaz
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        env.v3_tarefa[:] = comando.PEGAR
+        env.v3_trecho[:] = PEGAR_TRECHO
+        env.v3_alvo_idx[:] = comando.P0  # o trecho já tem alvo: não está à espera da caixa
+        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
+                                                                     joint_vel=torch.zeros(1, 29)))
+        avisos = iter([torch.tensor([True]), torch.tensor([False])])
+        with mock.patch.object(comando.alvos, "detecta_fim", side_effect=lambda *a: (next(avisos), torch.zeros(1))), \
+                mock.patch.object(comando, "z_pe_min", return_value=torch.zeros(1)):
+            obj._detector(_medidas(), DT)
+            self.assertTrue(env.v3_aviso.item())
+            obj._detector(_medidas(), DT)  # a pose saiu: o latch fica
+            self.assertTrue(env.v3_aviso.item())
+
+    def test_aviso_so_entra_no_latch_em_trecho_por_detector_e_abertura_zera(self):
+        # F9 P5: num trecho por tempo (ANDAR) o aviso não entra; a abertura do trecho zera o latch
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        env.v3_tarefa[:] = comando.ANDAR
+        env.v3_trecho[:] = ANDAR_TRECHO
+        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
+                                                                     joint_vel=torch.zeros(1, 29)))
+        with mock.patch.object(comando.alvos, "detecta_fim", return_value=(torch.tensor([True]), torch.zeros(1))), \
+                mock.patch.object(comando, "z_pe_min", return_value=torch.zeros(1)):
+            obj._detector(_medidas(), DT)
+        self.assertFalse(env.v3_aviso.item())
+        env.v3_aviso[:] = True
+        _abre(obj, ANDAR_TRECHO)
+        self.assertFalse(env.v3_aviso.item())
+
+    def test_pegar_sem_p0_nao_fica_pendente_nem_registra_no_botar(self):
+        # F9 P6: o PEGAR só fica pendente de registro depois que o P0 abre. Sem leitura da caixa, o P0 não abre
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        with _posiciona():
+            _abre(obj, PEGAR_TRECHO)
+            obj._abre_p0(_medidas())
+            self.assertFalse(obj.pega.any())
+            _abre(obj, BOTAR_TRECHO, _medidas())
+        self.assertEqual(env.v3_cur.registros, [])
+
+    def test_pegar_com_p0_aberto_registra_no_botar(self):
+        # F9 P6, controle: com o P0 aberto (leitura válida) o PEGAR fica pendente e registra na abertura do BOTAR
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 0.5]]),
+                                                 tem_leitura=lambda: torch.tensor([True]))
+        env.v3_odo = types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]]))
+        with _posiciona():
+            _abre(obj, PEGAR_TRECHO)
+            obj._abre_p0(_medidas())
+            self.assertTrue(obj.pega.all().item())
+            _abre(obj, BOTAR_TRECHO, _medidas())
+        self.assertEqual(env.v3_cur.registros, [(1, 0)])  # P4 não fechou: registra falha
+
+    def test_botar_pendente_no_reset_conta_sucesso_so_sem_queda(self):
+        # F9 P7: o BOTAR com B4 fechado que acaba no `time_out` (reset por tempo) conta sucesso; a queda, falha
+        for time_out, esperado in ((True, [(1, 1)]), (False, [(1, 0)])):
+            with self.subTest(time_out=time_out):
+                obj = _cadeia_de_trechos()
+                env = obj._env
+                obj.bota[:] = True
+                env.v3_b4_fechado[:] = True
+                env.termination_manager.time_outs[:] = time_out
+                obj._resample(torch.tensor([0]))
+                self.assertEqual(env.v3_cur.registros, esperado)
+
+    def test_reset_nao_mede_e_botar_sem_medida_levanta_erro(self):
+        # F9 M6: o reset não mede (o BOTAR nunca abre no reset); um BOTAR sem medida é erro claro
+        obj = _cadeia_de_trechos()
+        obj._mede = mock.Mock(return_value=None)
+        obj._resample(torch.tensor([0]))
+        obj._mede.assert_not_called()
+        with self.assertRaises(ValueError), _posiciona():
+            _abre(obj, BOTAR_TRECHO, None)
 
 
 if __name__ == "__main__":

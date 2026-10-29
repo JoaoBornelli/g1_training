@@ -74,6 +74,7 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
         _cria(env, nome, (), torch.float32)
     _cria(env, "v3_t_empurrao", (), torch.float32, float("-inf"))
     _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; o passo de entrada no alvo paga 0 (E4)
+    _cria(env, "v3_v_chegada", (), torch.float32, -1.0)  # F9 P3: vz do primeiro toque do BOTAR; −1 = sem toque
     for nome, dim in _VETORES.items():
         _cria(env, nome, (dim,), torch.float32)
     if not hasattr(env, "v3_caixa_xy"):  # (E,2) float32, como os buffers de posição: xy da caixa de B e C (E11 S4)
