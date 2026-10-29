@@ -15,7 +15,7 @@ O que sai, e nada mais:
                         `ckpt`, `giro_ang`, `fracao_mapa_visto`, `a_<junta>`, `alvo_pd_<junta>`,
                         a FORÇA NA CAIXA (`fn_E`, `fn_D`, `fn_tot`, `fz_rob`, `n_rob`), `rel_x/y/z`,
                         `aviso_fim` (0/1, o detector de fim), `idade_caixa` (s) e `alvo_x/y/z` (m, mundo; NaN
-                        fora do PEGAR)
+                        fora do PEGAR e antes da primeira leitura válida da caixa)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 
 ⚠ O DRIVER É A BASE. Nada de física extra aqui (sem --atrito, --massa, --mu-caixa...): a cena é a que
@@ -277,7 +277,7 @@ def main() -> None:
                 piloto.tarefa = TAREFAS.index(fase.tarefa)
                 piloto.twist[:] = (fase.vx, 0.0, 0.0)
                 if fase.tarefa == "PEGAR":
-                    visao.abre_pegar(d)  # o alvo do PEGAR é o centro da caixa neste instante (como a tecla)
+                    visao.abre_pegar()  # o alvo do PEGAR é a caixa VISTA, na primeira leitura válida (S5b; como a tecla)
                 if fase.tarefa in TAREFAS_QUE_CAPTURAM_CIMA:
                     cima_b = gira_inverso(d.qpos[adr_caixa + 3:adr_caixa + 7], EZ)
                 if fase.limpa_laje or fase.limpa_caixa:
@@ -306,9 +306,10 @@ def main() -> None:
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
                           "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt}
-                    # ⚠ DÚVIDA (E9): o alvo gravado é o PONTO do PEGAR (centro da caixa), o que o driver manda.
-                    # O `alvos.caixa_alvo_w` pede o índice P0..B4, que é estado do controlador e o driver não tem.
-                    ax, ay, az = visao.alvo_w[0].tolist() if fase.tarefa == "PEGAR" else (float("nan"),) * 3
+                    # O alvo gravado é o PONTO do PEGAR, a caixa vista (o que o driver manda; I §4.1). O
+                    # `alvos.caixa_alvo_w` pede o índice P0..B4, que é estado do controlador e o driver não tem.
+                    ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa == "PEGAR" and visao.aberto
+                                  else (float("nan"),) * 3)
                     ln.update(alvo_x=ax, alvo_y=ay, alvo_z=az)
                     ln["giro_ang"] = angulo_de_tombo(d.qpos[adr_caixa + 3:adr_caixa + 7], cima_b)
                     # Status do detector, lido depois do `mj_forward` (a pose que acabou de sair do passo).

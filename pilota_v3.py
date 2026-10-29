@@ -58,6 +58,7 @@ _CONTRATO = _K.Contrato()   # I §2.1: blocos do ator, escalas, histórico
 _KN = _K.ATIVO             # os números do lidar, da odometria e das referências (knobs.Knobs)
 TAREFAS = _K.TAREFAS        # one-hot de 6 canais; a ordem é o índice (I §2.2)
 DIM_ATOR = _K.dim_ator()    # 1 447 canais por passo
+_ANDAR = TAREFAS.index("ANDAR")
 _PEGAR = TAREFAS.index("PEGAR")
 _BOTAR = TAREFAS.index("BOTAR")
 _DT = _CONTRATO.dt_fisica * _CONTRATO.decimacao   # 0,02 s: passo da política
@@ -167,6 +168,8 @@ class Percepcao:
         self.p0 = np.asarray(caps["p0"], dtype=np.float64)
         self.p1 = np.asarray(caps["p1"], dtype=np.float64)
         self.raios = torch.as_tensor(caps["raio"], dtype=torch.float32)
+        # ⚠ As 8 cápsulas dos braços: só elas tapam a câmera no treino (`observacoes.py:177-178`, PD-11).
+        self.braco = torch.as_tensor(caps["braco"], dtype=torch.bool)
 
         # Pé: a altura do site sobre a sola (`site_pe_de_pe`, D2), lida do mesmo `referencias.npz` do treino.
         # O `ref` inteiro é guardado: o `Visao` lê dele a pose de pé com caixa e a de pé sem caixa.
@@ -258,8 +261,9 @@ class Visao:
     a visibilidade é a PD-11 (`estimador.visivel`), com o centro e os 8 cantos da caixa como os 9 pontos.
     A odometria é a do `Percepcao` (o mesmo `odo`), e por isso `passo` roda DEPOIS dele.
 
-    O alvo do PEGAR é o centro da caixa no instante da tecla (`abre_pegar`), um ponto no mundo (I §4.1). Fora do
-    PEGAR o alvo do bloco é zero. ⚠ BOTAR: o alvo de soltura é da F7; aqui o BOTAR só ganha o aviso.
+    Visibilidade só pelas 8 cápsulas dos braços, e bloco zerado no ANDAR, como o treino. O alvo do PEGAR é a caixa
+    VISTA: a primeira leitura válida depois da tecla (`abre_pegar`), no mundo pela odometria (S5b; `comando.py:305`).
+    Sem leitura, o PEGAR espera com alvo zero. ⚠ BOTAR: o alvo de soltura é da F7; aqui o BOTAR só ganha o aviso.
     ⚠ `reinicia` no reset da cena, junto com o `Percepcao`.
     """
 
@@ -280,16 +284,19 @@ class Visao:
         self.cantos = np.array([[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)])
         self.relogio = torch.zeros(1)
         self.alvo_w = torch.zeros(1, 3)  # alvo do PEGAR no mundo (m); zero fora dele
+        self.aberto = False              # o alvo do PEGAR abre na primeira leitura válida (S5b)
         self.tarefa_ant = -1
 
     def reinicia(self) -> None:
         self.est.reinicia(torch.tensor([0]))
         self.relogio.zero_()
         self.alvo_w.zero_()
+        self.aberto = False
 
-    def abre_pegar(self, d: mujoco.MjData) -> None:
-        """O alvo do PEGAR = o centro da caixa no instante da tecla. Sem ruído, é o verdadeiro."""
-        self.alvo_w = torch.as_tensor(d.xpos[self.id_caixa], dtype=torch.float32)[None].clone()
+    def abre_pegar(self) -> None:
+        """A tecla do PEGAR: o alvo fica pendente até a caixa ser vista (S5b). Até lá o PEGAR espera em pé."""
+        self.alvo_w.zero_()
+        self.aberto = False
 
     def passo(self, m: mujoco.MjModel, d: mujoco.MjData, tarefa: int) -> np.ndarray:
         """O bloco da caixa deste passo (11 canais, I §2.3): centro 3, rotvec 3, meia 1, idade 1, alvo 3 (base)."""
@@ -298,20 +305,29 @@ class Visao:
         pontos = np.vstack([centro, centro + (self.cantos * self.meia) @ R.T])
         cam_rot = np.zeros(4)
         mujoco.mju_mat2Quat(cam_rot, d.site_xmat[self.cam].copy())
+        braco = self.p.braco
         vis = _ES.visivel(
             torch.as_tensor(d.site_xpos[self.cam], dtype=torch.float32)[None],
             torch.as_tensor(cam_rot, dtype=torch.float32)[None],
             torch.as_tensor(pontos, dtype=torch.float32)[None],
-            self.p.capsulas(d), self.p.raios, _KN.estimador)
+            self.p.capsulas(d)[:, braco], self.p.raios[braco], _KN.estimador)
         self.est.passo(d.time, torch.as_tensor(centro, dtype=torch.float32)[None],
                        torch.as_tensor(d.xquat[self.id_caixa], dtype=torch.float32)[None],
                        self.a, vis, {})
+        # ⚠ O ANDAR zera o bloco, como o treino (`observacoes.py:187`). O estimador roda mesmo assim.
+        if tarefa == _ANDAR:
+            return np.zeros(11)
         base_q = torch.as_tensor(d.xquat[self.base], dtype=torch.float32)[None]
-        leitura = self.est.saida_b(self.p.odo, base_q)[0].numpy().astype(np.float64)
+        saida = self.est.saida_b(self.p.odo, base_q)
+        # ⚠ DÚVIDA: lê `_r_t` (privado); o certo é um `tem_leitura()` público no `estimador.py` (outro dono).
+        if tarefa == _PEGAR and not self.aberto and bool(torch.isfinite(self.est._r_t)[0]):
+            # A caixa VISTA, no mundo pela odometria (como `comando.py:305`); fica fixa até a próxima tecla.
+            self.alvo_w = _ES.do_frame_da_base(saida[:, :3], self.p.odo).clone()
+            self.aberto = True
         alvo = np.zeros(3)
-        if tarefa == _PEGAR:
+        if tarefa == _PEGAR and self.aberto:
             alvo = _ES.alvo_no_frame_da_base(self.alvo_w, self.p.odo)[0].numpy().astype(np.float64)
-        return np.concatenate([leitura, alvo])
+        return np.concatenate([saida[0].numpy().astype(np.float64), alvo])
 
     def detecta(self, d: mujoco.MjData, tarefa: int) -> bool:
         """O aviso de fim (I §4.2) deste passo, depois do `mj_forward`. PEGAR contra a pose de pé com caixa; BOTAR
@@ -576,7 +592,7 @@ class Piloto:
         self.tarefa = TAREFAS.index("ANDAR")
         self.fator = 1.0
         self.reset_pedido = False
-        self.pegar_pedido = False  # a tecla do PEGAR pede o alvo (centro da caixa) no laço
+        self.pegar_pedido = False  # a tecla do PEGAR abre o alvo (a caixa vista) no laço
         self.aviso = ""
         self.rumo_ref: float | None = None  # rumo segurado na marcha reta; None fora dela
 
@@ -741,7 +757,7 @@ def main() -> None:
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
             if piloto.pegar_pedido:
-                visao.abre_pegar(d)
+                visao.abre_pegar()
                 piloto.pegar_pedido = False
 
             twist_pol = piloto.twist_da_politica(_yaw(d.xquat[percepcao.base]))
