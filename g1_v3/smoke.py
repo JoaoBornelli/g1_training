@@ -1,4 +1,4 @@
-"""Os checks da Parte 1 da v3 (D12 do plano, seções 1 a 15).
+"""Os checks da v3 (D12 e E10 do plano, seções 1 a 24: Partes 1 e 2).
 
     python -m g1_v3.smoke
 
@@ -444,6 +444,314 @@ def s15_tempo_por_passo():
             env.close()
 
 
+# =============================================================================
+# Parte 2 (E10): cadeia B. Os buffers `v3_*` são forçados na seção que diz; o resto roda como no treino.
+def _trecho_de(cad, tarefa: str, n: int, device):
+    """(n,) long: o primeiro trecho da tabela com a `tarefa` (em B para PEGAR e CARREGAR)."""
+    from g1_v3.knobs import TAREFAS
+    i = int((cad.tab.tarefa == TAREFAS.index(tarefa)).nonzero()[0])
+    return torch.full((n,), i, dtype=torch.long, device=device)
+
+
+def _abre_trecho_de(env, tarefa: str):
+    """Força a fatia B e abre o trecho de `tarefa` em todos os mundos, pelo `_abre_trecho` que o `compute` usa.
+
+    ⚠ Força: o reset sorteou um trecho de ANDAR, e aqui `v3_fatia` vai a B. Devolve o termo `cadeia`.
+    """
+    from g1_v3.comando import FATIA_B
+    cad = env.command_manager.get_term("cadeia")
+    n = env.num_envs
+    env.v3_fatia[:] = FATIA_B
+    ids = torch.arange(n, device=env.device)
+    cad._abre_trecho(ids, _trecho_de(cad, tarefa, n, env.device), cad._mede())
+    return cad
+
+
+def _por_termo(env) -> dict:
+    """{termo: (E,) valor do passo}, lido do `reward_manager` (peso × função, sem o dt: só o sinal importa)."""
+    linhas = [env.reward_manager.get_active_iterable_terms(i) for i in range(env.num_envs)]
+    return {nome: torch.tensor([linha[k][1][0] for linha in linhas]) for k, (nome, _) in enumerate(linhas[0])}
+
+
+# =============================================================================
+def s16_fatia_b_forcada_topo_da_laje_e_caixa_sobre_ela():
+    from g1_v3 import eventos
+    from g1_v3.comando import FATIA_B
+    from g1_v3.knobs import ATIVO
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        ids = torch.arange(env.num_envs, device=env.device)
+        # ⚠ força a fatia B: o reset sorteou a fatia, e `posiciona_cena` lê `v3_fatia` e põe a laje e a caixa de novo
+        env.v3_fatia[:] = FATIA_B
+        eventos.posiciona_cena(env, ids)
+        env.sim.forward()  # ⚠ a leitura das poses depois da escrita pede o forward (como em s06)
+        topo_w = env.scene.env_origins[:, 2] + env.v3_topo
+        # ⚠ a laje é mocap: a pose lida é a do corpo (`root_link_pos_w`), que o forward atualiza a partir do mocap.
+        # ⚠ DÚVIDA: a escrita é `write_mocap_pose` (entity/data.py:205-213); a leitura pelo corpo não foi confirmada no mjlab.
+        laje_z = env.scene["table"].data.root_link_pos_w[:, 2]
+        check("laje: topo = origem + v3_topo", torch.allclose(laje_z + ATIVO.cena.prateleira_meia_z, topo_w, atol=1e-4),
+              f"{(laje_z + ATIVO.cena.prateleira_meia_z - topo_w).abs().max().item():.2e}")
+        caixa_z = env.scene["box"].data.root_link_pos_w[:, 2]
+        check("caixa sobre a laje: centro = topo + v3_meia", torch.allclose(caixa_z, topo_w + env.v3_meia, atol=1e-4))
+    finally:
+        env.close()
+
+
+def s17_abertura_do_pegar_poe_alvo_em_p0_e_sigma():
+    from g1_v3.knobs import TAREFAS
+    from g1_v3.alvos import P0
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        cad = _abre_trecho_de(env, "PEGAR")  # ⚠ força: abre o trecho de PEGAR como o `compute` abriria
+        m = cad._mede()
+        check("PEGAR aberto em todos os mundos (`cad.pega`)", bool(cad.pega.all()))
+        check("alvo corrente = P0", bool((env.v3_alvo_idx == P0).all()), str(env.v3_alvo_idx.tolist()))
+        check("alvo da caixa = pega estimada (v3_alvo_w = v3_caixa_pega_w)",
+              torch.allclose(env.v3_alvo_w, env.v3_caixa_pega_w, atol=1e-6))
+        # σ = distância inicial das palmas a P0 (com o piso de `_SIGMA_MIN`, como em `_sigma`)
+        sigma = cad._sigma(m, torch.full_like(env.v3_alvo_idx, P0))
+        check("σ = distância inicial das palmas a P0", torch.allclose(env.v3_sigma, sigma, atol=1e-5))
+        check("relógio do alvo zerado", bool((env.v3_relogio_alvo == 0).all()))
+        check("tarefa publicada = PEGAR", bool((env.v3_tarefa == TAREFAS.index("PEGAR")).all()))
+    finally:
+        env.close()
+
+
+def s18_pegar_com_acao_zero_nada_paga_positivo():
+    from g1_v3.knobs import TAREFAS
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_trecho_de(env, "PEGAR")  # ⚠ força o trecho de PEGAR; o `avanca_trecho` pode sair dele antes de 50 passos
+        zeros = _zeros(env)
+        soma, fora = 0.0, 0
+        for _ in range(50):
+            env.step(zeros)
+            fora += int((env.v3_tarefa != TAREFAS.index("PEGAR")).sum())
+            for v in _por_termo(env).values():
+                soma += float(v.clamp(min=0.0).sum())  # o que paga positivo neste passo, somado em mundos e termos
+        check("50 passos no PEGAR (a precondição da seção)", fora == 0, f"{fora} mundo-passo fora do PEGAR")
+        # ⚠ `progresso` e `rastreio` (c = 0: deslize ≤ 0, potencial.py:106) e `vivo`/`passo` (mascarados) não pagam
+        check("soma dos termos que pagam positivo = 0 (ação zero)", soma <= 1e-6, f"soma {soma:.3g}")
+    finally:
+        env.close()
+
+
+def s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave():
+    import dataclasses
+    from unittest import mock
+    from g1_v3 import terminacoes
+    from g1_v3.knobs import ATIVO, TAREFAS
+
+    def roda(vira_andar: bool) -> dict:
+        k = dataclasses.replace(ATIVO, cadeia=dataclasses.replace(ATIVO.cadeia, caixa_perdida_vira_andar=vira_andar))
+        # ⚠ DÚVIDA: `terminacoes.caixa_perdida` lê o `ATIVO` do módulo (terminacoes.py:106), e o comando lê o cfg
+        # (comando.py:325). O `dataclasses.replace` no `k` só muda o comando; a variante troca também o `ATIVO` do módulo,
+        # para o termo e o comando lerem a mesma chave. O código deveria ler uma fonte só.
+        with mock.patch.object(terminacoes, "ATIVO", k):
+            env = _abre_env(4, k=k)
+            try:
+                env.reset()
+                n = env.num_envs
+                _abre_trecho_de(env, "PEGAR")
+                caixa = env.scene["box"]
+                pose = caixa.data.root_link_pose_w.clone()
+                pose[:, 2] = env.scene.env_origins[:, 2] + env.v3_meia  # ⚠ força: a caixa no chão (fundo a 0 m)
+                caixa.write_root_link_pose_to_sim(pose)
+                caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=env.device))
+                env.sim.forward()
+                zeros = _zeros(env)
+                pulsos = torch.zeros(n, dtype=torch.long, device=env.device)
+                pagos = torch.zeros(n, dtype=torch.long, device=env.device)
+                termina = torch.zeros(n, dtype=torch.bool, device=env.device)
+                for _ in range(5):
+                    _o, _r, term, _t, _i = env.step(zeros)
+                    pulsos += env.v3_perdeu_agora.long()
+                    pagos += (_por_termo(env)["perda_caixa"] != 0).long()
+                    termina |= term.bool()
+                    if bool(term.any()):
+                        break  # a terminação reseta o mundo no passo: os pulsos seguintes não valem
+                return dict(pulsos=pulsos, pagos=pagos, termina=termina, tarefa=env.v3_tarefa.clone(),
+                            cfg_tem="caixa_perdida" in env.cfg.terminations)
+            finally:
+                env.close()
+
+    on, off = roda(True), roda(False)
+    check("chave ligada: a perda pulsa uma vez em cada mundo", bool((on["pulsos"] == 1).all()), str(on["pulsos"].tolist()))
+    check("chave ligada: o pagamento de `perda_caixa` cai só no pulso", bool((on["pagos"] == on["pulsos"]).all()),
+          f"pagos {on['pagos'].tolist()}")
+    check("chave ligada: a tarefa vira ANDAR", bool((on["tarefa"] == TAREFAS.index("ANDAR")).all()))
+    check("chave ligada: a cadeia não termina na perda", not bool(on["termina"].any()))
+    check("chave desligada: termina no passo da perda", bool(off["termina"].all()))
+    check("cfg tem o termo `caixa_perdida` (S §10: sem a chave, termina)", on["cfg_tem"] and off["cfg_tem"])
+
+
+def s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos():
+    from mjlab.utils.lab_api.math import quat_apply
+    from g1_v3.knobs import ATIVO, q_de_pe
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        robo, caixa = env.scene["robot"], env.scene["box"]
+        dev, n = env.device, env.num_envs
+        ofs = torch.tensor([0.45, 0.0, 0.3], device=dev)  # ⚠ caixa 0,45 m à frente da base, no peito (frame da base)
+
+        def repoe_caixa():
+            # ⚠ força: a caixa é reposta a cada passo, senão cairia (0,4 s de queda livre são 0,8 m) antes do estimador
+            pose = torch.zeros(n, 7, device=dev)
+            pose[:, :3] = robo.data.root_link_pos_w + quat_apply(robo.data.root_link_quat_w, ofs.expand(n, 3))
+            pose[:, 3] = 1.0
+            caixa.write_root_link_pose_to_sim(pose)
+            caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev))
+
+        zeros = _zeros(env)
+        for _ in range(20):
+            repoe_caixa()
+            env.step(zeros)
+        # ⚠ DÚVIDA: hoje nada no pacote chama `EstimadorCaixa.passo` nem `estimador.visivel` (grep; observacoes.py:120-150
+        # não tem). Sem isso a saída é a de nunca vista, com idade_max. A seção só passa com o E8 ligado.
+        s = env.v3_estimador.saida_b(env.v3_odo, robo.data.root_link_quat_w)
+        check("estimador vê a caixa à frente: x na base ≈ 0,45 m", bool(((s[:, 0] - 0.45).abs() < 0.03).all()),
+              f"x {s[:, 0].tolist()}")
+        check("leitura nova: idade ≤ 0,1 s", bool((s[:, 7] <= 0.1).all()), f"idade {s[:, 7].tolist()}")
+        # braços na frente: q_com_caixa segurada pelo PD (ação = (q − q_de_pé)/escala); a caixa segue no mesmo lugar
+        q = env.v3_ref.q_com_caixa(env.v3_meia).to(dev, torch.float32)
+        qde = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=dev)
+        acao = (q - qde) / ATIVO.contrato.escala_acao
+        idade0 = s[:, 7].clone()
+        for _ in range(30):  # 0,6 s com os braços à frente
+            repoe_caixa()
+            env.step(acao)
+        s2 = env.v3_estimador.saida_b(env.v3_odo, robo.data.root_link_quat_w)
+        # ⚠ DÚVIDA: a oclusão (`visivel`, com as cápsulas dos braços, estimador.py:107) é a que decide se a idade cresce.
+        # A geometria (caixa a 0,45 m dentro dos braços) não foi conferida, e a seção pode falhar por ela, não pelo estimador.
+        check("braços à frente: a idade cresce ≥ 0,4 s em 0,6 s", bool(((s2[:, 7] - idade0) >= 0.4).all()),
+              f"Δ {(s2[:, 7] - idade0).tolist()}")
+    finally:
+        env.close()
+
+
+def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
+    from g1_v3.knobs import ATIVO, TAREFAS, q_de_pe
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_trecho_de(env, "PEGAR")  # o trecho de PEGAR acaba pelo aviso do detector (por_detector)
+        robo, dev, a = env.scene["robot"], env.device, env.v3_meia
+        q = env.v3_ref.q_com_caixa(a).to(dev, torch.float32)  # ⚠ a ordem é a de JUNTAS (s04)
+        qde = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=dev)
+        # ⚠ força a pose de pé com caixa: braços em q_com_caixa e a pelve na altura de `pelve_com_caixa`.
+        # ⚠ DÚVIDA: o detector lê só as palmas do robô (alvos.detecta_fim, com `palmas_w` do robô, comando.py:367), e não
+        # a caixa. Que o PD alcance q_com_caixa e que a altura ajustada fique em 3 cm não foi conferido.
+        robo.write_joint_state_to_sim(q, torch.zeros_like(q))
+        env.sim.forward()
+        env.sim.sense()
+        pose = robo.data.root_link_pose_w.clone()
+        pose[:, 2] += env.v3_ref.pelve_com_caixa(a).to(dev) - env.scene["altura_pelve"].data.heights[:, 0]
+        robo.write_root_link_pose_to_sim(pose)
+        env.sim.forward()
+        env.sim.sense()
+        acao = (q - qde) / ATIVO.contrato.escala_acao  # segura os braços: o PD segue q_com_caixa
+        avisos = []
+        for _ in range(60):
+            env.step(acao)
+            avisos.append(env.v3_aviso.clone())
+        m = torch.stack(avisos)  # (60, E)
+        check("precondição: a tarefa segue PEGAR durante os 60 passos (o trecho é por detector)",
+              bool((env.v3_tarefa == TAREFAS.index("PEGAR")).all()))
+        check("nenhum aviso nos primeiros 24 passos (0,48 s: a janela de 0,5 s ainda não fechou)", not bool(m[:24].any()))
+        check("aviso depois de 0,5 s, com a pose de pé com caixa", bool(m.any(dim=0).all()),
+              f"primeiro aviso por mundo: {m.float().argmax(0).tolist()}")
+    finally:
+        env.close()
+
+
+def s22_laje_sai_com_o_carregar_que_anda():
+    from g1_v3 import eventos
+    from g1_v3.comando import FATIA_B
+    from g1_v3.knobs import ATIVO
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        n = env.num_envs
+        ids = torch.arange(n, device=env.device)
+        env.v3_fatia[:] = FATIA_B  # ⚠ força a fatia B; a laje começa no topo (posiciona_cena)
+        eventos.posiciona_cena(env, ids)
+        env.sim.forward()
+        laje = env.scene["table"]
+        origem_z = env.scene.env_origins[:, 2]
+        cad = env.command_manager.get_term("cadeia")
+        t_carregar = _trecho_de(cad, "CARREGAR", n, env.device)
+        andando = torch.zeros(n, dtype=torch.bool, device=env.device)
+        antes = torch.zeros(n, device=env.device)
+        for _ in range(20):  # o comando do CARREGAR é sorteado na abertura: repete até algum mundo andar
+            antes = laje.data.root_link_pos_w[:, 2].clone()
+            cad._abre_trecho(ids, t_carregar, cad._mede())
+            andando = cad._twist().vel_command_b.abs().sum(-1) > 0
+            if bool(andando.any()):
+                break
+        env.sim.forward()
+        depois = laje.data.root_link_pos_w[:, 2]
+        estacionada = origem_z + ATIVO.cena.estaciona_z - ATIVO.cena.prateleira_meia_z
+        esperado = torch.where(andando, estacionada, antes)
+        check("algum mundo sorteou o CARREGAR andando (senão a seção não mede)", bool(andando.any()))
+        check("laje sai (estaciona_z) só onde o CARREGAR anda; onde para, fica", torch.allclose(depois, esperado, atol=1e-4),
+              f"andando {andando.tolist()}")
+    finally:
+        env.close()
+
+
+def s23_tamanho_do_critico_confere_com_6_5():
+    from g1_v3.knobs import dim_ator
+
+    env = _abre_env(4)
+    try:
+        obs, _ = env.reset()
+        # §6.5: os nove do ator com o mesmo histórico (1 447), mais vel_lin_base (3×5), caixa_verdade (7),
+        # alvo_verdade (3), alvo_macro (10), referencia (8), niveis (4), degrau (1), massa (1), forca_caixa (1),
+        # tarefa_critico (6). Total: 1 503.
+        esperado = dim_ator() + 3 * 5 + 7 + 3 + 10 + 8 + 4 + 1 + 1 + 1 + 6
+        check("crítico = 1 447 do ator + 56 de §6.5 (= 1 503)", obs["critic"].shape[-1] == esperado,
+              f"{obs['critic'].shape[-1]} != {esperado}")
+    finally:
+        env.close()
+
+
+def s24_atraso_do_atuador_depois_do_portao_do_pegar():
+    from g1_v3 import curriculo
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        # ⚠ força o estado: a trava `portao0` do DR (balanceador.py:74) é a que o fecho liga quando o PEGAR passa o
+        # portão do nível 0. A trava é privada do `Curriculo`: a seção a escreve direto.
+        env.v3_cur._dr["portao0"] = True
+        curriculo.v3(env, torch.arange(env.num_envs, device=env.device))  # põe o teto nos buffers (eventos.atraso)
+        check("DR: atraso_max = atraso_portao[1] = 2 passos da política", env.v3_cur.dr()["atraso_max"] == 2)
+        bufs = [a._delay_buffer for a in env.scene["robot"].actuators if getattr(a, "_delay_buffer", None) is not None]
+        check("teto do atuador = 2 × decimação 4 = 8 passos de física", all(b.max_lag == 8 for b in bufs),
+              str({b.max_lag for b in bufs}))
+        vistos = []
+        for _ in range(6):
+            env.reset()  # o lag é sorteado no 1º passo depois do reset (observacoes.py:50)
+            env.step(_zeros(env))
+            vistos += [b.current_lags.clone() for b in bufs]
+        lags = torch.cat(vistos)
+        check("lag do atuador em {0..8} depois do portão", bool(((lags >= 0) & (lags <= 8)).all()),
+              f"mín {int(lags.min())}, máx {int(lags.max())}")
+        check("o teto subiu: algum lag passa de 4 (o teto antes do portão era 4)", bool((lags > 4).any()))
+    finally:
+        env.close()
+
+
 SECOES = (
     ("1 cfg monta e a task registra", s01_cfg_e_registro),
     ("2 env de 4 mundos em CPU, ator com 1 447 canais", s02_env_nasce_com_1447_canais),
@@ -460,6 +768,16 @@ SECOES = (
     ("13 class_name do algoritmo", s13_class_name_do_algoritmo),
     ("14 200 passos aleatórios em 16 mundos sem NaN", s14_200_passos_aleatorios_sem_nan),
     ("15 tempo por passo (imprime)", s15_tempo_por_passo),
+    ("16 fatia B forçada: topo da laje e caixa sobre ela", s16_fatia_b_forcada_topo_da_laje_e_caixa_sobre_ela),
+    ("17 abertura do PEGAR: alvo em P0, σ e pega", s17_abertura_do_pegar_poe_alvo_em_p0_e_sigma),
+    ("18 PEGAR com ação zero: nada paga positivo", s18_pegar_com_acao_zero_nada_paga_positivo),
+    ("19 caixa no chão: paga uma vez e vira ANDAR; sem a chave, termina",
+     s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave),
+    ("20 estimador vê a caixa à frente; idade cresce com os braços", s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos),
+    ("21 pose de pé com caixa: aviso depois de 0,5 s", s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo),
+    ("22 laje sai com o CARREGAR que anda", s22_laje_sai_com_o_carregar_que_anda),
+    ("23 tamanho do crítico confere com §6.5", s23_tamanho_do_critico_confere_com_6_5),
+    ("24 atraso do atuador em {0..8} depois do portão do PEGAR", s24_atraso_do_atuador_depois_do_portao_do_pegar),
 )
 
 
