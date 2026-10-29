@@ -1,0 +1,52 @@
+Item 15 da Parte 0: peso do aperto (r_aperto) e da sacudida (S §8.2, §11.5, §16 item 15; PD-34)
+unidade: retorno do mjlab (× dt = 0.02 s). Por passo = retorno ÷ dt; para o peso w, o próprio w.
+ponto de operação: 117.5 N por face (model_24800); F_ref = 49.0 N (knobs)
+
+1. Derivada de custo_aperto(F, F, F_ref) por N (autograd; diferença central como conferência)
+  F = 117.5 N: custo = 0.9091, derivada = 0.001855 /N (central 0.001855)
+  F = 49.0 N (F_ref): custo = 0.6321, derivada = 0.007508 /N (central 0.007508)
+  razão das derivadas = 24.7%
+  critério (a) derivada em 117,5 N ≥ 20% da de F_ref: OK (24.7%)
+
+2. Ganho acumulado de afrouxar de 117,5 N para 49 N (w = 1; por w = o mesmo número × w)
+                                                              por passo      retorno
+  custo(117,5 N) − custo(49 N), por s (w = 1)                    0.2770       0.0055
+  ganho em 20 s, w = 1 (solta de uma vez, segura 49 N)                —       5.5395
+  info: ganho em 20 s, w = 1, descida linear em 20 s                  —       2.1445
+
+3. Peso máximo: w ≤ 0,5 × perda_caixa (retorno) ÷ ganho de afrouxar em 20 s (retorno, por w)
+                                                              por passo      retorno
+  perda_caixa (item 3; por passo = knob, retorno = knob × dt)       6.2332       0.1247
+  w máximo = 0,5 × perda ÷ ganho(w = 1)                          0.0113       0.0623
+  w proposto (1 algarismo, para baixo): ganho em 20 s            0.0100       0.0554
+  info: custo de segurar 117,5 N por 20 s com w proposto              —      -0.1818
+  critério (c) w proposto ≤ w máximo: OK (w = 0.01, máximo = 0.01125)
+
+4. Sacudida (PD-34): custo no p50 com w = 10% do ganho máximo do rastreio linear por s
+                                                              por passo      retorno
+  custo no p50 por unidade de w: (2,9/2,9)² + (17/17)²            2.000        0.040
+  ganho máximo do rastreio linear por s (w = knob × 1)            1.000        0.020
+  w sacudida (PD-34)                                              0.050        0.002
+  critério (d) custo no p50 com w = 10% do ganho máximo por s: OK (10.0%)
+  conferência (sem critério): p50 medido no CARREGAR do 23250_topo004: ‖a_lin‖ = 5.04 m/s² (spec 2.9), ‖α‖ = 31.56 rad/s² (spec 17.0)
+  com o p50 medido: custo no p50 = 6.470 por w; w daria 0.0155 (não entra no critério)
+
+Propostas para o knobs (Recompensa; hoje None): aperto = 0.01, sacudida = 0.05. O termo paga −w·custo; o H2 multiplica por d/5 (fator_por_degrau).
+
+Suposições
+  1. F_esq = F_dir = F no ponto de operação; a derivada é d/dF de custo_aperto(F, F, F_ref).
+  2. Ganho de afrouxar = pior caso: a força cai de 117,5 N para 49 N de uma vez e fica 20 s.
+     A descida linear em 20 s (info) dá 39% do ganho; o critério usa o pior caso.
+  3. perda_caixa = 1,2 × (2) do item 3, lida de saida/item3_escada.txt; retorno = knob × dt.
+  4. Ganho máximo do rastreio linear por s = rastreio_linear (1,0) × 1 (rastreio_normalizado ≤ 1).
+  5. A sacudida usa 2,9 e 17 (p50 da S §11.5) como normas no p50; o custo no p50 é 2 (teste da H2).
+  6. w proposto arredondado para baixo com 1 algarismo; a sacudida fica no valor exato de PD-34.
+  7. Os pesos são os do topo (degrau 5, d = 5); o degrau 0 multiplica por d/5 no H2, não aqui.
+
+Dúvidas
+  a. Ganho de afrouxar: degrau (pior caso, usado) ou rampa em 20 s (info)? A diferença é 2,6×.
+  b. Segurar 117,5 N por 20 s com w = 0.01 custa 0.1818 em retorno, acima da perda (0.1247). O critério (c) não olha esse custo; confirmar se é aceitável.
+  c. 'Ganho máximo do rastreio linear por s' = 1,0 (peso do knob × 1). Confirmar essa leitura.
+  d. O p50 da spec (2,9 e 17) não reproduz no 23250_topo004 (medido: 5.04 e 31.56, por diferença finita da posição e do quaternion). Com o medido, w = 0.0155, não 0.05. Confirmar qual p50 vale.
+
+Linhas deste script: 226
