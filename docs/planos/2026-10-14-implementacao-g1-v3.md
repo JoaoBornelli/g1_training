@@ -1639,6 +1639,18 @@ Ondas:
     comando só; o detector de fim (`alvos.detecta_fim`) como status. Teclado do `pilota.py`.
   - `registra_juntas_v3.py` (raiz): o roteiro por fases do `registra_juntas.py` com as tarefas da v3;
     o CSV com as colunas de hoje mais `tarefa`, `aviso_fim`, `idade_caixa`, `fracao_mapa_visto`.
+  - Decisões de 29/10 (dúvidas da D11a): o contrato entre o exportador e o driver é a seção "Contrato
+    com o pilota_v3" da docstring do `exporta_cena.py` (chaves do `cena.npz` e do `contrato.json`, e a
+    assinatura de `monta_observacao`, que recebe `mapa` e `caixa` de fora). O mapa do driver sai de uma
+    classe `Percepcao` do `pilota_v3` (lidar por `mj_multiRay`, filtro e odometria; `reinicia(m, d)`;
+    `passo(m, d) -> (882,)`), fora do `monta_observacao`. A `paridade` prova os 7 blocos sem
+    `caixa`/`mapa` e o histórico (tol 1e−5) e só imprime, sem portão, a diferença entre o mapa da
+    `Percepcao` e o do env (Δmax das alturas nas células vistas pelos dois e a fração de concordância
+    da máscara de vistas); o dono julga na fase I. O `T_BASE_SENSOR` do `contrato.json` é a referência
+    em `q_de_pé`; o driver usa a pose viva do site `mid360` (`d.site_xpos`, `d.site_xmat`), como o
+    robô real usa a FK. A versão do pacote = `git rev-parse --short HEAD` na exportação
+    ("desconhecida" se o git falha). O exportador confere kd = −`biasprm[2]` além de kp =
+    `gainprm[0]`. O driver não simula o atraso do atuador: o robô real tem o próprio.
 - Teste: `py_compile` dos três; o `monta_observacao` com uma cena falsa devolve 1 447 canais na ordem
   do `Contrato.blocos_ator`.
 - Contagem: ferramentas, fora da meta. Commits: um por arquivo.
@@ -2189,3 +2201,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | D8: sai o `atraso_medio` (atributo privado do mjlab; o `atraso_max` vai ao log pela E6) e o `momento_angular` (pede sensor novo); o limiar do mapa visto vira `Percepcao.limiar_visto` = 0,5 | perguntas da lane D8 |
 | 2026-10-29 | dúvidas da onda D-2: o `twist` é o único escritor de `v3_celula` e lê o episódio de terreno no `terrain_types` (`sorteia_celulas` ganha `sem_tipo`); a unidade do `v3_t_empurrao` e o relógio do `twist`; o `tamanho_caixa` vai à fase E; `grupos(k: Knobs)` (o `mapa` sai sem a percepção; ruído e capacidade do atraso no `knobs`); a composição de `caixa_verdade` e o divisor de `niveis`; o `cerca_com` usa o `subtree_com` e o `body_subtreemass` da raiz; o recuo é a distância no plano da `grade_recuo`; campos novos `Cena.reset_base_andar`, `Cena.prioridade_laje`, `Terreno.borda`, `DR.ruido_obs`, `Recompensa.recuo_carregar` | as lanes D2, D3, D5 e D7 acharam a §6 aberta; o `body_mass` tem forma (mundos, corpos) e o `root_com_pos_w` é o CoM da pelve, não o do robô |
 | 2026-10-29 | `Curriculo`: os sorteios rodam no device do gerador; `id_celula(tarefa, tipo)` substitui os dois `_id_terreno` repetidos do `eventos` e do `comando` | o `v3_gerador` mora na GPU e o `multinomial` da CPU com gerador CUDA falha; função repetida (CLAUDE.md, minimização) |
+| 2026-10-29 | D11: a seção "Contrato com o pilota_v3" do `exporta_cena.py` é o contrato do driver; o mapa do driver sai da `Percepcao` do `pilota_v3`, e a paridade só imprime a diferença do mapa; `T_BASE_SENSOR` é referência, o driver usa a pose viva do site; versão = hash do git; kd conferido por `biasprm[2]` | dúvidas da D11a: o plano não dizia como o mapa entra na paridade nem o que é a versão do pacote |
