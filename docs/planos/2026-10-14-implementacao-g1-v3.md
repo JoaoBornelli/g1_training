@@ -508,7 +508,10 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 
 ### 6.3 Funções puras
 
-Assinaturas exatas. `E` = número de envs. Todo tensor no device do chamador.
+Assinaturas exatas. `E` = número de envs. Todo tensor no device do chamador. Convenções (29/10): quaternion
+em wxyz (o do mjlab); `ids` é tensor long de índices de env (o `env_ids` do mjlab), nunca máscara; `gerador` é
+`torch.Generator` ou `None`, e `None` desliga ruído, perda e sorteio de inclinação (teste determinístico);
+`dt` é float; ângulo de rumo é (E,) em rad; os escalares dos knobs são float.
 
 **`alvos.py`**
 
@@ -583,11 +586,17 @@ class Celula:
 class Curriculo:
     """Estado inteiro do currículo: células, níveis, fatias, refino. Puro e serializável."""
     def __init__(self, k_bal: Balanceador, k_niv: Niveis, k_com: Comando): ...
+    celulas: list[Celula]   # público; o `celula_id` é o índice nesta lista, na ordem de abertura da B3:
+                            # 0..5 ANDAR (reto, parado, baixo, giro_andando, giro_lugar, terreno),
+                            # 6..9 CARREGAR (reto, giro_lugar, arco, terreno), 10 PEGAR, 11 BOTAR
+    it: int                 # o contador próprio de iterações
     def registra(self, celula_id: int, n: int, n_sucesso: int) -> None: ...   # acumula na iteração
     def fecha_iteracao(self) -> None: ...
         # soma 1 ao contador próprio `self.it` (vai no `estado()`), aplica a EMA (PD-13), abre
         # células e fatias (S §11.1, §11.2), sobe níveis (PD-12), conta its no portão e avança o
-        # refino (S §11.5). ⚠ Não recebe o `it` do env: o `common_step_counter` volta a 0 na
+        # refino (S §11.5). EMA por célula com n > 0 na iteração: x = n_sucesso/n; com n_medidas = 0
+        # (célula recém-aberta, nível recém-subido) s = x; senão s += alfa·(x − s); n = 0 não muda s.
+        # s começa em 0. ⚠ Não recebe o `it` do env: o `common_step_counter` volta a 0 na
         # retomada, e a carência contada da última subida salva travaria os níveis
     def fracoes_fatias(self) -> torch.Tensor: ...          # (3,) ANDAR, B, C; fatia fechada = 0
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]: ...
@@ -596,7 +605,8 @@ class Curriculo:
     def nivel(self, tarefa: str) -> int: ...
     def niveis_abertos(self, tarefa: str) -> int: ...      # o degrau do freio (S §11.4)
     def degrau(self, tarefa: str) -> int: ...              # 0..5
-    def estado(self) -> dict: ...                          # para o checkpoint
+    def estado(self) -> dict: ...                          # para o checkpoint; só tipos do Python (int, float,
+                                                           # bool, str, list, dict); carrega(estado()) é identidade
     def carrega(self, estado: dict) -> None: ...
 
 def fracoes(deficits, piso, eps) -> torch.Tensor: ...      # piso + (1 − n·piso)(D+ε)/Σ(D+ε)
@@ -653,6 +663,10 @@ def alvo_no_frame_da_base(alvo_w, odo: Odometria) -> torch.Tensor: ...  # (E,3)
 class PadraoMid360:
     def __init__(self, caminho_npz: str, device: str): ...   # `mid360_passos.npz`["dirs"] (200, 205, 3)
     def direcoes(self, passo: int) -> torch.Tensor: ...      # (205,3) no frame do sensor
+# Formas (29/10): dist (E,R); dirs_s (R,3) no frame do sensor (o mesmo padrão para todos os envs);
+# sensor_pos_w (E,3); sensor_rot_w (E,3,3), sensor → mundo; base_pos_w (E,3); rumo (E,); z_pe_min_w (E,),
+# o z do ponto mais baixo das solas; incl_imu (E,3,3). Os giros de inclinação (o fixo `incl_imu` e o sorteado
+# por leitura) agem no raio em volta do sensor: p = sensor_pos_w + G_leitura·incl_imu·(sensor_rot_w·dirs_s·dist).
 def pontos_no_frame_do_mapa(dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w, rumo,
                             z_pe_min_w, incl_imu, k: Percepcao, gerador
                             ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
@@ -664,9 +678,14 @@ def pontos_no_frame_do_mapa(dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w
     # da odometria no real), para o `filtra_corpo`
 def filtra_corpo(pontos, validos, capsulas, raios, sensor_pos, raio_min,
                  margem) -> torch.Tensor: ...      # validos (E,R); PD-10; pontos, cápsulas e sensor no MESMO frame
+    # pontos (E,R,3); validos (E,R) bool; capsulas (E,K,2,3) os extremos p0, p1 de cada cápsula (como no
+    # `visivel`); raios (K,); sensor_pos (E,3); raio_min e margem float. Devolve o novo `validos` (E,R) bool:
+    # sai o ponto a menos de raio + margem de uma cápsula e o ponto a menos de raio_min do sensor
 class FiltroDeElevacao:
     def __init__(self, n, device, k: Percepcao): ...
     def reinicia(self, ids): ...                                # altura 0, variância ∞ (nunca vista); sem z_ref anterior
+    # Formas: prediz(dxy_rumo (E,2), dpsi (E,), z_ref (E,), dt float); atualiza(pontos (E,R,3), validos (E,R)
+    # bool, dist (E,R)); os pontos do `atualiza` estão no frame do mapa (a saída `pontos` acima)
     def prediz(self, dxy_rumo, dpsi, z_ref, dt): ...            # transporte no plano + PD-7; depois, nas células vistas,
                                                                 # h −= z_ref − z_ref anterior (transporte vertical, PD-7);
                                                                 # o primeiro passo depois do `reinicia` usa 0
@@ -2018,3 +2037,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-28 | plataforma (dono, 28/10): a PD-22 chega às tarefas. A D13 deixa de ser o notebook da Kaggle e vira `g1_v3/container/entrada.sh`, o ponto de entrada que a imagem do RunPod chama depois do clone (variáveis `RUN`, `RETOMA`, `ITERS`, `NUM_ENVS`, `PERCEPCAO`, `SAIDA`, `TENSORBOARD`, `SECO`; checagem de GPU e de versões; retomada pela pasta mais nova com checkpoint), com o `test_entrada` em modo seco. A D10 registra `Mjlab-G1-V3-SemPercepcao` para o I5. A fase I troca I4 e I5 pelo pod, mede 4 096 e 8 192 envs e ganha o I6 (retomada). §0, §1.1, §2.1, §3, §6.1, §15 e §17 deixam a Kaggle | pedido do dono depois da checagem de alinhamento |
 | 2026-10-29 | revisão do plano, 14 correções (o dono aprovou; a 12, tudo em Sonnet, ficou fora: a implementação segue com agentes Haiku). (1) transporte vertical do mapa pelo `z_ref`, o pé mais baixo no frame da odometria (PD-7, C0, C1, D2, D11; I §2.4 e PERC §0). (2) `atualiza_percepcao` com a guarda no env: o filtro e o estimador rodam uma vez por passo, e não uma por grupo (D2, E8, §6.4). (3) R = 13 e `linha_max_carregar` inteira: o teto do CARREGAR chega a 0,15 m e 0,27 (PD-20, D1, D7, B3, §6.2, §15). (4) atraso da observação com capacidade 0–3 desde o build (D2, D7, §2.3, §6.5). (5) máscara bool com `torch.where` e nenhum NaN como "não usado" (§6.3, §6.6, B0, D4). (6) odometria integrada no frame da base, com `delta_b()` (§6.3, D2b). (7) `pontos_w` para o `filtra_corpo` e `dist` para o d̄ (§6.3, C1). (8) PD-25 no lugar da PD-14, sem a PD-15 no `tarefa_critico`, prefixo "viab." nos itens da viabilidade. (9) sai o `raio_caixa_na_mao`. (10) estimador e DR do refino pelo degrau global (§6.9, H5). (11) lista dos CSV da Parte 0 pela coluna `fase` (B5). (13) `passos_por_iteracao` no `knobs`. (14) o `Curriculo` conta as próprias iterações, e a retomada não trava os níveis (§6.3, B0, D4). (15) `random_rough` com `scale_with_difficulty` (D1). Contagem: ~+25 linhas no pacote (`observacoes.py` +10, `estimador.py` +10, `percepcao_lidar.py` +3, `balanceador.py` +2), nenhum termo novo | `docs/relatorios/2026-10-29-revisao-plano-v3.md`; resposta do dono em 29/10 |
 | 2026-10-29 | contrato do `DR` e do `Refino` na §6.2 (a A2 achou só "ver §6.8/§6.9", sem nomes de campo). Os nomes seguem os eventos da D7 e da H4 e a chave `DR.com_caixa` (PD-38); o `Refino` aponta para os pares que já moram em `Recompensa`, `Alvos` e `Terminacao`, e o `laje_joelho_N` vira par (50; 10). O tamanho da caixa fica só na `Cena`. O `jitter_z` sai da linha da `Cena`: não existe no `g1_limpo`, e o `prateleira_jitter_z` já está em `prateleira_*`. Os campos do `Knobs` são as seções em minúsculo (`contrato`, `cena`, ..., `dr`, `refino`). Contagem: ~+45 linhas no `knobs.py` | orquestrador, durante a fase A |
+| 2026-10-29 | contrato da §6.3 fechado para as lanes B0 e C0: convenções (wxyz, `ids` long, `gerador` None sem ruído, `dt` float); `Curriculo.celulas` público com os ids 0..11 na ordem da B3, `it` público, a regra da EMA (s = x na primeira medida, s começa em 0) e o `estado()` só com tipos do Python; formas de `pontos_no_frame_do_mapa`, `filtra_corpo` (cápsulas (E,K,2,3), como o `visivel`), `prediz` e `atualiza`; os giros de inclinação agem em volta do sensor. Nenhuma função nova | perguntas das lanes B0 e C0 |
