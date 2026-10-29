@@ -69,16 +69,35 @@ class TestCustoAperto(unittest.TestCase):
 class TestFatorPouso(unittest.TestCase):
 
     def test_pouso_a_0_9_ms_com_fundo_na_laje(self):
-        # S §9.1 (A10): exp(−(v/σ)²) com σ 1,0 m/s e fundo a 2 cm (< 5 cm); 0,9 m/s dá 0,44 (0,445 ± 0,001).
-        sigma, altura = R.sigma_pouso[0], R.altura_pouso
-        v = potencial.fator_pouso(t(0.9), t(0.02), sigma, altura)
+        # S §9.1 (A10): exp(−(v/σ)²) com σ 1,0 m/s e fundo a 2 cm (≤ 5 cm); 0,9 m/s dá 0,44 (0,445 ± 0,001).
+        sigma, altura, inicio = R.sigma_pouso[0], R.altura_pouso, R.altura_pouso_inicio
+        v = potencial.fator_pouso(t(0.9), t(0.02), sigma, altura, inicio)
         self.assertAlmostEqual(v.item(), 0.445, delta=0.001)
 
     def test_fora_da_altura_do_pouso_vale_1(self):
-        # S §9.1: com o fundo a 10 cm (acima de 5 cm) o fator não atua.
-        sigma, altura = R.sigma_pouso[0], R.altura_pouso
-        v = potencial.fator_pouso(t(0.9), t(0.10), sigma, altura)
+        # S §9.1 (D3): com o fundo a 10 cm (= altura_inicio) o fator ainda não atua.
+        sigma, altura, inicio = R.sigma_pouso[0], R.altura_pouso, R.altura_pouso_inicio
+        v = potencial.fator_pouso(t(0.9), t(0.10), sigma, altura, inicio)
         self.assertAlmostEqual(v.item(), 1.0, places=9)
+
+    def test_rampa_entre_10_e_5_cm_meio_caminho_a_7_5_cm(self):
+        # S §9.1 (D3): entre 10 cm e 5 cm o fator é gradual. Com fundo a 7,5 cm, s = 0,5:
+        # 1 − 0,5·(1 − e^−0,81) = 0,7225 (± 0,001).
+        sigma, altura, inicio = R.sigma_pouso[0], R.altura_pouso, R.altura_pouso_inicio
+        v = potencial.fator_pouso(t(0.9), t(0.075), sigma, altura, inicio)
+        self.assertAlmostEqual(v.item(), 0.7225, delta=0.001)
+
+    def test_acima_de_10_cm_vale_1_exato(self):
+        # S §9.1 (D3): fundo a 12 cm, acima de altura_inicio: s = 0 e o fator é 1.0 exato.
+        sigma, altura, inicio = R.sigma_pouso[0], R.altura_pouso, R.altura_pouso_inicio
+        v = potencial.fator_pouso(t(0.9), t(0.12), sigma, altura, inicio)
+        self.assertEqual(v.item(), 1.0)
+
+    def test_continuidade_na_altura_inicio(self):
+        # S §9.1 (D3): sem degrau. Com fundo 1e−6 abaixo de altura_inicio, o fator fica em 1 ± 1e−4.
+        sigma, altura, inicio = R.sigma_pouso[0], R.altura_pouso, R.altura_pouso_inicio
+        v = potencial.fator_pouso(t(0.9), t(inicio - 1e-6), sigma, altura, inicio)
+        self.assertAlmostEqual(v.item(), 1.0, delta=1e-4)
 
 
 class TestExcessoDeJunta(unittest.TestCase):
