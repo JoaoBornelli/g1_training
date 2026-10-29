@@ -703,7 +703,7 @@ def avanca_trecho(trecho, relogio, duracao, aviso, atraso, dt, tabela: TabelaTre
                   ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: ...
     # (novo_trecho, novo_relogio, avancou, fim). trecho (E,) long; relogio (E,) float: o tempo no trecho por
     # tempo, ou o tempo desde o aviso no trecho por detector (0 antes); duracao (E,) a duração sorteada do
-    # trecho por tempo; aviso (E,) bool, o detector já avisou neste trecho (o invólucro guarda o latch);
+    # trecho por tempo; aviso (E,) bool, o detector já avisou neste trecho: o latch é o `v3_aviso` (§6.4; F9 P5);
     # atraso (E,) o atraso sorteado na abertura do trecho por detector. Por tempo: relógio += dt, avança com
     # relógio ≥ duração. Por detector: relógio += dt só com aviso, avança com aviso e relógio ≥ atraso. Ao
     # avançar, relógio = 0; fim = avançou e proximo = −1 (o trecho fica no último). A tarefa publicada é
@@ -728,7 +728,9 @@ def _calcula_percepcao(env) -> torch.Tensor: ...  # lê o env (D2) e chama passo
 def referencia_do_alvo(indice, h, a, ref: Referencias, k: Alvos) -> torch.Tensor: ...
     # (E,8): palmas_alvo_caixa(indice, a, k) achatadas (6); pelve e tronco da referência do alvo:
     # ref.pelve_z(h, a) e ref.tronco(h, a) de P0 a P3 e de B1 a B3, ref.pelve_com_caixa(a) e 0 no P4,
-    # ref.pelve_de_pe e 0 no B4; zero com indice −1 (§6.6). h = v3_topo, a = v3_meia
+    # ref.pelve_de_pe e 0 no B4; zero com indice −1 (§6.6). h = o topo do alvo: `v3_topo_destino` de B1 a B3,
+    # `v3_topo` nos outros; a = v3_meia. Fonte única: `recompensas.ref_do_alvo(env, indice)`, que as cercas e a
+    # observação `referencia` do crítico chamam (F9 S4)
 ```
 
 **`recompensas.py`, `terminacoes.py` e `cena.py` (núcleos e nomes; 29/10)**
@@ -870,8 +872,9 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     # cada (E,) em [0, 1], 1 fora do intervalo de alvos em que vale; as rampas são `potencial.rampa`:
     # "desloc": P0–P2 rampa(desloc_pega, desloc_p0p2_frac·a, delta_p0p2_frac·a); B3–B4 rampa(desloc_apoio,
     #   desloc_b2b4, delta_b2b4); "incl": P2–B2 rampa(incl_graus, incl_lim_graus, delta_incl_graus);
-    # "maos": P2–B2 contatos.sum(−1)/2 (PD-19); "tronco": rampa(desvio_tronco_graus, faixa_tronco_graus,
-    #   delta_tronco_graus); "recuo": fora do B4 rampa(desvio_recuo, faixa_recuo, delta_recuo);
+    # "maos": P2–B2 contatos.sum(−1)/2 (PD-19); "tronco": fora do B4 rampa(desvio_tronco_graus, faixa_tronco_graus,
+    #   delta_tronco_graus), com desvio_tronco_graus = relu(incl − IK): um lado só, a vertical é livre (S §8.2), e 1
+    #   no B4, cujo núcleo já mede o tronco (F9 P2); "recuo": fora do B4 rampa(desvio_recuo, faixa_recuo, delta_recuo);
     # "com": com dois_pes, rampa(desvio_com, faixa_com, delta_com), senão 1 (PD-35). Os mesmos intervalos de
     # `parte0/item1_phi` (DESLOC_PEGA, MAOS, DESLOC_BOTAR); invariantes = desloc · incl · maos
 def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor: ...   # sigma (E,) = `v3_sigma`
@@ -928,7 +931,8 @@ def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerad
 # comando.py (F1)
 def ok_agora_botar(indice, d_horiz_b1, d_caixa_b2, apoio_N, peso_N, afasta_palmas, apoiada, v_caixa,
                    dpelve, dtronco_graus, invariantes, k: Alvos) -> torch.Tensor: ...
-    # (E,) bool. Formas: v_caixa (E,3) m/s; afasta_palmas (E,2) m, uma por palma; apoio_N e peso_N (E,) N.
+    # (E,) bool. Formas: v_caixa (E,3) m/s; afasta_palmas (E,2) m, uma por palma: max_i(|palma_c_i| − (a + palma_face))
+    # no frame da caixa, 0 com o pad na face (F9 S3); apoio_N e peso_N (E,) N.
     # B1: d_horiz_b1 ≤ tol_b1_horizontal (a caixa na horizontal do ponto 5 cm acima da soltura);
     # B2: d_caixa_b2 ≤ raio_b2 e apoio_N ≥ apoio_b2_mg·peso_N; B3: as duas afasta_palmas (E,2) ≥ b3_afasta, apoiada
     # e ‖v_caixa‖ < v_parada_b3 (PD-39); B4: |dpelve| ≤ tol_pelve_b4 e |dtronco_graus| ≤ tol_tronco_b4_graus;
@@ -942,8 +946,10 @@ def n_chegada(primeiro_contato, vz_ant, limite) -> torch.Tensor: ...
     # recompensas.por_degrau(env, *Terminacao.chegada) (o `_por_degrau` da E4 fica público)
 
 # recompensas.py (F4): sem núcleo novo. O `progresso` já cobre B1–B4 por `distancia_do_alvo`, `portoes_do_alvo`
-# (desloc_apoio = ‖xy da caixa − xy de `v3_ponto_apoio`‖) e `phi_do_alvo` (fator = `fator_pouso` com σ =
-# por_degrau(*sigma_pouso) em B1 e B2). As cercas de B1–B3 usam `v3_topo_destino` no lugar de `v3_topo`.
+# (desloc_apoio = ‖xy da caixa − xy de `v3_ponto_apoio`‖, o ponto gravado no fecho do B2: F9 P1) e `phi_do_alvo`
+# (fator = `fator_pouso` com σ = por_degrau(*sigma_pouso) em B1 e B2). As cercas de B1–B3 usam `v3_topo_destino` no
+# lugar de `v3_topo`. F9 P3: o B_alvo[B2] paga vezes potencial.nucleo(max(v3_v_chegada, 0), σ do mesmo degrau): a
+# velocidade do pouso muda o retorno (o fator dentro do Φ telescopa). Sem termo novo: muda a forma do bônus.
 ```
 
 ### 6.4 Buffers do env
@@ -970,13 +976,14 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_filtro`, `v3_padrao` | objetos de `percepcao_lidar.py` | `observacoes.atualiza_percepcao` | `observacoes` |
 | `v3_percepcao_passo`, `v3_mapa_obs`, `v3_caixa_obs` | int, o `common_step_counter` da última atualização; (E,882); (E,11) | `observacoes.atualiza_percepcao` | os termos `mapa` e `caixa` do ator e do crítico, `metricas` |
 | `v3_freio`, `v3_degrau` | (E,) long, da tarefa corrente | `comando.cadeia` | `recompensas`, `terminacoes` |
-| `v3_fim`, `v3_aviso` | (E,) bool: fim da cadeia; aviso do detector de fim | `comando.cadeia` | `terminacoes`, `metricas` |
+| `v3_fim`, `v3_aviso` | (E,) bool: fim da cadeia; o latch do aviso do detector de fim (`v3_aviso \|= aviso`, zerado na abertura do trecho e no reset; F9 P5) | `comando.cadeia` | `terminacoes`, `metricas`, `comando.avanca_trecho`, `observacoes` (o alvo do BOTAR zera com o latch, como o driver; F9 R5) |
 | `v3_caixa_xy` | (E,2) xy da caixa de B e C relativo à origem, sorteado pela `cena` (E11 S4, 29/10) | `eventos.posiciona_cena` | `eventos.reset_base_por_fatia` |
 | `v3_sigma_velho` | (E,) o σ do alvo velho no passo do avanço: a cadeia grava o σ corrente antes de trocar; o `progresso` calcula Φ(s′, i_velho) com ele (D14/E11 S3, 29/10) | `comando.cadeia` | `recompensas.progresso` |
 | `v3_sigma`, `v3_relogio_alvo`, `v3_phi` | (E,): σ do alvo corrente [C20]; relógio do avanço; Φ do passo anterior, com a sentinela −1 = sem alvo (Φ ∈ [0, 1]; nasce −1 no `garante_v3` e a cadeia volta a −1 no reset). O passo com `v3_phi` < 0 é a ENTRADA no alvo e paga 0, como a saída (PD-36; 29/10) | `comando.cadeia`; `recompensas.progresso` (`v3_phi`) | `recompensas` |
 | `v3_avancou`, `v3_b_pagos` | (E,) bool; (E,) soma dos `B_alvo` pagos desde o P2 (só os avanços com o alvo velho ≥ P2; a cadeia zera no reset do episódio; 29/10) | `comando.cadeia`; `recompensas` | `recompensas` |
 | `v3_p4_fechado`, `v3_b4_fechado`, `v3_perdeu_agora` | (E,) bool | `comando.cadeia` | `comando`, `terminacoes`, `recompensas` |
-| `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia`; o `v3_vz_caixa_ant` = a vz da caixa, escrita pela cadeia no fim do `_update_command`, todo passo e para todo env: a cadeia roda depois das terminações, das recompensas, das métricas e do reset, e então a terminação `chegada` e a métrica `velocidade_de_chegada` leem a vz do passo anterior; num env reiniciado o valor é o do pós-reset (F-2, 29/10) | `recompensas`, `terminacoes`, `comando.twist` |
+| `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia`; o `v3_vz_caixa_ant` = a vz da caixa, escrita pela cadeia no fim do `compute`, todo passo e para todo env: a cadeia roda depois das terminações, das recompensas, das métricas e do reset, e então a terminação `chegada` e a métrica `velocidade_de_chegada` leem a vz do passo anterior; num env reiniciado o valor é o do pós-reset (F-2, 29/10) | `recompensas`, `terminacoes`, `comando.twist` |
+| `v3_v_chegada` | (E,) m/s, positiva na descida; −1 = sem toque | `comando.cadeia`: −1 no reset e na abertura do BOTAR; no primeiro contato caixa × laje do BOTAR com o valor ainda −1, max(−`v3_vz_caixa_ant`, 0), lido ANTES de a cadeia reescrever o `v3_vz_caixa_ant` (F9 P3). `v3_ponto_apoio` = a posição da caixa no fecho do B2 (F9 P1) | `recompensas.progresso` (o B_alvo[B2]), `metricas.velocidade_de_chegada` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
 | `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio, em s desde o começo do episódio (−∞ sem empurrão; o `sorteia_fatia` volta a −∞ no reset); (E,4) pose da âncora do canal zero (x, y, rumo, instante). O evento grava `episode_length_buf · step_dt`; o `twist` mede no relógio próprio, zerado no reset do comando, porque o mjlab reseta os comandos antes de zerar o `episode_length_buf` (`manager_based_rl_env.py:581-590`); os dois diferem em até 1 passo (29/10) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
 
@@ -1646,7 +1653,7 @@ Ondas:
   | `rastreio_angular` | idem com c = abs(wz), v = v̄_wz; σ₀ = `sigma_zero_ang` (o linear usa `sigma_zero_lin`, PD-49) | idem | todas |
   | `passo` | no toque (contato agora e não no passo anterior): L = (p_toque − p_apoio)·ĉ_w − (p_toque⁰ − p_apoio⁰)·ĉ_b (PD-16); r = min(relu(L)/`L_alvo`, 1)² · max(r_lin, 0) (PD-48); zero com ‖cmd_xy‖ < 0,02 | sites dos pés; `pes_chao`; `pes_de_pe_b` da `referencias.npz` | ANDAR, CARREGAR |
   | `vivo` | 1 | — | ANDAR, CARREGAR |
-  | `altura_pe` | exp(−Σ_pés (h − 0,10)²·tanh(2·‖v_xy‖)/0,05) | `altura_pes`, velocidade dos `*_ankle_roll_link` | ANDAR, CARREGAR |
+  | `altura_pe` | exp(−Σ_pés (h − 0,10)²·tanh(2·‖v_xy‖)/0,05); zero com o comando do twist zero (‖(vx, vy, wz)‖ = 0: o ANDAR e o CARREGAR parados; F9 P4) | `altura_pes`, velocidade dos `*_ankle_roll_link` | ANDAR, CARREGAR |
   | `escorrego` | Σ_pés ‖v_xy‖·contato | idem, `pes_chao` | todas |
   | `vz`, `giro_xy` | v_z²; ω_x² + ω_y² da base | base | todas |
   | `vel_junta`, `acel_junta`, `taxa_acao` | Σ q̇²; mjlab; mjlab | — | todas |
@@ -1669,7 +1676,7 @@ Ondas:
   usa os mesmos núcleos e as mesmas unidades.
 - Teste (`test_recompensas`): passo: L = 0,20 m a 0,5 m/s com r_lin 1 → 1; L = 0,40 → 1 (satura);
   L = 0,10 → 0,25, e a soma por segundo com L = 0,10 e o dobro da cadência dá a metade da de L = 0,20 (PD-48);
-  passo de lado com os pés na largura da pose de pé → 0; `altura_pe` com os pés parados → 1;
+  passo de lado com os pés na largura da pose de pé → 0; `altura_pe` com os pés parados → 1 com comando de marcha e 0 com o comando zero (F9 P4);
   `cerca_giro` com `hip_yaw_E` = −40° → 10; `cerca_tronco` com 20° no ANDAR → 5; `cerca_com` com o
   CoM 5 cm dentro → 0 e 1 cm dentro → 0,02; um pé só no chão → 0; `cerca_torque` com 90% → 0,5;
   `cerca_torque` com `waist_pitch` 30 N·m e `waist_roll` 15 N·m → 0,5 (soma 45 de 50), e 0 na
@@ -2025,8 +2032,8 @@ Atende: S §16 Parte 3, §7 (fatia C), §8.2 (B1–B4 e o invariante B2–B4), �
 `v3_alvo_w` = o ponto de soltura do F2 no topo da laje de destino + (0, 0, a); `v3_alvo_idx` = B1. `ok_agora`: B1,
 caixa a ≤ 3 cm do alvo + 5 cm na horizontal; B2, caixa a ≤ 0,10 m do alvo, nivelada, apoio ≥
 0,8·m·g por 0,3 s; B3, palmas a ≥ 5 cm dos planos das faces, caixa apoiada e com ‖v‖ < 0,05 m/s
-(PD-39), por 0,5 s; B4, pelve a ≤ 3 cm de `pelve_de_pe` e tronco a ≤ 5°, por 0,5 s. No primeiro apoio,
-`v3_ponto_apoio` = posição da caixa (invariante B2–B4). Detector com a pose de pé sem caixa; depois do
+(PD-39), por 0,5 s; B4, pelve a ≤ 3 cm de `pelve_de_pe` e tronco a ≤ 5°, por 0,5 s. No fecho do B2,
+`v3_ponto_apoio` = posição da caixa (invariante B3–B4; F9 P1). Detector com a pose de pé sem caixa; depois do
 aviso, espera U[0; 1,5] s com o one-hot em BOTAR, e o ANDAR parado de 1,5 s. Sucesso do BOTAR: B4
 fechado, o ANDAR parado final sem terminação e `não v3_perdeu` no registro (PD-50). O CARREGAR parado da C não registra célula.
 Commit: `feat(v3): cadeia C com B1–B4`.
@@ -2049,7 +2056,7 @@ abertura, a velocidade vertical do passo anterior (`v3_vz_caixa_ant`) acima do l
 `feat(v3): terminação da chegada da caixa`.
 
 **F4 — `recompensas.py` (Sonnet).** O `progresso` ganha os alvos B1–B4 com `fator_pouso` (σ pelo
-degrau) e o invariante B2–B4 (rampa do deslocamento desde `v3_ponto_apoio`). Teste: pousar a 0,9 m/s
+degrau) e o invariante B3–B4 (rampa do deslocamento desde `v3_ponto_apoio`, gravado no fecho do B2; F9 P1). Teste: pousar a 0,9 m/s
 dá fator 0,44 no B2; deslocar 3 cm depois de apoiar leva a rampa a 0,5. Commit:
 `feat(v3): pouso devagar e invariante depois do apoio`.
 
@@ -2356,3 +2363,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | E11, depois das correções: `v3_caixa_xy` na §6.4 (o `garante_v3` cria); a ordem dos eventos de reset com `cena` antes de `base`; o B_alvo[B4] paga na troca só sem `v3_perdeu` (a volta depois da perda paga como potencial, S §10); `EstimadorCaixa.tem_leitura()` e `observacoes.z_pe_min` públicos; `Cena.reset_base_manipula` só com z e yaw (o x e o y saem do recuo) | as lanes 5, 6 e 9 da E11 acharam buffer criado fora do `garante_v3`, atributo privado lido de fora e campo do knobs sem uso |
 | 2026-10-29 | onda F-2: o `v3_vz_caixa_ant` volta ao `comando.cadeia` (§6.4). Escrito pela terminação, ele já era a vz do passo corrente quando a métrica `velocidade_de_chegada` lia, porque as métricas rodam depois das terminações. O sensor `apoio_caixa` ganha `track_air_time=True` (o `compute_first_contact` exige) e o primeiro contato dele é (E,1): a terminação e a métrica leem a coluna 0 | conferência do orquestrador depois da F3 e da F6 |
 | 2026-10-29 | F4 e F-2a: sai o `Recompensa.recuo_carregar` (§6.2). O `recuo_IK` da `cerca_recuo` no CARREGAR passa a ser o transporte da IK (`ref.caixa_transporte_b`), a mesma fonte do P4: um número só para a caixa no peito | lanes F4 e F-2a |
+| 2026-10-29 | revisão F9 (`docs/relatorios/2026-10-29-v3-revisao-parte3.md`), decisões do dono: P1, o `v3_ponto_apoio` nasce no fecho do B2 (invariante B3–B4); P2, o portão do tronco do Φ é de um lado só, relu(incl − IK), e vale 1 no B4; P3, o B_alvo[B2] paga vezes o núcleo da velocidade de chegada (`v3_v_chegada`, §6.4), com o σ do pouso do degrau; P4, a `altura_pe` paga zero com o comando do twist zero (o ANDAR parado final pagava 1,725 contra ≤ 0,20 da escada B1–B4; com o pé parado o termo vale exp(0) = 1; desvio da conta "parado" da S §9.2); P5, o `v3_aviso` é o latch do aviso no trecho, e o canal do alvo do ator no BOTAR zera com ele, como o driver (R2, R5); P6, o PEGAR só fica pendente de registro depois que o P0 abre (sem leitura da caixa a falha é da percepção); P7, o reset por `time_out` com o BOTAR pendente registra com falhou = False (o `time_out` não é terminação, S §10). Fora do dono: S1, a `cerca_pelve` com índice −1 usa a pose de pé; S3, o `afasta` desconta o `palma_face`; S4, o `recompensas.ref_do_alvo` público é a fonte da `referencia` do crítico; R3, `alvos.base_para_mundo` único, um yaw só, e `Detector.tol_pelve`/`tol_tronco_graus` com o valor de `Alvos.tol_pelve_b4`/`tol_tronco_b4_graus` como default (uma fonte); M12, o chão do driver em z = 0 na coluna `plano` | revisão F9 e respostas do dono |
