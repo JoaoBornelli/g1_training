@@ -611,6 +611,9 @@ class Curriculo:
     def fracoes_fatias(self) -> torch.Tensor: ...          # (3,) ANDAR, B, C; fatia fechada = 0
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]: ...
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor: ...     # (n,) long
+    # ⚠ Os dois sorteios rodam no device do `gerador` (o `v3_gerador` mora na GPU do env; o `multinomial` de um
+    # tensor da CPU com gerador CUDA falha) e devolvem no device do gerador; sem gerador, CPU (29/10).
+    def id_celula(self, tarefa: str, tipo: str) -> int: ...  # o id em `celulas`; o `eventos` e o `comando` usam (29/10)
     def sorteia_celulas(self, tarefa: str, n: int, gerador, sem_tipo: str | None = None) -> torch.Tensor: ...
         # (n,) ids de célula; com `sem_tipo`, a fração da célula desse tipo vale 0 antes do sorteio (29/10:
         # o `twist` sorteia sem a célula `terreno` fora do episódio de terreno, §6.4 `v3_celula`)
@@ -2185,3 +2188,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | §6.4: `v3_gerador` (o gerador dos sorteios e do ruído, com a semente do cfg) e `v3_iter`; o `garante_v3` cria a `v3_odo` com o `v3_gerador`; o `v3_freio` e o `v3_degrau` ficam com o `comando.cadeia`, como a §6.4 já dizia, e a D4 deixa de escrevê-los | pergunta da lane D4 |
 | 2026-10-29 | D8: sai o `atraso_medio` (atributo privado do mjlab; o `atraso_max` vai ao log pela E6) e o `momento_angular` (pede sensor novo); o limiar do mapa visto vira `Percepcao.limiar_visto` = 0,5 | perguntas da lane D8 |
 | 2026-10-29 | dúvidas da onda D-2: o `twist` é o único escritor de `v3_celula` e lê o episódio de terreno no `terrain_types` (`sorteia_celulas` ganha `sem_tipo`); a unidade do `v3_t_empurrao` e o relógio do `twist`; o `tamanho_caixa` vai à fase E; `grupos(k: Knobs)` (o `mapa` sai sem a percepção; ruído e capacidade do atraso no `knobs`); a composição de `caixa_verdade` e o divisor de `niveis`; o `cerca_com` usa o `subtree_com` e o `body_subtreemass` da raiz; o recuo é a distância no plano da `grade_recuo`; campos novos `Cena.reset_base_andar`, `Cena.prioridade_laje`, `Terreno.borda`, `DR.ruido_obs`, `Recompensa.recuo_carregar` | as lanes D2, D3, D5 e D7 acharam a §6 aberta; o `body_mass` tem forma (mundos, corpos) e o `root_com_pos_w` é o CoM da pelve, não o do robô |
+| 2026-10-29 | `Curriculo`: os sorteios rodam no device do gerador; `id_celula(tarefa, tipo)` substitui os dois `_id_terreno` repetidos do `eventos` e do `comando` | o `v3_gerador` mora na GPU e o `multinomial` da CPU com gerador CUDA falha; função repetida (CLAUDE.md, minimização) |
