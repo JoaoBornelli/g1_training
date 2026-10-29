@@ -810,7 +810,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_cur` | `balanceador.Curriculo` | `curriculo` | todos |
 | `v3_gerador` | `torch.Generator` no device do env, semente = `env.cfg.seed` (0 sem semente) (29/10) | `curriculo.garante_v3` | `estimador`, `eventos`, `comando`, `observacoes` |
 | `v3_iter` | int, a última iteração vista pelo termo `v3` (29/10) | `curriculo.v3` | `curriculo` |
-| `v3_ref` | `alvos.Referencias` (29/10) | `curriculo.garante_v3` | `observacoes`, `recompensas`, `comando` |
+| `v3_ref` | `alvos.Referencias` (29/10) | `curriculo.garante_v3` | `observacoes`, `recompensas`, `comando`, `metricas` |
 | `v3_fatia` | (E,) long | `eventos.sorteia_fatia` | `comando`, `eventos` |
 | `v3_trecho` | (E,) long | `comando.cadeia` | `comando`, `metricas` |
 | `v3_tarefa` | (E,) long, índice em `TAREFAS` | `comando.cadeia` | todos |
@@ -1565,8 +1565,9 @@ Ondas:
 
 - Origem: `g1_limpo/metricas.py:210-218`, `:341-470`, `:585-590` (as sem dependência, §2.2).
 - O que fazer: copia as métricas da locomoção e acrescenta `passo_medio` (L no toque),
-  `fracao_mapa_visto` (células do recorte com confiança > 0,5), `atraso_medio` (lag médio dos
-  atuadores). `termos(k) -> dict[str, MetricsTermCfg]`.
+  `fracao_mapa_visto` (células do recorte com confiança > `Percepcao.limiar_visto`, 0,5). O `atraso_medio`
+  saiu (29/10): o lag sorteado mora num atributo privado do mjlab, e o `atraso_max` já vai ao log pela E6.
+  `termos(k) -> dict[str, MetricsTermCfg]`.
 - Contagem: 590 → ~350 no fim da fase H. Commit: `feat(v3): métricas da locomoção`.
 
 ### D9 — `algoritmo.py` e `runner.py` (Sonnet)
@@ -2169,3 +2170,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | núcleos puros do `comando` e do `observacoes` na §6.3 (`sorteia_velocidade`, `TabelaTrechos`, `monta_tabela_trechos`, `avanca_trecho`, `tempo_da_ancora`, `sucesso_do_segmento`, `passo_de_percepcao`, `_calcula_percepcao`, `referencia_do_alvo`) e o buffer `v3_ref` na §6.4; o `atualiza_percepcao` vira só a guarda. Nenhum termo novo | perguntas da lane D0-2 |
 | 2026-10-29 | núcleos da D5 e da D6 (`n_<termo>`, `comprimento_do_passo`, `n_queda`, `n_fim_da_cadeia`), `spec_caixa`/`spec_laje`/`terreno_cfg` da cena, "todas" = as 4 tarefas da cadeia, o conjunto de termos da fase D, a fórmula do teto da coluna `caixas` (0,2 + 0,8·t) e a API de registro, na §6.3 | perguntas da lane D0-1 |
 | 2026-10-29 | §6.4: `v3_gerador` (o gerador dos sorteios e do ruído, com a semente do cfg) e `v3_iter`; o `garante_v3` cria a `v3_odo` com o `v3_gerador`; o `v3_freio` e o `v3_degrau` ficam com o `comando.cadeia`, como a §6.4 já dizia, e a D4 deixa de escrevê-los | pergunta da lane D4 |
+| 2026-10-29 | D8: sai o `atraso_medio` (atributo privado do mjlab; o `atraso_max` vai ao log pela E6) e o `momento_angular` (pede sensor novo); o limiar do mapa visto vira `Percepcao.limiar_visto` = 0,5 | perguntas da lane D8 |
