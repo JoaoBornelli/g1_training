@@ -1,7 +1,8 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
 ⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3),
-`alvos` (os índices P0–B4 e `inclinacao_da_caixa`) e, só para a anotação, `knobs.Knobs`.
+`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` (os índices das tarefas) e, só para a
+anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
 apaga a medição dela, em silêncio. Medir num manager separado desacopla as duas coisas: o peso
@@ -22,7 +23,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
-from g1_v3.alvos import P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3.alvos import B2, B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3.knobs import TAREFAS
 from g1_v3.recompensas import comprimento_do_passo
 
 if TYPE_CHECKING:
@@ -43,6 +45,8 @@ __all__ = [
     "inclinacao_da_caixa_no_p3",
     "forca_robo_caixa",
     "deslocamento_da_caixa",
+    "velocidade_de_chegada",
+    "deslocamento_depois_do_apoio",
     "idade_das_leituras",
     "fracao_avisos",
 ]
@@ -55,6 +59,7 @@ SITIOS_DOS_PES = ("left_foot", "right_foot")
 COMANDO = "twist"
 CAIXA = "box"
 CAIXA_ROBO = "caixa_robo"
+APOIO_CAIXA = "apoio_caixa"  # caixa × laje (cena.py): o contato da chegada
 # a ordem é a dos índices de `alvos` (P0 = 0 … B4 = 8): o nome do termo sai daqui
 _NOMES_ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")
 
@@ -211,7 +216,7 @@ def fracao_mapa_visto(env, limiar: float) -> torch.Tensor:
     return (conf > limiar).float().mean(dim=-1)
 
 
-PEGAR, CARREGAR, BOTAR = 1, 2, 3  # índices de `knobs.TAREFAS` (o `comando.py` faz o mesmo)
+PEGAR, CARREGAR, BOTAR = (TAREFAS.index(n) for n in ("PEGAR", "CARREGAR", "BOTAR"))  # índices de `knobs.TAREFAS`
 
 
 def _com_caixa(env) -> torch.Tensor:
@@ -311,6 +316,47 @@ class deslocamento_da_caixa:
         self.marcada[env_ids] = False
 
 
+class velocidade_de_chegada:
+    """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje no BOTAR, por env. Sem peso.
+
+    Um valor por episódio: o do primeiro contato, zero antes. Lê `v3_vz_caixa_ant` (a vz do passo anterior,
+    escrita pelo `terminacoes.chegada`), o mesmo número que o termo julga.
+    ⚠ `reduce="last"` no cfg: o valor é o do contato, e o episódio mantém até o fim.
+    ⚠ `reset` com buffer próprio: o contato do episódio anterior não pode sobreviver.
+    ⚠ DÚVIDA: a ordem do `MetricsManager` e do `TerminationManager` no passo não está medida; se as métricas
+    rodam depois da terminação, `v3_vz_caixa_ant` já é a vz do passo corrente.
+    """
+
+    def __init__(self, cfg, env):
+        self.valor = torch.zeros(env.num_envs, device=env.device)
+        self.marcada = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+        self.dt = env.step_dt
+
+    def __call__(self, env) -> torch.Tensor:
+        novo = (env.scene[APOIO_CAIXA].compute_first_contact(dt=self.dt)
+                & (env.v3_tarefa == BOTAR) & ~self.marcada)
+        self.valor = torch.where(novo, -env.v3_vz_caixa_ant, self.valor)
+        self.marcada = self.marcada | novo
+        return self.valor
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.valor[env_ids] = 0.0
+        self.marcada[env_ids] = False
+
+
+def deslocamento_depois_do_apoio(env) -> torch.Tensor:
+    """Quanto a caixa andou no plano xy desde `v3_ponto_apoio`, nos passos de B2 a B4, por env (m). Sem peso.
+
+    ⚠ Só xy, como `deslocamento_da_caixa`. Fora de B2–B4 o valor é zero: antes do apoio o ponto ainda não vale.
+    ⚠ `reduce="max"` no cfg: o maior deslocamento depois do apoio.
+    """
+    alvo = env.v3_alvo_idx
+    desl = torch.norm((env.scene[CAIXA].data.root_link_pos_w - env.v3_ponto_apoio)[:, :2], dim=-1)
+    return torch.where((alvo >= B2) & (alvo <= B4), desl, torch.zeros_like(desl))
+
+
 def idade_das_leituras(env) -> torch.Tensor:
     """Idade (s) média da leitura do estimador da caixa, por env. Sem peso.
 
@@ -377,6 +423,8 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["inclinacao_caixa_p3"] = MetricsTermCfg(func=inclinacao_da_caixa_no_p3, reduce="max")
     m["forca_robo_caixa"] = MetricsTermCfg(func=forca_robo_caixa, params={"sensor_name": CAIXA_ROBO})
     m["deslocamento_caixa_laje"] = MetricsTermCfg(func=deslocamento_da_caixa, reduce="max")
+    m["velocidade_de_chegada"] = MetricsTermCfg(func=velocidade_de_chegada, reduce="last")
+    m["deslocamento_depois_do_apoio"] = MetricsTermCfg(func=deslocamento_depois_do_apoio, reduce="max")
     m["idade_leituras"] = MetricsTermCfg(func=idade_das_leituras)
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
     return m

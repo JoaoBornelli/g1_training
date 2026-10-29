@@ -1,7 +1,7 @@
 """Terminações da v3 da fase D: o fim da cadeia (`time_out`) e a queda (plano §6.5, D6; PD-21).
 
 Cada termo é um núcleo puro sobre tensores (`n_*`) mais um invólucro fino que lê o env. O teste
-chama o núcleo com tensores sintéticos. `fim_da_cadeia`, `queda` (D) e `caixa_perdida` (E);
+chama o núcleo com tensores sintéticos. `fim_da_cadeia`, `queda` (D), `caixa_perdida` (E) e `chegada` (F);
 `batente` é da fase H.
 
 ⚠ TERMINAR SÓ O QUE NÃO TEM COMO SER PAGO (princípio do g1_limpo/terminacoes.py). A queda é o
@@ -107,3 +107,30 @@ def caixa_perdida(env: ManagerBasedRlEnv, tarefas: tuple[str, ...], vira_andar: 
     cai = n_caixa_perdida(env.v3_perdeu_agora, vira_andar)
     # ⚠ torch.where, e não multiplicação: o mesmo motivo de `queda`.
     return torch.where(mascara(env, tarefas), cai, torch.zeros_like(cai))
+
+
+def n_chegada(primeiro_contato, vz_ant, limite) -> torch.Tensor:
+    """(E,) bool. A caixa tocou a laje (primeiro contato) descendo mais rápido que o limite do degrau.
+
+    `vz_ant` é a vz da caixa no passo anterior (m/s, negativa na descida: `v3_vz_caixa_ant`). `limite` é o
+    do degrau, m/s positivo: `recompensas.por_degrau(env, *Terminacao.chegada)`. Sem contato, não termina.
+    """
+    return primeiro_contato & (-vz_ant > limite)
+
+
+def chegada(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
+    """Invólucro de `n_chegada`. Lê o `apoio_caixa` (caixa × laje) e o `v3_vz_caixa_ant`; o limite vem do degrau.
+
+    ⚠ `v3_vz_caixa_ant` é escrito AQUI, no fim de cada passo e para TODO env (sem máscara): é o valor do
+    passo anterior que o núcleo lê. Nenhum módulo o escrevia (a §6.4 diz `comando.cadeia`; ⚠ DÚVIDA: se o
+    `comando.cadeia` passar a escrevê-lo, há dois escritores).
+    ⚠ `mascara` e `recompensas` são importados aqui dentro, como em `queda`.
+    """
+    from g1_v3 import recompensas
+    from g1_v3.curriculo import mascara
+
+    primeiro = env.scene["apoio_caixa"].compute_first_contact(dt=env.step_dt)
+    limite = recompensas.por_degrau(env, *ATIVO.terminacao.chegada)
+    cheg = n_chegada(primeiro, env.v3_vz_caixa_ant, limite)
+    env.v3_vz_caixa_ant[:] = env.scene["box"].data.root_link_lin_vel_w[:, 2]
+    return torch.where(mascara(env, tarefas), cheg, torch.zeros_like(cheg))
