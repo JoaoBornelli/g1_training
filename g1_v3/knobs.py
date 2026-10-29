@@ -41,6 +41,9 @@ JUNTAS = (
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR", "REORIENTAR", "LEVANTAR")  # one-hot (I §2.2)
 FATIAS = ("ANDAR", "B", "C")  # fatias do currículo (§6.2)
 ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")  # índice 0..8; −1 = nenhum
+# Sentinela "nunca reamostra" (plano §1.5, D14 R6): passos de atraso sem reamostra. Uma só, para o
+# lag sorteado no reset ficar no episódio inteiro. Não é número de treino, é o valor "infinito" do mjlab.
+NUNCA = 10**9
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,9 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
     impratio: float = 1.0  # g1_limpo/knobs.py:105; S §12 (L2)
     cone: str = "pyramidal"  # g1_limpo/knobs.py:106; S §12 (L2)
     extent: float = 2.5  # g1_limpo/knobs.py:86
+    # D14 M5: laje e caixa nascem `estaciona_z` acima do mundo (fase D); a fase E (`estaciona_cena`) usa o mesmo campo
+    estaciona_z: float = 20.0
+    caixa_condim: int = 3  # D14 R6: padrão do MuJoCo; g1_limpo/knobs.py Cena.caixa_condim
 
 
 @dataclass(frozen=True)

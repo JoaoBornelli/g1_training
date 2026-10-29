@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 
 import torch
-from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
 
 from g1_v3 import potencial
 from g1_v3.curriculo import mascara
@@ -308,7 +308,7 @@ def passo(env, tarefas):
     c_xy = cmd[:, :2]
     n_cmd = c_xy.norm(dim=-1)
     c_b = torch.cat([c_xy / n_cmd.clamp(min=_EPS).unsqueeze(-1), torch.zeros_like(n_cmd).unsqueeze(-1)], dim=-1)
-    c_w = quat_apply(robo.data.root_link_quat_w, c_b)  # o mesmo comando, girado pelo rumo da base
+    c_w = quat_apply_yaw(robo.data.root_link_quat_w, c_b)  # o mesmo comando, girado pelo rumo da base
     pos = robo.data.site_pos_w[:, robo.find_sites(_PES_SITIOS)[0]]  # (E,2,3) sites dos pés, mundo
     p0 = env.v3_ref.pes_de_pe_b.to(pos)  # (2,3) pose de pé, frame da pelve (PD-16)
     primeiro = env.scene["pes_chao"].compute_first_contact(env.step_dt)  # (E,2): pousou agora
@@ -368,9 +368,10 @@ def taxa_acao(env, tarefas):
 
 
 def energia(env, tarefas):
-    """Energia Σ|τ·q̇| com τ de `qfrc_actuator` (as 29 juntas, sem a base livre). Todas as tarefas."""
+    """Energia Σ|τ·q̇| com τ de `qfrc_actuator`, que o mjlab já devolve só com as 29 juntas (sem a base
+    livre). Todas as tarefas."""
     robo = env.scene["robot"]
-    return _fim(env, tarefas, n_energia(robo.data.qfrc_actuator[:, 6:], robo.data.joint_vel))
+    return _fim(env, tarefas, n_energia(robo.data.qfrc_actuator, robo.data.joint_vel))
 
 
 def limite_junta(env, tarefas):
@@ -447,7 +448,7 @@ def cerca_com(env, tarefas):
 
 def cerca_torque(env, tarefas):
     """Torque de cada junta solta e de cada par acoplado, sobre o limite de `lim_torque` (PD-45; S §9.3)."""
-    tau = env.scene["robot"].data.qfrc_actuator[:, 6:]
+    tau = env.scene["robot"].data.qfrc_actuator  # (E,29): o mjlab já tira a base livre
     tau_max = torch.tensor(_TAU_MAX, dtype=tau.dtype, device=tau.device)
     pares = _PARES.to(tau.device)
     return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque))

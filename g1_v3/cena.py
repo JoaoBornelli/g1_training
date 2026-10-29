@@ -26,7 +26,7 @@ from mjlab.terrains.config import (discrete_obstacles, flat, hf_pyramid_slope, h
                                    random_stairs)
 from mjlab.utils.spec_config import CollisionCfg
 
-from g1_v3.knobs import ATIVO, JUNTAS, Cena, Knobs, Terreno, caminho, q_de_pe
+from g1_v3.knobs import ATIVO, JUNTAS, NUNCA, Cena, Knobs, Terreno, caminho, q_de_pe
 
 # ------------------------------------------------------------------ nomes e grupos
 BOX_GEOM = "box_geom"
@@ -101,11 +101,11 @@ def regroup(spec: mujoco.MjSpec, group: int) -> mujoco.MjSpec:
 def spec_caixa(c: Cena) -> mujoco.MjSpec:
     """Caixa LEVE a erguer: corpo LIVRE, cubo na meia aresta de referência, `caixa_massa_base` kg.
 
-    ⚠ `priority` = `caixa_priority` (0) e μ = `caixa_atrito` (PD-46). O condim é 3, o padrão do MuJoCo
-    (g1_limpo/knobs.py Cena.caixa_condim).
+    ⚠ `priority` = `caixa_priority` (0) e μ = `caixa_atrito` (PD-46). O condim vem de `caixa_condim`
+    (3, o padrão do MuJoCo; g1_limpo/knobs.py Cena.caixa_condim).
     """
     m = _meia_caixa(c)
-    spec = _spec_box("box", BOX_GEOM, "box_joint", (m, m, m), c.caixa_atrito, c.caixa_priority, 3,
+    spec = _spec_box("box", BOX_GEOM, "box_joint", (m, m, m), c.caixa_atrito, c.caixa_priority, c.caixa_condim,
                      massa=c.caixa_massa_base)
     return regroup(spec, c.grupo_mobilia)
 
@@ -188,8 +188,8 @@ def _atuadores(k: Knobs) -> tuple:
             target_names_expr=(regex,), stiffness=kp, damping=kd,
             effort_limit=m.effort_limit, armature=m.armature,
             delay_min_lag=0, delay_max_lag=atraso_max,
-            # ⚠ 10⁹ passos = nunca reamostra: o lag sorteado no reset (eventos) fica no episódio inteiro.
-            delay_update_period=10**9, delay_per_env_phase=False,
+            # ⚠ NUNCA (10⁹ passos) = nunca reamostra: o lag sorteado no reset (eventos) fica no episódio inteiro.
+            delay_update_period=NUNCA, delay_per_env_phase=False,
         ))
     return tuple(out)
 
@@ -287,15 +287,17 @@ def entidades(k: Knobs = ATIVO) -> dict[str, EntityCfg]:
     g = geometria_de_repouso(c)
     return {
         "robot": robot_cfg(k),
+        # D14 M5: `estaciona_z` põe a caixa e a laje acima do mundo até a fase E; a caixa segue apoiada na laje.
         "box": EntityCfg(
             spec_fn=lambda: spec_caixa(c),
-            init_state=EntityCfg.InitialStateCfg(pos=(c.caixa_xy[0], c.caixa_xy[1], g["caixa_z"])),
+            init_state=EntityCfg.InitialStateCfg(
+                pos=(c.caixa_xy[0], c.caixa_xy[1], g["caixa_z"] + c.estaciona_z)),
         ),
         # O nome da entidade é `table` (os sensores de mesa a referem assim); o que muda é a geometria.
         "table": EntityCfg(
             spec_fn=lambda: spec_laje(c),
             init_state=EntityCfg.InitialStateCfg(
-                pos=(c.prateleira_xy[0], c.prateleira_xy[1], g["centro_prateleira_z"])),
+                pos=(c.prateleira_xy[0], c.prateleira_xy[1], g["centro_prateleira_z"] + c.estaciona_z)),
         ),
     }
 
@@ -384,9 +386,11 @@ def sensores(k: Knobs = ATIVO) -> tuple:
     altura_caixa = _altura("altura_caixa", (ObjRef(type="body", name="box", entity="box"),), 0.05, 4)
 
     # Contato do robô com o chão, sem os pés: a mão, o joelho ou o tronco no chão (S §9.2).
+    # Um primário por CORPO (D14 S1): o `exclude` filtra nomes primários, e com `subtree` o sensor pegaria
+    # os pés. `force` sai (P,3); `recompensas.contato_fora` conta os corpos com norma > 1 N.
     nao_pes_chao = ContactSensorCfg(
         name="nao_pes_chao",
-        primary=ContactMatch(mode="subtree", pattern="pelvis", entity=robo,
+        primary=ContactMatch(mode="body", pattern=r".*", entity=robo,
                              exclude=(r".*_ankle_roll_link",)),
         secondary=ContactMatch(mode="body", pattern="terrain"),
         fields=("found", "force"), reduce="netforce", num_slots=1,
@@ -396,7 +400,7 @@ def sensores(k: Knobs = ATIVO) -> tuple:
         name="caixa_faces",
         primary=ContactMatch(mode="geom", pattern=BOX_GEOM, entity="box"),
         secondary=ContactMatch(mode="subtree", pattern="pelvis", entity=robo),
-        fields=("found", "force", "pos", "normal"), reduce="none", num_slots=12, global_frame=True,
+        fields=("found", "force", "pos", "normal", "tangent"), reduce="none", num_slots=12, global_frame=True,
     )
 
     fixos = palmas + dorsos + mesa + (apoio, caixa_robo, auto, pes)

@@ -20,7 +20,7 @@ from mjlab.entity import Entity
 from mjlab.managers.metrics_manager import MetricsTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
-from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.math import quat_apply_yaw
 
 from g1_v3.recompensas import comprimento_do_passo
 
@@ -170,7 +170,7 @@ class passo_medio:
         cmd = env.command_manager.get_command(command_name)[:, :2]
         vivo = cmd.norm(dim=-1) >= limiar                                      # (E,)
         c_b = F.pad(cmd / cmd.norm(dim=-1, keepdim=True).clamp(min=1e-6), (0, 1))
-        c_w = quat_apply(robo.data.root_link_quat_w, c_b)
+        c_w = quat_apply_yaw(robo.data.root_link_quat_w, c_b)
         p0 = env.v3_ref.pes_de_pe_b                                            # (2,3), frame da pelve
         for i, j in ((0, 1), (1, 0)):
             ok = pousou[:, i] & vivo
