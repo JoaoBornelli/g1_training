@@ -654,7 +654,8 @@ Regras de abertura (S §11.1, §11.2; PD-12):
 def reduz_simetria_cubo(q_rel) -> torch.Tensor: ...   # (E,4) wxyz → (E,3) vetor de rotação de menor ângulo
                                                       # entre as 24 rotações do cubo (I §2.3)
 def visivel(cam_pos_w, cam_rot_w, pontos_w, capsulas_w, raios, k: Estimador) -> torch.Tensor: ...
-    # (E,) bool; pontos_w (E,9,3); capsulas_w (E,K,2,3); PD-11
+    # (E,) bool; cam_pos_w (E,3); cam_rot_w (E,4) quaternion wxyz do site `d435` (eixo x óptico); pontos_w (E,9,3);
+    # capsulas_w (E,K,2,3); raios (K,); PD-11 (29/10: formas)
 class Odometria:
     def __init__(self, n, device, k: Estimador, gerador): ...
     def reinicia(self, ids, pos_w, quat_w): ...                # pose estimada = a verdadeira; Δ do passo = 0
@@ -671,9 +672,16 @@ class EstimadorCaixa:
     def __init__(self, n, device, k: Estimador, gerador): ...
     def reinicia(self, ids): ...
     def passo(self, t, caixa_pos_w, caixa_quat_w, meia, visivel, magnitude: dict): ...
-        # leitura a taxa_hz, entregue depois de latencia_s; perda e ruído pela magnitude corrente
+        # leitura a taxa_hz, entregue depois de latencia_s; perda e ruído pela magnitude corrente.
+        # (29/10) As amostras caem na grade k/taxa_hz desde o `reinicia`; a saída em t é a última amostra de
+        # instante ≤ t − latencia_s. `magnitude`: {"sigma_pos" m, "sigma_pos_rel" fração da distância,
+        # "sigma_ori_graus", "perda", "vies_meia"}, escalares; chave ausente vale 0. O invólucro monta do
+        # `knobs.Estimador` pelo índice da magnitude (0 início: sigma_pos 0,005 e rel 0; 1 refino: sigma_pos 0
+        # e rel 0,02). σ da posição = sigma_pos + sigma_pos_rel·distância, POR EIXO. Sem leitura válida, a idade
+        # cresce dt por passo até idade_max; depois do `reinicia`, idade = idade_max (nunca vista)
     def saida_b(self, odo: Odometria, base_quat_w) -> torch.Tensor: ...  # (E,8): pos_b 3, rotvec 3, meia 1, idade 1
 def alvo_no_frame_da_base(alvo_w, odo: Odometria) -> torch.Tensor: ...  # (E,3)
+    # (29/10) frame de rumo da base ESTIMADA: xy = R(−ψ_est)·(alvo_w − odo.pos_w)[:2]; z = alvo_w_z − odo.pos_w_z
 ```
 
 **`comando.py` e `observacoes.py` (núcleos puros; 29/10)**
@@ -848,6 +856,7 @@ def sucesso_do_pegar(p4_fechado, falhou, perdeu) -> torch.Tensor: ...
 # recompensas.py (E4). ⚠ O `RewardTermCfg` do `progresso` e do `perda_caixa` tem peso 1,0 e −1,0: w_p, B_alvo e o
 # custo da perda entram no núcleo, na escala do item 3 da Parte 0 (o mjlab só multiplica por dt).
 def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_graus, a, k: Alvos) -> torch.Tensor: ...
+    # palmas_c = frame_da_caixa(quat_caixa_w, rumo)ᵀ·(palmas_w − caixa_w) (PD-29); a, dpelve, dtronco_graus (E,)
     # (E,) m (B4: adimensional). P0–P2 e B3: média nas duas palmas de ‖palmas_c − alvos.palmas_alvo_caixa(indice,
     # a, k)‖ (palmas_c (E,2,3) no frame da caixa); P3, P4, B1, B2: ‖caixa_w − caixa_alvo_w‖; B4:
     # √((dpelve/tol_pelve_b4)² + (dtronco_graus/tol_tronco_b4_graus)²); −1: 0. A mesma conta de
@@ -861,7 +870,7 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     #   delta_tronco_graus); "recuo": fora do B4 rampa(desvio_recuo, faixa_recuo, delta_recuo);
     # "com": com dois_pes, rampa(desvio_com, faixa_com, delta_com), senão 1 (PD-35). Os mesmos intervalos de
     # `parte0/item1_phi` (DESLOC_PEGA, MAOS, DESLOC_BOTAR); invariantes = desloc · incl · maos
-def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor: ...
+def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor: ...   # sigma (E,) = `v3_sigma`
     # (E,) = potencial.phi(potencial.nucleo(d, sigma) · fator, list(portoes.values())); fator = fator_pouso em B1 e
     # B2, 1 nos outros (o invólucro calcula); −1 → 0
 def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, w_p, gamma) -> torch.Tensor: ...
@@ -2290,3 +2299,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | `Curriculo`: os sorteios rodam no device do gerador; `id_celula(tarefa, tipo)` substitui os dois `_id_terreno` repetidos do `eventos` e do `comando` | o `v3_gerador` mora na GPU e o `multinomial` da CPU com gerador CUDA falha; função repetida (CLAUDE.md, minimização) |
 | 2026-10-29 | D11: a seção "Contrato com o pilota_v3" do `exporta_cena.py` é o contrato do driver; o mapa do driver sai da `Percepcao` do `pilota_v3`, e a paridade só imprime a diferença do mapa; `T_BASE_SENSOR` é referência, o driver usa a pose viva do site; versão = hash do git; kd conferido por `biasprm[2]` | dúvidas da D11a: o plano não dizia como o mapa entra na paridade nem o que é a versão do pacote |
 | 2026-10-29 | §6.3 "Fase E: núcleos puros": `sorteia_topo_e_massa`, `ok_agora_pegar`, `caixa_perdida_agora`, `sucesso_do_pegar`, `distancia_do_alvo`, `portoes_do_alvo`, `phi_do_alvo`, `n_progresso`, `n_qualidade`, `aplica_qualidade`, `n_perda_caixa`, `n_caixa_perdida`, `Curriculo.nivel_passou` e `Curriculo.dr()`; `Niveis.topo_min_c`; o peso do `progresso` e do `perda_caixa` no cfg é ±1 e a escala mora no núcleo | a lane E0 precisa das assinaturas para testar antes do código, como a D0 precisou |
+| 2026-10-29 | §6.3: formas do `visivel`; grade, latência, idade e o dict `magnitude` do `EstimadorCaixa.passo`; a fórmula do `alvo_no_frame_da_base`; `palmas_c` pelo `frame_da_caixa`; σ por env do `v3_sigma` | lacunas que a lane 2 da E0 listou |
