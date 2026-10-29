@@ -23,7 +23,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
-from g1_v3.alvos import B2, B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
 from g1_v3.knobs import TAREFAS
 from g1_v3.recompensas import comprimento_do_passo
 
@@ -59,7 +59,6 @@ SITIOS_DOS_PES = ("left_foot", "right_foot")
 COMANDO = "twist"
 CAIXA = "box"
 CAIXA_ROBO = "caixa_robo"
-APOIO_CAIXA = "apoio_caixa"  # caixa × laje (cena.py): o contato da chegada
 # a ordem é a dos índices de `alvos` (P0 = 0 … B4 = 8): o nome do termo sai daqui
 _NOMES_ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")
 
@@ -72,6 +71,17 @@ def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
     """
     m = mascara.float()
     return (valor * m).sum(dim=-1) / m.sum(dim=-1).clamp(min=1.0)
+
+
+def _media_dos_com_evento(valor: torch.Tensor, com_evento: torch.Tensor) -> torch.Tensor:
+    """Média de `valor` sobre os envs com `com_evento`, igual em todo env (E,). Zero sem evento.
+
+    ⚠ O mjlab tira a média sobre todos os envs que resetam (`metrics_manager.py:113-124`): o zero dos envs sem
+    evento diluiria a métrica (F9 M5). Uma constante tem média ela mesma, então o reset dá a média dos com evento.
+    """
+    return torch.ones_like(valor) * _media_por_env(valor[None], com_evento[None])  # um env só no eixo: a média global
+    # ⚠ DÚVIDA: a média é sobre TODOS os envs no último passo, e o reset do mjlab a tira sobre o lote que reseta.
+    # Igual quando o lote é o todo; se resetarem em passos diferentes, o valor pode diferir da média do lote.
 
 
 def tempo_de_voo(env, sensor_name: str = PES_CHAO) -> torch.Tensor:
@@ -240,7 +250,7 @@ class phi_medio_do_alvo:
         ok = (env.v3_alvo_idx == alvo) & _com_caixa(env)
         self.soma = self.soma + torch.where(ok, env.v3_phi, torch.zeros_like(self.soma))
         self.n = self.n + ok.float()
-        return self.soma / self.n.clamp(min=1.0)
+        return _media_dos_com_evento(self.soma / self.n.clamp(min=1.0), self.n > 0)
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
@@ -261,7 +271,7 @@ class tempo_no_alvo:
 
     def __call__(self, env, alvo: int) -> torch.Tensor:
         self.passos = self.passos + ((env.v3_alvo_idx == alvo) & _com_caixa(env)).float()
-        return self.passos * self.dt
+        return _media_dos_com_evento(self.passos * self.dt, self.passos > 0)
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
@@ -316,43 +326,40 @@ class deslocamento_da_caixa:
         self.marcada[env_ids] = False
 
 
-class velocidade_de_chegada:
-    """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje no BOTAR, por env. Sem peso.
+def velocidade_de_chegada(env) -> torch.Tensor:
+    """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje, por env. Sem peso.
 
-    Um valor por episódio: o do primeiro contato, zero antes. Lê `v3_vz_caixa_ant` (a vz do passo anterior,
-    escrita pelo `comando.cadeia`), o mesmo número que a terminação `chegada` julga.
-    ⚠ `reduce="last"` no cfg: o valor é o do contato, e o episódio mantém até o fim.
-    ⚠ `reset` com buffer próprio: o contato do episódio anterior não pode sobreviver.
+    Lê `v3_v_chegada` (§6.4, F9 P3), o número que o B_alvo[B2] e a `chegada` julgam; −1 = sem toque.
+    ⚠ `reduce="last"` no cfg: a média é a dos envs com toque (F9 M5).
+    """
+    v = env.v3_v_chegada
+    return _media_dos_com_evento(v, v >= 0.0)
+
+
+class deslocamento_depois_do_apoio:
+    """Maior deslocamento da caixa no plano xy desde `v3_ponto_apoio`, nos passos de B3 a B4 sem `v3_perdeu`. Sem peso.
+
+    ⚠ O ponto nasce no fecho do B2 (F9 P1): o B2 não entra. Só xy, como `deslocamento_da_caixa`.
+    ⚠ `reduce="last"` no cfg, com o maior no próprio buffer: o `max` do mjlab diluiria os envs sem apoio (F9 M5).
     """
 
     def __init__(self, cfg, env):
-        self.valor = torch.zeros(env.num_envs, device=env.device)
+        self.maior = torch.zeros(env.num_envs, device=env.device)
         self.marcada = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-        self.dt = env.step_dt
 
     def __call__(self, env) -> torch.Tensor:
-        novo = (env.scene[APOIO_CAIXA].compute_first_contact(dt=self.dt)[:, 0]
-                & (env.v3_tarefa == BOTAR) & ~self.marcada)
-        self.valor = torch.where(novo, -env.v3_vz_caixa_ant, self.valor)
-        self.marcada = self.marcada | novo
-        return self.valor
+        alvo = env.v3_alvo_idx
+        ok = ((alvo == B3) | (alvo == B4)) & ~env.v3_perdeu
+        desl = torch.norm((env.scene[CAIXA].data.root_link_pos_w - env.v3_ponto_apoio)[:, :2], dim=-1)
+        self.maior = torch.where(ok, torch.maximum(self.maior, desl), self.maior)
+        self.marcada = self.marcada | ok
+        return _media_dos_com_evento(self.maior, self.marcada)
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
-        self.valor[env_ids] = 0.0
+        self.maior[env_ids] = 0.0
         self.marcada[env_ids] = False
-
-
-def deslocamento_depois_do_apoio(env) -> torch.Tensor:
-    """Quanto a caixa andou no plano xy desde `v3_ponto_apoio`, nos passos de B2 a B4, por env (m). Sem peso.
-
-    ⚠ Só xy, como `deslocamento_da_caixa`. Fora de B2–B4 o valor é zero: antes do apoio o ponto ainda não vale.
-    ⚠ `reduce="max"` no cfg: o maior deslocamento depois do apoio.
-    """
-    alvo = env.v3_alvo_idx
-    desl = torch.norm((env.scene[CAIXA].data.root_link_pos_w - env.v3_ponto_apoio)[:, :2], dim=-1)
-    return torch.where((alvo >= B2) & (alvo <= B4), desl, torch.zeros_like(desl))
 
 
 def idade_das_leituras(env) -> torch.Tensor:
@@ -422,7 +429,7 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["forca_robo_caixa"] = MetricsTermCfg(func=forca_robo_caixa, params={"sensor_name": CAIXA_ROBO})
     m["deslocamento_caixa_laje"] = MetricsTermCfg(func=deslocamento_da_caixa, reduce="max")
     m["velocidade_de_chegada"] = MetricsTermCfg(func=velocidade_de_chegada, reduce="last")
-    m["deslocamento_depois_do_apoio"] = MetricsTermCfg(func=deslocamento_depois_do_apoio, reduce="max")
+    m["deslocamento_depois_do_apoio"] = MetricsTermCfg(func=deslocamento_depois_do_apoio, reduce="last")
     m["idade_leituras"] = MetricsTermCfg(func=idade_das_leituras)
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
     return m

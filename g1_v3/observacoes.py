@@ -38,8 +38,7 @@ if TYPE_CHECKING:
     from g1_v3.knobs import Knobs, Percepcao
 
 K = knobs.ATIVO
-ANDAR = knobs.TAREFAS.index("ANDAR")
-CARREGAR = knobs.TAREFAS.index("CARREGAR")
+ANDAR, CARREGAR, BOTAR = (knobs.TAREFAS.index(n) for n in ("ANDAR", "CARREGAR", "BOTAR"))
 N_TAREFAS = len(knobs.TAREFAS)  # 6 canais one-hot (§6.5 `tarefa`)
 N_ALVO_MACRO = len(knobs.ALVOS) + 1  # P0–B4 e "nenhum" (§6.5 `alvo_macro`)
 _CAMERA = "d435"  # site da D435i no torso (cena.py); o eixo x é o óptico (PD-11)
@@ -166,8 +165,9 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
 
     A leitura usa a visibilidade da D435i (o site `d435`, o FOV do RGB, os 9 pontos e as cápsulas dos braços; PD-11)
     e a distância câmera-caixa para o σ relativo.
-    ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8) e sem alvo (`v3_alvo_idx` < 0: o `v3_alvo_w`
-    pode ser velho).
+    ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8). Fora do BOTAR, zero sem alvo (`v3_alvo_idx`
+    < 0: o `v3_alvo_w` pode ser velho). No BOTAR o alvo zera com o latch do aviso (`v3_aviso`), como o driver (F9 R5):
+    o índice cai no fecho do B4, antes do aviso.
     """
     robo, caixa_ = env.scene["robot"], env.scene["box"]
     ids, _ = robo.find_sites((_CAMERA,))
@@ -182,7 +182,8 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     odo, tarefa = env.v3_odo, env.v3_tarefa
     saida = env.v3_estimador.saida_b(odo, robo.data.root_link_quat_w)
     alvo = alvo_no_frame_da_base(env.v3_alvo_w, odo)
-    alvo = torch.where(((tarefa == CARREGAR) | (env.v3_alvo_idx < 0))[:, None], torch.zeros_like(alvo), alvo)
+    zera = (tarefa == CARREGAR) | torch.where(tarefa == BOTAR, env.v3_aviso, env.v3_alvo_idx < 0)
+    alvo = torch.where(zera[:, None], torch.zeros_like(alvo), alvo)
     out = torch.cat([saida, alvo], -1)
     return torch.where((tarefa == ANDAR)[:, None], torch.zeros_like(out), out)
 
@@ -275,8 +276,9 @@ def alvo_macro(env: ManagerBasedRlEnv) -> torch.Tensor:
 
 
 def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Canais (E,8) da referência do alvo, por `referencia_do_alvo` (§6.6). Usa `v3_topo`, `v3_meia` e `v3_ref`."""
-    return referencia_do_alvo(env.v3_alvo_idx, env.v3_topo, env.v3_meia, env.v3_ref, K.alvos)
+    """Canais (E,8) da referência do alvo: a do Φ, `recompensas.ref_do_alvo` (§6.6; F9 S4). O topo é por alvo."""
+    from g1_v3 import recompensas  # import dentro da função: evita o ciclo com `recompensas`
+    return recompensas.ref_do_alvo(env, env.v3_alvo_idx)
 
 
 def niveis(env: ManagerBasedRlEnv) -> torch.Tensor:

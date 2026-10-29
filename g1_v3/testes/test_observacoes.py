@@ -16,7 +16,7 @@ import torch
 from g1_v3 import observacoes
 from g1_v3.alvos import Referencias
 from g1_v3.percepcao_lidar import FiltroDeElevacao
-from g1_v3.knobs import ATIVO, caminho
+from g1_v3.knobs import ALVOS, ATIVO, TAREFAS, caminho
 
 ATOR = ["giro_base", "gravidade", "comando", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa"]  # §6.5
 CRITICO = ATOR + ["vel_lin_base", "caixa_verdade", "alvo_verdade", "alvo_macro", "referencia",
@@ -111,6 +111,50 @@ class ObservacoesTest(unittest.TestCase):
         self.assertEqual(out.shape, (2, 8))
         self.assertFalse(bool(torch.isnan(out).any()))
         self.assertEqual(float(out.abs().max()), 0.0)
+
+    def test_referencia_no_b1_usa_o_topo_de_destino(self):
+        # F9 S4: a referência do crítico é a do Φ (`recompensas.ref_do_alvo`); no B1 a pelve sai do topo de destino
+        ref = Referencias(str(caminho(ATIVO.contrato.referencias)), CPU)
+        env = types.SimpleNamespace(v3_alvo_idx=torch.tensor([ALVOS.index("B1")]), v3_topo=torch.tensor([0.30]),
+                                    v3_topo_destino=torch.tensor([0.55]), v3_meia=torch.tensor([0.10]), v3_ref=ref)
+        do_destino = observacoes.referencia_do_alvo(env.v3_alvo_idx, env.v3_topo_destino, env.v3_meia, ref, ATIVO.alvos)
+        do_topo = observacoes.referencia_do_alvo(env.v3_alvo_idx, env.v3_topo, env.v3_meia, ref, ATIVO.alvos)
+        self.assertFalse(torch.allclose(do_destino, do_topo))  # o teste discrimina os dois topos
+        self.assertTrue(torch.allclose(observacoes.referencia(env), do_destino))
+
+    def _calcula_caixa_com(self, tarefa, alvo_idx, aviso):
+        # `_calcula_caixa` com a visibilidade, as cápsulas, o estimador e o alvo no frame trocados por falsos
+        robo = mock.MagicMock()
+        robo.find_sites.return_value = ([0], None)
+        robo.data.site_pos_w = torch.zeros(1, 1, 3)
+        robo.data.site_quat_w = torch.tensor([[[1.0, 0.0, 0.0, 0.0]]])
+        robo.data.root_link_quat_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        caixa = types.SimpleNamespace(data=types.SimpleNamespace(
+            root_link_pos_w=torch.tensor([[0.0, 0.0, 0.5]]), root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]])))
+        estimador = mock.MagicMock()
+        estimador.saida_b.return_value = torch.zeros(1, 8)
+        env = types.SimpleNamespace(scene={"robot": robo, "box": caixa}, common_step_counter=3, step_dt=0.02,
+                                    v3_meia=torch.tensor([0.1]), v3_odo=None, v3_estimador=estimador,
+                                    v3_tarefa=torch.tensor([tarefa]), v3_alvo_idx=torch.tensor([alvo_idx]),
+                                    v3_alvo_w=torch.zeros(1, 3), v3_aviso=torch.tensor([aviso]))
+        with mock.patch.object(observacoes, "_capsulas_w", return_value=(torch.zeros(1, 33, 2, 3), torch.zeros(33))), \
+                mock.patch.object(observacoes, "visivel", return_value=torch.ones(1, dtype=torch.bool)), \
+                mock.patch.object(observacoes, "alvo_no_frame_da_base", return_value=torch.ones(1, 3)):
+            return observacoes._calcula_caixa(env)[:, 8:11]  # o alvo: os 3 últimos canais da caixa
+
+    def test_botar_sem_aviso_mostra_o_alvo_mesmo_sem_indice(self):
+        # F9 R5: no BOTAR o canal do alvo zera com o latch do aviso, e não com o índice −1 (fecho do B4)
+        alvo = self._calcula_caixa_com(TAREFAS.index("BOTAR"), -1, False)
+        self.assertEqual(alvo.tolist(), [[1.0, 1.0, 1.0]])
+
+    def test_botar_com_aviso_zera_o_alvo(self):
+        alvo = self._calcula_caixa_com(TAREFAS.index("BOTAR"), ALVOS.index("B4"), True)
+        self.assertEqual(float(alvo.abs().max()), 0.0)
+
+    def test_fora_do_botar_alvo_sem_indice_zera(self):
+        # a regra de fora do BOTAR não muda: sem índice (−1), o alvo zera
+        alvo = self._calcula_caixa_com(TAREFAS.index("PEGAR"), -1, False)
+        self.assertEqual(float(alvo.abs().max()), 0.0)
 
 
 if __name__ == "__main__":
