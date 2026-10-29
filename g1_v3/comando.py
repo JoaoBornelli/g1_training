@@ -1,9 +1,11 @@
-"""Termos de comando da v3: `cadeia` (tarefa, trechos, odometria) e `twist` (velocidade por célula, sucesso
-por segmento). Spec: S §7 (cadeia), §11.2 (tetos), §11.3 (sucesso), §19 conflito 5; plano D3, §6.3, §6.4, §6.5.
-PD-15 (âncora do canal zero), PD-44 (quem dá o passo da odometria), PD-50 (sucesso sem perda).
+"""Termos de comando da v3: `cadeia` (tarefa, trechos, odometria, alvos do PEGAR) e `twist` (velocidade por célula, sucesso
+por segmento). Spec: S §7 (cadeia), §8.2 (alvos), §10 (caixa perdida), §11.2 (tetos), §11.3 (sucesso), §19 conflito 5;
+plano D3, E3, §6.3, §6.4, §6.5. PD-15 (âncora do canal zero), PD-27 (caixa perdida vira ANDAR), PD-36, PD-44 (quem dá o
+passo da odometria), PD-50 (sucesso sem perda).
 
-Os núcleos (`sorteia_velocidade`, `monta_tabela_trechos`, `avanca_trecho`, `tempo_da_ancora`,
-`sucesso_do_segmento`) são puros: sobre tensores, sem o env. Os invólucros (`CadeiaCmd`, `TwistV3`) leem o env.
+Os núcleos (`ok_agora_pegar`, `caixa_perdida_agora`, `sucesso_do_pegar`, `sorteia_velocidade`, `monta_tabela_trechos`,
+`avanca_trecho`, `tempo_da_ancora`, `sucesso_do_segmento`) são puros: sobre tensores, sem o env. Os invólucros
+(`CadeiaCmd`, `TwistV3`) leem o env.
 Contagem: g1_limpo/comando.py tinha 2 526 linhas, e a v3 copia só o que a D3 pede (a eficiência por segmento
 e a razão de marcha ficam só como diagnóstico, que o §6.7 loga).
 """
@@ -15,10 +17,12 @@ import torch
 
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
-from mjlab.utils.lab_api.math import wrap_to_pi
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, wrap_to_pi
 
+from g1_v3 import alvos, eventos, recompensas
+from g1_v3.alvos import B4, P0, P1, P2, P3, P4
 from g1_v3.curriculo import garante_v3
-from g1_v3.knobs import TAREFAS, Cadeia, Comando, Estimador
+from g1_v3.knobs import ATIVO, TAREFAS, Cadeia, Comando, Estimador
 
 # Índices de TAREFAS (knobs.py): o one-hot da §6.5 e a tabela de trechos usam esta ordem.
 ANDAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3
@@ -27,6 +31,40 @@ FATIA_ANDAR, FATIA_B, FATIA_C = 0, 1, 2
 # Folga de float no relógio: 25 passos de 0,02 s somam 0,4999… e não podem perder o aviso.
 # Não é número de treino (mesmo papel do `_EPS` de alvos.py).
 _EPS = 1e-6
+A, D, T, CENA = ATIVO.alvos, ATIVO.detector, ATIVO.terminacao, ATIVO.cena
+# Tempo de permanência por alvo, na ordem de ALVOS (S §8.2): só P4, B2, B3 e B4 têm tempo.
+_TEMPOS = (0.0, 0.0, 0.0, 0.0, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
+# Piso do σ do alvo ("mínimo 1 cm", E3): σ = 0 daria NaN no núcleo. ⚠ Não há campo no knobs para ele: reportado.
+_SIGMA_MIN = 0.01
+
+
+# --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------
+
+def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus, d_caixa_p4, d_pelve_p4,
+                   invariantes, k) -> torch.Tensor:
+    """(E,) bool: a condição de cada alvo de PEGAR, `& (invariantes == 1)` (S §8.2: o invariante impede o avanço).
+    ⚠ B1..B4 e −1 dão False. O B4 fecha pela pose de pé, na cadeia (§6.3), e não por esta condição."""
+    p01 = (d_palmas <= k.tol_palma).all(-1)
+    p2 = contatos.all(-1)
+    p3 = ~apoio & (incl_graus <= incl_lim_graus)
+    p4 = (d_caixa_p4 <= k.tol_caixa_p4) & (d_pelve_p4 <= k.tol_pelve_p4)
+    ok = (((indice == P0) | (indice == P1)) & p01) | ((indice == P2) & p2) | ((indice == P3) & p3) \
+        | ((indice == P4) & p4)
+    return ok & (invariantes == 1.0)
+
+
+def caixa_perdida_agora(fundo_sobre_chao, v_rel, fora_do_alvo, pegou, indice, sobre_laje, k) -> torch.Tensor:
+    """(E,) bool = caiu | arremesso | fora_da_laje (S §10). Caiu: fundo abaixo da folga (estrito). Arremesso: pegou,
+    v_rel > v_solta e fora do alvo de soltura. Fora da laje: P0 a P2 com o centro da caixa fora do topo da laje."""
+    caiu = fundo_sobre_chao < k.caixa_folga_chao
+    arremesso = pegou & (v_rel > k.v_solta) & fora_do_alvo
+    fora_da_laje = (indice >= P0) & (indice <= P2) & ~sobre_laje
+    return caiu | arremesso | fora_da_laje
+
+
+def sucesso_do_pegar(p4_fechado, falhou, perdeu) -> torch.Tensor:
+    """(E,) bool = P4 fechado, sem falha e sem caixa perdida (S §11.3, PD-50). O invólucro decide quando registra."""
+    return p4_fechado & ~falhou & ~perdeu
 
 
 # --- sorteio de velocidade (§6.3, D3 item 1) ----------------------------------------------------------
@@ -185,8 +223,10 @@ class CadeiaCmdCfg(CommandTermCfg):
 
 
 class CadeiaCmd(CommandTerm):
-    """Tarefa publicada e trechos da fatia (S §7). Escreve v3_trecho, v3_tarefa, v3_fim, v3_aviso, v3_freio,
-    v3_degrau; dá o `passo` da `v3_odo` uma vez por passo (PD-44)."""
+    """Tarefa publicada, trechos da fatia (S §7) e alvos do PEGAR (§6.2 `Alvos`, E3). Escreve v3_trecho, v3_tarefa,
+    v3_fim, v3_aviso, v3_freio, v3_degrau, v3_alvo_idx, v3_alvo_w, v3_caixa_pega_w, v3_sigma, v3_relogio_alvo,
+    v3_avancou, v3_pegou, v3_p4_fechado, v3_b4_fechado, v3_perdeu, v3_perdeu_agora; dá o `passo` da `v3_odo` uma vez
+    por passo (PD-44)."""
 
     cfg: CadeiaCmdCfg
 
@@ -197,6 +237,10 @@ class CadeiaCmd(CommandTerm):
         self.tab, self.faixas = _monta(cfg.k, self.device)
         self.relogio = torch.zeros(self.num_envs, device=self.device)
         self.alvo_s = torch.zeros(self.num_envs, device=self.device)  # duração (ou atraso) sorteada do trecho
+        self.rel_fim = torch.zeros(self.num_envs, device=self.device)  # relógio do detector de fim (I §4.2)
+        self.pega = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)  # PEGAR aberto, sem registro
+        self.sit_palmas = self.robot.find_sites(("left_palm", "right_palm"))[0]  # ordem = `palmas_alvo_caixa`
+        self.tempos = torch.tensor(_TEMPOS, dtype=torch.float32, device=self.device)
         k = cfg.est
         # magnitude "início" (PD-18): índice 0 de cada par; o refino entra com o degrau (fase G)
         self.deriva = {"odo": k.deriva_odo[0], "rumo": k.deriva_rumo[0],
@@ -206,49 +250,211 @@ class CadeiaCmd(CommandTerm):
     def command(self) -> torch.Tensor:  # one-hot (E,6) de v3_tarefa (§6.5)
         return torch.nn.functional.one_hot(self._env.v3_tarefa, len(TAREFAS)).float()
 
-    def _abre_trecho(self, ids, trecho) -> None:
-        # Sorteia a duração (ou atraso) do trecho, publica a tarefa e o freio/degrau, e reamostra o comando
-        # do twist (o CARREGAR de B fica fixo na abertura, §7; o parado sai com comando zero).
+    def _twist(self):
+        return self._env.command_manager.get_term("twist")
+
+    # --- medidas e alvos -----------------------------------------------------------------------------
+
+    def _mede(self) -> dict:
+        """Medidas do passo (E,...): base, caixa (verdade), laje, palmas, contatos e o tronco (§6.2 `Alvos`)."""
+        env, d = self._env, self.robot.data
+        caixa, laje = env.scene["box"].data, env.scene["table"].data
+        h = env.scene["altura_pelve"].data.heights[:, 0]
+        rumo, caixa_p, caixa_q = d.heading_w, caixa.root_link_pos_w, caixa.root_link_quat_w
+        palmas_w = d.site_pos_w[:, self.sit_palmas]  # (E,2,3)
+        R = alvos.frame_da_caixa(caixa_q, rumo)
+        # tronco = inclinação do torso do vertical (a mesma medida da `cerca_tronco`, como em recompensas)
+        q_torso = d.body_link_quat_w[:, env.scene["robot"].find_bodies(("torso_link",))[0]][:, 0]
+        cos_tronco = 1.0 - 2.0 * (q_torso[:, 1] ** 2 + q_torso[:, 2] ** 2)
+        m = dict(
+            h=h, base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, rumo=rumo, caixa_p=caixa_p,
+            chao_z=d.root_link_pos_w[:, 2] - h, palmas_w=palmas_w,
+            palmas_c=torch.einsum("eji,ekj->eki", R, palmas_w - caixa_p[:, None]),
+            incl_graus=torch.rad2deg(alvos.inclinacao_da_caixa(caixa_q)),
+            contatos=torch.cat([env.scene["palma_E"].data.found, env.scene["palma_D"].data.found], -1) > 0,
+            apoio=env.scene["apoio_caixa"].data.found.amax(-1) > 0,
+            sobre=(quat_apply_inverse(laje.root_link_quat_w, caixa_p - laje.root_link_pos_w)[:, :2].abs()
+                   <= CENA.prateleira_meia_xy).all(-1),
+            h_caixa=env.scene["altura_caixa"].data.heights[:, 0],
+            v_rel=(caixa.root_link_lin_vel_w - d.root_link_lin_vel_w).norm(dim=-1),
+            tronco_graus=torch.rad2deg(torch.acos(cos_tronco.clamp(-1.0, 1.0))),
+        )
+        return m
+
+    def _alvo_da_caixa(self, m, indice) -> torch.Tensor:
+        # Posição-alvo da caixa (E,3) pela §6.3 `caixa_alvo_w`. P3 e P4 sobem da pega estimada; B1/B2 não ocorrem no
+        # PEGAR, e o argumento da soltura recebe a pega só para cumprir a assinatura.
+        env = self._env
+        pega = env.v3_caixa_pega_w
+        return alvos.caixa_alvo_w(indice, pega, pega, m["base_p"], m["rumo"], m["chao_z"], env.v3_meia, env.v3_ref, A)
+
+    def _dist(self, m, indice) -> torch.Tensor:
+        # d do alvo `indice` no estado do passo (E4, `recompensas.distancia_do_alvo`); usado no σ
+        env = self._env
+        dpelve = m["h"] - env.v3_ref.pelve_de_pe
+        return recompensas.distancia_do_alvo(indice, m["palmas_c"], m["caixa_p"], self._alvo_da_caixa(m, indice),
+                                             dpelve, m["tronco_graus"], env.v3_meia, A)
+
+    def _sigma(self, m, indice) -> torch.Tensor:
+        return self._dist(m, indice).clamp(min=_SIGMA_MIN)
+
+    def _abre_pegar(self, ids, m) -> None:
+        # Abertura do PEGAR (E3, item 1): P0, e a pega e o alvo na caixa ESTIMADA (com os erros do estimador, S §6.4).
+        # σ = distância inicial das palmas a P0.
+        env = self._env
+        self.pega[ids] = True
+        env.v3_alvo_idx[ids] = P0
+        env.v3_relogio_alvo[ids] = 0.0
+        odo = env.v3_odo
+        est = env.v3_estimador.saida_b(odo, m["base_q"])[ids, :3]  # (n,3) no frame da base
+        pos = odo.pos_w[ids] + quat_apply(odo.quat_w[ids], est)  # o inverso de `alvo_no_frame_da_base`
+        env.v3_caixa_pega_w[ids] = pos
+        env.v3_alvo_w[ids] = pos
+        env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, P0))[ids]
+
+    def _perda(self, m) -> None:
+        # Caixa perdida (E3, item 4; S §10). `v3_perdeu_agora` é um pulso no passo da perda. Com a chave, a caixa perdida
+        # vira ANDAR parado até o fim (PD-27): o alvo passa a B4, com σ = a distância à pose de pé no instante da perda.
+        env = self._env
+        tar = env.v3_tarefa
+        longe = (m["caixa_p"] - env.v3_alvo_w).norm(dim=-1) > A.raio_b2
+        fora = torch.where(tar == BOTAR, longe, torch.ones_like(longe))  # fora do alvo de soltura, só no BOTAR
+        perda = caixa_perdida_agora(m["h_caixa"] - env.v3_meia, m["v_rel"], fora, env.v3_pegou, env.v3_alvo_idx,
+                                    m["sobre"], T) & (tar != ANDAR)
+        env.v3_perdeu_agora[:] = perda
+        if self.cfg.k.caixa_perdida_vira_andar and perda.any():
+            ids = perda.nonzero().flatten()
+            env.v3_perdeu[ids] = True
+            env.v3_alvo_idx[ids] = B4
+            env.v3_relogio_alvo[ids] = 0.0
+            env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B4))[ids]
+            self._publica(ids, torch.full_like(ids, ANDAR))
+
+    def _alvos_pegar(self, m, dt) -> None:
+        # Alvos do PEGAR (E3, item 2; S §8.2): o `ok_agora` do alvo corrente, `alvos.avanca` e os buffers do avanço.
+        # O índice fica em P4 depois do P4 (a troca de tarefa leva a B1). O B4 fecha pela pose de pé, com a caixa perdida.
+        env = self._env
+        idx, a, ref = env.v3_alvo_idx, env.v3_meia, env.v3_ref
+        zero = torch.zeros_like(m["h"])
+        d_palmas = (m["palmas_c"] - alvos.palmas_alvo_caixa(idx, a, A)).norm(dim=-1)
+        d_caixa_p4 = (m["caixa_p"] - self._alvo_da_caixa(m, torch.full_like(idx, P4))).norm(dim=-1)
+        d_pelve_p4 = (m["h"] - ref.pelve_com_caixa(a)).abs()
+        # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
+        g = recompensas.portoes_do_alvo(
+            idx, (m["caixa_p"][:, :2] - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), zero, m["incl_graus"],
+            A.incl_inicio_graus, m["contatos"], zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
+        inv = g["desloc"] * g["incl"] * g["maos"]
+        pega = (env.v3_tarefa == PEGAR) & ~env.v3_p4_fechado
+        ok_pega = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], A.incl_inicio_graus,
+                                 d_caixa_p4, d_pelve_p4, inv, A) & pega
+        pose = ((m["h"] - ref.pelve_de_pe).abs() <= A.tol_pelve_b4) & (m["tronco_graus"] <= A.tol_tronco_b4_graus)
+        ok = ok_pega | ((idx == B4) & pose & env.v3_perdeu)
+        novo, rel, av = alvos.avanca(idx, ok, env.v3_relogio_alvo, dt, self.tempos)
+        fecha_p4 = av & (idx == P4)
+        novo = torch.where(fecha_p4, idx, novo)
+        env.v3_p4_fechado |= fecha_p4
+        env.v3_pegou |= av & (idx == P2)  # a caixa passou ao P3: pega feita
+        env.v3_b4_fechado |= av & (idx == B4)
+        env.v3_avancou[:] = av
+        env.v3_relogio_alvo[:] = rel
+        env.v3_alvo_idx[:] = novo
+        # A caixa-alvo de P3 e P4 acompanha o índice e a base. σ do alvo seguinte = distância atual, com piso
+        p34 = ((novo == P3) | (novo == P4)).unsqueeze(-1)
+        env.v3_alvo_w[:] = torch.where(p34, self._alvo_da_caixa(m, novo), env.v3_alvo_w)
+        troca = av & ~fecha_p4 & (novo >= 0)
+        env.v3_sigma[:] = torch.where(troca, self._sigma(m, novo), env.v3_sigma)
+
+    def _detector(self, m, dt) -> torch.Tensor:
+        # Detector de fim (E3, item 3; I §4.2): aviso da pose de pé com caixa, só nos trechos que acabam por ele.
+        env, ref, a = self._env, self._env.v3_ref, self._env.v3_meia
+        palmas_b = quat_apply_inverse(m["base_q"][:, None].expand(-1, 2, -1), m["palmas_w"] - m["base_p"][:, None])
+        aviso_det, rel = alvos.detecta_fim(m["h"], torch.deg2rad(m["tronco_graus"]), palmas_b,
+                                           self.robot.data.joint_vel, ref.pelve_com_caixa(a),
+                                           ref.palmas_com_caixa_b(a), self.rel_fim, dt, D)
+        por = self.tab.por_detector[env.v3_trecho]
+        self.rel_fim = torch.where(por, rel, torch.zeros_like(rel))
+        aviso = aviso_det & por
+        env.v3_aviso[:] = aviso
+        return aviso
+
+    # --- trechos -------------------------------------------------------------------------------------
+
+    def _publica(self, ids, tar) -> None:
+        # Publica a tarefa `tar` (um valor por env de `ids`) com o freio e o degrau do currículo, e reamostra o comando.
+        env = self._env
+        env.v3_tarefa[ids] = tar
+        freio, degrau = torch.zeros_like(tar), torch.zeros_like(tar)
+        for i, nome in enumerate(TAREFAS[:4]):  # REORIENTAR e LEVANTAR ficam em 0 (reservados)
+            m = tar == i
+            freio[m] = env.v3_cur.niveis_abertos(nome)
+            degrau[m] = env.v3_cur.degrau(nome)
+        env.v3_freio[ids] = freio
+        env.v3_degrau[ids] = degrau
+        self._twist()._resample(ids)
+
+    def _registra(self, ids, falhou) -> None:
+        # Registra o PEGAR aberto (S §11.3, PD-50) e limpa o pendente. Chamado na abertura do BOTAR (falhou = False) e no
+        # reset (falhou = terminação que não é time_out: a queda, por exemplo).
+        env = self._env
+        sel = self.pega[ids]
+        ids, falhou = ids[sel], falhou[sel]
+        if ids.numel() == 0:
+            return
+        suc = sucesso_do_pegar(env.v3_p4_fechado[ids], falhou, env.v3_perdeu[ids])
+        env.v3_cur.registra(env.v3_cur.id_celula("PEGAR", "pegar"), int(ids.numel()), int(suc.sum()))
+        self.pega[ids] = False
+
+    def _abre_trecho(self, ids, trecho, m=None) -> None:
+        # Sorteia a duração (ou atraso) do trecho, publica a tarefa e o freio/degrau, e reamostra o comando do twist
+        # (o CARREGAR de B fica fixo na abertura, §7; o parado sai com comando zero). Abre o PEGAR (E3, item 1),
+        # registra o PEGAR anterior quando abre o BOTAR (S §11.3) e tira a laje do caminho do CARREGAR que anda (C39).
         env = self._env
         lo, hi = self.faixas[trecho, 0], self.faixas[trecho, 1]
         self.alvo_s[ids] = lo + (hi - lo) * _u(len(ids), env.v3_gerador).to(self.device)
         self.relogio[ids] = 0.0
         env.v3_trecho[ids] = trecho
         tar = self.tab.tarefa[trecho]
-        env.v3_tarefa[ids] = tar
-        cur = env.v3_cur
-        freio = torch.zeros_like(tar)
-        degrau = torch.zeros_like(tar)
-        for i, nome in enumerate(TAREFAS[:4]):  # REORIENTAR e LEVANTAR ficam em 0 (reservados)
-            m = tar == i
-            freio[m] = cur.niveis_abertos(nome)
-            degrau[m] = cur.degrau(nome)
-        env.v3_freio[ids] = freio
-        env.v3_degrau[ids] = degrau
-        self._twist()._resample(ids)
-
-    def _twist(self):
-        return self._env.command_manager.get_term("twist")
-
-    def _resample(self, env_ids) -> None:  # chamado no reset do episódio (CommandTerm.reset)
-        env = self._env
-        fat = env.v3_fatia[env_ids]
-        self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])
-        env.v3_fim[env_ids] = False
+        self._publica(ids, tar)
+        env.v3_alvo_idx[ids[tar == ANDAR]] = -1
+        botar = tar == BOTAR
+        self._registra(ids[botar], torch.zeros(int(botar.sum()), dtype=torch.bool, device=self.device))
+        pega = tar == PEGAR
+        if pega.any():
+            self._abre_pegar(ids[pega], m)
+        anda = (tar == CARREGAR) & (env.v3_fatia[ids] == FATIA_B) & (self._twist().vel_command_b[ids].abs().sum(-1) > 0)
+        if anda.any():
+            eventos.laje_fora(env, ids[anda])
 
     def compute(self, dt: float) -> None:
         env = self._env
-        # ⚠ Fase D: o detector de fim (alvos.detecta_fim) ainda não entra; o aviso é sempre falso, e por isso
-        # as fatias B e C nunca avançam (elas não abrem nesta fase).
-        aviso = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        m = self._mede()
+        self._perda(m)
+        self._alvos_pegar(m, dt)
+        aviso = self._detector(m, dt)
         novo, self.relogio, avancou, fim = avanca_trecho(
             env.v3_trecho, self.relogio, self.alvo_s, aviso, self.alvo_s, dt, self.tab)
-        env.v3_aviso[:] = aviso
+        # caixa perdida que vira ANDAR congela o trecho até o fim do episódio (PD-27, S §10)
+        cong = env.v3_perdeu
+        novo = torch.where(cong, env.v3_trecho, novo)
+        avancou, fim = avancou & ~cong, fim & ~cong
         env.v3_fim |= fim
         ids = (avancou & ~fim).nonzero().flatten()  # no fim da cadeia o trecho não reabre (S §7)
         if ids.numel():
-            self._abre_trecho(ids, novo[ids])
+            self._abre_trecho(ids, novo[ids], m)
         env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w, self.deriva)
+
+    def _resample(self, env_ids) -> None:  # chamado no reset do episódio (CommandTerm.reset)
+        env = self._env
+        # o PEGAR aberto se registra no reset: queda ou outra terminação conta como falha (S §11.3)
+        self._registra(env_ids, ~env.termination_manager.time_outs[env_ids])
+        for nome in ("v3_pegou", "v3_perdeu", "v3_p4_fechado", "v3_b4_fechado", "v3_perdeu_agora", "v3_avancou",
+                     "v3_aviso", "v3_fim"):
+            getattr(env, nome)[env_ids] = False
+        env.v3_relogio_alvo[env_ids] = 0.0
+        env.v3_sigma[env_ids] = 1.0  # neutro: o alvo −1 não o usa, e σ = 0 daria NaN
+        self.rel_fim[env_ids] = 0.0
+        fat = env.v3_fatia[env_ids]
+        self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])
 
     # abstratos do CommandTerm, sem uso aqui: o trecho avança em `compute` e o comando é do twist
     def _update_metrics(self) -> None:
