@@ -463,6 +463,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `contato_fora`, `contato_fora_N` | −1,0; 1,0 | S §9.2 |
 | | `contato_laje`, `laje_joelho_N`, `laje_saturacao_N` | −2,0; (50; 10) (início; refino, §6.9); 100 | S §9.2; `g1_limpo/knobs.py` `Contato` |
 | | `freio`, `freio_fator`, `vel_max_parado`, `vel_max_andando`, `vel_max_correndo` | −6/29; 1,5; os do `g1_limpo/knobs.py` `Tarefa` | S §9.2, §11.4 |
+| | `freio_limiar_andar`, `freio_limiar_correr` | 0,05; 1,5 (regime pelo comando: parado abaixo de 0,05, correndo de 1,5 em diante) | `g1_limpo/recompensas.py` `velocidade_por_regime` (29/10: saem do literal) |
 | | `progresso`, `b_alvo` (9 valores, um por alvo) | `None`; `None` (Parte 0, item 3) | S §9.4 |
 | | `gamma` | 0,99 | S §9.1 |
 | | `sacudida`, `aperto`, `F_ref` | `None`; `None` (Parte 0, item 15); 49,0 | S §8.2, §11.5 |
@@ -934,8 +935,8 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_percepcao_passo`, `v3_mapa_obs`, `v3_caixa_obs` | int, o `common_step_counter` da última atualização; (E,882); (E,11) | `observacoes.atualiza_percepcao` | os termos `mapa` e `caixa` do ator e do crítico, `metricas` |
 | `v3_freio`, `v3_degrau` | (E,) long, da tarefa corrente | `comando.cadeia` | `recompensas`, `terminacoes` |
 | `v3_fim`, `v3_aviso` | (E,) bool: fim da cadeia; aviso do detector de fim | `comando.cadeia` | `terminacoes`, `metricas` |
-| `v3_sigma`, `v3_relogio_alvo`, `v3_phi` | (E,): σ do alvo corrente [C20]; relógio do avanço; Φ do passo anterior | `comando.cadeia`; `recompensas.progresso` (`v3_phi`) | `recompensas` |
-| `v3_avancou`, `v3_b_pagos` | (E,) bool; (E,) soma dos `B_alvo` pagos desde o P2 | `comando.cadeia`; `recompensas` | `recompensas` |
+| `v3_sigma`, `v3_relogio_alvo`, `v3_phi` | (E,): σ do alvo corrente [C20]; relógio do avanço; Φ do passo anterior, com a sentinela −1 = sem alvo (Φ ∈ [0, 1]; nasce −1 no `garante_v3` e a cadeia volta a −1 no reset). O passo com `v3_phi` < 0 é a ENTRADA no alvo e paga 0, como a saída (PD-36; 29/10) | `comando.cadeia`; `recompensas.progresso` (`v3_phi`) | `recompensas` |
+| `v3_avancou`, `v3_b_pagos` | (E,) bool; (E,) soma dos `B_alvo` pagos desde o P2 (só os avanços com o alvo velho ≥ P2; a cadeia zera no reset do episódio; 29/10) | `comando.cadeia`; `recompensas` | `recompensas` |
 | `v3_p4_fechado`, `v3_b4_fechado`, `v3_perdeu_agora` | (E,) bool | `comando.cadeia` | `comando`, `terminacoes`, `recompensas` |
 | `v3_ponto_apoio`, `v3_vz_caixa_ant`, `v3_incl_max_seg` | (E,3); (E,); (E,) | `comando.cadeia` | `recompensas`, `terminacoes`, `comando.twist` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
@@ -2309,3 +2310,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | §6.3 "Fase E: núcleos puros": `sorteia_topo_e_massa`, `ok_agora_pegar`, `caixa_perdida_agora`, `sucesso_do_pegar`, `distancia_do_alvo`, `portoes_do_alvo`, `phi_do_alvo`, `n_progresso`, `n_qualidade`, `aplica_qualidade`, `n_perda_caixa`, `n_caixa_perdida`, `Curriculo.nivel_passou` e `Curriculo.dr()`; `Niveis.topo_min_c`; o peso do `progresso` e do `perda_caixa` no cfg é ±1 e a escala mora no núcleo | a lane E0 precisa das assinaturas para testar antes do código, como a D0 precisou |
 | 2026-10-29 | §6.3: formas do `visivel`; grade, latência, idade e o dict `magnitude` do `EstimadorCaixa.passo`; a fórmula do `alvo_no_frame_da_base`; `palmas_c` pelo `frame_da_caixa`; σ por env do `v3_sigma` | lacunas que a lane 2 da E0 listou |
 | 2026-10-29 | revisão D14 (`docs/relatorios/2026-10-29-v3-revisao-parte1.md`): `caixa_faces` com `tangent`; `nao_pes_chao` com um primário por corpo; a queda registra falha antes da âncora; sem o currículo `v3` no play; alvo do PD com ação zero = `q_de_pé` − viés; exceções da regra "todo número no knobs" e `knobs.NUNCA`; `Cena.estaciona_z` e `Cena.caixa_condim`; o detector de fim do driver vai à E9 | 2 bloqueios e 4 defeitos silenciosos da revisão; o resto é regra e texto |
+| 2026-10-29 | E4: `v3_phi` com a sentinela −1 (a entrada no alvo paga 0); `v3_b_pagos` só do P2 em diante e zerado pela cadeia no reset; `Recompensa.freio_limiar_andar` e `freio_limiar_correr` | a lane E4 achou que o primeiro passo do P0 pagaria Φ(P0) de graça, e os limiares do `freio` sem knob |
