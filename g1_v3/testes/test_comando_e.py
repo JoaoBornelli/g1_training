@@ -93,7 +93,7 @@ def _cadeia_sem_env(env):
 
 def _medidas():
     z = torch.zeros(1)
-    return dict(h=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
+    return dict(h=z, pelve=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
                 palmas_w=torch.zeros(1, 2, 3), palmas_c=torch.zeros(1, 2, 3), contatos=torch.ones(1, 2, dtype=torch.bool),
                 apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
                 v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1))

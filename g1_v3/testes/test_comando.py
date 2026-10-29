@@ -42,7 +42,8 @@ def passo(tab, trecho, relogio, aviso, atraso=0.4, dt=0.2, duracao=0.0):
 def segmento(cmd, iproj, icmd, dpos, drum, tf, ta, perdeu=False, carregar=False):
     return comando.sucesso_do_segmento(
         torch.tensor([cmd]), torch.tensor([iproj]), torch.tensor([icmd]),
-        t1(dpos), t1(drum), t1(tf), t1(ta), t1(perdeu, torch.bool), t1(carregar, torch.bool), K)
+        t1(dpos), t1(drum), t1(tf), t1(ta), t1(perdeu, torch.bool), t1(carregar, torch.bool), t1(0.0),
+        t1(False, torch.bool), K)
 
 
 class SorteiaVelocidadeTest(unittest.TestCase):

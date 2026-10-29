@@ -196,16 +196,18 @@ def tempo_da_ancora(t_abertura, t_empurrao, ancora_s) -> torch.Tensor:
 
 
 def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho, t_ancora, perdeu,
-                        carregar, k: Comando):
+                        carregar, incl_max_seg, terreno, k: Comando):
     """(registra, sucesso), (E,) bool. Canal ativo (|c| ≥ limiar): razão ≥ portão. Canal zero: deriva da âncora.
     ⚠ `carregar` é "tarefa com caixa" (PEGAR, CARREGAR, BOTAR): PD-50, o registro exige não perder a caixa.
-    O nome vem da assinatura da §6.3."""
+    Fase G (§6.3): a caixa que anda no `terreno` só passa com a inclinação máxima do segmento (`incl_max_seg`, graus)
+    até `k.incl_max_terreno_graus`. O nome vem da assinatura da §6.3."""
     ativo_lin = cmd[:, :2].norm(dim=1) >= k.limiar_canal
     ativo_giro = cmd[:, 2].abs() >= k.limiar_canal
     razao = int_proj / int_cmd.clamp(min=1e-6)
     ok_lin = torch.where(ativo_lin, razao[:, 0] >= k.razao_portao, deriva_pos < k.deriva_pos_m)
     ok_giro = torch.where(ativo_giro, razao[:, 1] >= k.razao_portao, deriva_rumo < k.deriva_rumo_rad)
     sucesso = ok_lin & ok_giro & ~(carregar & perdeu)
+    sucesso &= ~(carregar & terreno & (incl_max_seg > k.incl_max_terreno_graus))
     registra = t_fecho >= t_ancora  # um segmento que fecha antes da âncora não entra (PD-15)
     return registra, sucesso
 
@@ -275,7 +277,8 @@ class CadeiaCmd(CommandTerm):
     # --- medidas e alvos -----------------------------------------------------------------------------
 
     def _mede(self) -> dict:
-        """Medidas do passo (E,...): base, caixa (verdade), laje, palmas, contatos e o tronco (§6.2 `Alvos`)."""
+        """Medidas do passo (E,...): base, caixa (verdade), laje, palmas, contatos, tronco (§6.2 `Alvos`) e a pelve sobre o
+        pé mais baixo (`pelve`, R6 da E11: a mesma medida do detector e do B4 da caixa perdida)."""
         env, d = self._env, self.robot.data
         caixa, laje = env.scene["box"].data, env.scene["table"].data
         h = env.scene["altura_pelve"].data.heights[:, 0]
@@ -283,7 +286,8 @@ class CadeiaCmd(CommandTerm):
         palmas_w = d.site_pos_w[:, self.sit_palmas]  # (E,2,3)
         R = alvos.frame_da_caixa(caixa_q, rumo)
         m = dict(
-            h=h, base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, caixa_p=caixa_p, palmas_w=palmas_w,
+            h=h, pelve=d.root_link_pos_w[:, 2] - z_pe_min(self.robot, env.v3_ref),
+            base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, caixa_p=caixa_p, palmas_w=palmas_w,
             palmas_c=torch.einsum("eji,ekj->eki", R, palmas_w - caixa_p[:, None]),
             incl_graus=torch.rad2deg(alvos.inclinacao_da_caixa(caixa_q)),
             contatos=torch.cat([env.scene["palma_E"].data.found, env.scene["palma_D"].data.found], -1) > 0,
@@ -302,6 +306,7 @@ class CadeiaCmd(CommandTerm):
     def _dist(self, m, indice) -> torch.Tensor:
         # d do alvo `indice` no estado do passo (E4, `recompensas.distancia_do_alvo`); usado no σ. O alvo da caixa é o
         # da recompensa, com o chão local (S10): uma conta só.
+        # σ = distância inicial da mesma medida que o Φ do B4 usa (`distancia_do_alvo`, pela `h` do sensor altura_pelve).
         env = self._env
         dpelve = m["h"] - env.v3_ref.pelve_de_pe
         alvo = recompensas.alvo_da_caixa_w(env, indice)
@@ -390,7 +395,7 @@ class CadeiaCmd(CommandTerm):
             # F9 S3: a palma mede da face, a + palma_face (o sítio da palma encostada já está a palma_face da face)
             afasta = (m["palmas_c"].abs() - (a + A.palma_face)[:, None, None]).amax(-1)
             ok = ok | ok_agora_botar(idx, dif[:, :2].norm(dim=-1), dif.norm(dim=-1), m["apoio_N"], m["peso_N"], afasta,
-                                     m["apoio"], m["v_caixa"], m["h"] - ref.pelve_de_pe, m["tronco_graus"], inv, A)
+                                     m["apoio"], m["v_caixa"], m["pelve"] - ref.pelve_de_pe, m["tronco_graus"], inv, A)
         novo, rel, av = alvos.avanca(idx, ok, env.v3_relogio_alvo, dt, self.tempos)
         fecha_p4 = av & (idx == P4)
         novo = torch.where(fecha_p4, idx, novo)
@@ -413,8 +418,8 @@ class CadeiaCmd(CommandTerm):
         # `v3_aviso` é o latch do aviso no trecho (§6.3, F9 P5): o `avanca_trecho` lê o latch, e não o aviso do instante.
         env, ref, a = self._env, self._env.v3_ref, self._env.v3_meia
         palmas_b = quat_apply_inverse(m["base_q"][:, None].expand(-1, 2, -1), m["palmas_w"] - m["base_p"][:, None])
-        # R6 (E11): a pelve sobre o pé mais baixo, como a I §4.2 e o treino (`z_pe_min`), e não sobre o terreno (`h`)
-        pelve = self.robot.data.root_link_pos_w[:, 2] - z_pe_min(self.robot, ref)
+        # R6 (E11): a pelve sobre o pé mais baixo (`m["pelve"]`, de `_mede`), e não sobre o terreno (`h`)
+        pelve = m["pelve"]
         # BOTAR: a pose de pé sem caixa (F1); PEGAR: a pose com caixa (I §4.2)
         bot = env.v3_tarefa == BOTAR
         pelve_ref = torch.where(bot, torch.full_like(a, ref.pelve_de_pe), ref.pelve_com_caixa(a))
@@ -627,6 +632,13 @@ class TwistV3(UniformVelocityCommand):
         self.seg_proj[ids] = 0.0
         self.seg_int[ids] = 0.0
         self.ancora_feita[ids] = False
+        env.v3_incl_max_seg[ids] = 0.0  # G3: a inclinação máxima do segmento começa de zero
+
+    def _mede_incl(self) -> None:
+        # G3 (§6.3 "Fase G"): a inclinação máxima da caixa no segmento corrente, em graus. Mesma conta da cadeia (`_mede`).
+        env = self._env
+        graus = torch.rad2deg(alvos.inclinacao_da_caixa(env.scene["box"].data.root_link_quat_w))
+        env.v3_incl_max_seg[:] = torch.maximum(env.v3_incl_max_seg, graus)
 
     def _fecha(self, ids, falha) -> None:
         # Fecha o segmento de `ids` com a pose e o relógio do instante; `falha` (terminação que não é
@@ -636,9 +648,12 @@ class TwistV3(UniformVelocityCommand):
         pos = self.robot.data.root_link_pos_w[ids, :2]
         dpos = (pos - ancora[:, :2]).norm(dim=1)
         drum = wrap_to_pi(self.robot.data.heading_w[ids] - ancora[:, 2]).abs()
+        # G3: o terreno do segmento é a célula `terreno` do CARREGAR (só ele tem célula de terreno)
+        terreno = self.seg_cel[ids] == env.v3_cur.id_celula("CARREGAR", "terreno")
         reg, suc = sucesso_do_segmento(
             self.seg_cmd[ids], self.seg_proj[ids], self.seg_int[ids], dpos, drum,
-            self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], k)
+            self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
+            terreno, k)
         suc = suc & ~falha
         reg = reg | falha
         cel = self.seg_cel[ids]
@@ -678,6 +693,7 @@ class TwistV3(UniformVelocityCommand):
         sinal = torch.where(cmd[:, 2] >= 0, 1.0, -1.0)
         self.seg_proj[:, 1] += wz * sinal * dt
         self.seg_int[:, 1] += cmd[:, 2].abs() * dt
+        self._mede_incl()
         # 3. âncora (PD-15): instante = max(abertura, último empurrão) + ancora_s; a pose é gravada nesse instante
         novo = tempo_da_ancora(self.t_ab, env.v3_t_empurrao, k.ancora_s)
         self.ancora_feita &= novo == env.v3_ancora[:, 3]  # instante novo (empurrão) regrava a pose
