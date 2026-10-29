@@ -9,6 +9,8 @@ import unittest
 
 import torch
 
+from g1_v3 import cena, eventos
+from g1_v3.env_cfg import make_env_cfg
 from g1_v3.eventos import sorteia_topo_e_massa
 from g1_v3.knobs import ATIVO
 
@@ -79,6 +81,19 @@ class TestSorteiaTopoEMassa(unittest.TestCase):
         self.assertTrue(bool((topo == 0).all()))
         self.assertTrue(torch.allclose(massa, torch.full_like(massa, M_MIN)))
         self.assertTrue(torch.allclose(topo_w, torch.full_like(topo_w, 1.4)))
+
+
+class TestAtritoPadNoCfg(unittest.TestCase):
+    """S1 (revisão E11): o `asset_cfg` do `atrito_pad` tem de chegar resolvido pelos `params` do cfg, com só as
+    geoms dos pads. Sem isso `dr.geom_friction` põe μ = 1,0 em todas as geoms do robô a cada reset. Confere o cfg
+    de `make_env_cfg()`; não constrói env. Os nomes são literais, então o `fullmatch` casa só com eles."""
+
+    def test_atrito_pad_recebe_so_as_geoms_dos_pads(self):
+        termo = make_env_cfg().events["atrito_pad"]
+        self.assertIs(termo.func, eventos.atrito_pad)
+        asset = termo.params["asset_cfg"]
+        self.assertEqual(asset.name, "robot")
+        self.assertEqual(tuple(asset.geom_names), cena.PALM_PAD_GEOMS)
 
 
 if __name__ == "__main__":

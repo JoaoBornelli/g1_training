@@ -10,7 +10,8 @@ import unittest
 
 import torch
 
-from g1_v3.estimador import EstimadorCaixa, Odometria, alvo_no_frame_da_base, reduz_simetria_cubo, visivel
+from g1_v3.estimador import (EstimadorCaixa, Odometria, alvo_no_frame_da_base, do_frame_da_base, reduz_simetria_cubo,
+                             visivel)
 from g1_v3.knobs import ATIVO
 
 K = ATIVO.estimador
@@ -174,6 +175,43 @@ class TestAlvoNoFrameDaBase(unittest.TestCase):
         dx, dy = 1.0, 0.8  # alvo − pos no mundo
         esperado = torch.tensor([c * dx + s * dy, -s * dx + c * dy, 0.2], dtype=F)
         self.assertLess(float((out - esperado).abs().max()), 1e-5)
+
+
+class TestIdadeDepoisDaLeitura(unittest.TestCase):
+    def test_idade_cresce_0_02_por_passo_depois_de_leitura_valida(self):
+        # M9 (revisão E11): depois de uma leitura válida entregue, a idade vale t − instante da leitura e cresce
+        # 0,02 s por passo, até idade_max. Lê-se a idade logo após a entrega, não só sem leitura desde o reset.
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        ids = torch.arange(1)
+        est.reinicia(ids)
+        odo.reinicia(ids, POS_ZERO, Q_ID)
+        vis = torch.ones(1, dtype=torch.bool)
+        nao_vis = torch.zeros(1, dtype=torch.bool)
+        for k in range(20):  # leituras válidas até t = 0,38 s
+            est.passo(0.02 * k, POS_ZERO, Q_ID, MEIA, vis, magnitude())
+        idades = []
+        for k in range(20, 220):  # sem leitura nova; a última amostra válida já foi entregue em ~0,42 s
+            est.passo(0.02 * k, POS_ZERO, Q_ID, MEIA, nao_vis, magnitude())
+            idades.append(float(est.saida_b(odo, Q_ID)[0, 7]))
+        # a leitura entregue dá idade pequena (não idade_max): a idade veio da leitura, não do reset
+        self.assertLess(idades[3], 0.15)
+        for a, b in zip(idades[3:], idades[4:]):
+            if b < K.idade_max - 1e-6:  # o passo que cruza idade_max é cortado: não cresce 0,02
+                self.assertAlmostEqual(b - a, 0.02, places=5)
+        self.assertAlmostEqual(idades[-1], K.idade_max, places=5)
+
+
+class TestDoFrameDaBase(unittest.TestCase):
+    def test_do_frame_da_base_inverte_alvo_no_frame_da_base(self):
+        # S5a (revisão E11): do_frame_da_base(alvo_no_frame_da_base(p, odo), odo) = p, com rumo e posição não nulos.
+        n, psi = 4, 0.7
+        odo = Odometria(n, DEV, K, None)
+        odo.reinicia(torch.arange(n), torch.tensor([0.3, -1.2, 0.1], dtype=F).expand(n, 3).clone(),
+                     quat_de_yaw(torch.full((n,), psi, dtype=F)))
+        p = torch.tensor([[2.0, 0.3, 0.2], [-1.0, 0.5, 1.1], [0.0, 0.0, 0.0], [3.0, -2.0, 0.6]], dtype=F)
+        volta = do_frame_da_base(alvo_no_frame_da_base(p, odo), odo)
+        self.assertLess(float((volta - p).abs().max()), 1e-5)
 
 
 if __name__ == "__main__":

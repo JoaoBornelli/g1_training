@@ -3,9 +3,11 @@
 Os números vêm do plano (§6.2, A6) e da interface real (I §2.2). Não ajustar a tolerância
 para fazer passar: se o valor sai daqui, o contrato com o robô mudou.
 """
+import builtins
 import dataclasses
 import re
 import subprocess
+import symtable
 import sys
 import unittest
 from pathlib import Path
@@ -130,6 +132,38 @@ class TestKnobs(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "[]")
+
+
+class TestNomesGlobais(unittest.TestCase):
+    """B1 (revisão E11): `K` lido em `recompensas.incl_lim` sem existir no módulo derrubava o primeiro reset
+    (NameError). Checagem estática com `symtable`, sem importar os módulos: todo nome global lido numa função
+    (ou no nível do módulo) tem de ser definido no módulo ou ser builtin."""
+
+    DUNDERS_DO_MODULO = {"__file__", "__name__", "__doc__", "__package__", "__spec__", "__loader__",
+                         "__builtins__", "__cached__"}
+
+    def test_nenhum_nome_global_indefinido_em_g1_v3(self):
+        pacote = RAIZ / "g1_v3"
+        achados = []
+        for arq in sorted(pacote.rglob("*.py")):
+            if set(arq.relative_to(pacote).parts) & {"testes", "parte0"}:
+                continue
+            modulo = symtable.symtable(arq.read_text(encoding="utf-8"), str(arq), "exec")
+            definidos = {s.get_name() for s in modulo.get_symbols()
+                         if s.is_assigned() or s.is_imported() or s.is_namespace()} | self.DUNDERS_DO_MODULO
+
+            def visita(tabela):
+                for s in tabela.get_symbols():
+                    nome = s.get_name()
+                    if tabela is not modulo and (s.is_assigned() or not s.is_global()):
+                        continue
+                    if s.is_referenced() and nome not in definidos and not hasattr(builtins, nome):
+                        achados.append(f"{arq.relative_to(RAIZ)}:{tabela.get_name()}: {nome}")
+                for filho in tabela.get_children():
+                    visita(filho)
+
+            visita(modulo)
+        self.assertEqual(achados, [])
 
 
 if __name__ == "__main__":

@@ -7,13 +7,15 @@ As tabelas de passo a passo usam o caminho roteirizado do item 1 da Parte 0 (`pa
 e `referencias()` faz FK com o g1.xml: é importação e cinemática, não simulador nem env.
 Ângulos em graus nas tabelas; comprimentos em metros.
 """
+import types
 import unittest
+from unittest import mock
 
 import numpy as np
 import torch
 
 from g1_v3 import alvos, potencial, recompensas
-from g1_v3.knobs import ATIVO
+from g1_v3.knobs import ATIVO, TAREFAS
 from g1_v3.parte0 import comum as C
 from g1_v3.parte0 import item1_phi as I1
 
@@ -245,6 +247,92 @@ class TestPortoes(unittest.TestCase):
         # Borda E4: com os dois pés e desvio = faixa + Δ (0,06 m) → 0
         self.assertAlmostEqual(float(self._p(4, dois_pes=True, com=K.faixa_com + K.delta_com)["com"][0]),
                                0.0, places=6)
+
+
+TODAS_TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
+
+
+def _env_progresso(idx, av, p4_fechado, phi_ant, sigma, sigma_velho):
+    """Env falso (SimpleNamespace) com os buffers que `recompensas.progresso` lê. Um passo, E = 1."""
+    return types.SimpleNamespace(
+        device="cpu", v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
+        v3_alvo_idx=torch.tensor([idx]), v3_avancou=torch.tensor([av]), v3_p4_fechado=torch.tensor([p4_fechado]),
+        v3_phi=torch.tensor([phi_ant], dtype=torch.float32), v3_sigma=torch.tensor([sigma], dtype=torch.float32),
+        v3_sigma_velho=torch.tensor([sigma_velho], dtype=torch.float32), v3_b_pagos=torch.zeros(1),
+        v3_perdeu=torch.zeros(1, dtype=torch.bool))
+
+
+class TestInclLim(unittest.TestCase):
+    """B1 (revisão E11): `incl_lim` lia `K`, que não existia no módulo, e o primeiro reset caía com NameError."""
+
+    def test_incl_lim_roda_e_desce_pelo_degrau(self):
+        env = types.SimpleNamespace(v3_degrau=torch.tensor([0, ATIVO.balanceador.degraus]))
+        out = recompensas.incl_lim(env).double().numpy()
+        np.testing.assert_allclose(out, [K.incl_inicio_graus, K.incl_fim_graus], atol=1e-4)
+
+
+class TestProgressoNoFechoDoP4(unittest.TestCase):
+    """S2 (revisão E11): no fecho do P4 a cadeia põe `v3_avancou` = True e mantém o índice em P4. O progresso tem
+    de pagar Φ(P4) e B_alvo[P4]; o código velho pagava o alvo P3 (`idx − 1`)."""
+
+    def test_fecho_do_p4_paga_b_alvo_do_p4(self):
+        # Φ(s′, P4) = 0,8; Φ_ant = 0,6 (Φ(s, P4)). Esperado: w·(γ·0,8 − 0,6) + B_alvo[P4].
+        phi = [0.0] * 9  # um Φ por alvo (ALVOS); só P4 importa aqui, e P3 fica em 0 (a faixa do tronco da pega)
+        phi[alvos.P4] = 0.8
+
+        def phi_por_alvo(env, indice, sigma=None):
+            tab = torch.tensor(phi, dtype=torch.float32)
+            return torch.where(indice >= 0, tab[indice.clamp(min=0)], torch.zeros(indice.shape))
+
+        env = _env_progresso(alvos.P4, av=True, p4_fechado=True, phi_ant=0.6, sigma=0.3, sigma_velho=0.3)
+        with mock.patch.object(recompensas, "_phi_env", phi_por_alvo):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        esperado = R.progresso * (R.gamma * 0.8 - 0.6) + R.b_alvo[alvos.P4]
+        self.assertAlmostEqual(float(r[0]), esperado, places=4)
+
+
+class TestProgressoSigmaDoAlvoVelho(unittest.TestCase):
+    """S3 (revisão E11): no avanço P1 → P2, Φ(s′, P1) usa o σ do alvo VELHO (`v3_sigma_velho`), e não o σ novo."""
+
+    def test_avanco_p1_para_p2_mede_o_velho_com_sigma_velho(self):
+        # σ velho (P1) = 0,15; σ novo (P2) = 0,02. Φ(s′, P1) = σ usado. Esperado: w·(γ·0,15 − 0,5) + B_alvo[P1].
+        def phi_pelo_sigma(env, indice, sigma=None):
+            return env.v3_sigma if sigma is None else sigma
+
+        env = _env_progresso(alvos.P2, av=True, p4_fechado=False, phi_ant=0.5, sigma=0.02, sigma_velho=0.15)
+        with mock.patch.object(recompensas, "_phi_env", phi_pelo_sigma):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        esperado = R.progresso * (R.gamma * 0.15 - 0.5) + R.b_alvo[alvos.P1]
+        self.assertAlmostEqual(float(r[0]), esperado, places=4)
+
+
+class TestCercaRecuoNoP4(unittest.TestCase):
+    """S7 (revisão E11): no PEGAR e no BOTAR com o alvo P4, a `cerca_recuo` mede contra a referência do transporte
+    (`recuo_carregar`, 0,25 m), e não contra `ref.recuo` (0,40 m, o recuo da pega). A caixa está a 0,25 m: custo 0."""
+
+    def _env(self, tarefa):
+        robo = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3)))
+        caixa = types.SimpleNamespace(
+            data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[R.recuo_carregar, 0.0, 0.0]])))
+
+        class Referencia:
+            def recuo(self, topo, a):
+                return torch.full((1,), 0.40)
+
+            def caixa_transporte_b(self, a):
+                return torch.tensor([[R.recuo_carregar, 0.0, 0.0]])
+
+        return types.SimpleNamespace(
+            device="cpu", scene={"robot": robo, "box": caixa}, v3_tarefa=torch.tensor([TAREFAS.index(tarefa)]),
+            v3_alvo_idx=torch.tensor([alvos.P4]), v3_perdeu=torch.zeros(1, dtype=torch.bool),
+            v3_topo=torch.zeros(1), v3_topo_destino=torch.zeros(1), v3_meia=torch.full((1,), A),
+            v3_ref=Referencia())
+
+    def test_cerca_recuo_no_p4_mede_contra_o_transporte(self):
+        for tarefa in ("PEGAR", "BOTAR"):
+            with self.subTest(tarefa=tarefa):
+                r = recompensas.cerca_recuo(self._env(tarefa), ("PEGAR", "CARREGAR", "BOTAR"))
+                self.assertAlmostEqual(float(r[0]), 0.0, places=6)
 
 
 if __name__ == "__main__":
