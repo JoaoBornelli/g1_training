@@ -57,6 +57,7 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | chave | tipo, forma | significado |
 |---|---|---|
 | `pacote` | str | `"g1_v3"` |
+| `versao` | str | `git rev-parse --short HEAD` do repo na hora da exportação; `"desconhecida"` se o git falha |
 | `mjlab` | str | versão do mjlab instalada (importlib.metadata) |
 | `juntas` | list[str] (29) | nomes na ordem do ator |
 | `q_de_pe` | list[float] (29) | rad; `knobs.q_de_pe()` |
@@ -108,11 +109,15 @@ monta_observacao(
   `tarefa` = `env.v3_tarefa[0]`; `caixa` = os últimos 11 canais do bloco `caixa` da observação do env (o quadro
   atual); `mapa` = o bloco `mapa` da observação do env. Zera `hist` quando o env reinicia (`reset_buf`).
 - Compara, bloco a bloco, os 9 blocos de `observation_manager.compute()["actor"]` com a saída do pilota, Δmax < tol.
-- ⚠ `caixa` e `mapa` vêm do env, então SÃO IGUAIS POR CONSTRUÇÃO. A paridade prova os outros 7 blocos e a ordem e
-  o histórico. O `mapa` é provado em outro lugar (teste de `percepcao_lidar` e a seção 6 do smoke da D12).
+- ⚠ `caixa` e `mapa` vêm do env, então o bloco é IGUAL POR CONSTRUÇÃO. A paridade prova os outros 7 blocos e a
+  ordem e o histórico.
 - Extra: `ctrl` (o mapa junta→atuador contra `d.ctrl`), como no g1_limpo, fora do passo de reset.
 
-⚠ DÚVIDA (ver o relatório): o pilota recebe `mapa` e `caixa` de fora, e não os calcula nesta paridade.
+Decisão de 29/10 (D11a): o pilota recebe `mapa` e `caixa` de fora. A `paridade` NÃO os prova. Ela tem uma
+`Percepcao` do pilota (lidar por `mj_multiRay`, reiniciada no reset) e, a cada passo, IMPRIME a diferença entre o
+mapa dela e o `mapa` do env: Δmax das alturas nas células vistas pelos dois, e a fração de células em que as
+máscaras de vistas concordam (vista = confiança > `knobs.Percepcao.limiar_visto`). Sem portão: não entra no
+veredito; quem julga é o dono, na fase I.
 
 Ponto de entrada: `python -m g1_v3.exporta_cena`. `--saida PASTA` exporta; `--paridade` roda a paridade (com
 `--cena PASTA`, também confere que o `cena.npz` gravado é o do env). Sai com código 1 se a paridade falhar.
@@ -124,6 +129,7 @@ import importlib.metadata
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -369,21 +375,36 @@ def _t_base_sensor(m: mujoco.MjModel, d: mujoco.MjData, id_base: int, ids_q: np.
     return t
 
 
+def _versao_do_repo() -> str:
+    """`git rev-parse --short HEAD` do repo, sem shell. `"desconhecida"` se o git falha (sem git, fora de um repo)."""
+    try:
+        r = subprocess.run(["git", "-C", str(_RAIZ), "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, check=False)
+    except OSError:
+        return "desconhecida"
+    saida = r.stdout.strip()
+    return saida if r.returncode == 0 and saida else "desconhecida"
+
+
 def _contrato(m: mujoco.MjModel, dados: dict[str, np.ndarray], t_base: np.ndarray) -> dict:
     """O `contrato.json`. Tudo sai de `dados`, do modelo ou de `Contrato`/`knobs`, e nada é digitado."""
     c = ATIVO.contrato
     nomes = [str(n) for n in dados["nomes_juntas"]]
     kp, kd = _pd_por_junta(nomes)
     for j, a in enumerate(dados["ids_atuador"]):
-        # ⚠ MuJoCo: `gainprm[0]` do atuador de posição é o kp. O kd (`biasprm[2]`) não é conferido aqui (ver o relatório).
+        # MuJoCo: o atuador de posição tem `gainprm[0]` = kp e `biasprm[2]` = −kd (`mjlab/utils/spec.py:307-313`).
         if abs(float(m.actuator_gainprm[int(a), 0]) - kp[j]) > 1e-6 * max(1.0, kp[j]):
             raise AssertionError(f"kp da junta {nomes[j]} no modelo ({m.actuator_gainprm[int(a), 0]}) "
                                  f"difere de Contrato.pd ({kp[j]})")
+        if abs(-float(m.actuator_biasprm[int(a), 2]) - kd[j]) > 1e-6 * max(1.0, kd[j]):
+            raise AssertionError(f"kd da junta {nomes[j]} no modelo ({-m.actuator_biasprm[int(a), 2]}) "
+                                 f"difere de Contrato.pd ({kd[j]})")
     dt = float(dados["physics_dt"]) * int(dados["decimation"])
     if abs(dt - c.dt_fisica * c.decimacao) > 1e-12:
         raise AssertionError(f"dt do env ({dt}) difere de Contrato ({c.dt_fisica * c.decimacao})")
     return {
         "pacote": "g1_v3",
+        "versao": _versao_do_repo(),
         "mjlab": importlib.metadata.version("mjlab"),
         "juntas": nomes,
         "q_de_pe": q_de_pe().tolist(),
@@ -470,6 +491,21 @@ def _confere_npz(dados: dict[str, np.ndarray], gravado) -> None:
             raise AssertionError(f"cena.npz gravado diverge do env no campo {chave}; reexporte com --saida")
 
 
+def _compara_mapas(mapa_pilota: np.ndarray, mapa_env: np.ndarray, limiar: float) -> tuple[float, float]:
+    """Δmax das alturas nas células vistas pelos DOIS, e a fração de células em que as máscaras de vistas concordam.
+
+    O mapa são 441 alturas e depois 441 confianças (ordem do contrato). Vista = confiança > `limiar`.
+    Sem célula vista pelos dois, o Δmax sai `nan`.
+    """
+    n = len(mapa_env) // 2
+    h_p, c_p = mapa_pilota[:n], mapa_pilota[n:]
+    h_e, c_e = mapa_env[:n], mapa_env[n:]
+    vista_p, vista_e = c_p > limiar, c_e > limiar
+    ambas = vista_p & vista_e
+    dmax = float(np.abs(h_p[ambas] - h_e[ambas]).max()) if ambas.any() else float("nan")
+    return dmax, float((vista_p == vista_e).mean())
+
+
 def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) -> bool:
     """O PORTÃO. Compara os 9 blocos do ator do env com os do `pilota_v3.monta_observacao`, e o `ctrl`.
 
@@ -502,26 +538,36 @@ def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) ->
     primeira_falha: dict[str, str] = {}
 
     env.reset()
+    percepcao = pilota.Percepcao(m, dados)
+    percepcao.reinicia(m, espelha_estado(env, m))
     acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
     hist = None
     resets = 0
+    limiar = ATIVO.percepcao.limiar_visto
 
     for passo in range(passos):
         env.step(acao)
         reiniciou = bool(_np(env.reset_buf)[0])
+        d = espelha_estado(env, m)
         if reiniciou:
             hist = None  # o pilota preenche o histórico no 1º passo, como o mjlab faz no reset
+            percepcao.reinicia(m, d)
             resets += 1
 
         obs_env = _np(env.observation_manager.compute()[GRUPO])[0].astype(np.float64)
         twist = _np(env.command_manager.get_command("twist"))[0].astype(np.float64)
         anterior = _np(env.action_manager.action)[0].astype(np.float64)
         tarefa = int(_np(env.v3_tarefa)[0])
-        d = espelha_estado(env, m)
+        mapa_env = obs_env[fat["mapa"]]
+
+        # Sem portão (decisão de 29/10): só imprime o quanto a Percepcao do pilota difere do mapa do env.
+        dmax, concordancia = _compara_mapas(percepcao.passo(m, d), mapa_env, limiar)
+        print(f"[mapa] passo {passo:3d}  Δmax altura (vistas pelos dois) {dmax:.3e} m  "
+              f"concordância das vistas {concordancia:.4f}")
 
         nosso, hist = pilota.monta_observacao(
             d, dados, twist, tarefa, anterior,
-            obs_env[fat["caixa"]][-canais["caixa"]:], obs_env[fat["mapa"]], hist)
+            obs_env[fat["caixa"]][-canais["caixa"]:], mapa_env, hist)
         nosso = np.asarray(nosso, dtype=np.float64)
         if nosso.shape != (dim_ator(c),):
             raise AssertionError(f"monta_observacao devolveu forma {nosso.shape}, esperado ({dim_ator(c)},)")
