@@ -708,6 +708,47 @@ def referencia_do_alvo(indice, h, a, ref: Referencias, k: Alvos) -> torch.Tensor
     # ref.pelve_de_pe e 0 no B4; zero com indice −1 (§6.6). h = v3_topo, a = v3_meia
 ```
 
+**`recompensas.py`, `terminacoes.py` e `cena.py` (núcleos e nomes; 29/10)**
+
+O núcleo de cada termo da tabela da D5 se chama `n_<termo>` e recebe só tensores e escalares; o invólucro
+`<termo>(env, tarefas, ...)` lê o env, chama o núcleo e aplica `curriculo.mascara` (§6.6) e, nos termos que pagam
+positivo (`vivo`, `altura_pe`, `passo`, rastreios), `torch.where(v3_perdeu, 0, r)`. Ângulos em graus, comprimentos
+em metros, torque em fração. As assinaturas que o teste usa:
+
+```python
+def comprimento_do_passo(p_toque_w, p_apoio_w, c_w, p0_toque_b, p0_apoio_b, c_b) -> torch.Tensor: ...
+    # (E,) L = (p_toque − p_apoio)·ĉ_w − (p0_toque − p0_apoio)·ĉ_b (PD-16); posições (E,3) ou (3,); ĉ unitário (E,3)
+def n_passo(L, L_alvo, r_lin, c_xy, limiar) -> torch.Tensor: ...     # min(relu(L)/L_alvo, 1)²·max(r_lin, 0); 0 com c_xy < limiar
+def n_vivo(perdeu) -> torch.Tensor: ...                              # 1 − perdeu (float)
+def n_altura_pe(h, v_xy, alvo, std, tanh_k) -> torch.Tensor: ...     # h (E,2), v_xy (E,2,2): exp(−Σ (h − alvo)²·tanh(tanh_k·‖v‖)/std)
+def n_cerca_sola(incl_graus, contato, lim_graus) -> torch.Tensor: ...  # (E,2), (E,2) bool: Σ_pés em contato relu(incl − lim)
+def n_cerca_giro(q_yaw_E, q_yaw_D, lim_graus) -> torch.Tensor: ...  # rad na entrada: relu(max(−q_E,0)° − lim) + relu(max(q_D,0)° − lim)
+def n_cerca_tronco(incl_graus, tronco_ik_graus, lim_graus) -> torch.Tensor: ...  # relu(incl − (tronco_ik + lim))
+def n_cerca_com(com_xy, cantos_xy, dois_pes, lim) -> torch.Tensor: ...  # (E,2), (E,8,2), (E,) bool: relu(lim − margem)·dois_pes;
+    # margem = distância com sinal do CoM às arestas do fecho convexo dos 8 cantos (positiva dentro) (PD-35)
+def n_cerca_torque(tau, tau_max, pares, tau_par, lim, banda) -> torch.Tensor: ...  # tau (E,29), tau_max (29,), pares (P,2) long:
+    # Σ_soltas relu(|τ|/τ_max − lim)/banda + Σ_pares relu((|τ_p| + |τ_r|)/tau_par − lim)/banda (PD-45)
+def n_cerca_pelve(h_pelve, pelve_ik, lim) -> torch.Tensor: ...       # relu(|h − ik| − lim)
+def n_cerca_recuo(recuo, recuo_ik, lim) -> torch.Tensor: ...         # relu(|r − ik| − lim)
+# terminacoes.py
+def n_queda(tarefa, incl_rad, z_pelve_w, z_chao_pelve, z_joelho_w, z_chao_joelho, k: Terminacao) -> torch.Tensor: ...
+    # (E,) bool. ANDAR e CARREGAR: incl > incl_marcha ou z_pelve − z_chao_pelve < base_min; PEGAR e BOTAR: incl >
+    # incl_manip_graus (em rad) ou z_joelho − z_chao_joelho < joelho_min. Os z do chão vêm de `altura_pelve` e
+    # `altura_joelhos` (o terreno, e não o mundo); tarefa (E,) long, índice em TAREFAS
+def n_fim_da_cadeia(passos, passos_max, fim) -> torch.Tensor: ...    # (E,) bool: passos ≥ passos_max ou fim
+# cena.py (nomes do g1_limpo, com "laje" no lugar de "prateleira")
+def spec_caixa(c: Cena) -> mujoco.MjSpec: ...; def spec_laje(c: Cena) -> mujoco.MjSpec: ...  # geoms no grupo c.grupo_mobilia
+def terreno_cfg(k: Knobs) -> TerrainEntityCfg: ...  # `sub_terrains` com as chaves de `Terreno.colunas`, na ordem
+```
+
+"todas" na D5 = ANDAR, PEGAR, CARREGAR, BOTAR (REORIENTAR e LEVANTAR são canais reservados do one-hot, sem env).
+Na fase D o cfg tem só os termos da tabela da D5; `contato_laje`, `freio`, `progresso`, `sacudida`, `aperto` e
+`perda_caixa` entram nas fases E e H. Teto do CARREGAR na D1: escadas e rampas t = linha/(R−1); `obstaculos`
+idem; `caixas` (`random_spread_boxes`) escala a altura por 0,2 + 0,8·t (`primitive_terrains.py:794`): a linha 7
+dá 0,15·0,667 = 0,10. Registro: `mjlab.tasks.registry.list_tasks()`, `load_env_cfg(id)`, `load_rl_cfg(id)`; a
+SemPercepcao é `make_env_cfg(k)` com `dataclasses.replace(k, percepcao=replace(k.percepcao, ligada=False))`.
+O `class_name` da v3 é o do algoritmo: `rl_cfg().algorithm.class_name == algoritmo.CAMINHO`.
+
 **`eventos.py` (núcleo puro; 29/10)**
 
 ```python
@@ -2122,3 +2163,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | portão da Parte 0, decisões do dono (`docs/relatorios/2026-10-29-v3-parte0.md` §3): D1 o `progresso` usa o Φ do alvo velho no passo do avanço; D2 o `L_alvo` fica, e o critério do item 8 não vale nos plays de CARREGAR (passo miúdo); D3 `fator_pouso` gradual de 0,10 a 0,05 m (`altura_pouso_inicio`); D4 cercas pela média só nos passos em que agem (PD-30); D5 o custo do filtro fica para o I5, em GPU; D6 o teto do `aperto` sai da perda sem o aperto evitado; D7 `sacudida` = 0,05 (spec); D8 ganho de afrouxar numa rampa de 20 s. Contagem: `potencial.py` +2, `knobs.py` +1; um campo novo (`altura_pouso_inicio`), nenhum termo novo | portão da B6 |
 | 2026-10-29 | núcleo do `eventos` na §6.3 (`escolhe_celula_terreno`) e a tabela das colunas no `knobs` (`Terreno.colunas`; `linha_max_carregar` por coluna, no mesmo formato): o teste puro não importa a `cena`, que importa o mjlab. Contagem: `knobs.py` +2 | pergunta da lane D0-3 |
 | 2026-10-29 | núcleos puros do `comando` e do `observacoes` na §6.3 (`sorteia_velocidade`, `TabelaTrechos`, `monta_tabela_trechos`, `avanca_trecho`, `tempo_da_ancora`, `sucesso_do_segmento`, `passo_de_percepcao`, `_calcula_percepcao`, `referencia_do_alvo`) e o buffer `v3_ref` na §6.4; o `atualiza_percepcao` vira só a guarda. Nenhum termo novo | perguntas da lane D0-2 |
+| 2026-10-29 | núcleos da D5 e da D6 (`n_<termo>`, `comprimento_do_passo`, `n_queda`, `n_fim_da_cadeia`), `spec_caixa`/`spec_laje`/`terreno_cfg` da cena, "todas" = as 4 tarefas da cadeia, o conjunto de termos da fase D, a fórmula do teto da coluna `caixas` (0,2 + 0,8·t) e a API de registro, na §6.3 | perguntas da lane D0-1 |
