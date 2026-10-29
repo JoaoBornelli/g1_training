@@ -1,0 +1,34 @@
+Item 2 da Parte 0 (S §16, item 2; plano B5)
+
+A. dΦ/dd no estado inicial de cada alvo (d = σ; Φ = nucleo(d, σ), Πg = 1)
+   derivada por autograd (float64); FD = diferença finita central, h = 1e-6·σ
+P0  PEGAR  d0=0.3481  σ=0.3481  dΦ/dd=-2.1134e+00  FD=-2.1134e+00  OK (-2.1134e+00)
+P1  PEGAR  d0=0.1440  σ=0.1440  dΦ/dd=-5.1094e+00  FD=-5.1094e+00  OK (-5.1094e+00)
+P2  PEGAR  d0=0.0000  σ=0.0100  dΦ/dd=-7.3576e+01  FD=-7.3576e+01  OK (-7.3576e+01)
+P3  PEGAR  d0=0.0480  σ=0.0480  dΦ/dd=-1.5328e+01  FD=-1.5328e+01  OK (-1.5328e+01)
+P4  PEGAR  d0=0.4770  σ=0.4770  dΦ/dd=-1.5426e+00  FD=-1.5426e+00  OK (-1.5426e+00)
+B1  BOTAR  d0=0.6076  σ=0.6076  dΦ/dd=-1.2110e+00  FD=-1.2110e+00  OK (-1.2110e+00)
+B2  BOTAR  d0=0.0480  σ=0.0480  dΦ/dd=-1.5328e+01  FD=-1.5328e+01  OK (-1.5328e+01)
+B3  BOTAR  d0=0.0480  σ=0.0480  dΦ/dd=-1.5328e+01  FD=-1.5328e+01  OK (-1.5328e+01)
+B4  BOTAR  d0=15.5907  σ=15.5907 (adim.)  dΦ/dd=-4.7192e-02  FD=-4.7192e-02  OK (-4.7192e-02)
+
+B. d(rampa)/dx em x_lim + Δ/2 (rampa = clip(1 − (x − x_lim)/Δ, 0, 1); esperado −1/Δ)
+P0–P2, a=0.07 m             x_lim=0.0700  Δ=0.0350  d(rampa)/dx=-28.5714 (−1/Δ=-28.5714)  OK
+P0–P2, a=0.10 m             x_lim=0.1000  Δ=0.0500  d(rampa)/dx=-20.0000 (−1/Δ=-20.0000)  OK
+P0–P2, a=0.13 m             x_lim=0.1300  Δ=0.0650  d(rampa)/dx=-15.3846 (−1/Δ=-15.3846)  OK
+P2–B2 inclinação, fase 30°  x_lim=30.0000  Δ=15.0000  d(rampa)/dx=-0.0667 (−1/Δ=-0.0667)  OK
+P2–B2 inclinação, fim 15°   x_lim=15.0000  Δ=15.0000  d(rampa)/dx=-0.0667 (−1/Δ=-0.0667)  OK
+B2–B4 deslocamento (m)      x_lim=0.0200  Δ=0.0200  d(rampa)/dx=-50.0000 (−1/Δ=-50.0000)  OK
+tronco (graus)              x_lim=15.0000  Δ=15.0000  d(rampa)/dx=-0.0667 (−1/Δ=-0.0667)  OK
+recuo (m)                   x_lim=0.0800  Δ=0.0800  d(rampa)/dx=-12.5000 (−1/Δ=-12.5000)  OK
+CoM (m)                     x_lim=0.0300  Δ=0.0300  d(rampa)/dx=-33.3333 (−1/Δ=-33.3333)  OK
+
+C. Tabela dos Δ da PD-23 (para o dono confirmar ou trocar; lidos do knobs)
+   deslocamento P0–P2: a/2 → 0.5 × a; com a = 0.07, 0.10, 0.13 m
+   deslocamento B2–B4: 2 cm
+   tronco: 15°
+   recuo: 8 cm
+   CoM: 3 cm
+   inclinação: 15°
+
+Resultado: 18 de 18 derivadas ≠ 0 (9 de Φ, 9 de rampa)
