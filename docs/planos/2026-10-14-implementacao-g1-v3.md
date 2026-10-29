@@ -1114,8 +1114,11 @@ Ondas: C0 (testes) → C1.
   - `PadraoMid360.direcoes(200) == direcoes(0)`;
   - invariância à densidade (PD-42): chão plano com degrau de 0,15 m, a mesma trajetória a 1 m/s,
     pontos sintéticos a 205 e a 4 000 por passo com o mesmo modelo de ruído (o mesmo giro de
-    inclinação por leitura nos dois); depois de 2 leituras por célula, o recorte tem altura igual em
-    ± 1 cm e confiança igual em ± 0,03 nos dois;
+    inclinação por leitura nos dois); toda célula lida 2 vezes está vista nos dois; fora a coluna da
+    borda do degrau, média de |Δh| ≤ 1 cm e p95 ≤ 3 cm (portão da PERC §0), e |Δconfiança| ≤ 0,03 em
+    90% das células (dono, 29/10: o máximo de ±1 cm é inatingível com o ruído; a borda mistura os dois
+    lados);
+  - os transportes de 0,10 m e de 90° rodam com os passos reais a 50 Hz (5 × 2 cm; 75 × π/150);
   - o giro fixo do IMU (`incl_imu` de 1° em pitch) inclina o chão de 1,7 cm a 1 m em `pontos_no_frame_do_mapa`.
 
 ### C1 — `percepcao_lidar.py` (Sonnet)
@@ -1123,8 +1126,12 @@ Ondas: C0 (testes) → C1.
 - Origem: nenhuma (o `lidar_sim/percepcao/mapa.py` é voxel do Open3D e não serve, viabilidade D9).
 - O que fazer: as funções e a classe da §6.3, com:
   - mapa interno 51 × 51 (PD-8); altura `h` (E,51,51), variância `P` (E,51,51), máscara `vista`;
-  - `prediz`: para cada centro de célula no frame novo, a posição no frame velho é `R(Δψ)·p + Δxy`;
-    a célula de origem é a mais perto (amostragem, PERC §6); fora do mapa vira "nunca vista";
+  - `prediz`: o mapa não gira e anda só em células inteiras (dono, 29/10): a base guarda o resto `o`
+    (menos de meia célula) e o rumo `psi` nos eixos do mapa; a cada passo, `a = o + R(psi)·Δxy`, o mapa
+    desloca `round(a/celula)` células, `o = a − deslocamento` e `psi += Δψ`; o giro acontece no `recorte`,
+    e o `atualiza` leva os pontos aos eixos do mapa pelo mesmo `o` e `psi`. ⚠ A "célula mais perto" a cada
+    passo (PERC §6) congelava o mapa: a 50 Hz o passo de 2–3 cm é menor que meia célula. Fora do mapa
+    vira "nunca vista";
     `P += q_desloc·|Δxy| + q_giro·|Δψ| + q_tempo·Δt` (PD-7); depois, nas células vistas,
     `h −= z_ref − z_ref_anterior` e o filtro guarda o `z_ref` (transporte vertical, PD-7);
   - `atualiza`: índice de célula de cada ponto válido; os inválidos vão a um índice de descarte
@@ -2051,3 +2058,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | contrato da §6.3 fechado para as lanes B0 e C0: convenções (wxyz, `ids` long, `gerador` None sem ruído, `dt` float); `Curriculo.celulas` público com os ids 0..11 na ordem da B3, `it` público, a regra da EMA (s = x na primeira medida, s começa em 0) e o `estado()` só com tipos do Python; formas de `pontos_no_frame_do_mapa`, `filtra_corpo` (cápsulas (E,K,2,3), como o `visivel`), `prediz` e `atualiza`; os giros de inclinação agem em volta do sensor. Nenhuma função nova | perguntas das lanes B0 e C0 |
 | 2026-10-29 | nível de terreno no `Curriculo` (a B3 pedia 0..12 dentro da célula `terreno`, sem interface na §6.3): `k_ter` no construtor e `nivel_terreno(tarefa)`; teto 12 no ANDAR e 9 no CARREGAR; o refino do ANDAR e do CARREGAR espera o último nível de terreno; "seguidas" zera a contagem | pergunta da lane B3 |
 | 2026-10-29 | unidade da Parte 0 no cabeçalho da B5: o retorno do mjlab (`scale_by_dt`); custo por s = w·média(x); `B_alvo` que cobre o custo C de um trecho = 1,5·C/dt. O `custos_por_s` dividia pela duração e dava 50 vezes o custo por s | item 6 da B5 |
+| 2026-10-29 | transporte do mapa (C1) e critério da invariância (C0), decisões do dono: o mapa anda em células inteiras e guarda o resto e o rumo, com o giro no `recorte` (a célula mais perto a cada passo congelava o mapa a 50 Hz); o teste de densidade compara média ≤ 1 cm e p95 ≤ 3 cm fora da borda do degrau, e |Δc| ≤ 0,03 em 90% das células. Achado: na borda lateral da vista a confiança do caso de 205 pontos fica menor (lê a célula menos vezes); a frase da PD-5 "a densidade não muda a confiança" não vale ali, e o erro é conservador. Contagem: `percepcao_lidar.py` +10 linhas; custo +7% | diagnóstico de 29/10 (`test_recorte_com_2_leituras_nao_depende_da_densidade`) |
