@@ -6,13 +6,15 @@ env. O relógio do avanço é float64, para que 25 passos de 0,02 s somem 0,5 s 
 `invariantes` entram como número: 1,0 quando o caso não os mede; o caso do P3 a 40° monta-os com a rampa de
 `potencial` (o `portoes_do_alvo` da E4 ainda não existe).
 """
+import types
 import unittest
+from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, potencial
-from g1_v3.comando import caixa_perdida_agora, ok_agora_pegar, sucesso_do_pegar
-from g1_v3.knobs import ATIVO
+from g1_v3 import alvos, comando, potencial, recompensas
+from g1_v3.comando import CadeiaCmd, caixa_perdida_agora, ok_agora_pegar, sucesso_do_pegar
+from g1_v3.knobs import ATIVO, Estimador
 
 A = ATIVO.alvos
 T = ATIVO.terminacao
@@ -61,6 +63,77 @@ def perda(fundo=0.5, v_rel=0.0, fora=False, pegou=False, indice=P3, sobre_laje=T
 
 def sucesso(p4, falhou, perdeu):
     return sucesso_do_pegar(torch.tensor([p4]), torch.tensor([falhou]), torch.tensor([perdeu])).item()
+
+
+# --- E11 (29/10): invólucros da cadeia com env falso (E = 1), sem a cena --------------------------------------
+
+def _env_falso(idx, tarefa=comando.PEGAR):
+    # Só os buffers que `_alvos_pegar` e `_abre_p0` leem ou escrevem.
+    z, b = torch.zeros(1), torch.zeros(1, dtype=torch.bool)
+    return types.SimpleNamespace(
+        v3_alvo_idx=torch.tensor([idx], dtype=torch.long), v3_tarefa=torch.tensor([tarefa], dtype=torch.long),
+        v3_meia=torch.tensor([0.1]), v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(1),
+                                                                  pelve_de_pe=0.0),
+        v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
+        v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
+        v3_sigma=torch.ones(1), v3_sigma_velho=torch.ones(1), v3_phi=torch.zeros(1),
+        v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])))
+
+
+def _cadeia_sem_env(env):
+    # `CadeiaCmd` sem o `__init__` (que pede a cena): só os atributos que os métodos lidos aqui usam
+    obj = CadeiaCmd.__new__(CadeiaCmd)
+    obj._env = env
+    obj.pega = torch.zeros(1, dtype=torch.bool)
+    obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
+    obj.cfg = types.SimpleNamespace(est=Estimador())
+    return obj
+
+
+def _medidas():
+    z = torch.zeros(1)
+    return dict(h=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
+                palmas_w=torch.zeros(1, 2, 3), palmas_c=torch.zeros(1, 2, 3), contatos=torch.ones(1, 2, dtype=torch.bool),
+                apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z)
+
+
+class TestCadeiaComEnvFalso(unittest.TestCase):
+
+    def test_sigma_velho_e_gravado_antes_da_troca_de_alvo(self):
+        # E11 S3: no avanço de P1 a P2 a cadeia grava o σ do P1 em `v3_sigma_velho` ANTES de pôr o σ do P2. O
+        # progresso paga Φ(s′, P1) com o σ velho; com o novo, o pagamento sairia espúrio
+        env = _env_falso(comando.P1)
+        env.v3_sigma[:] = 0.15
+        obj = _cadeia_sem_env(env)
+        obj._sigma = lambda m, indice: torch.full((1,), 0.02)  # o σ do P2 (a conta da distância fica de fora)
+        ok_todos = dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))
+        with mock.patch.object(comando, "ok_agora_pegar", return_value=torch.tensor([True])), \
+                mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
+                mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
+                mock.patch.object(recompensas, "portoes_do_alvo", return_value=ok_todos):
+            obj._alvos_pegar(_medidas(), 0.02)
+        self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P2])
+        self.assertAlmostEqual(env.v3_sigma_velho.item(), 0.15, places=6)
+        self.assertAlmostEqual(env.v3_sigma.item(), 0.02, places=6)
+
+    def test_sem_leitura_valida_o_pega_fica_sem_alvo(self):
+        # E11 S5b: sem leitura válida (a caixa nunca vista, idade = idade_max) o PEGAR fica com alvo −1 e a pega não
+        # abre; o relógio espera. Com leitura válida (idade 0,5 s), abre P0 com a pega na caixa estimada, no mundo
+        env = _env_falso(-1)
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 2.0]]))
+        obj = _cadeia_sem_env(env)
+        obj.pega[:] = True
+        obj._sigma = lambda m, indice: torch.full((1,), 0.02)
+        obj._abre_p0(_medidas())
+        self.assertEqual(env.v3_alvo_idx.tolist(), [-1])
+        self.assertTrue(obj.pega.all().item())
+        self.assertEqual(env.v3_caixa_pega_w.tolist(), [[0.0, 0.0, 0.0]])
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 0.5]]))
+        obj._abre_p0(_medidas())
+        self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P0])
+        # a caixa estimada no frame da base (0,3; 0; 0,1), com a base em (1; 2; 0) e rumo 0, vai a (1,3; 2; 0,1)
+        self.assertEqual([round(v, 6) for v in env.v3_caixa_pega_w[0].tolist()], [1.3, 2.0, 0.1])
+        self.assertEqual(env.v3_phi.tolist(), [-1.0])
 
 
 class TestOkAgoraPegar(unittest.TestCase):

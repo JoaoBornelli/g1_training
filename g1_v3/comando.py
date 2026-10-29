@@ -17,12 +17,13 @@ import torch
 
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, wrap_to_pi
+from mjlab.utils.lab_api.math import quat_apply_inverse, wrap_to_pi
 
-from g1_v3 import alvos, eventos, recompensas
+from g1_v3 import alvos, estimador, eventos, recompensas
 from g1_v3.alvos import B4, P0, P1, P2, P3, P4
 from g1_v3.curriculo import garante_v3
 from g1_v3.knobs import ATIVO, TAREFAS, Cadeia, Comando, Estimador
+from g1_v3.observacoes import _z_pe_min
 
 # Índices de TAREFAS (knobs.py): o one-hot da §6.5 e a tabela de trechos usam esta ordem.
 ANDAR, PEGAR, CARREGAR, BOTAR = 0, 1, 2, 3
@@ -262,8 +263,7 @@ class CadeiaCmd(CommandTerm):
         palmas_w = d.site_pos_w[:, self.sit_palmas]  # (E,2,3)
         R = alvos.frame_da_caixa(caixa_q, rumo)
         m = dict(
-            h=h, base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, rumo=rumo, caixa_p=caixa_p,
-            chao_z=d.root_link_pos_w[:, 2] - h, palmas_w=palmas_w,
+            h=h, base_p=d.root_link_pos_w, base_q=d.root_link_quat_w, caixa_p=caixa_p, palmas_w=palmas_w,
             palmas_c=torch.einsum("eji,ekj->eki", R, palmas_w - caixa_p[:, None]),
             incl_graus=torch.rad2deg(alvos.inclinacao_da_caixa(caixa_q)),
             contatos=torch.cat([env.scene["palma_E"].data.found, env.scene["palma_D"].data.found], -1) > 0,
@@ -276,33 +276,43 @@ class CadeiaCmd(CommandTerm):
         )
         return m
 
-    def _alvo_da_caixa(self, m, indice) -> torch.Tensor:
-        # Posição-alvo da caixa (E,3) pela §6.3 `caixa_alvo_w`. P3 e P4 sobem da pega estimada; B1/B2 não ocorrem no
-        # PEGAR, e o argumento da soltura recebe a pega só para cumprir a assinatura.
-        env = self._env
-        pega = env.v3_caixa_pega_w
-        return alvos.caixa_alvo_w(indice, pega, pega, m["base_p"], m["rumo"], m["chao_z"], env.v3_meia, env.v3_ref, A)
-
     def _dist(self, m, indice) -> torch.Tensor:
-        # d do alvo `indice` no estado do passo (E4, `recompensas.distancia_do_alvo`); usado no σ
+        # d do alvo `indice` no estado do passo (E4, `recompensas.distancia_do_alvo`); usado no σ. O alvo da caixa é o
+        # da recompensa, com o chão local (S10): uma conta só.
         env = self._env
         dpelve = m["h"] - env.v3_ref.pelve_de_pe
-        return recompensas.distancia_do_alvo(indice, m["palmas_c"], m["caixa_p"], self._alvo_da_caixa(m, indice),
-                                             dpelve, m["tronco_graus"], env.v3_meia, A)
+        alvo = recompensas.alvo_da_caixa_w(env, indice)
+        return recompensas.distancia_do_alvo(indice, m["palmas_c"], m["caixa_p"], alvo, dpelve, m["tronco_graus"],
+                                             env.v3_meia, A)
 
     def _sigma(self, m, indice) -> torch.Tensor:
-        return self._dist(m, indice).clamp(min=A.sigma_min)
+        # Piso só nos alvos métricos (M12): o B4 é adimensional, e o piso de 1 cm não vale para ele.
+        d = self._dist(m, indice)
+        return torch.where(indice == B4, d, d.clamp(min=A.sigma_min))
 
-    def _abre_pegar(self, ids, m) -> None:
-        # Abertura do PEGAR (E3, item 1): P0, e a pega e o alvo na caixa ESTIMADA (com os erros do estimador, S §6.4).
-        # σ = distância inicial das palmas a P0.
+    def _espera(self) -> torch.Tensor:
+        # (E,) bool: PEGAR aberto sem alvo, à espera da primeira leitura válida da caixa (E11 S5b)
         env = self._env
-        self.pega[ids] = True
-        env.v3_alvo_idx[ids] = P0
-        env.v3_relogio_alvo[ids] = 0.0
+        return self.pega & (env.v3_alvo_idx < 0) & (env.v3_tarefa == PEGAR)
+
+    def _abre_p0(self, m) -> None:
+        # Abre P0 do PEGAR na primeira leitura VÁLIDA da caixa (E11 S5b, decisão do dono): idade < idade_max, que só
+        # acontece com a caixa já vista (sem leitura, a idade é idade_max). Até lá o trecho fica sem alvo (−1) e o robô
+        # espera em pé: `_detector` não deixa o relógio do PEGAR correr. A pega e o alvo saem da caixa ESTIMADA (com os
+        # erros do estimador, S §6.4); o frame volta ao mundo pela odometria (`do_frame_da_base`, S5a). σ = distância
+        # inicial das palmas a P0.
+        env = self._env
+        if not self._espera().any():
+            return
         odo = env.v3_odo
-        est = env.v3_estimador.saida_b(odo, m["base_q"])[ids, :3]  # (n,3) no frame da base
-        pos = odo.pos_w[ids] + quat_apply(odo.quat_w[ids], est)  # o inverso de `alvo_no_frame_da_base`
+        est = env.v3_estimador.saida_b(odo, m["base_q"])  # (E,8): pos_b, rotvec, meia, idade
+        ids = (self._espera() & (est[:, 7] < self.cfg.est.idade_max)).nonzero().flatten()
+        if ids.numel() == 0:
+            return
+        pos = estimador.do_frame_da_base(est[:, :3], odo)[ids]
+        env.v3_alvo_idx[ids] = P0
+        env.v3_phi[ids] = -1.0  # salto fora do `avanca` (S8): a entrada no P0 paga 0
+        env.v3_relogio_alvo[ids] = 0.0
         env.v3_caixa_pega_w[ids] = pos
         env.v3_alvo_w[ids] = pos
         env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, P0))[ids]
@@ -321,6 +331,7 @@ class CadeiaCmd(CommandTerm):
             ids = perda.nonzero().flatten()
             env.v3_perdeu[ids] = True
             env.v3_alvo_idx[ids] = B4
+            env.v3_phi[ids] = -1.0  # salto fora do `avanca` (S8): sem isto, o passo da perda cobraria −w_p·Φ(alvo velho)
             env.v3_relogio_alvo[ids] = 0.0
             env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B4))[ids]
             self._publica(ids, torch.full_like(ids, ANDAR))
@@ -332,7 +343,7 @@ class CadeiaCmd(CommandTerm):
         idx, a, ref = env.v3_alvo_idx, env.v3_meia, env.v3_ref
         zero = torch.zeros_like(m["h"])
         d_palmas = (m["palmas_c"] - alvos.palmas_alvo_caixa(idx, a, A)).norm(dim=-1)
-        d_caixa_p4 = (m["caixa_p"] - self._alvo_da_caixa(m, torch.full_like(idx, P4))).norm(dim=-1)
+        d_caixa_p4 = (m["caixa_p"] - recompensas.alvo_da_caixa_w(env, torch.full_like(idx, P4))).norm(dim=-1)
         d_pelve_p4 = (m["h"] - ref.pelve_com_caixa(a)).abs()
         # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
         g = recompensas.portoes_do_alvo(
@@ -353,9 +364,9 @@ class CadeiaCmd(CommandTerm):
         env.v3_avancou[:] = av
         env.v3_relogio_alvo[:] = rel
         env.v3_alvo_idx[:] = novo
-        # A caixa-alvo de P3 e P4 acompanha o índice e a base. σ do alvo seguinte = distância atual, com piso
-        p34 = ((novo == P3) | (novo == P4)).unsqueeze(-1)
-        env.v3_alvo_w[:] = torch.where(p34, self._alvo_da_caixa(m, novo), env.v3_alvo_w)
+        # σ do alvo velho, gravado antes da troca: o progresso paga Φ(s′, velho) com ele (E11 S3). No fecho do P4 não
+        # troca, e o velho é o σ corrente.
+        env.v3_sigma_velho[:] = env.v3_sigma
         troca = av & ~fecha_p4 & (novo >= 0)
         env.v3_sigma[:] = torch.where(troca, self._sigma(m, novo), env.v3_sigma)
 
@@ -363,10 +374,15 @@ class CadeiaCmd(CommandTerm):
         # Detector de fim (E3, item 3; I §4.2): aviso da pose de pé com caixa, só nos trechos que acabam por ele.
         env, ref, a = self._env, self._env.v3_ref, self._env.v3_meia
         palmas_b = quat_apply_inverse(m["base_q"][:, None].expand(-1, 2, -1), m["palmas_w"] - m["base_p"][:, None])
-        aviso_det, rel = alvos.detecta_fim(m["h"], torch.deg2rad(m["tronco_graus"]), palmas_b,
+        # R6 (E11): a pelve sobre o pé mais baixo, como a I §4.2 e o treino (`_z_pe_min`), e não sobre o terreno (`h`)
+        pelve = self.robot.data.root_link_pos_w[:, 2] - _z_pe_min(self.robot, ref)
+        aviso_det, rel = alvos.detecta_fim(pelve, torch.deg2rad(m["tronco_graus"]), palmas_b,
                                            self.robot.data.joint_vel, ref.pelve_com_caixa(a),
                                            ref.palmas_com_caixa_b(a), self.rel_fim, dt, D)
-        por = self.tab.por_detector[env.v3_trecho]
+        # S5b: enquanto o PEGAR espera a caixa (sem alvo), nem o aviso nem o relógio do detector correm. Assim a pose
+        # de pé, que pode já bater com a pega, não acaba o trecho antes do P0: o relógio do atraso (`avanca_trecho`) só
+        # anda com o aviso, e fica parado na espera. O PEGAR acaba pelo aviso só depois que o alvo abriu.
+        por = self.tab.por_detector[env.v3_trecho] & ~self._espera()
         self.rel_fim = torch.where(por, rel, torch.zeros_like(rel))
         aviso = aviso_det & por
         env.v3_aviso[:] = aviso
@@ -399,10 +415,11 @@ class CadeiaCmd(CommandTerm):
         env.v3_cur.registra(env.v3_cur.id_celula("PEGAR", "pegar"), int(ids.numel()), int(suc.sum()))
         self.pega[ids] = False
 
-    def _abre_trecho(self, ids, trecho, m=None) -> None:
+    def _abre_trecho(self, ids, trecho) -> None:
         # Sorteia a duração (ou atraso) do trecho, publica a tarefa e o freio/degrau, e reamostra o comando do twist
-        # (o CARREGAR de B fica fixo na abertura, §7; o parado sai com comando zero). Abre o PEGAR (E3, item 1),
-        # registra o PEGAR anterior quando abre o BOTAR (S §11.3) e tira a laje do caminho do CARREGAR que anda (C39).
+        # (o CARREGAR de B fica fixo na abertura, §7; o parado sai com comando zero). O PEGAR abre sem alvo (E11 S5b;
+        # o P0 abre em `_abre_p0`), registra o PEGAR anterior quando abre o BOTAR (S §11.3) e tira a laje do caminho do
+        # CARREGAR que anda (C39).
         env = self._env
         lo, hi = self.faixas[trecho, 0], self.faixas[trecho, 1]
         self.alvo_s[ids] = lo + (hi - lo) * _u(len(ids), env.v3_gerador).to(self.device)
@@ -410,12 +427,13 @@ class CadeiaCmd(CommandTerm):
         env.v3_trecho[ids] = trecho
         tar = self.tab.tarefa[trecho]
         self._publica(ids, tar)
-        env.v3_alvo_idx[ids[tar == ANDAR]] = -1
+        sem_alvo = (tar == ANDAR) | (tar == PEGAR)
+        env.v3_alvo_idx[ids[sem_alvo]] = -1
+        env.v3_phi[ids[sem_alvo]] = -1.0  # salto fora do `avanca` (S8)
         botar = tar == BOTAR
         self._registra(ids[botar], torch.zeros(int(botar.sum()), dtype=torch.bool, device=self.device))
         pega = tar == PEGAR
-        if pega.any():
-            self._abre_pegar(ids[pega], m)
+        self.pega[ids[pega]] = True
         anda = (tar == CARREGAR) & (env.v3_fatia[ids] == FATIA_B) & (self._twist().vel_command_b[ids].abs().sum(-1) > 0)
         if anda.any():
             eventos.laje_fora(env, ids[anda])
@@ -424,6 +442,7 @@ class CadeiaCmd(CommandTerm):
         env = self._env
         m = self._mede()
         self._perda(m)
+        self._abre_p0(m)
         self._alvos_pegar(m, dt)
         aviso = self._detector(m, dt)
         novo, self.relogio, avancou, fim = avanca_trecho(
@@ -435,7 +454,7 @@ class CadeiaCmd(CommandTerm):
         env.v3_fim |= fim
         ids = (avancou & ~fim).nonzero().flatten()  # no fim da cadeia o trecho não reabre (S §7)
         if ids.numel():
-            self._abre_trecho(ids, novo[ids], m)
+            self._abre_trecho(ids, novo[ids])
         env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w, self.deriva)
 
     def _resample(self, env_ids) -> None:  # chamado no reset do episódio (CommandTerm.reset)
@@ -558,10 +577,11 @@ class TwistV3(UniformVelocityCommand):
         env, k = self._env, self.k
         dt = env.step_dt
         self._agora += dt
-        # 1. fronteira de segmento: o contador mudou desde o último passo (o cadeia reamostrou)
+        # 1. fronteira de segmento: o contador mudou desde o último passo (o cadeia reamostrou). A perda da caixa no
+        # segmento com caixa (PEGAR, CARREGAR, BOTAR) fecha como falha, mesmo antes da âncora (E11 S11)
         mudou = (self.command_counter != self.seg_visto).nonzero().flatten()
         if mudou.numel():
-            self._fecha(mudou, falha=torch.zeros(len(mudou), dtype=torch.bool, device=self.device))
+            self._fecha(mudou, falha=env.v3_perdeu[mudou] & self.seg_carrega[mudou])
             self._abre(mudou)
         # 2. acumula o passo no segmento corrente (o comando é o do segmento)
         vel = self.robot.data.root_link_lin_vel_b[:, :2]
