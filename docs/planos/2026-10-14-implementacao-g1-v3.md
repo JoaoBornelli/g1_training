@@ -808,6 +808,8 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | buffer | forma | escrito por | lido por |
 |---|---|---|---|
 | `v3_cur` | `balanceador.Curriculo` | `curriculo` | todos |
+| `v3_gerador` | `torch.Generator` no device do env, semente = `env.cfg.seed` (0 sem semente) (29/10) | `curriculo.garante_v3` | `estimador`, `eventos`, `comando`, `observacoes` |
+| `v3_iter` | int, a última iteração vista pelo termo `v3` (29/10) | `curriculo.v3` | `curriculo` |
 | `v3_ref` | `alvos.Referencias` (29/10) | `curriculo.garante_v3` | `observacoes`, `recompensas`, `comando` |
 | `v3_fatia` | (E,) long | `eventos.sorteia_fatia` | `comando`, `eventos` |
 | `v3_trecho` | (E,) long | `comando.cadeia` | `comando`, `metricas` |
@@ -818,7 +820,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_meia`, `v3_massa` | (E,) | `eventos` | todos |
 | `v3_topo`, `v3_topo_destino` | (E,) topo da laje sobre o chão local | `eventos` | `comando`, `recompensas` |
 | `v3_caixa_pega_w`, `v3_alvo_w` | (E,3) | `comando.cadeia` | `observacoes`, `recompensas` |
-| `v3_estimador`, `v3_odo` | objetos de `estimador.py` | `observacoes.atualiza_percepcao` (estimador); `comando.cadeia` (odometria, PD-44) | `observacoes`, `metricas` |
+| `v3_estimador`, `v3_odo` | objetos de `estimador.py`, criados pelo `garante_v3` com o `v3_gerador` (a `v3_odo` na fase D; o `v3_estimador` na fase E) | `observacoes.atualiza_percepcao` (estimador); `comando.cadeia` (odometria, PD-44) | `observacoes`, `metricas` |
 | `v3_filtro`, `v3_padrao` | objetos de `percepcao_lidar.py` | `observacoes.atualiza_percepcao` | `observacoes` |
 | `v3_percepcao_passo`, `v3_mapa_obs`, `v3_caixa_obs` | int, o `common_step_counter` da última atualização; (E,882); (E,11) | `observacoes.atualiza_percepcao` | os termos `mapa` e `caixa` do ator e do crítico, `metricas` |
 | `v3_freio`, `v3_degrau` | (E,) long, da tarefa corrente | `comando.cadeia` | `recompensas`, `terminacoes` |
@@ -1464,7 +1466,9 @@ Ondas:
 - O que fazer: `garante_v3(env)` cria todos os buffers da §6.4 (idempotente); `mascara(env,
   tarefas)`; o termo `v3(env, env_ids)`: quando `common_step_counter // passos_por_iteracao` muda,
   chama `v3_cur.fecha_iteracao()` (o `Curriculo` conta as próprias iterações, §6.3); atualiza
-  `v3_freio` (níveis abertos da tarefa de cada env) e `v3_degrau`; devolve o dict de log da §6.7.
+  e devolve o dict de log da §6.7. O `v3_freio` e o `v3_degrau` são do `comando.cadeia`, na abertura de
+  cada trecho (§6.4): no reset o currículo roda antes do comando, e o termo `v3` gravaria o freio da tarefa
+  do episódio anterior (29/10).
   `passos_por_iteracao` vem do `knobs` (`Balanceador.passos_por_iteracao`, 24), o mesmo campo do
   `num_steps_per_env` do `rl_cfg()`.
 - Teste (`test_curriculo`): `mascara` com tarefas ("ANDAR", "CARREGAR") e `v3_tarefa` = [0,1,2,3]
@@ -2164,3 +2168,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | núcleo do `eventos` na §6.3 (`escolhe_celula_terreno`) e a tabela das colunas no `knobs` (`Terreno.colunas`; `linha_max_carregar` por coluna, no mesmo formato): o teste puro não importa a `cena`, que importa o mjlab. Contagem: `knobs.py` +2 | pergunta da lane D0-3 |
 | 2026-10-29 | núcleos puros do `comando` e do `observacoes` na §6.3 (`sorteia_velocidade`, `TabelaTrechos`, `monta_tabela_trechos`, `avanca_trecho`, `tempo_da_ancora`, `sucesso_do_segmento`, `passo_de_percepcao`, `_calcula_percepcao`, `referencia_do_alvo`) e o buffer `v3_ref` na §6.4; o `atualiza_percepcao` vira só a guarda. Nenhum termo novo | perguntas da lane D0-2 |
 | 2026-10-29 | núcleos da D5 e da D6 (`n_<termo>`, `comprimento_do_passo`, `n_queda`, `n_fim_da_cadeia`), `spec_caixa`/`spec_laje`/`terreno_cfg` da cena, "todas" = as 4 tarefas da cadeia, o conjunto de termos da fase D, a fórmula do teto da coluna `caixas` (0,2 + 0,8·t) e a API de registro, na §6.3 | perguntas da lane D0-1 |
+| 2026-10-29 | §6.4: `v3_gerador` (o gerador dos sorteios e do ruído, com a semente do cfg) e `v3_iter`; o `garante_v3` cria a `v3_odo` com o `v3_gerador`; o `v3_freio` e o `v3_degrau` ficam com o `comando.cadeia`, como a §6.4 já dizia, e a D4 deixa de escrevê-los | pergunta da lane D4 |
