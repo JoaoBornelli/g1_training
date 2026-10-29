@@ -115,7 +115,9 @@ orquestrador, e não consertada.
   reescreve no Isaac Lab (S §1).
 - Comentários em português, no estilo do `g1_limpo`: o porquê, com `⚠` nos pontos que já custaram
   caro e a referência da spec.
-- Todo número mora no `knobs.py`. Nenhum número de treino nasce dentro de um termo.
+- Todo número mora no `knobs.py`. Nenhum número de treino nasce dentro de um termo. Exceções (29/10, D14 R6):
+  a geometria do modelo copiada do `g1_limpo` (pads da palma), as normalizações de contrato da §6.5 e os
+  nomes do modelo. A sentinela "nunca reamostra" (10⁹) mora no `knobs` como `NUNCA`, uma só.
 
 ### 1.6 Revisão
 
@@ -409,6 +411,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `prateleira_*`, `caixa_xy`, `caixa_jitter_y`, `jitter_x_max`, `reset_base_manipula` | os valores do `g1_limpo/knobs.py` `Cena` e `Nivel` | cópia |
 | | `reset_base_andar` | (("x", (−0,5; 0,5)), ("y", (−0,5; 0,5)), ("yaw", (−π; π))), no formato do `reset_base_manipula` | D7 (29/10) |
 | | `prioridade_laje` | 3 | PD-46 (29/10: sai da `cena`) |
+| | `estaciona_z`, `caixa_condim` | 20,0 m (laje e caixa estacionadas acima do mundo: na fase D, o z do `init_state`; na E, o `estaciona_cena`); 3 | D14 M5 e R6 (29/10) |
 | | `njmax`, `nconmax`, `impratio`, `cone` | 800; 300; 1,0; "pyramidal" | `g1_limpo/knobs.py:103-106`; S §12 (L2) |
 | | `extent` | 2,5 | `g1_limpo/knobs.py:86` |
 | `Comando` | `frente_tetos` | (0,25; 0,5; 0,75; 1,0; 1,25; 1,5) | S §11.2 |
@@ -1436,10 +1439,13 @@ Ondas:
      - `altura_pelve`: frame no `pelvis`, `single_ring(0.05, 4)`, grupos (0,);
      - `altura_joelhos`: frames nos `left_knee_link` e `right_knee_link`, `single_ring(0.03, 4)`;
      - `altura_caixa`: frame no corpo `box` (entidade `box`), `single_ring(0.05, 4)`, grupos (0,);
-     - `nao_pes_chao`: `ContactSensorCfg`, primário os corpos do robô menos os `*_ankle_roll_link`,
-       secundário o terreno, `fields=("found","force")`, `reduce="netforce"`;
+     - `nao_pes_chao`: `ContactSensorCfg`, primário os corpos do robô menos os `*_ankle_roll_link`
+       (`ContactMatch(mode="body", pattern=r".*", exclude=(r".*_ankle_roll_link",))`, um primário por corpo;
+       ⚠ 29/10, D14 S1: o `exclude` não filtra corpos DENTRO de um primário `subtree`), secundário o terreno,
+       `fields=("found","force")`, `reduce="netforce"`;
      - `caixa_faces`: primário `box_geom`, secundário a subárvore do `pelvis`,
-       `fields=("found","force","pos","normal")`, `reduce="none"`, `num_slots=12`,
+       `fields=("found","force","pos","normal","tangent")` (⚠ 29/10, D14 B2: o mjlab exige `tangent` com
+       `global_frame` e `reduce` ≠ "netforce", `contact_sensor.py:232-237`), `reduce="none"`, `num_slots=12`,
        `global_frame=True` (régua do aperto por face, S §8.2);
      - `lidar` (só com `Percepcao.ligada`): `RayCastSensorCfg`, frame no site `mid360`, padrão
        `PadraoMid360Cfg`, `ray_alignment="base"`, `max_distance` 6,0, `include_geom_groups=(0,1,3)`,
@@ -1539,7 +1545,8 @@ Ondas:
        canal ativo (|c| ≥ 0,02): razão projetada ≥ 0,50 (linear: Σ(v·ĉ)dt / Σ|c|dt; giro: Σ(ω·sinal)dt
        / Σ|wz|dt); canal zero: deriva de posição < 0,10 m e de rumo < 0,25 rad a partir da âncora
        `v3_ancora`, gravada `ancora_s` depois da abertura do segmento e regravada `ancora_s` depois de
-       cada empurrão (`v3_t_empurrao`); um segmento que fecha antes da âncora não registra (PD-15);
+       cada empurrão (`v3_t_empurrao`); um segmento que fecha antes da âncora não registra (PD-15), a não
+       ser numa terminação que não é `time_out`: a queda registra falha sempre (29/10, D14 S4);
        no CARREGAR, todo registro exige também `não v3_perdeu` (PD-50);
        chama `v3_cur.registra(celula, 1, sucesso)`. Um segmento aberto numa terminação que não é
        `time_out` registra falha (S §11.3 "sem queda").
@@ -1705,7 +1712,8 @@ Ondas:
     comandos (`cadeia`, `twist`), recompensas (as tuplas `tarefas` da §D5), terminações, eventos,
     currículo e métricas pelos do pacote. `njmax`, `nconmax`, `impratio`, `cone` do `knobs`;
     `episode_length_s` 20; `decimation` 4; `timestep` 0,005. `assert` de que nenhum campo `None`
-    do `knobs` chega ao cfg. No play: sem corrupção, sem `empurrao`, episódio de 10⁹ s.
+    do `knobs` chega ao cfg. No play: sem corrupção, sem `empurrao`, episódio de 10⁹ s, sem o termo de
+    currículo `v3` (o estado carregado do checkpoint fica congelado; os buffers nascem no `CadeiaCmd`; 29/10, D14).
   - `tarefa.py`: `TASK_ID = "Mjlab-G1-V3"`, `rl_cfg()` (o `unitree_g1_ppo_runner_cfg` com
     `experiment_name` "g1_v3", `obs_normalization` False no ator e no crítico, `class_name` =
     `CAMINHO`, `num_steps_per_env` = `Balanceador.passos_por_iteracao`) e o `register_mjlab_task` com `runner_cls=RunnerV3`. Uma segunda task,
@@ -1757,7 +1765,7 @@ Ondas:
 - Seções (o dono roda na fase I):
   1. o cfg monta e a task registra; 2. um env de 4 mundos em CPU nasce, e o ator tem 1 447 canais;
   3. a ordem e o tamanho dos blocos = `Contrato.blocos_ator`; os 5 lugares do histórico iguais
-  depois do reset; 4. ação zero → alvo do PD = `q_de_pé`; kp e kd do modelo = `Contrato.pd`; 5. fase
+  depois do reset; 4. ação zero → alvo do PD = `q_de_pé` − viés do encoder (o mjlab subtrai o viés no alvo); kp e kd do modelo = `Contrato.pd`; 5. fase
   5a: trocar o `_local_directions` muda as distâncias no passo seguinte; 6. o mapa: parado 20
   passos no plano, nenhuma célula a menos de 0,8 m da base vista (o lidar da cabeça não vê o chão a
   menos de ~0,9 m, I §2.4); depois, com a base movida 1,0 m para a frente por escrita da pose em 50
@@ -2300,3 +2308,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | D11: a seção "Contrato com o pilota_v3" do `exporta_cena.py` é o contrato do driver; o mapa do driver sai da `Percepcao` do `pilota_v3`, e a paridade só imprime a diferença do mapa; `T_BASE_SENSOR` é referência, o driver usa a pose viva do site; versão = hash do git; kd conferido por `biasprm[2]` | dúvidas da D11a: o plano não dizia como o mapa entra na paridade nem o que é a versão do pacote |
 | 2026-10-29 | §6.3 "Fase E: núcleos puros": `sorteia_topo_e_massa`, `ok_agora_pegar`, `caixa_perdida_agora`, `sucesso_do_pegar`, `distancia_do_alvo`, `portoes_do_alvo`, `phi_do_alvo`, `n_progresso`, `n_qualidade`, `aplica_qualidade`, `n_perda_caixa`, `n_caixa_perdida`, `Curriculo.nivel_passou` e `Curriculo.dr()`; `Niveis.topo_min_c`; o peso do `progresso` e do `perda_caixa` no cfg é ±1 e a escala mora no núcleo | a lane E0 precisa das assinaturas para testar antes do código, como a D0 precisou |
 | 2026-10-29 | §6.3: formas do `visivel`; grade, latência, idade e o dict `magnitude` do `EstimadorCaixa.passo`; a fórmula do `alvo_no_frame_da_base`; `palmas_c` pelo `frame_da_caixa`; σ por env do `v3_sigma` | lacunas que a lane 2 da E0 listou |
+| 2026-10-29 | revisão D14 (`docs/relatorios/2026-10-29-v3-revisao-parte1.md`): `caixa_faces` com `tangent`; `nao_pes_chao` com um primário por corpo; a queda registra falha antes da âncora; sem o currículo `v3` no play; alvo do PD com ação zero = `q_de_pé` − viés; exceções da regra "todo número no knobs" e `knobs.NUNCA`; `Cena.estaciona_z` e `Cena.caixa_condim`; o detector de fim do driver vai à E9 | 2 bloqueios e 4 defeitos silenciosos da revisão; o resto é regra e texto |
