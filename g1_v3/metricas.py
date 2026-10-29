@@ -211,8 +211,17 @@ def fracao_mapa_visto(env, limiar: float) -> torch.Tensor:
     return (conf > limiar).float().mean(dim=-1)
 
 
+PEGAR, CARREGAR, BOTAR = 1, 2, 3  # índices de `knobs.TAREFAS` (o `comando.py` faz o mesmo)
+
+
+def _com_caixa(env) -> torch.Tensor:
+    """(E,) bool: a tarefa do env tem caixa (PEGAR, CARREGAR, BOTAR; a máscara da E5 e da S §10)."""
+    t = env.v3_tarefa
+    return (t == PEGAR) | (t == CARREGAR) | (t == BOTAR)
+
+
 class phi_medio_do_alvo:
-    """Média do Φ (`v3_phi`) nos passos em que o alvo é `alvo`, por env. Sem peso.
+    """Média do Φ (`v3_phi`) nos passos em que o alvo é `alvo` e a tarefa tem caixa, por env. Sem peso.
 
     ⚠ Φ é o potencial do passo ANTERIOR (§6.4): o valor do passo em que o `v3_alvo_idx` é `alvo`.
     ⚠ `reduce="last"` no cfg: o valor é a média CORRENTE desde o reset, como `passo_medio`.
@@ -223,7 +232,7 @@ class phi_medio_do_alvo:
         self.n = torch.zeros(env.num_envs, device=env.device)
 
     def __call__(self, env, alvo: int) -> torch.Tensor:
-        ok = env.v3_alvo_idx == alvo
+        ok = (env.v3_alvo_idx == alvo) & _com_caixa(env)
         self.soma = self.soma + torch.where(ok, env.v3_phi, torch.zeros_like(self.soma))
         self.n = self.n + ok.float()
         return self.soma / self.n.clamp(min=1.0)
@@ -236,7 +245,7 @@ class phi_medio_do_alvo:
 
 
 class tempo_no_alvo:
-    """Segundos em que o alvo corrente é `alvo`, até o instante, por env. Sem peso.
+    """Segundos em que o alvo corrente é `alvo` e a tarefa tem caixa, até o instante, por env. Sem peso.
 
     ⚠ `reduce="last"` no cfg: o valor é o total corrente, e o último passo é o do episódio.
     """
@@ -246,7 +255,7 @@ class tempo_no_alvo:
         self.dt = env.step_dt
 
     def __call__(self, env, alvo: int) -> torch.Tensor:
-        self.passos = self.passos + (env.v3_alvo_idx == alvo).float()
+        self.passos = self.passos + ((env.v3_alvo_idx == alvo) & _com_caixa(env)).float()
         return self.passos * self.dt
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
@@ -275,9 +284,10 @@ def forca_robo_caixa(env, sensor_name: str = CAIXA_ROBO) -> torch.Tensor:
 
 
 class deslocamento_da_caixa:
-    """Quanto a caixa andou desde o primeiro passo de P0, nos passos de P0 a P2, por env (m). Sem peso.
+    """Quanto a caixa andou no plano xy desde o primeiro passo de P0, nos passos de P0 a P2, por env (m). Sem peso.
 
     ⚠ A âncora é a posição no PRIMEIRO passo em que o alvo é P0 do episódio. Fora de P0–P2 o valor é zero.
+    ⚠ Só xy, como o portão do `recompensas` (E7, M4): a queda da caixa não conta como deslocamento na laje.
     ⚠ `reduce="max"` no cfg: o maior deslocamento do episódio na laje.
     """
 
@@ -292,7 +302,7 @@ class deslocamento_da_caixa:
         self.ancora = torch.where(novo[:, None], pos, self.ancora)
         self.marcada = self.marcada | novo
         na_laje = (alvo == P0) | (alvo == P1) | (alvo == P2)
-        desl = torch.norm(pos - self.ancora, dim=-1)
+        desl = torch.norm((pos - self.ancora)[:, :2], dim=-1)
         return torch.where(self.marcada & na_laje, desl, torch.zeros_like(desl))
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
@@ -305,6 +315,7 @@ def idade_das_leituras(env) -> torch.Tensor:
     """Idade (s) média da leitura do estimador da caixa, por env. Sem peso.
 
     A idade é a coluna 7 da `saida_b` (E,8) do `v3_estimador`, com a odometria `v3_odo`.
+    ⚠ Zero onde a tarefa não tem caixa (ANDAR): ali a idade é sempre idade_max e polui a média.
     ⚠ Se o `v3_estimador` ainda não existe no env (a fase E ainda não o criou), devolve zeros:
     zero aqui quer dizer "sem medida", e não "leitura nova".
     """
@@ -312,7 +323,8 @@ def idade_das_leituras(env) -> torch.Tensor:
     odo = getattr(env, "v3_odo", None)
     if est is None or odo is None:
         return torch.zeros(env.num_envs, device=env.device)
-    return est.saida_b(odo, env.scene["robot"].data.root_link_quat_w)[:, 7]
+    idade = est.saida_b(odo, env.scene["robot"].data.root_link_quat_w)[:, 7]
+    return torch.where(_com_caixa(env), idade, torch.zeros_like(idade))
 
 
 def fracao_avisos(env) -> torch.Tensor:

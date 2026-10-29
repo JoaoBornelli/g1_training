@@ -90,13 +90,11 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
     prateleira_rgba: tuple = (0.5, 0.5, 0.55, 1.0)  # g1_limpo/knobs.py Cena (cópia)
     prateleira_condim: int = 3  # g1_limpo/knobs.py Cena (cópia)
     prateleira_xy: tuple = (0.50, 0.00)  # g1_limpo/knobs.py Cena (cópia)
-    prateleira_topo_piso: float = 0.04  # g1_limpo/knobs.py Cena (cópia)
     prateleira_topo_teto: float = 0.55  # g1_limpo/knobs.py Cena (cópia)
-    prateleira_jitter_z: float = 0.02  # g1_limpo/knobs.py Cena (cópia)
     caixa_xy: tuple = (0.32, 0.00)  # g1_limpo/knobs.py Cena (cópia)
     caixa_jitter_y: tuple = (-0.18, 0.18)  # g1_limpo/knobs.py Cena (cópia)
-    # ⚠ por nível (7 valores): o jitter em x aperta com o nível (g1_limpo/knobs.py Nivel:360)
-    jitter_x_max: tuple = (0.20, 0.20, 0.20, 0.15, 0.08, 0.08, 0.08)
+    # ⚠ por nível do PEGAR e do BOTAR (5 valores, índice = nível): o jitter em x aperta com o nível (g1_limpo/knobs.py Nivel:360)
+    jitter_x_max: tuple = (0.20, 0.20, 0.20, 0.15, 0.08)
     reset_base_manipula: tuple = (  # g1_limpo/knobs.py Cena:118 (cópia)
         ("x", (-0.10, 0.00)), ("y", (-0.10, 0.10)), ("z", (0.01, 0.05)), ("yaw", (-0.2, 0.2)),
     )
@@ -143,7 +141,6 @@ class Cadeia:  # S §7
     atraso_botar_s: tuple = (0.0, 1.5)  # S §7: atraso antes do BOTAR (s)
     episodio_s: float = 20.0  # S §7: duração do episódio (s)
     caixa_perdida_vira_andar: bool = True  # PD-27: caixa perdida vira ANDAR
-    pega_c_topo_min: float = 0.30  # S §7: topo mínimo para a pega C (m)
 
 
 @dataclass(frozen=True)

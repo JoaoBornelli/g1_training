@@ -190,6 +190,13 @@ def alvo_no_frame_da_base(alvo_w, odo: Odometria):  # (E,3): frame de rumo da ba
     return torch.stack([c * d[:, 0] + s * d[:, 1], -s * d[:, 0] + c * d[:, 1], d[:, 2]], dim=-1)
 
 
+def do_frame_da_base(p_b, odo: Odometria):  # (E,3): o inverso de `alvo_no_frame_da_base` (plano §6.3, E11 S5a)
+    c, s = torch.cos(yaw(odo.quat_w)), torch.sin(yaw(odo.quat_w))
+    x = c * p_b[:, 0] - s * p_b[:, 1]
+    y = s * p_b[:, 0] + c * p_b[:, 1]
+    return torch.stack([odo.pos_w[:, 0] + x, odo.pos_w[:, 1] + y, odo.pos_w[:, 2] + p_b[:, 2]], dim=-1)
+
+
 class EstimadorCaixa:
     """Leitura da caixa (I §2.3). A amostra cai na grade k/taxa_hz desde o `reinicia` (no mundo, com o
     ruído e a perda), entrega em t + latencia_s, e a saída é a última válida já entregue. A idade é t − instante,
