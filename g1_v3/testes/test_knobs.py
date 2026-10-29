@@ -117,6 +117,12 @@ class TestKnobs(unittest.TestCase):
         # O balanceador usa só o máximo dos valores (9).
         self.assertEqual(max(v for _n, v in t.linha_max_carregar), 9)
 
+    def test_fase_g_laje_do_centro_e_incl_max_do_terreno(self):
+        # G1 e G3 (§6.2, fase G, 29/10): a laje do centro a 0,75 m da plataforma (S §12); a caixa a ≤ 15° no CARREGAR
+        # do terreno (S §11.3). Um número só: a lane G3 lê o mesmo `Comando.incl_max_terreno_graus`.
+        self.assertEqual(ATIVO.terreno.laje_do_centro, 0.75)
+        self.assertEqual(ATIVO.comando.incl_max_terreno_graus, 15.0)
+
     def test_nenhum_none_no_ativo(self):
         # None = "sai da Parte 0": nenhum pode chegar ao treino. Anda tuplas e tuplas de tuplas.
         def achar_none(nome, valor):

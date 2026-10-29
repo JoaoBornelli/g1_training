@@ -128,6 +128,7 @@ class Comando:  # S §7, §11.2, §19
     razao_portao: float = 0.50  # S §11.3: razão de deslocamento para o sucesso
     pedido_min_segmento: float = 0.5  # g1_limpo/comando.py:2507: duração mínima do segmento (s)
     terreno_v_max: float = 1.0  # PD-12: célula terreno usa o reto do nível (m/s)
+    incl_max_terreno_graus: float = 15.0  # G3; S §11.3: a caixa a ≤ 15° em todo passo do CARREGAR no terreno
 
 
 @dataclass(frozen=True)
@@ -344,6 +345,7 @@ class Terreno:  # S §11.2, §12; PD-20
     linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
                                  ("escada_aleatoria", 9), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
+    laje_do_centro: float = 0.75  # G1; S §12: o centro da laje a 0,75 m do centro da plataforma (m)
     # D1 (29/10: sai da cena.py): border_width do gerador de terreno (m)
     borda: float = 20.0
 

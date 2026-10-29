@@ -24,7 +24,7 @@ from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz, quat_mul
 
 from g1_v3 import alvos, estimador
-from g1_v3.knobs import ATIVO, Cena, Niveis
+from g1_v3.knobs import ATIVO, Cena, Niveis, Terreno
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
 ANDAR, B, C = 0, 1, 2
@@ -98,6 +98,27 @@ def sorteia_topo_e_massa(fatia, nivel_pegar: int, nivel_massa_c: int, origem_z, 
     return topo, origem_z.to(dev, torch.float64) + topo, massa
 
 
+def cena_na_plataforma(terreno_b, k_ter: Terreno, k_cena: Cena, gerador):
+    """Núcleo puro (G1, §6.3 "Fase G"; S §11.2, §12): rumo e desloc da cena da fatia B em episódio de terreno.
+
+    Devolve (rumo (E,) rad, desloc (E,2) m). Com `terreno_b` (fatia B sobre coluna com plataforma): rumo = k·π/2, k
+    uniforme em {0, 1, 2, 3} (uma das 4 bordas), e desloc = R(rumo)·(laje_do_centro − prateleira_xy[0], 0), para o
+    centro da laje ficar a `laje_do_centro` (0,75 m) do centro da plataforma, rumo à borda. Sem terreno, rumo 0 e
+    desloc 0; e nada sai do gerador, para o sorteio de hoje ficar igual.
+    ⚠ Um uniforme por env, no device do gerador.
+    """
+    dev, n = terreno_b.device, terreno_b.shape[0]
+    zeros = torch.zeros(n, dtype=torch.float64, device=dev)
+    if not bool(terreno_b.any()):
+        return zeros, torch.zeros(n, 2, dtype=torch.float64, device=dev)
+    k = (_uniforme(gerador, (n,), dev) * 4).long().clamp(max=3)
+    rumo = terreno_b.double() * k.double() * (math.pi / 2)
+    d = (k_ter.laje_do_centro - k_cena.prateleira_xy[0]) * terreno_b.double()
+    desloc = alvos.base_para_mundo(torch.zeros(n, 2, dtype=torch.float64, device=dev), rumo,
+                                   torch.stack([d, zeros], -1))
+    return rumo, desloc
+
+
 def sorteia_fatia(env, env_ids, k_ter):
     """Reset, o primeiro: sorteia a fatia e o terreno do episódio (§6.4 `v3_fatia`; D7).
 
@@ -130,8 +151,9 @@ def sorteia_fatia(env, env_ids, k_ter):
 def _base_da_pega(env, ids, faixa: dict):
     """Base das fatias B e C na partida do PEGAR (E11 S4, 29/10; E §4.3: o controlador já leva o robô à pega).
 
-    A base fica no eixo x da caixa, a `ref.recuo(topo, a)` ± `Alvos.faixa_recuo` (sorteio no `v3_gerador`), e o
-    rumo é a faixa `yaw` (de frente para a caixa ± o jitter). z pela faixa `z`. O x e o y da faixa não entram mais.
+    A base fica atrás da caixa, a `ref.recuo(topo, a)` ± `Alvos.faixa_recuo` (sorteio no `v3_gerador`), no frame do
+    rumo da cena (`v3_rumo_cena`, G1: 0 no plano). O rumo do robô é esse rumo + a faixa `yaw` (de frente para a caixa
+    ± o jitter). z pela faixa `z`. O x e o y da faixa não entram mais.
     ⚠ Reimplementa só a escrita de `reset_root_state_uniform` (mjlab events.py:156-175), porque a distância depende
     do topo e da caixa de cada episódio: as mesmas contas (origem do env, pose default, quat_mul com o yaw).
     """
@@ -144,10 +166,12 @@ def _base_da_pega(env, ids, faixa: dict):
     d = recuo + (2.0 * u[0] - 1.0) * ATIVO.alvos.faixa_recuo
     lo_yaw, hi_yaw = faixa["yaw"]
     lo_z, hi_z = faixa["z"]
-    yaw = lo_yaw + (hi_yaw - lo_yaw) * u[1]
+    rumo = env.v3_rumo_cena[ids].to(torch.float64)
+    yaw = rumo + lo_yaw + (hi_yaw - lo_yaw) * u[1]
     dz = lo_z + (hi_z - lo_z) * u[2]
     origem = env.scene.env_origins[ids].to(torch.float64)
-    xy = origem[:, :2] + env.v3_caixa_xy[ids] - torch.stack([d, torch.zeros_like(d)], -1)
+    caixa = origem[:, :2] + env.v3_caixa_xy[ids].to(torch.float64)
+    xy = alvos.base_para_mundo(caixa, rumo, torch.stack([-d, torch.zeros_like(d)], -1))  # caixa − R(rumo)·(d, 0)
     root = robo.data.default_root_state[ids].clone()
     z = origem[:, 2] + root[:, 2].to(torch.float64) + dz
     quat = quat_mul(root[:, 3:7], quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw).to(root.dtype))
@@ -241,14 +265,12 @@ def _laje(env, ids, topo_w, xy=None, yaw=None):
     env.scene["table"].write_mocap_pose_to_sim(pose, env_ids=ids)
 
 
-def _caixa(env, ids, topo_w, dx, dy):
+def _caixa(env, ids, topo_w, xy):
     # a caixa repousa no topo: o centro fica a meia aresta de `v3_meia` (o tamanho sorteado no startup) acima
-    k = ATIVO.cena
+    # `xy` é o centro no mundo (E,2): o do ANDAR (caixa_xy) e o de B e C (com o rumo e o desloc do terreno, G1)
     n, dev = len(ids), env.device
-    origem = env.scene.env_origins[ids]
     pose = torch.zeros(n, 7, device=dev)
-    pose[:, 0] = origem[:, 0] + k.caixa_xy[0] + dx
-    pose[:, 1] = origem[:, 1] + k.caixa_xy[1] + dy
+    pose[:, :2] = xy
     pose[:, 2] = topo_w + env.v3_meia[ids]
     pose[:, 3] = 1.0
     caixa = env.scene["box"]
@@ -265,7 +287,7 @@ def estaciona_cena(env, ids):
         return
     topo_w = env.scene.env_origins[ids, 2] + ATIVO.cena.estaciona_z
     _laje(env, ids, topo_w)
-    _caixa(env, ids, topo_w, 0.0, 0.0)
+    _caixa(env, ids, topo_w, env.scene.env_origins[ids, :2] + torch.tensor(ATIVO.cena.caixa_xy, device=env.device))
 
 
 def laje_fora(env, env_ids):
@@ -283,6 +305,8 @@ def posiciona_cena(env, env_ids):
 
     Publica `v3_topo` (sobre o chão local) e `v3_massa`; o `carga` lê a massa daqui, por isso roda depois.
     E11 S4: publica também o xy da caixa de B e C (`v3_caixa_xy`), que a `base` lê, por isso roda antes dela.
+    G1: a fatia B sobre coluna de terreno pega a caixa na plataforma: `cena_na_plataforma` dá o rumo (publicado em
+    `v3_rumo_cena`) e o desloc da origem; a laje e a caixa giram com o rumo. Sem terreno, rumo 0 e desloc 0.
     ⚠ O nível vem do `v3_cur` pelo nome do contrato: `nivel("PEGAR")` e `nivel_passou("PEGAR")` (E6).
     ⚠ O jitter em x é de UM LADO (0..jx_max), como no g1_limpo, e aperta com o nível (`jitter_x_max[nível]`).
     """
@@ -297,13 +321,20 @@ def posiciona_cena(env, env_ids):
     ids, tw = env_ids[~andar], topo_w[~andar]
     if len(ids) == 0:
         return
-    k = ATIVO.cena
+    k, f64 = ATIVO.cena, torch.float64
+    terreno_b = (fatia[~andar] == B) & (env.scene["terrain"].terrain_types[ids] > 0)  # coluna 0 = plano
+    rumo, desloc = cena_na_plataforma(terreno_b, ATIVO.terreno, k, g)
     u = _uniforme(g, (2, len(ids)), dev)
     dx = k.jitter_x_max[cur.nivel("PEGAR")] * u[0]
     dy = k.caixa_jitter_y[0] + (k.caixa_jitter_y[1] - k.caixa_jitter_y[0]) * u[1]
-    env.v3_caixa_xy[ids] = torch.stack([k.caixa_xy[0] + dx, k.caixa_xy[1] + dy], -1)  # a `base` põe o robô em relação a ela
-    _laje(env, ids, tw)
-    _caixa(env, ids, tw, dx, dy)
+    # ⚠ no frame da origem, a caixa e a laje são desloc + R(rumo)·(p); no mundo, soma-se a origem (§6.4)
+    caixa_rel = alvos.base_para_mundo(desloc, rumo, torch.stack([k.caixa_xy[0] + dx, k.caixa_xy[1] + dy], -1))
+    laje_rel = alvos.base_para_mundo(desloc, rumo, torch.tensor(k.prateleira_xy, dtype=f64, device=dev).expand(len(ids), 2))
+    origem = env.scene.env_origins[ids, :2].to(f64)
+    env.v3_caixa_xy[ids] = caixa_rel.to(env.v3_caixa_xy.dtype)  # a `base` põe o robô em relação a ela
+    env.v3_rumo_cena[ids] = rumo.to(env.v3_rumo_cena.dtype)
+    _laje(env, ids, tw, xy=origem + laje_rel, yaw=rumo)
+    _caixa(env, ids, tw, origem + caixa_rel)
 
 
 # ------------------------------------------------------------------ fase F: a laje de destino do BOTAR (F2; PD-47)
