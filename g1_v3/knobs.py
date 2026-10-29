@@ -212,13 +212,13 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     tronco_plano: float = -5.0  # S §9.2: peso do tronco plano
     altura_base: float = -10.0  # S §9.2: peso da altura da base
     alvo_base: float = 0.78  # S §9.2: altura alvo da base (m)
-    cerca_sola: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_giro: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_tronco: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_com: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_torque: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_pelve: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
-    cerca_recuo: float | None = None  # S §9.3; PD-30: sai da Parte 0, item 3
+    cerca_sola: float = -0.00131  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_giro: float = -0.00095  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_tronco: float = -0.00110  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_com: float = -0.52945  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_torque: float = -0.00710  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_pelve: float = -0.10672  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
+    cerca_recuo: float = -0.24920  # S §9.3; PD-30; Parte 0, item 3 (report §6); D4
     lim_sola_graus: float = 5.0  # S §9.3: limite da sola (graus)
     lim_giro_graus: float = 30.0  # S §9.3: limite do giro (graus)
     lim_tronco_graus: float = 15.0  # S §9.3: limite do tronco (graus)
@@ -270,16 +270,16 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
         (r".*shoulder_pitch.*", 3.5), (r".*shoulder_roll.*", 4.5),
         (r".*shoulder_yaw.*", 2.5), (r".*elbow.*", 3.0), (r".*wrist.*", 2.5),
     )
-    progresso: float | None = None  # S §9.4: sai da Parte 0, item 3
-    # um valor por alvo, na ordem de ALVOS; sai da Parte 0, item 3
-    b_alvo: tuple = (None,) * 9  # S §9.4
+    progresso: float = 1.8167  # S §9.4; Parte 0, item 3 (report §6); D1
+    # um valor por alvo, na ordem de ALVOS; Parte 0, item 3 (report §6); PD-31
+    b_alvo: tuple = (1.6721, 0.8360, 0.0334, 0.8360, 1.6721, 1.8144, 0.9072, 0.9072, 1.8144)  # S §9.4
     gamma: float = 0.99  # S §9.1: desconto do potencial e do PPO
-    sacudida: float | None = None  # S §8.2, §11.5: sai da Parte 0, item 15
-    aperto: float | None = None  # S §8.2, §11.5: sai da Parte 0, item 15
+    sacudida: float = 0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
+    aperto: float = 0.02  # S §8.2, §11.5; Parte 0, item 15 (report §6); D6, D8
     F_ref: float = 49.0  # S §8.2, §11.5: força de referência do aperto (N)
     terminacao: float = -200.0  # S §10: peso da terminação
-    perda_caixa: float | None = None  # S §10: sai da Parte 0, item 3
-    devolve_b_alvo: float | None = None  # S §10: sai da Parte 0, item 3
+    perda_caixa: float = 28.0515  # S §10; Parte 0, item 3 (report §6); D6
+    devolve_b_alvo: bool = False  # S §10; PD-33; Parte 0, item 3 (report §6)
     sigma_pouso: tuple = (1.0, 0.35)  # S §9.1: σ do pouso (m/s), (início; refino)
     altura_pouso: float = 0.05  # S §9.1: altura do pouso (m), fator pleno abaixo dela
     altura_pouso_inicio: float = 0.10  # S §9.1; D3 da Parte 0 (dono, 29/10): o fator entra aos 0,10 m e fica pleno aos 0,05 m
