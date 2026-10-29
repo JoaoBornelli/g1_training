@@ -52,8 +52,8 @@ class Curriculo:
     def __init__(self, k_bal, k_niv, k_com, k_ter):
         self.k = k_bal
         # ⚠ ANDAR e CARREGAR têm 6 níveis de velocidade (`frente_tetos`); PEGAR e BOTAR, as tabelas de Niveis
-        self._max = {"ANDAR": len(k_com.frente_tetos) - 1, "CARREGAR": len(k_com.frente_tetos) - 1,
-                     "PEGAR": len(k_niv.pegar) - 1, "BOTAR": len(k_niv.botar) - 1}
+        self.max_nivel = {"ANDAR": len(k_com.frente_tetos) - 1, "CARREGAR": len(k_com.frente_tetos) - 1,
+                          "PEGAR": len(k_niv.pegar) - 1, "BOTAR": len(k_niv.botar) - 1}
         # linha de terreno (PD-20): ANDAR até linhas − 1; CARREGAR até a maior linha_max_carregar (as colunas
         # com cap menor param no env, pelo min da coluna)
         self._max_ter = {"ANDAR": k_ter.linhas - 1,
@@ -131,7 +131,7 @@ class Curriculo:
             # terreno: depois do último nível de velocidade, com todas as abertas no portão.
             # ⚠ no CARREGAR, também com o terreno do ANDAR já passado no portão no nível de terreno 0
             # (S §11.2): ou o ANDAR já subiu de linha, ou a célula dele passa agora.
-            if self._nivel[t] != self._max[t] or self._aberta(t, "terreno"):
+            if self._nivel[t] != self.max_nivel[t] or self._aberta(t, "terreno"):
                 continue
             if t == "CARREGAR" and not (self._nivel_ter["ANDAR"] >= 1 or self._passa(_POS[("ANDAR", "terreno")])):
                 continue
@@ -147,7 +147,7 @@ class Curriculo:
         # iters_refino its seguidas; o degrau sobe e a conta recomeça; o degrau nunca desce.
         if self._degrau[t] >= self.k.degraus:
             return
-        ultimo = self._nivel[t] == self._max[t] and (
+        ultimo = self._nivel[t] == self.max_nivel[t] and (
             t not in CADEIA or (self._aberta(t, "terreno") and self._nivel_ter[t] == self._max_ter[t]))
         abertas = self._abertos(t)
         media = sum(self.celulas[i].s for i in abertas) / len(abertas) if abertas else 0.0
@@ -165,7 +165,7 @@ class Curriculo:
         for t in TAREFAS:
             if self.it - self._ult[t] < self.k.iters_min_nivel:
                 continue
-            if self._nivel[t] < self._max[t]:
+            if self._nivel[t] < self.max_nivel[t]:
                 ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
                 if all(self.celulas[i].aberta for i in ids) and all(self._passa(i) for i in ids):
                     self._nivel[t] += 1

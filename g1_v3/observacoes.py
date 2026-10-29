@@ -29,6 +29,7 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g1_v3 import alvos, knobs
 from g1_v3.balanceador import TAREFAS as CADEIA
+from g1_v3.estimador import _yaw
 from g1_v3.percepcao_lidar import filtra_corpo, pontos_no_frame_do_mapa
 
 if TYPE_CHECKING:
@@ -46,8 +47,8 @@ N_ALVO_MACRO = len(knobs.ALVOS) + 1  # P0–B4 e "nenhum" (§6.5 `alvo_macro`)
 # history). Os valores são `DR.ruido_obs` (§6.5).
 # Atraso 0–1 passo sorteado por episódio nos cinco termos de §6.5 (PD-25). A capacidade é `DR.atraso_refino[1]` (PD-28).
 _ATRASO = ("giro_base", "gravidade", "juntas", "vel_juntas", "mapa")
-# ⚠ 10⁹ passos: o sorteio do lag acontece no 1º passo depois do reset e fica (`delay_buffer.py:247-258`).
-_SEM_SORTEIO = 10**9
+# ⚠ `knobs.NUNCA` (10⁹ passos): o sorteio do lag acontece no 1º passo depois do reset e fica
+# (`delay_buffer.py:247-258`).
 
 # Divisores do crítico (§6.5): degrau /5, massa /5 kg. Não há campo no `knobs` para eles.
 _ESC_DEGRAU = 5.0
@@ -149,15 +150,9 @@ def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
     z_ref = env.v3_odo.pos_w[:, 2] + (z_pe - base_pos[:, 2])
     # O ruído do lidar sai do `v3_gerador` (§6.4); o teste determinístico chama `passo_de_percepcao` com None.
     return passo_de_percepcao(env.v3_filtro, lidar.data.distances, dirs_s, lidar.data.pos_w,
-                              matrix_from_quat(lidar.data.quat_w), base_pos, _rumo(base_quat), z_pe,
+                              matrix_from_quat(lidar.data.quat_w), base_pos, _yaw(base_quat), z_pe,
                               env.v3_incl_imu, capsulas_w, raios, dxy_b, dpsi, z_ref, env.step_dt,
                               K.percepcao, env.v3_gerador)
-
-
-def _rumo(q: torch.Tensor) -> torch.Tensor:
-    """Yaw do quaternion wxyz (E,4) → (E,) rad. Mesma conta do `_yaw` do estimador."""
-    w, x, y, z = q.unbind(-1)
-    return torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 
 
 def _z_pe_min(robo, ref: alvos.Referencias) -> torch.Tensor:
@@ -221,12 +216,10 @@ def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:
 def niveis(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Nível/máximo de cada tarefa da cadeia (E,4). O balanceador é global, então o valor é o mesmo em todo env.
 
-    Divisor (§6.5, "nível/n"): o último índice do nível de cada tarefa, a mesma conta de `balanceador.Curriculo._max`.
-    Lido do `knobs`, sem reabrir o `Curriculo`.
+    Divisor (§6.5, "nível/n"): o máximo vem do próprio `Curriculo.max_nivel`, sem refazer a tabela.
     """
-    teto = {"ANDAR": len(K.comando.frente_tetos) - 1, "CARREGAR": len(K.comando.frente_tetos) - 1,
-            "PEGAR": len(K.niveis.pegar) - 1, "BOTAR": len(K.niveis.botar) - 1}
-    val = torch.tensor([[env.v3_cur.nivel(t) / teto[t] for t in CADEIA]], dtype=torch.float32,
+    cur = env.v3_cur
+    val = torch.tensor([[cur.nivel(t) / cur.max_nivel[t] for t in CADEIA]], dtype=torch.float32,
                        device=env.device)
     return val.expand(env.num_envs, -1).clone()
 
@@ -248,11 +241,6 @@ def forca_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     Até lá, zero: o canal existe com a forma certa e não tem o que ler.
     """
     return torch.zeros(env.num_envs, 1, device=env.device)
-
-
-def tarefa_critico(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """One-hot (E,6) da tarefa, sem histórico. É o último termo: o grupo da vantagem (D9) lê os seis últimos."""
-    return torch.nn.functional.one_hot(env.v3_tarefa, num_classes=N_TAREFAS).float()
 
 
 # --- grupos ----------------------------------------------------------------------------------------------------
@@ -281,7 +269,7 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
         if atraso:
             cfg.delay_min_lag = 0
             cfg.delay_max_lag = cap_atraso
-            cfg.delay_update_period = _SEM_SORTEIO
+            cfg.delay_update_period = knobs.NUNCA
             cfg.delay_per_env_phase = False
         return cfg
 
@@ -311,7 +299,7 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
         "degrau": termo("degrau", degrau),
         "massa": termo("massa", massa),
         "forca_caixa": termo("forca_caixa", forca_caixa),
-        "tarefa_critico": termo("tarefa_critico", tarefa_critico),
+        "tarefa_critico": termo("tarefa_critico", um_de_seis),
     })
     return {
         "actor": ObservationGroupCfg(terms=ator, concatenate_terms=True, enable_corruption=True),
