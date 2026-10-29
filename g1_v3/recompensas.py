@@ -22,13 +22,14 @@ import re
 import torch
 from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
 
-from g1_v3 import alvos, potencial
+from g1_v3 import alvos, estimador, potencial
 from g1_v3.cena import MESA_POR_GRUPO
 from g1_v3.curriculo import mascara
 from g1_v3.knobs import ALVOS, ATIVO, JUNTAS, TAREFAS
 
 R = ATIVO.recompensa
 C = ATIVO.comando
+K = ATIVO.alvos
 _EPS = 1e-6  # tolerância de "sobre a reta" no fecho convexo do CoM (metros)
 
 _PES_CORPOS = ("left_ankle_roll_link", "right_ankle_roll_link")  # PD-21: altura e velocidade do pé
@@ -240,6 +241,7 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     "desloc": P0–P2 pela caixa na pega, B3–B4 pelo ponto de apoio; "incl": P2–B2, com `incl_lim_graus` do degrau;
     "maos": P2–B2, contatos/2 (PD-19); "tronco": faixa do tronco; "recuo": fora do B4; "com": só com os dois
     pés (PD-35). Desvios são não negativos (quem chama tira o módulo). Os intervalos são os de `parte0/item1_phi`.
+    "com": `desvio_com` = relu(faixa_com − margem), 1 com margem ≥ faixa_com e 0 com margem ≤ 0 (R2, 29/10).
     """
     rampa, um = potencial.rampa, torch.ones_like(desloc_pega)
     desloc = torch.where(_em(indice, _P0_P2), rampa(desloc_pega, k.desloc_p0p2_frac * a, k.delta_p0p2_frac * a),
@@ -251,7 +253,7 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
         maos=torch.where(dentro, contatos.float().sum(-1) / 2.0, um),
         tronco=rampa(desvio_tronco_graus, k.faixa_tronco_graus, k.delta_tronco_graus),
         recuo=torch.where(indice == _B4, um, rampa(desvio_recuo, k.faixa_recuo, k.delta_recuo)),
-        com=torch.where(dois_pes, rampa(desvio_com, k.faixa_com, k.delta_com), um),
+        com=torch.where(dois_pes, rampa(desvio_com, 0.0, k.delta_com), um),
     )
 
 
@@ -331,13 +333,6 @@ def _incl_graus(quat):
     return torch.rad2deg(torch.acos((1.0 - 2.0 * (x * x + y * y)).clamp(-1.0, 1.0)))
 
 
-def _ref_alvo(env):
-    """(E,8) da referência do alvo corrente: palmas 6, pelve 6, tronco 7 (§6.3). Lazy: `observacoes` é de outra lane."""
-    from g1_v3.observacoes import referencia_do_alvo
-
-    return referencia_do_alvo(env.v3_alvo_idx, env.v3_topo, env.v3_meia, env.v3_ref, ATIVO.alvos)
-
-
 def _rastreio(env, linear):
     """Rastreio normalizado (S §19, conflito 5; PD-49). Linear: c = ‖cmd_xy‖; angular: c = |wz|."""
     cmd = env.command_manager.get_command("twist")  # (E,3): vx, vy, wz (§6.3, comando)
@@ -389,12 +384,6 @@ def _cantos_mundo(pose, cantos):
     return (quat_apply(q, v).reshape(E, 2, -1, 3) + pos).reshape(E, -1, 3)
 
 
-def _rumo(quat):
-    """Rumo (yaw, rad) de um quaternion wxyz (E,4): o mesmo que `frame_da_caixa` usa (E4)."""
-    w, x, y, z = quat.unbind(-1)
-    return torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
-
 def _por_degrau(env, ini, fim):
     """Valor do degrau da tarefa corrente: início + (fim − início)·d/5 (plano §6.9; E4)."""
     return ini + (fim - ini) * env.v3_degrau.float() / ATIVO.balanceador.degraus
@@ -425,12 +414,13 @@ def _contato_palmas(env):
     return torch.stack([env.scene[n].data.found[:, 0] > 0 for n in _PALMAS_SENSORES], -1)
 
 
-def _alvo_w(env, indice):
-    """Posição-alvo da caixa (E,3) no mundo para o alvo `indice` (`alvos.caixa_alvo_w`). `chao_z` = origem do terreno."""
+def alvo_da_caixa_w(env, indice):
+    """Posição-alvo da caixa (E,3) no mundo para o alvo `indice` (`alvos.caixa_alvo_w`). O chão é local: z da pelve
+    menos `altura_pelve`, como a cadeia (S10, 29/10). Pública: o progresso, a qualidade e a cadeia a usam."""
     robo = env.scene["robot"]
+    chao = robo.data.root_link_pos_w[:, 2] - env.scene["altura_pelve"].data.heights[:, 0]
     return alvos.caixa_alvo_w(indice, env.v3_caixa_pega_w, env.v3_alvo_w, robo.data.root_link_pos_w,
-                              _rumo(robo.data.root_link_quat_w), env.scene.env_origins[:, 2], env.v3_meia,
-                              env.v3_ref, K)
+                              estimador.yaw(robo.data.root_link_quat_w), chao, env.v3_meia, env.v3_ref, K)
 
 
 def _topo_do(env, indice):
@@ -446,26 +436,27 @@ def _ref_do_alvo(env, indice):
 
 
 def _recuo_ref(env, indice):
-    """Recuo de referência (m) do alvo `indice`: transporte no P4, `ref.recuo` nos outros (E4; B4 não usa)."""
+    """Recuo de referência (m) do alvo `indice`: transporte no P4, `ref.recuo` nos outros (E4; B4 não usa).
+    Também é o `ik` da `cerca_recuo` no PEGAR e no BOTAR (S7, 29/10): uma conta só."""
     ref, a = env.v3_ref, env.v3_meia
     transporte = ref.caixa_transporte_b(a)[:, :2].norm(dim=-1)
     return torch.where(indice == _P4, transporte, ref.recuo(_topo_do(env, indice), a).to(transporte))
 
 
-def _phi_env(env, indice):
+def _phi_env(env, indice, sigma):
     """Φ (E,) do alvo `indice` no estado corrente, pelos núcleos (E4; −1 → 0). `indice` pode ser o alvo velho no
-    passo do avanço (D1): posições e referências saem do próprio índice passado."""
+    passo do avanço (D1), e `sigma` é o σ dele (S3, 29/10): posições e referências saem do próprio índice passado."""
     robo, caixa = env.scene["robot"], env.scene["box"]
     a, ref = env.v3_meia, env.v3_ref
     caixa_w, quat = caixa.data.root_link_pos_w, caixa.data.root_link_quat_w
     xy = caixa_w[:, :2]
     rec = (xy - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)  # recuo medido, como em `cerca_recuo`
     palmas_w = robo.data.site_pos_w[:, robo.find_sites(_PALMAS_SITIOS)[0]]  # (E,2,3)
-    palmas_c = torch.einsum("eij,eki->ekj", alvos.frame_da_caixa(quat, _rumo(robo.data.root_link_quat_w)),
+    palmas_c = torch.einsum("eij,eki->ekj", alvos.frame_da_caixa(quat, estimador.yaw(robo.data.root_link_quat_w)),
                             palmas_w - caixa_w[:, None])
     ref_do = _ref_do_alvo(env, indice)
     dpelve = env.scene["altura_pelve"].data.heights[:, 0] - ref_do[:, 6]
-    d = distancia_do_alvo(indice, palmas_c, caixa_w, _alvo_w(env, indice), dpelve,
+    d = distancia_do_alvo(indice, palmas_c, caixa_w, alvo_da_caixa_w(env, indice), dpelve,
                           incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
     # fator de pouso: B1 e B2, com o fundo da caixa sobre a laje de destino (D3 da Parte 0)
     fundo = caixa_w[:, 2] - a - (env.scene.env_origins[:, 2] + env.v3_topo_destino)
@@ -473,19 +464,21 @@ def _phi_env(env, indice):
                                   R.altura_pouso, R.altura_pouso_inicio)
     fator = torch.where(_em(indice, _POUSO), pouso, torch.ones_like(pouso))
     cantos, com, dois = _pes_e_com(env)
+    # desloc do apoio = 0 com `v3_perdeu`: o B4 da perda não tem ponto de apoio, e o portão vale 1 (S8, 29/10)
+    desloc_apoio = torch.where(env.v3_perdeu, torch.zeros_like(xy[:, 0]), (xy - env.v3_ponto_apoio[:, :2]).norm(dim=-1))
     portoes = portoes_do_alvo(
-        indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), (xy - env.v3_ponto_apoio[:, :2]).norm(dim=-1),
+        indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), desloc_apoio,
         torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), _contato_palmas(env),
         (incl_torso(env) - torch.rad2deg(ref_do[:, 7])).abs(), (rec - _recuo_ref(env, indice)).abs(),
-        torch.relu(R.lim_com - margem_com(com, cantos)), dois, a, K)
-    return phi_do_alvo(indice, d, env.v3_sigma, fator, portoes)
+        torch.relu(K.faixa_com - margem_com(com, cantos)), dois, a, K)
+    return phi_do_alvo(indice, d, sigma, fator, portoes)
 
 
 def _qualidade(env):
     """Fator de qualidade do rastreio no CARREGAR (E,): a caixa perto do transporte, inclinação e as duas mãos (E4)."""
     caixa = env.scene["box"]
     p4 = torch.full_like(env.v3_alvo_idx, _P4)
-    d = (caixa.data.root_link_pos_w - _alvo_w(env, p4)).norm(dim=-1)
+    d = (caixa.data.root_link_pos_w - alvo_da_caixa_w(env, p4)).norm(dim=-1)
     incl = torch.rad2deg(alvos.inclinacao_da_caixa(caixa.data.root_link_quat_w))
     return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K)
 
@@ -641,7 +634,7 @@ def cerca_tronco(env, tarefas):
     """
     incl = incl_torso(env)
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
-    ik = torch.where(manip, torch.rad2deg(_ref_alvo(env)[:, 7]), torch.zeros_like(incl))
+    ik = torch.where(manip, torch.rad2deg(_ref_do_alvo(env, env.v3_alvo_idx)[:, 7]), torch.zeros_like(incl))
     return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus))
 
 
@@ -669,7 +662,7 @@ def cerca_pelve(env, tarefas):
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
     ik = torch.where(carrega, ref.pelve_com_caixa(env.v3_meia).to(h), torch.full_like(h, ref.pelve_de_pe))
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
-    ik = torch.where(manip, _ref_alvo(env)[:, 6].to(h), ik)
+    ik = torch.where(manip, _ref_do_alvo(env, env.v3_alvo_idx)[:, 6].to(h), ik)
     return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve))
 
 
@@ -677,13 +670,13 @@ def cerca_recuo(env, tarefas):
     """Recuo do centro da caixa além de `lim_recuo` da referência (S §9.3). PEGAR, CARREGAR e BOTAR.
 
     recuo = ‖xy da caixa − xy da pelve‖ no mundo: a mesma medida da `grade_recuo` (`dados/gera_referencias.py:109`),
-    e não o x no frame da base (29/10). ik: `R.recuo_carregar` no CARREGAR; no PEGAR e no BOTAR, `ref.recuo(topo, meia)`.
+    e não o x no frame da base (29/10). ik: `R.recuo_carregar` no CARREGAR; no PEGAR e no BOTAR, `_recuo_ref` (o
+    transporte no P4 e na espera do detector, `ref.recuo` nos outros; S7, 29/10).
     """
     robo = env.scene["robot"]
     recuo = (env.scene["box"].data.root_link_pos_w[:, :2] - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)
-    alvo = env.v3_ref.recuo(env.v3_topo, env.v3_meia).to(recuo)
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
-    ik = torch.where(carrega, torch.full_like(recuo, R.recuo_carregar), alvo)
+    ik = torch.where(carrega, torch.full_like(recuo, R.recuo_carregar), _recuo_ref(env, env.v3_alvo_idx).to(recuo))
     return _fim(env, tarefas, n_cerca_recuo(recuo, ik, R.lim_recuo))
 
 
@@ -702,12 +695,15 @@ def progresso(env, tarefas):
     """Potencial do alvo corrente (E4; §6.3, §6.5). No passo do avanço, Φ do alvo VELHO no estado novo e
     B_alvo[velho]; no passo em que o índice vira −1, zero (PD-36). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
     e soma `v3_b_pagos` (só os avanços com o alvo velho ≥ P2). Pelo `avancou` do comando, o velho é `alvo_idx − 1`
-    (a ordem P0…B4 é sequencial)."""
+    (a ordem P0…B4 é sequencial), salvo no fecho do P4, que mantém o índice (`v3_p4_fechado`; S2, 29/10): aí o
+    alvo que paga é o P4. O σ do velho é `v3_sigma_velho` (S3). Sem `paga`: a volta à pose de pé também paga (S §10)."""
     idx, av = env.v3_alvo_idx, env.v3_avancou
     troca = idx < 0
-    i_ef = torch.where(av & (idx >= 0), idx - 1, idx)  # alvo que paga neste passo (o velho no avanço)
-    phi_ef = _phi_env(env, i_ef)
-    phi_novo = torch.where(av, _phi_env(env, idx), phi_ef)  # Φ do alvo corrente, para o próximo passo
+    i_ef = torch.where(av & (idx >= 0) & ~((idx == _P4) & env.v3_p4_fechado), idx - 1, idx)  # quem paga neste passo
+    phi_ef = _phi_env(env, i_ef, torch.where(av, env.v3_sigma_velho, env.v3_sigma))
+    phi_novo = phi_ef
+    if av.any():  # Φ do alvo corrente só no avanço (M10)
+        phi_novo = torch.where(av, _phi_env(env, idx, env.v3_sigma), phi_ef)
     phi_novo = torch.where(troca, torch.full_like(phi_novo, -1.0), phi_novo)  # sentinela: sem alvo
     b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
     b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
@@ -715,7 +711,7 @@ def progresso(env, tarefas):
     pagos = av & ~troca & (i_ef >= alvos.P2)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
     env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(pagos, b, torch.zeros_like(b))
     env.v3_phi[:] = phi_novo
-    return _fim(env, tarefas, r, paga=True)
+    return _fim(env, tarefas, r)
 
 
 def contato_laje(env, tarefas):
