@@ -328,6 +328,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
 class Niveis:  # S §11.2
     pegar: tuple = ((0.55, 1), (0.45, 2), (0.30, 3), (0.15, 4), (0.04, 5))  # S §11.2: (topo h_k; massa m_k em kg) por nível 0..4
     botar: tuple = (0.55, 0.45, 0.30, 0.15, 0.04)  # S §11.2: topo por nível do BOTAR (m)
+    topo_min_c: float = 0.30  # S §7; fatia C: o topo sorteado nunca fica abaixo disto (m), com o PEGAR no nível 4
 
 
 @dataclass(frozen=True)
