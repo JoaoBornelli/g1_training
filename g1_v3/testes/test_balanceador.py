@@ -269,6 +269,21 @@ class TestSorteioDeFatias(unittest.TestCase):
                 self.assertAlmostEqual(freq[i].item(), f, delta=0.01)
 
 
+class TestSorteioSemTerreno(unittest.TestCase):
+
+    def test_sem_tipo_terreno_nunca_sorteia_a_celula_terreno_do_andar(self):
+        # §6.4 `v3_celula` (29/10): fora do episódio de terreno o `twist` sorteia com `sem_tipo="terreno"`; a
+        # célula `terreno` aberta nunca sai. Sem `sem_tipo`, a mesma célula aparece.
+        cur = novo()
+        ter = cid(cur, "ANDAR", "terreno")
+        cur.celulas[ter].aberta = True
+        gerador = torch.Generator().manual_seed(0)
+        sem = cur.sorteia_celulas("ANDAR", 2000, gerador, sem_tipo="terreno")
+        self.assertNotIn(ter, sem.tolist())
+        com = cur.sorteia_celulas("ANDAR", 2000, gerador)
+        self.assertIn(ter, com.tolist())
+
+
 class TestEstado(unittest.TestCase):
 
     def test_carrega_devolve_o_mesmo_estado_com_o_contador(self):

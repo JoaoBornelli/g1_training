@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 
 import torch
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse
+from mjlab.utils.lab_api.math import quat_apply
 
 from g1_v3 import potencial
 from g1_v3.curriculo import mascara
@@ -197,7 +197,7 @@ def n_cerca_pelve(h_pelve, pelve_ik, lim) -> torch.Tensor:
 
 
 def n_cerca_recuo(recuo, recuo_ik, lim) -> torch.Tensor:
-    """relu(|r − ik| − lim) (S §9.3). `recuo` é o x do centro da caixa no frame da base (m)."""
+    """relu(|r − ik| − lim) (S §9.3). `recuo` é a distância no plano, pelve → caixa, em m (29/10)."""
     return torch.relu((recuo - recuo_ik).abs() - lim)
 
 
@@ -264,14 +264,17 @@ def _q_alvo(env, q):
 def _com_combinado(env):
     """CoM de robô + caixa presa (E,3). A caixa entra só quando está na mão (`v3_pegou` e não `v3_perdeu`).
 
-    ⚠ A massa total do robô não está na §6 nem no knobs: lida do modelo do sim (`body_mass` dos corpos do
-    robô), a conferir na lane do env. Ver a dúvida no relatório.
+    ⚠ Robô: `subtree_com` e `body_subtreemass` da raiz (a pelve, com toda a subárvore do robô). Os campos do modelo
+    têm forma (mundos, corpos): indexa a raiz pela coluna e expande para (E,), porque antes da DR de massa há 1 mundo.
+    (29/10: o `root_com_pos_w` era o CoM só da pelve, e o `body_mass[body_ids]` indexava o eixo dos mundos.)
     """
     robo = env.scene["robot"]
-    m_robo = env.sim.model.body_mass[robo.indexing.body_ids].sum()
+    raiz = robo.indexing.root_body_id
+    com_robo = env.sim.data.subtree_com[:, raiz]  # (E,3), mundo
+    m_robo = env.sim.model.body_subtreemass[:, raiz].expand(com_robo.shape[0])  # (E,)
     m_caixa = torch.where(env.v3_pegou & ~env.v3_perdeu, env.v3_massa, torch.zeros_like(env.v3_massa))
     m_tot = m_robo + m_caixa
-    com = (m_robo * robo.data.root_com_pos_w + m_caixa.unsqueeze(-1) * env.scene["box"].data.root_com_pos_w)
+    com = (m_robo.unsqueeze(-1) * com_robo + m_caixa.unsqueeze(-1) * env.scene["box"].data.root_com_pos_w)
     return com / m_tot.unsqueeze(-1)
 
 
@@ -467,12 +470,11 @@ def cerca_pelve(env, tarefas):
 def cerca_recuo(env, tarefas):
     """Recuo do centro da caixa além de `lim_recuo` da referência (S §9.3). PEGAR, CARREGAR e BOTAR.
 
-    recuo = x do centro da caixa no frame da base (o mesmo x de `laje_destino`). ik: 0,25 m no CARREGAR
-    (`R.recuo_carregar`, ainda sem knob); no PEGAR e no BOTAR, `ref.recuo(topo, meia)`.
+    recuo = ‖xy da caixa − xy da pelve‖ no mundo: a mesma medida da `grade_recuo` (`dados/gera_referencias.py:109`),
+    e não o x no frame da base (29/10). ik: `R.recuo_carregar` no CARREGAR; no PEGAR e no BOTAR, `ref.recuo(topo, meia)`.
     """
     robo = env.scene["robot"]
-    d = env.scene["box"].data.root_link_pos_w - robo.data.root_link_pos_w
-    recuo = quat_apply_inverse(robo.data.root_link_quat_w, d)[:, 0]
+    recuo = (env.scene["box"].data.root_link_pos_w[:, :2] - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)
     alvo = env.v3_ref.recuo(env.v3_topo, env.v3_meia).to(recuo)
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
     ik = torch.where(carrega, torch.full_like(recuo, R.recuo_carregar), alvo)

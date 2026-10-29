@@ -31,6 +31,11 @@ _EPS = 1e-6
 
 # --- sorteio de velocidade (§6.3, D3 item 1) ----------------------------------------------------------
 
+def _id_terreno(cur, tarefa: str) -> int:
+    # id da célula `terreno` da tarefa em `Curriculo.celulas` (§6.3): o episódio de terreno a usa sem sorteio
+    return next(i for i, c in enumerate(cur.celulas) if c.tarefa == tarefa and c.tipo == "terreno")
+
+
 def _u(n, g):  # U[0,1) no device do gerador (None: default)
     return torch.rand(n, generator=g, device=None if g is None else g.device)
 
@@ -299,6 +304,7 @@ class TwistV3(UniformVelocityCommand):
         self._hist = torch.zeros(n, round(self.k.janela_media_s / env.step_dt), 3, device=dev)
         self._i = 0
         # relógio do episódio, próprio: o reset do mjlab zera episode_length_buf DEPOIS do command_manager.reset
+        # (manager_based_rl_env.py:581-590; §6.4), por isso não se lê o episode_length_buf aqui
         self._agora = torch.zeros(n, device=dev)
         # segmento aberto: snapshot do comando, célula e "tarefa com caixa" no instante da abertura
         self.seg_cmd = torch.zeros(n, 3, device=dev)
@@ -415,7 +421,15 @@ class TwistV3(UniformVelocityCommand):
             ids = env_ids[anda & (tar == tarefa_id)]
             if ids.numel() == 0:
                 continue
-            cel = env.v3_cur.sorteia_celulas(nome, len(ids), g).to(ids.device)
+            # episódio de terreno: `terrain_types` ≠ 0 (coluna 0 = plano), escrito pelo `sorteia_fatia` antes deste
+            # reset (§6.4). Nele a célula é a `terreno` da tarefa; fora dele, sorteia sem a `terreno`.
+            # ⚠ DÚVIDA: se a célula `terreno` estiver fechada quando o sorteio de terreno cai nela, ela ainda
+            # recebe velocidade. A §6.4 não diz se o `sorteia_fatia` exige a célula aberta.
+            ter = env.scene["terrain"].terrain_types[ids].to(ids.device) != 0
+            cel = torch.full((len(ids),), _id_terreno(env.v3_cur, nome), dtype=torch.long, device=ids.device)
+            fora = ~ter
+            if fora.any():
+                cel[fora] = env.v3_cur.sorteia_celulas(nome, int(fora.sum()), g, sem_tipo="terreno").to(ids.device)
             env.v3_celula[ids] = cel
             nivel = env.v3_cur.nivel(nome)
             for c in cel.unique().tolist():

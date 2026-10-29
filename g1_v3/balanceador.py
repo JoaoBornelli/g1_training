@@ -203,8 +203,13 @@ class Curriculo:
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor:
         return torch.multinomial(self.fracoes_fatias(), n, replacement=True, generator=gerador)
 
-    def sorteia_celulas(self, tarefa: str, n: int, gerador) -> torch.Tensor:
+    def sorteia_celulas(self, tarefa: str, n: int, gerador, sem_tipo: str | None = None) -> torch.Tensor:
         ids, f = self.fracoes_celulas(tarefa)
+        if sem_tipo is not None:
+            # ⚠ a fração da célula `sem_tipo` vale 0: o `twist` fora do episódio de terreno nunca cai nela (§6.4,
+            # `v3_celula`). Sem `sem_tipo` a sequência de sorteio é a de sempre.
+            f = torch.where(torch.tensor([self.celulas[i].tipo != sem_tipo for i in ids], dtype=torch.bool), f,
+                            torch.zeros_like(f))
         return torch.tensor(ids, dtype=torch.long)[torch.multinomial(f, n, replacement=True, generator=gerador)]
 
     def nivel(self, tarefa: str) -> int:
