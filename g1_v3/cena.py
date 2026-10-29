@@ -39,7 +39,6 @@ BACK_PAD_GEOMS = ("left_hand_back_pad", "right_hand_back_pad")
 # Grupos de geom. A mobília sai do grupo 0 (o foot_height_scan lê o 0 como chão; PD-9).
 # Os pads ficam no grupo 3 para o lidar vê-los (`include_geom_groups` = (0, 1, 3)).
 _GRUPO_PAD = 3
-_PRIORIDADE_LAJE = 3  # PD-46: a laje tem priority 3, acima da caixa (0) e do robô (0; pés 1)
 
 # Os três sensores de mesa, um por grupo de geom: com `reduce="netforce"` um sensor só diz "encostou"
 # e não diz com o quê. A união dos três é `CORPOS_QUE_NAO_ESCORAM`.
@@ -119,7 +118,7 @@ def spec_laje(c: Cena) -> mujoco.MjSpec:
     o que mata o atalho de escorar o robô nela.
     """
     half = (c.prateleira_meia_xy, c.prateleira_meia_xy, c.prateleira_meia_z)
-    spec = _spec_box("table", TABLE_GEOM, None, half, c.prateleira_atrito, _PRIORIDADE_LAJE,
+    spec = _spec_box("table", TABLE_GEOM, None, half, c.prateleira_atrito, c.prioridade_laje,
                      c.prateleira_condim, rgba=c.prateleira_rgba)
     return regroup(spec, c.grupo_mobilia)
 
@@ -230,9 +229,6 @@ def robot_cfg(k: Knobs = ATIVO) -> EntityCfg:
 
 
 # ================================================================== o terreno
-# ⚠ Borda do gerador (PD-20). Não há campo para ela no `Terreno` do knobs: é o número da linha da D1.
-_BORDA_TERRENO = 20.0
-
 
 def colunas(t: Terreno) -> tuple:
     """As colunas do gerador, na ordem de `Terreno.colunas`. Uma coluna tem plataforma de 2 m se e só se
@@ -269,7 +265,7 @@ def terreno_cfg(k: Knobs = ATIVO) -> TerrainEntityCfg:
         "caixas": random_spread_boxes(box_height_range=(0.0, teto["obstaculo"]), platform_width=pl),
     }
     gerador = TerrainGeneratorCfg(size=t.tamanho, num_rows=t.linhas, curriculum=True,
-                                  border_width=_BORDA_TERRENO, sub_terrains=sub)
+                                  border_width=t.borda, sub_terrains=sub)
     return TerrainEntityCfg(terrain_type="generator", terrain_generator=gerador)
 
 

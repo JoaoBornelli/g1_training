@@ -3,7 +3,7 @@
 Regra do pacote: nenhum número solto no meio do código. Um treino tem de ser
 reproduzível por `git diff` deste arquivo.
 
-⚠ MÓDULO PURO: importa só `dataclasses`, `pathlib` e `numpy`. Nunca torch, mjlab nem
+⚠ MÓDULO PURO: importa só `dataclasses`, `math`, `pathlib` e `numpy`. Nunca torch, mjlab nem
 mujoco (plano §1.5). O sim do real e o robô carregam este arquivo por caminho, sem o
 pacote (PD-43); por isso ele não importa outros módulos do g1_v3 nem do g1_limpo.
 
@@ -20,6 +20,7 @@ pares das outras seções pelo nome do campo do `Knobs` (em minúsculo).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -96,6 +97,10 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
     reset_base_manipula: tuple = (  # g1_limpo/knobs.py Cena:118 (cópia)
         ("x", (-0.10, 0.00)), ("y", (-0.10, 0.10)), ("z", (0.01, 0.05)), ("yaw", (-0.2, 0.2)),
     )
+    # D7 (29/10): reset da base no ANDAR, sobre a origem do terreno; rumo livre (plano §6.2)
+    reset_base_andar: tuple = (("x", (-0.5, 0.5)), ("y", (-0.5, 0.5)), ("yaw", (-math.pi, math.pi)))
+    # PD-46 (29/10: sai da cena.py): a laje tem priority 3, acima da caixa (0) e do robô (0; pés 1)
+    prioridade_laje: int = 3
     # ⚠ cicatriz de 15/07 no g1_limpo: `elliptic` com `impratio=10` divergiu para NaN no reset
     njmax: int = 800  # g1_limpo/knobs.py:103; S §12 (L2)
     nconmax: int = 300  # g1_limpo/knobs.py:104; S §12 (L2)
@@ -227,6 +232,8 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     banda_torque: float = 0.2  # S §9.3: banda do torque (fração do τ_max)
     lim_pelve: float = 0.08  # S §9.3: limite da pelve (m)
     lim_recuo: float = 0.08  # S §9.3: limite do recuo (m)
+    # D5 (29/10): recuo_IK do CARREGAR (m), o mesmo recuo que a cerca_recuo mede
+    recuo_carregar: float = 0.25
     # Tabela por regex (cada junta casa UMA regex; ver test_knobs). Valores em N·m.
     tau_max: tuple = (  # S §9.3: joelho e hip_roll 139; hip_pitch, hip_yaw, waist_yaw 88; etc.
         (r".*knee_joint", 139.0), (r".*hip_roll_joint", 139.0),
@@ -330,6 +337,8 @@ class Terreno:  # S §11.2, §12; PD-20
     linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
                                  ("escada_aleatoria", 9), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
+    # D1 (29/10: sai da cena.py): border_width do gerador de terreno (m)
+    borda: float = 20.0
 
 
 @dataclass(frozen=True)
@@ -391,6 +400,8 @@ class DR:  # S §12, DR §5; PD-24; §6.8 (quando: startup, reset, intervalo, po
     atraso_portao: tuple = (0, 2)  # §6.8 PEGAR no portão do nível 0 (passos); PD-28
     atraso_refino: tuple = (0, 3)  # §6.8 refino: atraso 0–2 → 0–3 (passos); PD-25
     degrau_atraso_refino: int = 3  # §6.8; PD-41: o atraso global vai a atraso_refino quando o degrau global chega aqui
+    # §6.5 (29/10: sai do observacoes.py): ruído do ator, ± antes da escala; a capacidade do atraso é atraso_refino[1]
+    ruido_obs: tuple = (("giro_base", 0.2), ("gravidade", 0.05), ("juntas", 0.01), ("vel_juntas", 1.5))
     empurrao: float = 0.5  # §6.8 intervalo: empurrão em x e y (m/s, ±)
     periodo_empurrao_s: float = 5.0  # §6.8 intervalo: a cada 5 s
     vies_imu_giro: float = 0.05  # §6.8 ANDAR no portão: viés do giro da base (rad/s)

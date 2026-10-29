@@ -5,6 +5,7 @@ PD-28); núcleo do mapa (`passo_de_percepcao`, chão plano); guarda de `atualiza
 com `_calcula_percepcao` trocado por contador); `referencia_do_alvo` com alvo −1 (zero) e a referência carregada
 por `knobs.caminho`.
 """
+import dataclasses
 import math
 import types
 import unittest
@@ -45,13 +46,20 @@ class ObservacoesTest(unittest.TestCase):
         self.assertEqual(out.tolist(), [[1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]])
 
     def test_ordem_dos_termos_do_ator_e_do_critico(self):
-        grupos = observacoes.grupos(ATIVO.contrato)
+        grupos = observacoes.grupos(ATIVO)
         self.assertEqual(list(grupos["actor"].terms), ATOR)
         self.assertEqual(list(grupos["critic"].terms), CRITICO)
 
+    def test_sem_percepcao_o_mapa_sai_dos_dois_grupos_e_a_ordem_fica(self):
+        # §6.5: com `Percepcao.ligada` False, `mapa` não entra no ator nem no crítico; o resto mantém a ordem
+        k = dataclasses.replace(ATIVO, percepcao=dataclasses.replace(ATIVO.percepcao, ligada=False))
+        grupos = observacoes.grupos(k)
+        self.assertEqual(list(grupos["actor"].terms), [t for t in ATOR if t != "mapa"])
+        self.assertEqual(list(grupos["critic"].terms), [t for t in CRITICO if t != "mapa"])
+
     def test_cinco_termos_com_atraso_tem_capacidade_3_no_cfg(self):
         # PD-28: capacidade 3 desde o build; o evento `atraso` (D7) baixa o teto para 1 no startup
-        termos = observacoes.grupos(ATIVO.contrato)["actor"].terms
+        termos = observacoes.grupos(ATIVO)["actor"].terms
         for nome in COM_ATRASO:
             self.assertEqual(termos[nome].delay_max_lag, 3, nome)
 

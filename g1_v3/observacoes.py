@@ -12,8 +12,8 @@ Os termos `n_*` não existem aqui: as observações não têm núcleo de recompe
 que leem o env. A guarda `atualiza_percepcao` roda o mapa uma vez por passo para o env inteiro (o ator e o
 crítico têm cada um um termo `mapa`, e sem a guarda o filtro andaria o dobro).
 
-⚠ DÚVIDAS PENDENTES (ver relatório da D2): ruídos e capacidade de atraso ficam como constantes deste módulo,
-e não no `knobs.py`, porque o `knobs` não tem esses campos; os divisores de normalização do crítico também.
+Ruído e capacidade do atraso vêm do `knobs` (`DR.ruido_obs`, `DR.atraso_refino`, §6.5); os divisores de
+normalização do crítico (degrau, massa) ficam como constantes deste módulo, porque o `knobs` não tem campo para eles.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from g1_v3.percepcao_lidar import filtra_corpo, pontos_no_frame_do_mapa
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-    from g1_v3.knobs import Contrato, Percepcao
+    from g1_v3.knobs import Knobs, Percepcao
 
 K = knobs.ATIVO
 ANDAR = knobs.TAREFAS.index("ANDAR")
@@ -43,11 +43,9 @@ N_CAIXA = 11  # I §2.1: canais da caixa do ator (§6.5 `caixa`)
 N_ALVO_MACRO = len(knobs.ALVOS) + 1  # P0–B4 e "nenhum" (§6.5 `alvo_macro`)
 
 # ⚠ Ruído do ator, ±, aplicado ANTES da escala (pipeline do mjlab: compute → noise → clip → scale → delay →
-# history). Valores de §6.5. Não estão no `knobs` (o Contrato só tem escala e histórico): decisão pendente.
-_RUIDO = {"giro_base": 0.2, "gravidade": 0.05, "juntas": 0.01, "vel_juntas": 1.5}
-# Atraso 0–1 passo sorteado por episódio nos cinco termos de §6.5 (PD-25). A capacidade 3 é a do cfg (PD-28).
+# history). Os valores são `DR.ruido_obs` (§6.5).
+# Atraso 0–1 passo sorteado por episódio nos cinco termos de §6.5 (PD-25). A capacidade é `DR.atraso_refino[1]` (PD-28).
 _ATRASO = ("giro_base", "gravidade", "juntas", "vel_juntas", "mapa")
-_ATRASO_CAP = 3
 # ⚠ 10⁹ passos: o sorteio do lag acontece no 1º passo depois do reset e fica (`delay_buffer.py:247-258`).
 _SEM_SORTEIO = 10**9
 
@@ -55,8 +53,8 @@ _SEM_SORTEIO = 10**9
 _ESC_DEGRAU = 5.0
 _ESC_MASSA_KG = 5.0
 
-# Pés e cantos: `cantos_sola` (PD-35) dá a ponta mais baixa da sola sem depender de sites no XML.
-_PES = ("left_ankle_roll_link", "right_ankle_roll_link")
+# Sites dos pés (g1.xml do mjlab, linha 100): a sola sai do z do site menos `site_pe_de_pe` (D2).
+_PES_SITIOS = ("left_foot", "right_foot")
 with np.load(knobs.caminho("g1_v3/dados/capsulas.npz")) as _caps:  # PD-10: 33 cápsulas do MJCF
     _CORPO = [str(s) for s in _caps["corpo"]]
     _P0 = torch.as_tensor(_caps["p0"], dtype=torch.float32)
@@ -149,11 +147,11 @@ def _calcula_percepcao(env: ManagerBasedRlEnv) -> torch.Tensor:
     capsulas_w, raios = _capsulas_w(robo)
     dxy_b, dpsi, _dz = env.v3_odo.delta_b()
     z_ref = env.v3_odo.pos_w[:, 2] + (z_pe - base_pos[:, 2])
-    # ⚠ DÚVIDA (relatório): o gerador de ruído não tem dono na §6. `None` = sem ruído de lidar no treino.
+    # O ruído do lidar sai do `v3_gerador` (§6.4); o teste determinístico chama `passo_de_percepcao` com None.
     return passo_de_percepcao(env.v3_filtro, lidar.data.distances, dirs_s, lidar.data.pos_w,
                               matrix_from_quat(lidar.data.quat_w), base_pos, _rumo(base_quat), z_pe,
                               env.v3_incl_imu, capsulas_w, raios, dxy_b, dpsi, z_ref, env.step_dt,
-                              K.percepcao, None)
+                              K.percepcao, env.v3_gerador)
 
 
 def _rumo(q: torch.Tensor) -> torch.Tensor:
@@ -163,12 +161,13 @@ def _rumo(q: torch.Tensor) -> torch.Tensor:
 
 
 def _z_pe_min(robo, ref: alvos.Referencias) -> torch.Tensor:
-    """Altura (E,) da ponta mais baixa das duas solas no mundo: cantos de `cantos_sola` nos tornozelos."""
-    ids, _ = robo.find_bodies(_PES, preserve_order=True)
-    pos = robo.data.body_link_pos_w[:, ids]  # (E,2,3)
-    rot = matrix_from_quat(robo.data.body_link_quat_w[:, ids])  # (E,2,3,3)
-    cantos = torch.einsum("eaij,cj->eaci", rot, ref.cantos_sola.to(pos))  # (E,2,4,3)
-    return (pos[:, :, None] + cantos)[..., 2].amin(dim=(1, 2))
+    """Altura (E,) da sola mais baixa: o menor z dos sites dos pés, menos `site_pe_de_pe` (D2).
+
+    ⚠ `site_pe_de_pe` é a altura do site `left_foot` sobre a sola, medida no `gera_referencias.py` com o mesmo
+    site: o z do site menos ele dá a sola, para os dois pés.
+    """
+    ids, _ = robo.find_sites(_PES_SITIOS)
+    return robo.data.site_pos_w[:, ids, 2].amin(dim=1) - ref.site_pe_de_pe
 
 
 def _capsulas_w(robo) -> tuple[torch.Tensor, torch.Tensor]:
@@ -193,11 +192,7 @@ def _no_frame_da_base(env: ManagerBasedRlEnv, p_w: torch.Tensor) -> torch.Tensor
 
 
 def caixa_verdade(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Caixa real (E,7): posição (3), rotvec (3) e meia aresta (1), no frame da base. Zero no ANDAR. §6.5.
-
-    ⚠ DÚVIDA (relatório): a §6.5 não diz a composição dos 7 canais; escolhi o análogo verdadeiro das três
-    primeiras partes do `saida_b` do estimador (pos_b, rotvec, meia, sem a idade).
-    """
+    """Caixa real (E,7): posição (3), rotvec (3) e meia aresta (1), no frame da base. Zero no ANDAR. §6.5."""
     robo, caixa = env.scene["robot"], env.scene["box"]
     rel = quat_mul(quat_conjugate(robo.data.root_link_quat_w), caixa.data.root_link_quat_w)
     val = torch.cat([_no_frame_da_base(env, caixa.data.root_link_pos_w), axis_angle_from_quat(rel),
@@ -226,8 +221,8 @@ def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:
 def niveis(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Nível/máximo de cada tarefa da cadeia (E,4). O balanceador é global, então o valor é o mesmo em todo env.
 
-    ⚠ DÚVIDA (relatório): o divisor é o último índice do nível (`balanceador.Curriculo._max`, mesma conta),
-    e a §6.5 diz só "nível/n". Lido do `knobs`, sem reabrir o `Curriculo`.
+    Divisor (§6.5, "nível/n"): o último índice do nível de cada tarefa, a mesma conta de `balanceador.Curriculo._max`.
+    Lido do `knobs`, sem reabrir o `Curriculo`.
     """
     teto = {"ANDAR": len(K.comando.frente_tetos) - 1, "CARREGAR": len(K.comando.frente_tetos) - 1,
             "PEGAR": len(K.niveis.pegar) - 1, "BOTAR": len(K.niveis.botar) - 1}
@@ -249,7 +244,7 @@ def massa(env: ManagerBasedRlEnv) -> torch.Tensor:
 def forca_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Força externa na caixa (E,1), em N dividida por 100 (§6.5).
 
-    ⚠ DÚVIDA (relatório): não há buffer `v3_*` para a força na §6.4; o evento `forca_caixa` só entra na fase H.
+    Nota de fase H: a §6.4 ainda não tem buffer para a força; o evento `forca_caixa` entra na fase H.
     Até lá, zero: o canal existe com a forma certa e não tem o que ler.
     """
     return torch.zeros(env.num_envs, 1, device=env.device)
@@ -262,18 +257,21 @@ def tarefa_critico(env: ManagerBasedRlEnv) -> torch.Tensor:
 
 # --- grupos ----------------------------------------------------------------------------------------------------
 
-def grupos(k: Contrato) -> dict[str, ObservationGroupCfg]:
+def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
     """Os grupos `actor` (com corrupção) e `critic` (sem corrupção), com os termos de §6.5 na ordem.
 
-    Escala e histórico vêm do `Contrato.blocos_ator` (I §2.1). O crítico usa os mesmos nove termos do ator,
-    sem ruído e sem atraso, e depois os canais privilegiados.
+    Escala e histórico vêm do `Contrato.blocos_ator` (I §2.1); ruído e capacidade do atraso, de `DR` (§6.5).
+    Com `Percepcao.ligada` False, o `mapa` sai dos dois grupos e os outros ficam na mesma ordem.
+    O crítico usa os mesmos nove termos do ator, sem ruído e sem atraso, e depois os canais privilegiados.
     """
-    escala = {n: e for n, _c, e, _h in k.blocos_ator}
-    historico = {n: h for n, _c, _e, h in k.blocos_ator}
+    escala = {n: e for n, _c, e, _h in k.contrato.blocos_ator}
+    historico = {n: h for n, _c, _e, h in k.contrato.blocos_ator}
+    ruido_de = dict(k.dr.ruido_obs)
+    cap_atraso = k.dr.atraso_refino[1]
 
     def termo(nome, func, params=None, ator=False, hist_padrao=0):
         # ator: ruído e atraso, nos termos das listas. Crítico: nem um nem outro (§6.5).
-        ruido = _RUIDO.get(nome) if ator else None
+        ruido = ruido_de.get(nome) if ator else None
         atraso = ator and nome in _ATRASO
         cfg = ObservationTermCfg(
             func=func, params=params or {}, scale=escala.get(nome, 1.0),
@@ -282,7 +280,7 @@ def grupos(k: Contrato) -> dict[str, ObservationGroupCfg]:
         )
         if atraso:
             cfg.delay_min_lag = 0
-            cfg.delay_max_lag = _ATRASO_CAP
+            cfg.delay_max_lag = cap_atraso
             cfg.delay_update_period = _SEM_SORTEIO
             cfg.delay_per_env_phase = False
         return cfg
@@ -298,6 +296,8 @@ def grupos(k: Contrato) -> dict[str, ObservationGroupCfg]:
         ("caixa", caixa_zero, {}),
         ("mapa", mapa, {}),
     ]
+    if not k.percepcao.ligada:  # sem o lidar, o `mapa` não entra no ator nem no crítico (§6.5)
+        nove = [t for t in nove if t[0] != "mapa"]
     ator = {n: termo(n, f, p, ator=True) for n, f, p in nove}
     critico = {n: termo(n, f, {} if n == "juntas" else p) for n, f, p in nove}
     critico.update({  # sem histórico, salvo `vel_lin_base` (histórico 5, §6.5)
