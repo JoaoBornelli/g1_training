@@ -1,8 +1,8 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
 ⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3),
-`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` (os índices das tarefas) e, só para a
-anotação, `knobs.Knobs`.
+`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` (os índices das tarefas), `knobs.ATIVO` (a
+plataforma) e `comando.FATIA_B`; e, só para a anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
 apaga a medição dela, em silêncio. Medir num manager separado desacopla as duas coisas: o peso
@@ -24,7 +24,8 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
 from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
-from g1_v3.knobs import TAREFAS
+from g1_v3.comando import FATIA_B
+from g1_v3.knobs import ATIVO, TAREFAS
 from g1_v3.recompensas import comprimento_do_passo
 
 if TYPE_CHECKING:
@@ -49,6 +50,7 @@ __all__ = [
     "deslocamento_depois_do_apoio",
     "idade_das_leituras",
     "fracao_avisos",
+    "fracao_fora_da_plataforma",
 ]
 
 # nomes da cena v3 (`cena.py`): o sensor de contato dos pés, o de altura e os sítios. Os
@@ -362,6 +364,35 @@ class deslocamento_depois_do_apoio:
         self.marcada[env_ids] = False
 
 
+class fracao_fora_da_plataforma:
+    """Fração dos passos de CARREGAR em episódio de terreno da fatia B com a base fora da plataforma, por env. Sem peso.
+
+    Base fora = ‖xy da base − xy da origem‖∞ > `plataforma / 2` (viab. D10); a origem é `env_origins`, o centro
+    da plataforma. Episódio de terreno: coluna > 0 em `terrain_types`.
+
+    ⚠ Buffers PRÓPRIOS, como `tempo_no_alvo`, e `reduce="last"`: a fração é a corrente desde o reset.
+    ⚠ Média só dos envs com o evento (`_media_dos_com_evento`, F9 M5).
+    """
+
+    def __init__(self, cfg, env):
+        self.passos = torch.zeros(env.num_envs, device=env.device)
+        self.fora = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env) -> torch.Tensor:
+        evento = (env.v3_tarefa == CARREGAR) & (env.v3_fatia == FATIA_B) & (env.scene["terrain"].terrain_types > 0)
+        base = env.scene["robot"].data.root_link_pos_w[:, :2]
+        fora = (base - env.scene.env_origins[:, :2]).abs().amax(dim=-1) > ATIVO.terreno.plataforma / 2.0
+        self.passos = self.passos + evento.float()
+        self.fora = self.fora + (evento & fora).float()
+        return _media_dos_com_evento(self.fora / self.passos.clamp(min=1.0), self.passos > 0)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.passos[env_ids] = 0.0
+        self.fora[env_ids] = 0.0
+
+
 def idade_das_leituras(env) -> torch.Tensor:
     """Idade (s) média da leitura do estimador da caixa, por env. Sem peso.
 
@@ -435,4 +466,5 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["deslocamento_depois_do_apoio"] = MetricsTermCfg(func=deslocamento_depois_do_apoio, reduce="last")
     m["idade_leituras"] = MetricsTermCfg(func=idade_das_leituras)
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
+    m["fracao_fora_da_plataforma"] = MetricsTermCfg(func=fracao_fora_da_plataforma, reduce="last")
     return m

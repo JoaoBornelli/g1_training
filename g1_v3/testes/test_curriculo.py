@@ -61,6 +61,24 @@ class CurriculoTest(unittest.TestCase):
         curriculo.v3(env, todos)
         self.assertEqual(env.v3_cur.it, it0 + 2)
 
+    def test_garante_v3_cria_rumo_da_cena_zerado_por_env(self):
+        # G4 / §6.4: v3_rumo_cena é (E,) float, 0 no começo (a lane G1 o escreve no posiciona_cena)
+        env = env_falso([0, 1, 2, 3])
+        curriculo.garante_v3(env)
+        self.assertEqual(tuple(env.v3_rumo_cena.shape), (4,))
+        self.assertEqual(env.v3_rumo_cena.dtype, torch.float32)
+        self.assertTrue((env.v3_rumo_cena == 0).all())
+
+    def test_log_traz_o_nivel_de_terreno_de_andar_e_carregar(self):
+        # G4 / §6.7 e §6.3 "Fase G": o log ganha `nivel_terreno_<tarefa>` para ANDAR e CARREGAR, pelo
+        # `cur.nivel_terreno`. O nível de CARREGAR é fixado em 3 para o log não ser o zero de sempre.
+        env = env_falso([0, 0, 0, 0])
+        curriculo.garante_v3(env)
+        env.v3_cur._nivel_ter["CARREGAR"] = 3
+        log = curriculo.v3(env, torch.arange(4))
+        self.assertEqual(log["nivel_terreno_ANDAR"], 0)
+        self.assertEqual(log["nivel_terreno_CARREGAR"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

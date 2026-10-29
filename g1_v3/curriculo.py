@@ -25,7 +25,7 @@ _LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_freio", "v3_degrau")
 _BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_p4_fechado", "v3_b4_fechado",
           "v3_perdeu_agora")
 _ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo",
-              "v3_b_pagos", "v3_vz_caixa_ant", "v3_incl_max_seg", "v3_sigma_velho")
+              "v3_b_pagos", "v3_vz_caixa_ant", "v3_incl_max_seg", "v3_sigma_velho", "v3_rumo_cena")
 _VETORES = {"v3_caixa_pega_w": 3, "v3_alvo_w": 3, "v3_ponto_apoio": 3, "v3_vies_giro": 3, "v3_ancora": 4,
             "v3_mapa_obs": 882, "v3_caixa_obs": 11}  # 882 = mapa do ator (I §2.4); 11 = caixa_obs (§6.4)
 
@@ -98,7 +98,8 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
 
     1) Fecha a iteração do balanceador uma vez por iteração de `passos_por_iteracao` passos, e não por reset
        (a iteração é `common_step_counter // passos_por_iteracao`). A 1ª chamada só fixa a iteração corrente.
-    2) Devolve as chaves `frac_*`, `s_<tarefa>_<tipo>`, `nivel_<tarefa>` e `degrau_<tarefa>`. O mjlab as
+    2) Devolve as chaves `frac_*`, `s_<tarefa>_<tipo>`, `nivel_<tarefa>`, `nivel_terreno_<tarefa>` (ANDAR e
+       CARREGAR) e `degrau_<tarefa>`. O mjlab as
        publica como `Curriculum/v3/<k>`.
 
     ⚠ `v3_freio` e `v3_degrau` NÃO são escritos aqui: são do `comando.cadeia` (§6.4).
@@ -122,4 +123,6 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     for t in balanceador.TAREFAS:
         log[f"nivel_{t}"] = cur.nivel(t)
         log[f"degrau_{t}"] = cur.degrau(t)
+    for t in balanceador.CADEIA:  # só as cadeias têm linha de terreno (PD-20)
+        log[f"nivel_terreno_{t}"] = cur.nivel_terreno(t)
     return log
