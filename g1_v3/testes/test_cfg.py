@@ -84,6 +84,20 @@ class TestCena(unittest.TestCase):
         sem = dataclasses.replace(ATIVO, percepcao=dataclasses.replace(ATIVO.percepcao, ligada=False))
         self.assertNotIn("lidar", [s.name for s in cena.sensores(sem)])
 
+    def test_todo_sensor_da_cena_faz_build(self):
+        # B2: caixa_faces tem global_frame=True e exige "tangent" (contact_sensor.py:232-237); o build levantava ValueError.
+        for sensor in cena.sensores(ATIVO):
+            with self.subTest(sensor=sensor.name):
+                sensor.build()
+
+    def test_nao_pes_chao_tem_o_corpo_do_robo_como_primario(self):
+        # S1: o exclude filtra os nomes primários; com mode="subtree" o primário era só "pelvis", e a subárvore
+        # pegava os dois pés. Primário por corpo, com os *_ankle_roll_link fora.
+        sensor = next(s for s in cena.sensores(ATIVO) if s.name == "nao_pes_chao")
+        self.assertEqual(sensor.primary.mode, "body")
+        self.assertEqual(sensor.primary.pattern, ".*")
+        self.assertEqual(sensor.primary.exclude, (r".*_ankle_roll_link",))
+
     def test_colunas_do_terreno_na_ordem_da_tabela(self):
         self.assertEqual(tuple(c["nome"] for c in cena.COLUNAS), NOMES_COLUNAS)
         self.assertEqual(tuple(ATIVO.terreno.colunas), NOMES_COLUNAS)

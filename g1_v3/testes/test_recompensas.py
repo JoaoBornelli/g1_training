@@ -5,6 +5,7 @@ Os números são os da linha "Teste" de D5 (plano §11) e dos knobs. Tensores si
 """
 import math
 import re
+import types
 import unittest
 
 import torch
@@ -121,6 +122,33 @@ class TestCercas(unittest.TestCase):
         out = recompensas.n_cerca_torque(tau, _tau_max(), torch.zeros((0, 2), dtype=torch.long),
                                          R.tau_par, R.lim_torque, R.banda_torque)
         self.assertAlmostEqual(out.item(), 0.0, places=6)
+
+
+class TestInvolucrosDeTorque(unittest.TestCase):
+    """Invólucros com env falso (SimpleNamespace). B1: `qfrc_actuator` do mjlab já tem só as 29 juntas
+    (entity/data.py:415-422); o fatiamento `[:, 6:]` dava (E,23) e quebrava com (E,29) de `joint_vel`."""
+    TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
+
+    def _env(self, tau, qd):
+        robo = types.SimpleNamespace(data=types.SimpleNamespace(qfrc_actuator=tau, joint_vel=qd))
+        return types.SimpleNamespace(device="cpu", v3_tarefa=torch.tensor([0, 1, 2, 3]),
+                                     scene={"robot": robo})
+
+    def test_energia_com_29_juntas_da_forma_E(self):
+        tau = torch.linspace(0.0, 1.0, 4 * len(JUNTAS), dtype=F).reshape(4, len(JUNTAS))
+        qd = torch.full((4, len(JUNTAS)), 0.5, dtype=F)
+        out = recompensas.energia(self._env(tau, qd), self.TODAS)
+        self.assertEqual(tuple(out.shape), (4,))
+        self.assertTrue(torch.allclose(out, (tau * qd).abs().sum(-1)))
+
+    def test_cerca_torque_com_29_juntas_da_forma_E(self):
+        # Uma junta solta a 90% do τ_max dá 0,5 (a mesma conta de TestCercas); o resto é zero.
+        tau = torch.zeros(4, len(JUNTAS), dtype=F)
+        tau[:, JUNTAS.index("left_knee_joint")] = 0.9 * _tau_max()[JUNTAS.index("left_knee_joint")]
+        qd = torch.zeros(4, len(JUNTAS), dtype=F)
+        out = recompensas.cerca_torque(self._env(tau, qd), self.TODAS)
+        self.assertEqual(tuple(out.shape), (4,))
+        self.assertTrue(torch.allclose(out, torch.full((4,), 0.5, dtype=F), atol=1e-5))
 
 
 class TestLimiteJunta(unittest.TestCase):

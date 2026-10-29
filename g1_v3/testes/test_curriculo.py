@@ -30,6 +30,13 @@ class CurriculoTest(unittest.TestCase):
         self.assertEqual(m.dtype, torch.bool)  # §6.6: bool, para o torch.where (nunca multiplicar)
         self.assertEqual(m.tolist(), [True, False, True, False])
 
+    def test_garante_v3_celula_nasce_sem_celula(self):
+        # S3: v3_celula nasce em −1 (§6.4: sem célula), como v3_alvo_idx. Em 0, o 1º reset fechava um
+        # segmento fantasma no `reto` (comando.py:334-341).
+        env = env_falso([0, 1, 2, 3])
+        curriculo.garante_v3(env)
+        self.assertEqual(env.v3_celula.tolist(), [-1, -1, -1, -1])
+
     def test_garante_v3_nao_recria_o_curriculo(self):
         env = env_falso([0, 1, 2, 3])
         curriculo.garante_v3(env)
