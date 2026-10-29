@@ -141,7 +141,10 @@ decide quando a leitura envelhece.
    chão plano = 0, degrau de 15 cm = +0,15, mesmo com o robô agachado.
 4. **Filtro de Kalman por célula**, num mapa interno de 5 × 5 m com células de 10 cm:
    - a cada 20 ms, o mapa se desloca com o movimento da base (odometria), e a incerteza de cada
-     célula cresce com o deslocamento;
+     célula cresce com o deslocamento. O deslocamento também é vertical: as alturas guardadas
+     descem o quanto o pé mais baixo subiu no frame da odometria, porque o zero do passo 3 anda com
+     o pé. Sem isto, a célula medida antes de um degrau fica 15 cm errada depois dele, até o lidar
+     ler a célula de novo. DEFINIDO (dono, 29/10; plano PD-7);
    - a cada 20 ms, os pontos novos atualizam a altura e a incerteza das células onde caem: a
      média dos z na célula, com a variância da medida = o erro comum da leitura (inclinação do IMU
      × distância) + o erro de cada ponto ÷ n; depois, a incerteza nunca fica abaixo de (2 cm)², o

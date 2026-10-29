@@ -162,10 +162,10 @@ instalado; os testes usam `unittest` da stdlib (PD-2).
 | `_add_pad`, `add_pads_de_palma` | `g1_limpo/cena.py:238-279` | 40 | atrito do pad fixo em `:245` vira knob |
 | `regroup`, `geometria_de_repouso`, `entidades` | `g1_limpo/cena.py:309-351` | 43 | `grupo_mobilia` 2 → 1 (PD-9) |
 | `sensores` (11 sensores de contato) | `g1_limpo/cena.py:354-455` | 102 | — |
-| `posiciona_cena`, `_topo_por_nivel`, `orientacao_de_nascimento` | `g1_limpo/eventos.py:74-211` | 135 | `garante_nivel`; z absoluto (D3) |
+| `posiciona_cena`, `_topo_por_nivel`, `orientacao_de_nascimento` | `g1_limpo/eventos.py:74-211` | 135 | `garante_nivel`; z absoluto (viab. D3) |
 | `tamanho_caixa`, `carga_caixa` | `g1_limpo/eventos.py:256-369` | 112 | `garante_nivel` |
 | `caixa_largada` | `g1_limpo/terminacoes.py:52-120` | 69 | `_elo`, `fechou`, constantes do comando antigo |
-| `Caiu`, `NoBatente` | `g1_limpo/terminacoes.py:123-196` | 72 | z do joelho contra a origem (D4) |
+| `Caiu`, `NoBatente` | `g1_limpo/terminacoes.py:123-196` | 72 | z do joelho contra a origem (viab. D4) |
 | `contato_mesa` | `g1_limpo/recompensas.py:180-212` | 33 | — |
 | `velocidade_por_regime` | `g1_limpo/recompensas.py:1179-1329` | 151 | `ESTADO_ANDAR`, `limpo_estado` |
 | `_forca_das_palmas`, `_forca_ref` | `g1_limpo/recompensas.py:579-629` | 49 | — |
@@ -195,7 +195,7 @@ Fatos que mudam a cópia:
 
 | API | onde | uso |
 |---|---|---|
-| atraso de observação por termo | `managers/observation_manager.py:35-57` (`delay_min_lag`, `delay_max_lag`, `delay_update_period`, `delay_per_env_phase`) | atraso 0–1 passo sorteado por episódio (PD-14) |
+| atraso de observação por termo | `managers/observation_manager.py:35-57` (`delay_min_lag`, `delay_max_lag`, `delay_update_period`, `delay_per_env_phase`) | atraso 0–1 passo sorteado por episódio, com capacidade 0–3 desde o build (PD-25, PD-28) |
 | atraso de comando do atuador | `actuator/actuator.py:67-85` (em passos de física) | idem, 0–4 passos de física = 0–1 passo da política |
 | sorteio do atraso | `utils/buffers/delay_buffer.py:247-258` | com `update_period` enorme e fase igual, o lag sai no 1º passo depois do reset e fica |
 | histórico por termo, com preenchimento no reset | `observation_manager.py:57-60`; `CircularBuffer` copia a primeira leitura em todos os lugares | I §2.1: "no primeiro passo, os 5 lugares recebem a mesma leitura" |
@@ -261,8 +261,8 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-4 | ponto da palma | o site `left_palm`/`right_palm` do `g1.xml` (pos 0,08 0 0 na mão) | o robô real calcula o mesmo ponto pela FK |
 | PD-5 | lidar em fluxo (ACEITA pelo dono, 22/10) | 205 raios por passo de 20 ms (1 025 por 0,1 s), cada passo com o trecho seguinte do bloco do CSV; cada ponto vai ao mapa pela pose do passo em que o raio sai. No robô real, o driver entrega ao filtro, a cada passo de 20 ms, os pontos que chegaram desde o passo anterior, cada um levado ao mundo pela pose do sensor no carimbo de tempo dele (deskew: IMU, odometria, FK das juntas); o terreno parado cai no mesmo lugar no treino e no real (dono, 28/10) | mesma densidade da D6 (1 024 por 0,1 s), 1/5 do custo de raycast por passo. A densidade real (~20 mil pontos por 0,1 s) não muda a confiança (PD-42) |
 | PD-6 | confiança da célula | `c = σ_ref² / (σ_ref² + P)`, σ_ref 5 cm; célula nunca vista: `c = 0` | I §2.4 deixou a fórmula para a fase 1; com o piso da PD-42, a célula vista satura em 0,862 (1 leitura no real, 2 no treino, a 2 m) e cai só pelo transporte (PD-7): 0,758 depois de 1 m |
-| PD-7 | variância do transporte | `P += q_d·‖Δxy‖ + q_r·abs(Δψ) + q_t·Δt`, com `q_d` (2 cm)²/m, `q_r` (2 cm)²/rad, `q_t` (0,5 cm)²/s | PERC §0: cresce sobretudo com o deslocamento e devagar com o tempo |
-| PD-8 | mapa interno | 51 × 51 células de 10 cm (5,1 m), centrado na base, eixos no rumo | D5 (5 × 5 m); célula central = a base |
+| PD-7 | transporte e variância | `P += q_d·‖Δxy‖ + q_r·abs(Δψ) + q_t·Δt`, com `q_d` (2 cm)²/m, `q_r` (2 cm)²/rad, `q_t` (0,5 cm)²/s. O transporte também é vertical: as alturas guardadas descem `z_ref − z_ref_anterior`, com `z_ref` = z do pé mais baixo no frame da odometria (dono, 29/10) | PERC §0: cresce sobretudo com o deslocamento e devagar com o tempo. O zero da altura (I §2.4 passo 3) anda com o pé: sem o transporte vertical, a célula medida antes de um degrau fica 15 cm errada depois dele, com confiança perto de 0,8, até o lidar ler a célula de novo; no CARREGAR, a caixa tapa o chão à frente dos pés |
+| PD-8 | mapa interno | 51 × 51 células de 10 cm (5,1 m), centrado na base, eixos no rumo | viab. D5 (5 × 5 m); célula central = a base |
 | PD-9 | grupo da mobília | caixa e laje no grupo de geom 1; o lidar inclui os grupos 0 (terreno), 1 (mobília) e 3 (colisão do robô) | o grupo 2 tem 35 malhas visuais do robô (viabilidade D8) |
 | PD-10 | filtro do corpo e caixa na mão (DONO, 22/10) | cápsulas das geoms de colisão, margem 3 cm; e todo ponto a menos de `raio_min` 0,85 m do lidar sai, em todas as tarefas (0,7 até 28/10). A caixa estimada NÃO entra no filtro. O mesmo `filtra_corpo` limpa a entrada da odometria real (KISS-ICP): um ponto que anda com o robô não entra no casamento de nuvens (dono, 28/10) | 0,85 = o braço + 5 cm: FK sem física, ponto da mão mais longe do MID-360 a 0,64 m (frente), 0,74 (lado, T), 0,45 (cima), 0,77 (baixo) e 0,80 no máximo de 20 000 poses nos limites; de pé com os braços soltos, a mão já fica a 0,74 m. O raio tira o braço e a caixa sem depender da forma das cápsulas; as cápsulas tiram pernas e pés. A caixa nas mãos fica a 0,3–0,64 m do lidar (quina de baixo da frente, com 8 cm de escorregamento); o lidar fica a 1,30 m da sola de pé e a 0,61–0,64 m no agachamento fundo. O corte não depende de estimar a caixa, da cinemática dela nem do one-hot, e é o mesmo no sim e no real. A versão anterior (volume da caixa estimada) vazava com a leitura velha presa ao mundo; a máscara pela câmera não cobre a face que só o lidar vê. Preço aceito: tudo a menos de 0,85 m do sensor some, inclusive o chão a 0,43–0,58 m na horizontal no agachamento fundo do PEGAR e do BOTAR e o topo da laje alta bem perto do robô |
 | PD-11 | oclusão da D435i | 9 pontos da caixa (centro e 8 cantos) testados contra as cápsulas dos braços; a leitura vale com o centro no campo de visão (87° × 58°), na faixa 0,28–3,0 m, e com ≥ 3 pontos sem oclusão; o campo de visão é o do RGB, 69° × 42°, onde roda a detecção (DONO, 15/10; era o do depth, 87° × 58°) | S §13: reproduzir a visibilidade real; mesma lista de cápsulas da PD-10 |
@@ -274,8 +274,8 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-17 | crítico | sem mapa perfeito; o crítico recebe o mapa do filtro | a S §19.1 só propõe; um segundo raycast dobra o custo |
 | PD-18 | estimador "baixo" desde o começo | posição σ 0,5 cm, orientação σ 1°, perda 0,5%, latência 33 ms, 30 Hz, deriva da odometria 0,002 m/√m (0,4 cm em 4 m; o refino vai a 0,0075 m/√m = 1,5 cm em 4 m, o ATE do ESKF); deriva no giro 0,5° e 1 cm por volta (refino 2° e 2 cm por volta), hipótese até medir no G1 (dono, 28/10) | a S §13 diz "baixo" sem número (sanidade 4.5.2); a deriva cresce com a raiz da distância e do ângulo girado, e não com eles (D2b). Os quatro termos são o modelo de movimento de odometria (Thrun, *Probabilistic Robotics*, cap. 5); sem os termos de giro, o giro no lugar não tinha erro de rumo |
 | PD-19 | mãos no invariante | `g_mãos = (mãos em contato) / 2` | S §9.1 pede rampa por grandeza; contato é contagem |
-| PD-20 | terreno do CARREGAR | só nas colunas com plataforma de 2 m; linha máxima por coluna `⌊f·(R−1)⌋`, com f 0,75 (escada, rampa) e 0,667 (obstáculo), R = 10 | S §11.2 tetos do CARREGAR; a dificuldade do mjlab é linear na linha |
-| PD-21 | alturas | pelve, joelhos, pés e caixa medidos contra o terreno por `TerrainHeightSensorCfg`, desde a Parte 1 | D3, D4, L7; vale também no plano |
+| PD-20 | terreno do CARREGAR | só nas colunas com plataforma de 2 m; R = 13 linhas (t = linha/12) e `linha_max_carregar` inteira por coluna: 9 nas escadas e nas rampas (t 0,75: degrau 0,15 m, `slope` 0,27), 8 no `obstaculos` (t 0,667: 0,10 m) e 7 no `caixas` (t 0,583: 0,15·(0,2 + 0,8·t) = 0,10 m, `primitive_terrains.py:796`) (29/10) | S §11.2 tetos do CARREGAR e aceite da S §15 (degrau 0,15 m; 15°); o gerador usa t = linha/(R−1) (`terrain_generator.py:248-264`). Com R = 10, a linha 6 dava t 0,667 = degrau 13,3 cm e `slope` 0,24, abaixo da spec. Preço: 117 ladrilhos contra 90 (+30%, o I5 mede) e 3 níveis a mais de terreno no ANDAR |
+| PD-21 | alturas | pelve, joelhos, pés e caixa medidos contra o terreno por `TerrainHeightSensorCfg`, desde a Parte 1 | viab. D3, D4, L7; vale também no plano |
 | PD-22 | código na plataforma de treino (DONO, 22/10) | o treino roda em Docker no RunPod (4090 ou L40S), no mjlab; o container clona a branch `g1_v3` do GitHub ao subir; o dono faz o push antes da corrida e publica a imagem. O notebook da Kaggle sai; o ponto de entrada vira um script de treino que o container chama. Os detalhes da imagem, do registro, do destino dos checkpoints e o orçamento por GPU ficam para depois do plano e da implementação | nada sobe ao GitHub sem o dono; as contas de 12–15 s/it e a cota de ~30 h/semana eram da T4 da Kaggle e serão medidas de novo |
 | PD-23 | Δ das rampas (o item 2 da Parte 0 confere) | deslocamento B2–B4: 2 cm; deslocamento P0–P2: a/2; tronco: 15°; recuo: 8 cm; CoM: 3 cm; inclinação: 15° (decidido) | B04 deixou os Δ que faltam para a Parte 0 |
 | PD-24 | DR | as faixas só alargam, por nível e por degrau de refino; nunca estreitam | S §11.5 "ele nunca desce" |
@@ -298,7 +298,7 @@ O dono pode trocar qualquer um antes do despacho.
 | PD-41 | DR por degrau (DONO, 22/10) | um degrau GLOBAL para toda a DR do refino (PD, força do motor, `solref`, atraso, estimador, RFI): o MENOR degrau entre as tarefas. Todos os envs sorteiam com ele no reset; o `max_lag` do atraso segue o mesmo degrau. Substitui o degrau da tarefa principal da fatia | a regra mais simples: uma só, sem escolha por fatia e sem exceção para o atraso; nenhuma tarefa nova sofre DR forte cedo. Preço aceito: a tarefa adiantada refina com a DR da mais atrasada |
 | PD-42 | z por célula no filtro | a MÉDIA dos z da leitura na célula, com variância `R = σ_leitura² + σ_m²/n`, `σ_leitura = σ_incl·d̄` (o erro comum da leitura; d̄ = distância média dos pontos da célula); depois do Kalman, `P ≥ σ_fixo²`, `σ_fixo` 2 cm (dono, 28/10; antes, `σ_m²/n`) | os pontos de uma leitura não erram de forma independente: a inclinação do IMU, a extrínseca e o viés do encoder (zero da altura) são os mesmos em todos, e os dois últimos em todas as leituras do episódio; a média não reduz esse erro. Com `σ_m²/n`, a confiança dependia da densidade de pontos (treino 0,854 contra real 0,992 na primeira leitura). O piso é o erro que nenhuma média tira (±1° fixo do IMU a 2 m ≈ 2 cm; viés do encoder no pé ≈ 1 cm). Além disso, o máximo de n pontos com ruído de 2 cm sobe o chão em ~+2 cm com 5 pontos; o desvio da PERC §0 ("a altura dos pontos de contato") fica na média |
 | PD-43 | import dos módulos puros | não importam uns aos outros; recebem os knobs como argumento | carga por caminho no sim do real e no robô (PERC §2) |
-| PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; `Mapa` e `Caixa` só leem | dois termos dando o passo dobrariam a deriva |
+| PD-44 | dono da odometria | o `CadeiaCmd` dá o `passo` da `v3_odo` uma vez por passo; o `atualiza_percepcao` só lê | dois termos dando o passo dobrariam a deriva |
 | PD-45 | cerca de torque nos pares acoplados (DONO, 15/10) | nos pares (`waist_pitch`, `waist_roll`), (`left_ankle_pitch`, `left_ankle_roll`) e (`right_ankle_pitch`, `right_ankle_roll`), a fração é (\|τp\| + \|τr\|)/`tau_par` com `tau_par` 50; nas outras juntas segue \|τ_j\|/`tau_max_j`. O atuador fica em 50 N·m por eixo | dois motores 5020 movem o pitch e o roll de cada par juntos: com engrenagem 1:1 (hipótese do mjlab, `g1_constants.py`), o real tem \|τp\| + \|τr\| ≤ 50. O `unitree_rl_lab` treina com 25 por eixo; o `MIMIC_CFG` da Unitree, com 50. MEDIDO nos plays do C3 (torque pelo PD): o roll da cintura tem p95 de 12–16 N·m; a soma passa de 40 em 1,5–10,7% dos passos com caixa, contra 0,8–3,8% por junta. Fica a pergunta à Unitree: se o pitch puro tem só 25, os 5 kg nas lajes baixas saem (`docs/relatorios/2026-10-15-viabilidade-v3.md` §2.2, item 8) |
 | PD-46 | atrito por material (DONO, 15/10) | caixa com `priority` 0 e μ 0,3; colisões do robô (`.*_collision`, pulso e tronco inclusive) e pads de dorso com μ 0,3; pés 0,6 (`priority` 1, DR 0,3–1,0); pads de palma com o DR de μ que era da caixa; laje com `priority` 3 e DR de μ 0,3–1,0. Com `priority` igual, o MuJoCo usa o maior μ e o maior condim do par (3), e o `solref` sai da mistura dos dois | com a caixa em `priority` 2, o μ sorteado da caixa (0,5–1,0) valia no pulso e no tronco, que fazem ~2/3 da força da pega no C3 (`docs/relatorios/2026-10-05-dr-de-atrito-pega-e-transferencia.md:30-42`); no real eles são carcaça. 0,3 é hipótese até alguém medir. Conta: 5 kg pedem 49 N de atrito; pads a μ 0,5 dão 40 N e o pulso a 0,3 dá ~42 N |
 | PD-48 | forma do `passo` (DONO, 15/10) | r = min(relu(L)/`L_alvo`, 1)² por toque, vezes max(r_lin, 0); peso 0,5 sem mudança | por toque e linear, o termo paga por segundo cadência × L/`L_alvo` = v/`L_alvo`, o mesmo para todo L abaixo do alvo: derivada zero em L. Com o quadrado, paga v·L/`L_alvo`², que cresce até o alvo e é o mesmo de antes no alvo. MEDIDO no 24800: passo de ~0,20 m no ANDAR e de ~0,045 m (6,6 passos/s) no CARREGAR; no ponto do C3, 0,34/s no passo miúdo contra 1,5/s no alvo |
@@ -470,11 +470,12 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `hip_yaw_max`, `batente_frac` | 1,0; 1,0 | S §10 |
 | `Balanceador` | `piso_tarefa`, `piso_sub`, `eps`, `portao`, `alfa` | 0,20; 0,10; 0,02; 0,75; 0,05 | S §11; PD-13 |
 | | `iters_min_nivel`, `iters_refino`, `degraus` | 50; 100; 5 | PD-12; S §11.5 |
+| | `passos_por_iteracao` | 24 | o `num_steps_per_env` do `rl_cfg()` (D10) e a guarda de iteração do termo `v3` (D4) leem este campo |
 | `Niveis` | `pegar` | ((0,55; 1), (0,45; 2), (0,30; 3), (0,15; 4), (0,04; 5)) | S §11.2 |
 | | `botar` | (0,55; 0,45; 0,30; 0,15; 0,04) | S §11.2 |
-| `Terreno` | `linhas`, `tamanho` | 10; (8,0; 8,0) | `terrains/config.py` |
+| `Terreno` | `linhas`, `tamanho` | 13; (8,0; 8,0) | PD-20; `terrains/config.py` |
 | | `tetos_andar` | degrau 0,20; rampa 0,36; obstáculo 0,15 | S §11.2 |
-| | `frac_carregar` | escada 0,75; rampa 0,75; obstáculo 0,667 | PD-20 |
+| | `linha_max_carregar` | escadas e rampas 9; `obstaculos` 8; `caixas` 7 | PD-20 |
 | | `plataforma` | 2,0 | S §12 |
 | `DR` | ver §6.8 | | S §12, DR §5 |
 | `Estimador` | `taxa_hz`, `latencia_s`, `idade_max` | 30; 0,033; 2,0 | I §2.3; `lidar_sim/sensores/tipos.py` |
@@ -492,7 +493,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `ruido_alcance`, `ruido_angulo_graus`, `perda`, `ruido_incl_graus` | 0,02; 0,15; 0,01; 0,5 | PERC §2 |
 | | `sigma_ref`, `q_desloc`, `q_giro`, `q_tempo` | 0,05; 4e−4; 4e−4; 2,5e−5 | PD-6, PD-7 |
 | | `sigma_fixo` | 0,02 | PD-42 |
-| | `margem_corpo`, `raio_caixa_na_mao` | 0,03; 0,45 | PD-10 |
+| | `margem_corpo` | 0,03 | PD-10 |
 | | `mid360_pos`, `mid360_quat` | (0,0002835; 0,00003; 0,428434); (0; 0,99967; 0; −0,02556) | PERC §2; `montagem.py` |
 | `Refino` | `regras` | ver §6.9 | S §11.5 |
 
@@ -526,10 +527,10 @@ def frame_da_caixa(quat_caixa_w, rumo_base) -> torch.Tensor: ...   # (E,3,3), PD
 def inclinacao_da_caixa(quat_caixa_w) -> torch.Tensor: ...         # (E,) rad, face mais perto da vertical
 def palmas_alvo_caixa(indice, a, k: Alvos) -> torch.Tensor: ...    # (E,2,3) no frame da caixa:
     # P0: (−(a+p0_frente), ±(a+palma_face), 0); P1, P2: (0, ±(a+palma_face), 0);
-    # B3: (0, ±(a+palma_face+b3_afasta), 0); outros: NaN (não usados)
+    # B3: (0, ±(a+palma_face+b3_afasta), 0); outros: 0 (não usados; nunca NaN, §6.6)
 def caixa_alvo_w(indice, caixa_na_pega_w, alvo_soltura_w, base_pos_w, rumo, chao_z, a, ref, k) -> torch.Tensor: ...
     # (E,3): P3 = caixa_na_pega + (0,0,p3_alto); P4 = base + R(rumo)·caixa_transporte_b(a), z = chao_z + z_transporte;
-    # B1 = alvo_soltura + (0,0,b1_alto); B2 = alvo_soltura; outros: NaN
+    # B1 = alvo_soltura + (0,0,b1_alto); B2 = alvo_soltura; outros: 0 (nunca NaN, §6.6)
 def laje_destino(recuo, theta, y, meia_xy, borda) -> tuple[torch.Tensor, torch.Tensor]: ...
     # (alvo_b (E,2), centro_b (E,2)) no frame da base, PD-47: alvo em (recuo + e(θ), y), com
     # e(θ) = borda·cos θ + meia_xy·sen|θ| − borda; centro = alvo + R(θ)·(meia_xy − borda, 0)
@@ -574,9 +575,11 @@ class Curriculo:
     """Estado inteiro do currículo: células, níveis, fatias, refino. Puro e serializável."""
     def __init__(self, k_bal: Balanceador, k_niv: Niveis, k_com: Comando): ...
     def registra(self, celula_id: int, n: int, n_sucesso: int) -> None: ...   # acumula na iteração
-    def fecha_iteracao(self, it: int) -> None: ...
-        # aplica a EMA (PD-13), abre células e fatias (S §11.1, §11.2), sobe níveis (PD-12),
-        # conta its no portão e avança o refino (S §11.5)
+    def fecha_iteracao(self) -> None: ...
+        # soma 1 ao contador próprio `self.it` (vai no `estado()`), aplica a EMA (PD-13), abre
+        # células e fatias (S §11.1, §11.2), sobe níveis (PD-12), conta its no portão e avança o
+        # refino (S §11.5). ⚠ Não recebe o `it` do env: o `common_step_counter` volta a 0 na
+        # retomada, e a carência contada da última subida salva travaria os níveis
     def fracoes_fatias(self) -> torch.Tensor: ...          # (3,) ANDAR, B, C; fatia fechada = 0
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]: ...
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor: ...     # (n,) long
@@ -616,9 +619,15 @@ def visivel(cam_pos_w, cam_rot_w, pontos_w, capsulas_w, raios, k: Estimador) -> 
     # (E,) bool; pontos_w (E,9,3); capsulas_w (E,K,2,3); PD-11
 class Odometria:
     def __init__(self, n, device, k: Estimador, gerador): ...
-    def reinicia(self, ids, pos_w, quat_w): ...
-    def passo(self, pos_w, quat_w, deriva: dict): ...   # pose verdadeira + passeio aleatório pelo deslocamento
-        # e pelo ângulo girado; deriva: odo, rumo, pos_giro, rumo_giro da magnitude corrente (PD-18)
+    def reinicia(self, ids, pos_w, quat_w): ...                # pose estimada = a verdadeira; Δ do passo = 0
+    def passo(self, pos_w, quat_w, deriva: dict): ...
+        # o incremento verdadeiro do passo no frame da base (dxy_b, dψ, dz), com ruído pelo
+        # deslocamento e pelo ângulo girado, integrado pela pose ESTIMADA: pos += (R(ψ_est)·dxy_b, dz),
+        # ψ_est += dψ; roll e pitch saem do IMU (os verdadeiros); deriva: odo, rumo, pos_giro,
+        # rumo_giro da magnitude corrente (PD-18). ⚠ O erro soma no frame da base, como no real:
+        # somado no mundo, o Δ do mapa giraria pelo erro absoluto de rumo a todo passo
+    def delta_b(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
+        # (dxy_b (E,2), dψ (E,), dz (E,)) do último passo, com o erro; o filtro transporta por ele
     pos_w: torch.Tensor; quat_w: torch.Tensor                  # (E,3), (E,4) estimadas
 class EstimadorCaixa:
     def __init__(self, n, device, k: Estimador, gerador): ...
@@ -636,19 +645,25 @@ class PadraoMid360:
     def __init__(self, caminho_npz: str, device: str): ...   # `mid360_passos.npz`["dirs"] (200, 205, 3)
     def direcoes(self, passo: int) -> torch.Tensor: ...      # (205,3) no frame do sensor
 def pontos_no_frame_do_mapa(dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w, rumo,
-                            z_pe_min_w, incl_imu, k: Percepcao, gerador) -> tuple[torch.Tensor, torch.Tensor]: ...
-    # (pontos (E,R,3), validos (E,R)): ruído de alcance e de ângulo, perda, alcance, o giro fixo do IMU
-    # do episódio (incl_imu (E,3,3) = `v3_incl_imu`, o MESMO da observação da gravidade; PD-42) e um
-    # giro de inclinação sorteado por leitura (σ ruido_incl_graus, PERC §2);
-    # x e y no frame do rumo, z = altura do ponto − z do pé mais baixo (I §2.4 passo 3)
-def filtra_corpo(pontos_w, validos, capsulas_w, raios, sensor_pos_w, raio_min,
-                 margem) -> torch.Tensor: ...      # validos (E,R); PD-10
+                            z_pe_min_w, incl_imu, k: Percepcao, gerador
+                            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
+    # (pontos (E,R,3), pontos_w (E,R,3), validos (E,R)): ruído de alcance e de ângulo, perda, alcance,
+    # o giro fixo do IMU do episódio (incl_imu (E,3,3) = `v3_incl_imu`, o MESMO da observação da
+    # gravidade; PD-42) e um giro de inclinação sorteado por leitura (σ ruido_incl_graus, PERC §2);
+    # `pontos`: x e y no frame do rumo, z = altura do ponto − z do pé mais baixo (I §2.4 passo 3);
+    # `pontos_w`: os MESMOS pontos, com o mesmo ruído, no frame de `sensor_pos_w` (o mundo no sim, o
+    # da odometria no real), para o `filtra_corpo`
+def filtra_corpo(pontos, validos, capsulas, raios, sensor_pos, raio_min,
+                 margem) -> torch.Tensor: ...      # validos (E,R); PD-10; pontos, cápsulas e sensor no MESMO frame
 class FiltroDeElevacao:
     def __init__(self, n, device, k: Percepcao): ...
-    def reinicia(self, ids): ...                                # altura 0, variância ∞ (nunca vista)
-    def prediz(self, dxy_rumo, dpsi, dt): ...                   # transporte + PD-7
-    def atualiza(self, pontos, validos, sensor_pos): ...        # Kalman por célula; média dos z por célula e leitura,
-                                                                # R com o erro comum da leitura e piso σ_fixo² (PD-42)
+    def reinicia(self, ids): ...                                # altura 0, variância ∞ (nunca vista); sem z_ref anterior
+    def prediz(self, dxy_rumo, dpsi, z_ref, dt): ...            # transporte no plano + PD-7; depois, nas células vistas,
+                                                                # h −= z_ref − z_ref anterior (transporte vertical, PD-7);
+                                                                # o primeiro passo depois do `reinicia` usa 0
+    def atualiza(self, pontos, validos, dist): ...              # Kalman por célula; média dos z por célula e leitura,
+                                                                # R com o erro comum da leitura e piso σ_fixo² (PD-42);
+                                                                # d̄ = média de `dist` (E,R) dos pontos válidos da célula
     def recorte(self) -> torch.Tensor: ...                      # (E,882): 441 alturas, depois 441 confianças (I §2.4)
 ```
 
@@ -669,8 +684,9 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_meia`, `v3_massa` | (E,) | `eventos` | todos |
 | `v3_topo`, `v3_topo_destino` | (E,) topo da laje sobre o chão local | `eventos` | `comando`, `recompensas` |
 | `v3_caixa_pega_w`, `v3_alvo_w` | (E,3) | `comando.cadeia` | `observacoes`, `recompensas` |
-| `v3_estimador`, `v3_odo` | objetos de `estimador.py` | `observacoes.Caixa` (estimador); `comando.cadeia` (odometria, PD-44) | `observacoes`, `metricas` |
-| `v3_filtro`, `v3_padrao` | objetos de `percepcao_lidar.py` | `observacoes.Mapa` | `observacoes` |
+| `v3_estimador`, `v3_odo` | objetos de `estimador.py` | `observacoes.atualiza_percepcao` (estimador); `comando.cadeia` (odometria, PD-44) | `observacoes`, `metricas` |
+| `v3_filtro`, `v3_padrao` | objetos de `percepcao_lidar.py` | `observacoes.atualiza_percepcao` | `observacoes` |
+| `v3_percepcao_passo`, `v3_mapa_obs`, `v3_caixa_obs` | int, o `common_step_counter` da última atualização; (E,882); (E,11) | `observacoes.atualiza_percepcao` | os termos `mapa` e `caixa` do ator e do crítico, `metricas` |
 | `v3_freio`, `v3_degrau` | (E,) long, da tarefa corrente | `comando.cadeia` | `recompensas`, `terminacoes` |
 | `v3_fim`, `v3_aviso` | (E,) bool: fim da cadeia; aviso do detector de fim | `comando.cadeia` | `terminacoes`, `metricas` |
 | `v3_sigma`, `v3_relogio_alvo`, `v3_phi` | (E,): σ do alvo corrente [C20]; relógio do avanço; Φ do passo anterior | `comando.cadeia`; `recompensas.progresso` (`v3_phi`) | `recompensas` |
@@ -687,13 +703,15 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 **Observações do ator** (`actor`, `enable_corruption=True`): `giro_base`, `gravidade`, `comando`,
 `juntas`, `vel_juntas`, `acao`, `tarefa`, `caixa`, `mapa`. Histórico 5 em todos menos `mapa`.
 Ruído: `giro_base` ±0,2, `gravidade` ±0,05, `juntas` ±0,01 (com `biased=True`), `vel_juntas` ±1,5.
-Atraso 0–1 em `giro_base`, `gravidade`, `juntas`, `vel_juntas` e `mapa` (PD-25, PD-28).
+Atraso 0–1 em `giro_base`, `gravidade`, `juntas`, `vel_juntas` e `mapa` (PD-25, PD-28); os cinco
+nascem com capacidade 0–3 (D2).
 
 **Observações do crítico** (`critic`, sem corrupção): os nove do ator, sem ruído e sem atraso;
 depois `vel_lin_base` (3, histórico 5); depois, sem histórico: `caixa_verdade` (7), `alvo_verdade`
 (3), `alvo_macro` (10: one-hot de P0–B4 e "nenhum"), `referencia` (8: palmas 6, pelve 1, tronco 1),
 `niveis` (4, nível/n de cada tarefa), `degrau` (1, /5), `massa` (1, /5 kg), `forca_caixa` (1, /100
-N); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem histórico) (PD-15).
+N); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem histórico; o grupo da
+vantagem, D9).
 
 **Recompensas:** `rastreio_linear`, `rastreio_angular`, `passo`, `vivo`, `altura_pe`, `escorrego`,
 `vz`, `giro_xy`, `vel_junta`, `acel_junta`, `taxa_acao`, `energia`, `limite_junta`, `desvio_bracos`,
@@ -718,7 +736,10 @@ E: `cena`, `carga`, `atrito_pad`, `atrito_laje`, `vies_imu`; H: `pd`, `forca_mot
 
 Cada termo de recompensa e de terminação recebe o parâmetro `tarefas: tuple[str, ...]` e vale zero
 (ou falso) nos envs cuja `v3_tarefa` não está na tupla. A máscara mora em uma função só,
-`curriculo.mascara(env, tarefas) -> (E,) float`. A tabela da S §9.2 vira as tuplas do `env_cfg`.
+`curriculo.mascara(env, tarefas) -> (E,) bool`, e o termo aplica com `torch.where(m, valor, 0)`.
+⚠ Nunca multiplicar pela máscara: NaN × 0 = NaN, e um NaN de um env fora da tarefa chega à
+recompensa, à entrada do ator e às métricas. Pelo mesmo motivo, nenhuma função pura devolve NaN
+como "não usado" (§6.3, `alvos`). A tabela da S §9.2 vira as tuplas do `env_cfg`.
 Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`vivo`, `altura_pe`,
 `passo`, rastreios) valem zero (S §9.2, §10).
 
@@ -762,7 +783,9 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 
 ### 6.9 Regras do refino por degrau (S §11.5)
 
-Valor no degrau `d` = início + (fim − início) · d/5, para a tarefa corrente do env.
+Valor no degrau `d` = início + (fim − início) · d/5. Nas regras de termo, `d` é o degrau da tarefa
+corrente do env; na linha "estimador e DR do refino", `d` é o degrau global, o menor entre as
+tarefas (PD-41).
 
 | regra | ANDAR | PEGAR | CARREGAR | BOTAR | início → fim |
 |---|---|---|---|---|---|
@@ -773,7 +796,7 @@ Valor no degrau `d` = início + (fim − início) · d/5, para a tarefa corrente
 | `chegada` | | | | ✓ | 1,0 → 0,25 m/s |
 | `sigma_pouso` | | | | ✓ | 1,0 → 0,35 m/s |
 | `batente` e `hip_yaw` > 1 rad | ✓ | ✓ | ✓ | ✓ | desligada no degrau 0, ligada do 1 em diante |
-| estimador e DR do refino | ✓ | ✓ | ✓ | ✓ | §6.8 |
+| estimador e DR do refino (degrau global, PD-41) | ✓ | ✓ | ✓ | ✓ | §6.8 |
 
 Um peso de termo que muda por degrau vira um fator dentro do termo (`fator = d/5`), e não uma
 mutação do peso no `reward_manager`: o peso do cfg é o do degrau 5.
@@ -885,7 +908,7 @@ Ondas: A1 → A6 (testes) → {A2, A3, A4, A5} em paralelo → commit por tarefa
   existir, baixa da URL. Divide as 800 000 linhas em 200 trechos de 4 000 (20 ms a 200 mil pontos
   por segundo). Em cada trecho, toma as linhas `⌊j·4000/205⌋`, j = 0..204 (PD-5). Grava `dirs`
   (200, 205, 3) float32. O `.npz` (~0,5 MB) vai para o git.
-- Teste: `test_mid360`. Contagem: 0 → ~40. PERC §5; S §4 (D6). Commit:
+- Teste: `test_mid360`. Contagem: 0 → ~40. PERC §5; S §4 (viab. D6). Commit:
   `feat(v3): padrão do MID-360 em trechos de 20 ms`.
 
 ### A5 — cápsulas do corpo (Sonnet)
@@ -925,7 +948,8 @@ depois o 15) → B6.
   - `alvos`: `Referencias` devolve a grade nos nós e a média no meio de dois nós; clamp abaixo de 0 e
     acima de 0,55; `frame_da_caixa` com a caixa girada 30° e o robô a 0° dá o eixo x a 30°; com a
     caixa a 50°, dá −40°; `inclinacao_da_caixa` da caixa girada 90° em x = 0 (simetria) e girada 20°
-    = 20°; `palmas_alvo_caixa` P0 com a = 0,10 → (−0,15; ±0,135; 0) e B3 → (0; ±0,185; 0);
+    = 20°; `palmas_alvo_caixa` P0 com a = 0,10 → (−0,15; ±0,135; 0) e B3 → (0; ±0,185; 0); nos
+    alvos sem uso, `palmas_alvo_caixa` e `caixa_alvo_w` devolvem 0, e nenhum valor é NaN;
     `caixa_alvo_w` P4 com a base na origem, rumo 0, chão 0 → z 0,90 e xy de `caixa_transporte_b`;
     `avanca` no P4: 25 passos de 0,02 s com `ok` avançam, um `ok` falso no passo 10 zera o relógio; no
     P2 avança no mesmo passo; `detecta_fim` com |q̇| médio 0,1 rad/s avisa no passo 25, com 0,3 nunca.
@@ -934,7 +958,9 @@ depois o 15) → B6.
     `reto` E `parado` ≥ 0,75; a célula seguinte abre só com todas as abertas da tarefa no portão; o
     nível sobe, a EMA recomeça e a subida seguinte espera 50 its; a C abre com o PEGAR nível 0 ≥ 0,75;
     o refino começa só com o último nível aberto e 100 its seguidas no portão, e nunca desce;
-    `estado()` → `carrega()` devolve o mesmo estado; `sorteia_fatias` com frações (0,5; 0,3; 0,2) em
+    `estado()` → `carrega()` devolve o mesmo estado, inclusive o contador de iterações; um `Curriculo`
+    carregado 20 its depois de uma subida sobe o nível seguinte só depois de mais 30 `fecha_iteracao`
+    (a carência continua, a retomada não a recomeça); `sorteia_fatias` com frações (0,5; 0,3; 0,2) em
     100 000 amostras fica a 1% de cada fração.
 
 ### B1 — `potencial.py` (Sonnet)
@@ -959,8 +985,8 @@ depois o 15) → B6.
 - O que fazer: `Curriculo` com as células da §6.3 e as regras de abertura da tabela da §6.3. A lista
   de células, em ordem de abertura: ANDAR `reto`, `parado`, `baixo`, `giro_andando`, `giro_lugar`,
   `terreno`; CARREGAR `reto`, `giro_lugar`, `arco`, `terreno`; PEGAR `pegar`; BOTAR `botar`. Os
-  níveis: ANDAR e CARREGAR 0..5 (velocidade) mais 0..9 de terreno dentro da célula `terreno`
-  (linha do gerador); PEGAR e BOTAR 0..4.
+  níveis: ANDAR e CARREGAR 0..5 (velocidade) mais 0..12 de terreno dentro da célula `terreno`
+  (linha do gerador, PD-20; o CARREGAR para na `linha_max_carregar` da coluna); PEGAR e BOTAR 0..4.
 - Teste: `test_balanceador`. Contagem: 0 → ~250. Commit: `feat(v3): balanceadores, níveis e refino puros`.
 
 ### B4 — utilitários da Parte 0 (Sonnet)
@@ -982,14 +1008,26 @@ Cada script roda com `python -m g1_v3.parte0.<nome>`, imprime uma tabela e grava
 `g1_v3/parte0/saida/<nome>.txt`. O agente roda o script e entrega a saída. Os itens 1, 2, 4, 6 e 8
 correm em paralelo; o 3 vem depois deles, e o 15 depois do 3 (ele usa a `perda_caixa` do 3).
 
+CSV de entrada (raiz do repo; o trecho sai da coluna `fase`; conferido em 29/10). O script imprime
+o número por arquivo e o número de todos juntos:
+
+| trecho | arquivos (`fase`) |
+|---|---|
+| PEGAR | `23250_k2`, `23250_topo004`, `24800_botar_t015`, `24800_mu06_m3`, `24800_mu10_m1`, `24800_mu10_m5` (`pegar`) |
+| CARREGAR | `23250_topo004`, `24800_mu06_m3`, `24800_mu10_m1`, `24800_mu10_m5` (`carregar`, 500 passos, 0,30 m/s) |
+| BOTAR | `23250_k2`, `24800_botar_t015` (`botar`) |
+| ANDAR andando | `5000_botar`, `5350_botar` (`andar`, 300 passos, 0,65 m/s) |
+| ANDAR parado | `5000_andar_parado`, `5350_andar_parado`, `5800_andar_parado` (`parado`) |
+| fora | `24800_topo004` (o play acaba no PEGAR, 132 de 350 passos); `5800_botar` (o `andar` acaba em 66 de 300 passos); `excluir` |
+
 | script | item da S §16 | entrada | o que mede | critério |
 |---|---|---|---|---|
 | `item1_phi.py` | 1 | trajetórias sintéticas sobre `alvos` e `potencial`: palmas da pose de pé até P0 (1,0 s), deslizam até P1 (0,5 s), contato em P2, caixa sobe 5 cm (0,5 s, P3), vai ao transporte (1,0 s) e fica 0,5 s (P4); laje 0,30 m, a 0,10. BOTAR: B1 a B4 na laje de 0,15 m | Φ e a recompensa por passo | Φ não desce dentro de cada alvo no caminho certo; pairar a 1 cm do alvo por 2 s soma ≤ 0; tombar a caixa 40° no P3 leva Φ a ≤ a rampa (0 a 45°); soltar uma mão divide Φ por 2 |
 | `item2_derivadas.py` | 2 | os mesmos alvos | dΦ/dd no estado inicial de cada alvo (d = σ) e d(rampa)/dx em x_lim + Δ/2 | toda derivada ≠ 0; imprime a tabela dos Δ da PD-23 para o dono |
-| `item3_escada.py` | 3 | `custos_por_s` nos CSV 23250 e 24800 (pegar, carregar, botar) e 5000, 5350, 5800 (andar, parado); o tempo de cada trecho medido nos CSV (PEGAR 0,5–2,2 s); no BOTAR, distância / 0,25 m/s (S §7) | `B_alvo` por alvo, peso do `progresso`, `perda_caixa`, `devolve_b_alvo`, pesos das cercas | `B_alvo_i` = 1,5 × custo dos reguladores no trecho até o alvo i (PD-31); peso do progresso = 1,5 × max(custo dos reguladores por s ÷ ganho de Φ por s no caminho roteirizado) (PD-32); escada da S §10: queda > perda > volta à pose de pé, queda > mergulho, as duas desigualdades de "desistir"; `perda_caixa` = 1,2 × o lado direito da desigualdade (2), e `devolve_b_alvo` = True só se ela não fechar com custo fixo (PD-33); cercas pela PD-30 |
+| `item3_escada.py` | 3 | `custos_por_s` nos CSV da tabela acima (PEGAR, CARREGAR, BOTAR, ANDAR andando e parado); o tempo de cada trecho medido nos CSV (PEGAR 0,5–2,2 s); no BOTAR, distância / 0,25 m/s (S §7) | `B_alvo` por alvo, peso do `progresso`, `perda_caixa`, `devolve_b_alvo`, pesos das cercas | `B_alvo_i` = 1,5 × custo dos reguladores no trecho até o alvo i (PD-31); peso do progresso = 1,5 × max(custo dos reguladores por s ÷ ganho de Φ por s no caminho roteirizado) (PD-32); escada da S §10: queda > perda > volta à pose de pé, queda > mergulho, as duas desigualdades de "desistir"; `perda_caixa` = 1,2 × o lado direito da desigualdade (2), e `devolve_b_alvo` = True só se ela não fechar com custo fixo (PD-33); cercas pela PD-30 |
 | `item4_balanceador.py` | 4 | `Curriculo` com curvas sintéticas de sucesso por iteração (logísticas), uma presa em 0,3 | frações por iteração | nenhuma fatia trava a outra (toda fatia aberta recebe ≥ piso); com todas no portão, as frações vão a 1/3 ± 0,02 |
-| `item6_comando_baixo.py` | 6 | `custos_por_s` nos CSV do ANDAR, fase andar contra fase parado | para c = 0,05; 0,10; 0,25; 0,5; 1,0 (linear e giro): ganho por s de executar (rastreio normalizado = 1) contra a estátua (0) e contra a marcha no lugar (rastreio 0, passo 0), e o custo por s de começar e manter a marcha | executar vence a estátua e a marcha no lugar em todo c |
-| `item8_passo.py` | 8 | FK dos pés nos CSV do ANDAR e do CARREGAR; toques pelo pé a < 2 cm do chão | `L_alvo` por nível de velocidade contra o passo medido; fração de voo; passo de lado com a PD-16 | `L_alvo` ≤ 1,2 × o maior passo medido na mesma velocidade e ≤ 0,60 m; o termo satura em `L_alvo` (passo maior não paga mais); o passo de lado parado (pés na largura da base) paga 0 |
+| `item6_comando_baixo.py` | 6 | `custos_por_s` nos CSV do ANDAR andando contra os do ANDAR parado (tabela acima) | para c = 0,05; 0,10; 0,25; 0,5; 1,0 (linear e giro): ganho por s de executar (rastreio normalizado = 1) contra a estátua (0) e contra a marcha no lugar (rastreio 0, passo 0), e o custo por s de começar e manter a marcha | executar vence a estátua e a marcha no lugar em todo c |
+| `item8_passo.py` | 8 | FK dos pés nos CSV do ANDAR andando e do CARREGAR (tabela acima); toques pelo pé a < 2 cm do chão | `L_alvo` por nível de velocidade contra o passo medido; fração de voo; passo de lado com a PD-16 | `L_alvo` ≤ 1,2 × o maior passo medido na mesma velocidade e ≤ 0,60 m; o termo satura em `L_alvo` (passo maior não paga mais); o passo de lado parado (pés na largura da base) paga 0 |
 | `item15_aperto.py` | 15 | S §8.2 (110–125 N por face no `model_24800`) | derivada de `custo_aperto` no ponto de operação; ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s; `sacudida` pela mesma regra (PD-34) | derivada em 117,5 N ≥ 20% da derivada em `F_ref` (fica 25%, S §8.2); `w` ≤ 0,5 × `perda_caixa` ÷ (ganho de afrouxar em 20 s) |
 
 ### B6 — relatório e portão da Parte 0 (Opus)
@@ -1020,6 +1058,9 @@ Ondas: C0 (testes) → C1.
   - chão plano com ruído de 2 cm: depois de 3 leituras, |h| < 1 cm e confiança = σ_ref²/(σ_ref² +
     σ_fixo²) = 0,862 ± 0,001 (o piso, PD-42);
   - transportar 0,10 m para a frente desloca o mapa em uma célula;
+  - transporte vertical (PD-7): uma célula vista a +0,15 e uma a 0; `prediz` sem leitura, com o
+    `z_ref` 0,15 acima do anterior (o robô subiu o degrau) → +0,15 vira 0 e 0 vira −0,15, e a
+    confiança não muda; o primeiro `prediz` depois do `reinicia` não desloca nada;
   - girar 90° no lugar leva a célula (x = +0,5; y = 0) para (x = 0; y = −0,5) em ± 1 célula;
   - célula nunca vista: altura 0 e confiança 0;
   - a base inclinada 10° em pitch não muda a altura do chão (± 1 cm);
@@ -1045,10 +1086,11 @@ Ondas: C0 (testes) → C1.
   - mapa interno 51 × 51 (PD-8); altura `h` (E,51,51), variância `P` (E,51,51), máscara `vista`;
   - `prediz`: para cada centro de célula no frame novo, a posição no frame velho é `R(Δψ)·p + Δxy`;
     a célula de origem é a mais perto (amostragem, PERC §6); fora do mapa vira "nunca vista";
-    `P += q_desloc·|Δxy| + q_giro·|Δψ| + q_tempo·Δt` (PD-7);
+    `P += q_desloc·|Δxy| + q_giro·|Δψ| + q_tempo·Δt` (PD-7); depois, nas células vistas,
+    `h −= z_ref − z_ref_anterior` e o filtro guarda o `z_ref` (transporte vertical, PD-7);
   - `atualiza`: índice de célula de cada ponto válido; os inválidos vão a um índice de descarte
     (PERC §4 passo 4); por célula, a média dos z da leitura (`scatter_reduce` "mean") e a contagem
-    n e a distância média d̄ ao sensor; Kalman com `R = (σ_incl·d̄)² + σ_m²/n`, `σ_m² = ruido_alcance² +
+    n e a distância média d̄ (a média de `dist` dos pontos da célula); Kalman com `R = (σ_incl·d̄)² + σ_m²/n`, `σ_m² = ruido_alcance² +
     (d̄ · σ_ângulo)²`, `σ_incl` = `ruido_incl_graus` em rad; célula nunca vista recebe `h = z`, `P = R`;
     depois da atualização, `P = max(P, σ_fixo²)` (PD-42);
   - `recorte`: as células 15..35 em x e em y, na ordem da I §2.4; altura cortada em ±1 m; nunca
@@ -1100,7 +1142,7 @@ Ondas:
      do motor da junta (os do mjlab, `g1_constants.py:91-110`; tornozelo e cintura roll/pitch com
      o dobro, como o `G1_ACTUATOR_ANKLE` e o `G1_ACTUATOR_WAIST`). Atraso do comando em todos:
      `delay_min_lag` 0, `delay_max_lag` 12 (capacidade de 3 passos da política), `delay_update_period`
-     10⁹, `delay_per_env_phase` False (PD-14, PD-28).
+     10⁹, `delay_per_env_phase` False (PD-25, PD-28).
   2. Sites no `torso_link`: `mid360` (`Percepcao.mid360_pos`, `mid360_quat`) e `d435` (pos
      `Estimador.d435_pos`, giro de `d435_pitch` em y; o eixo x do site é o eixo óptico).
   3. `_add_pad`: atrito de `Cena.pad_atrito` no pad de palma e de `Cena.robo_atrito` no pad de
@@ -1114,22 +1156,22 @@ Ondas:
   5. `PadraoMid360Cfg` (dataclass, com `caminho`): `generate_rays(mj_model, device)` devolve
      `(zeros(205,3), dirs[0])` (duck typing, `raycast_sensor.py:517-521`).
   6. `terreno_cfg(k)`: `TerrainEntityCfg(terrain_type="generator")` com
-     `TerrainGeneratorCfg(size=(8,8), num_rows=10, curriculum=True, border_width=20)` e as colunas,
-     nesta ordem:
+     `TerrainGeneratorCfg(size=(8,8), num_rows=13, curriculum=True, border_width=20)` (PD-20) e as
+     colunas, nesta ordem:
 
-     | coluna | preset do mjlab (`terrains/config.py`) | parâmetros | plataforma 2 m | `frac_carregar` |
+     | coluna | preset do mjlab (`terrains/config.py`) | parâmetros | plataforma 2 m | `linha_max_carregar` |
      |---|---|---|---|---|
      | 0 `plano` | `flat` | — | — | — (fatias de manipulação no plano) |
-     | 1 `escada` | `pyramid_stairs` | `step_height_range` (0; 0,20), `platform_width` 2,0 | sim | 0,75 |
-     | 2 `escada_inv` | `pyramid_stairs_inv` | idem | sim | 0,75 |
-     | 3 `rampa` | `hf_pyramid_slope` | `slope_range` (0; 0,36), `platform_width` 2,0 | sim | 0,75 |
-     | 4 `rampa_inv` | `hf_pyramid_slope_inv` | idem | sim | 0,75 |
-     | 5 `escada_aleatoria` | `random_stairs` (`BoxRandomStairsTerrainCfg`) | `step_height_range` (0; 0,20), `platform_width` 2,0 | sim | 0,75 |
-     | 6 `irregular` | `random_rough` | o preset | não | — (só ANDAR) |
-     | 7 `obstaculos` | `discrete_obstacles` | `obstacle_height_range` (0; 0,15), `platform_width` 2,0 | sim | 0,667 |
-     | 8 `caixas` | `random_spread_boxes` | `box_height_range` (0; 0,15), `platform_width` 2,0 | sim | 0,667 |
+     | 1 `escada` | `pyramid_stairs` | `step_height_range` (0; 0,20), `platform_width` 2,0 | sim | 9 |
+     | 2 `escada_inv` | `pyramid_stairs_inv` | idem | sim | 9 |
+     | 3 `rampa` | `hf_pyramid_slope` | `slope_range` (0; 0,36), `platform_width` 2,0 | sim | 9 |
+     | 4 `rampa_inv` | `hf_pyramid_slope_inv` | idem | sim | 9 |
+     | 5 `escada_aleatoria` | `random_stairs` (`BoxRandomStairsTerrainCfg`) | `step_height_range` (0; 0,20), `platform_width` 2,0 | sim | 9 |
+     | 6 `irregular` | `random_rough` | o preset, com `scale_with_difficulty=True` (o preset vem com False, `heightfield_terrains.py:404`: sem a troca, toda linha tem a mesma rugosidade de 2–10 cm) | não | — (só ANDAR) |
+     | 7 `obstaculos` | `discrete_obstacles` | `obstacle_height_range` (0; 0,15), `platform_width` 2,0 | sim | 8 |
+     | 8 `caixas` | `random_spread_boxes` | `box_height_range` (0; 0,15), `platform_width` 2,0 | sim | 7 |
 
-     `COLUNAS` (tupla de dicts com nome, `plataforma`, `frac_carregar`) fica exportada para o
+     `COLUNAS` (tupla de dicts com nome, `plataforma`, `linha_max_carregar`) fica exportada para o
      `eventos.py`.
   7. `sensores(k)`: os 11 do `g1_limpo` e mais:
      - `altura_pes`: `TerrainHeightSensorCfg`, frames nos corpos `left_ankle_roll_link` e
@@ -1148,7 +1190,10 @@ Ondas:
        `exclude_parent_body=True` (o sensor fica dentro da esfera da cabeça, `lidar_sim/sensores/
        lidar.py:38-39`).
 - Teste (`test_cfg`, parte da cena): os nomes dos sensores; os grupos das geoms de caixa e laje = 1;
-  as colunas do terreno na ordem da tabela; os kp e kd de cada junta = `Contrato.pd`.
+  as colunas do terreno na ordem da tabela; os kp e kd de cada junta = `Contrato.pd`; na
+  `linha_max_carregar` de cada coluna, a fórmula do gerador (t = linha/(R−1)) dá o teto do CARREGAR
+  da S §11.2: degrau 0,15 m ± 0,001, `slope` 0,27 ± 0,001, obstáculo e caixa 0,10 ± 0,005;
+  `random_rough` com `scale_with_difficulty` True.
 - Contagem: 482 → ~450. Commit: `feat(v3): cena com PD da Unitree, lidar e terreno`.
 
 ### D2 — `observacoes.py` (Sonnet)
@@ -1160,34 +1205,54 @@ Ondas:
     `gravidade`, `comando`, `juntas`, `vel_juntas`, `acao` e `vel_lin_base` usam as funções do mjlab
     (`mdp.builtin_sensor` "robot/imu_ang_vel" e "robot/imu_lin_vel", `mdp.projected_gravity`,
     `mdp.generated_commands` com "twist", `mdp.joint_pos_rel` com `biased=True`, `mdp.joint_vel_rel`,
-    `mdp.last_action`). Escala, ruído, histórico e atraso como a §6.5.
+    `mdp.last_action`). Escala, ruído, histórico e atraso como a §6.5. Os cinco termos com atraso
+    nascem com `delay_min_lag` 0, `delay_max_lag` 3, `delay_update_period` 10⁹ e
+    `delay_per_env_phase` False; o evento `atraso` da D7 baixa o teto para 1 no startup (PD-28).
+    ⚠ O mjlab cria o `DelayBuffer` com a capacidade do cfg (`observation_manager.py:465-475`,
+    `delay_buffer.py:151`): com `delay_max_lag` 1 no cfg, a E6 e a H4 não conseguem subir para
+    0–2 e 0–3. Custo: ~60 MB na GPU com 4 096 envs (946 canais × 4 lugares).
   - `um_de_seis(env)`: one-hot de `v3_tarefa` (6 canais).
-  - `caixa_zero(env)`: zeros (E,11). A fase E troca por `Caixa`.
-  - classe `Mapa` (termo com estado): a cada passo da política, uma vez só (guarda pelo
-    `common_step_counter`): lê `env.scene.sensors["lidar"].data.distances` (E,205); calcula os
-    pontos com `pontos_no_frame_do_mapa`, com o z do pé mais baixo = min(z dos sites `left_foot`,
-    `right_foot`) − `site_pe_de_pe`; filtra o corpo com as cápsulas no mundo (pose dos corpos da
-    `capsulas.npz`); `prediz` com o deslocamento da `v3_odo` desde o passo anterior; `atualiza`;
-    copia `v3_padrao.direcoes(passo + 1)` em `sensor._local_directions` (`copy_`, PERC §5); grava
-    e devolve `v3_mapa_obs = filtro.recorte()`. Com `Percepcao.ligada` = False, o termo não entra.
+  - `caixa_zero(env)`: zeros (E,11). A fase E troca por `caixa`.
+  - `atualiza_percepcao(env)`: roda uma vez por passo da política para o env inteiro. Com
+    `v3_percepcao_passo` = `common_step_counter`, só volta. Senão: lê
+    `env.scene.sensors["lidar"].data.distances` (E,205); calcula os pontos com
+    `pontos_no_frame_do_mapa`, com o z do pé mais baixo = min(z dos sites `left_foot`, `right_foot`)
+    − `site_pe_de_pe`; filtra o corpo com `pontos_w` e as cápsulas no mundo (pose dos corpos da
+    `capsulas.npz`); `prediz` com `v3_odo.delta_b()` (dxy, dψ) e `z_ref` = `v3_odo.pos_w[:, 2]` +
+    (z do pé mais baixo − z da base), o pé mais baixo no frame da odometria (PD-7); `atualiza` com
+    as distâncias; copia `v3_padrao.direcoes(passo + 1)` em `sensor._local_directions` (`copy_`, PERC
+    §5); grava `v3_mapa_obs = filtro.recorte()` e `v3_percepcao_passo`. ⚠ A guarda mora no env e
+    não no termo: o mjlab cria uma instância por cfg de termo (`manager_base.py:146-147`), e o ator e
+    o crítico têm o `mapa` cada um; com a guarda na instância, o filtro rodaria duas vezes por passo
+    e transportaria o mapa o dobro.
+  - termo `mapa(env)`: chama `atualiza_percepcao(env)` e devolve `v3_mapa_obs`; o ator e o crítico
+    usam o mesmo termo. Com `Percepcao.ligada` = False, o termo não entra.
   - termos do crítico da §6.5, todos lendo os buffers `v3_*` e valendo zero onde não se aplicam
     (sem caixa, alvo −1). `tarefa_critico` é o último.
 - Teste (`test_observacoes`): `um_de_seis` com `v3_tarefa` = [0, 3] dá as linhas certas; o núcleo
-  do `Mapa` com pontos sintéticos de chão plano devolve 882 canais com as alturas ~0; `referencia`
-  com alvo −1 é zero; a lista de termos do ator tem os nomes e a ordem da §6.5.
+  do `mapa` com pontos sintéticos de chão plano devolve 882 canais com as alturas ~0; com um env
+  falso (`SimpleNamespace`), duas chamadas de `atualiza_percepcao` no mesmo `common_step_counter`
+  transportam o mapa uma vez só; `referencia` com alvo −1 é zero; a lista de termos do ator tem os
+  nomes e a ordem da §6.5; os cinco termos com atraso têm `delay_max_lag` 3 no cfg.
 - Contagem: 141 → ~300. Commit: `feat(v3): observações do ator e do crítico (§19.1)`.
 
 ### D2b — `Odometria` em `estimador.py` (Sonnet)
 
-- O que fazer: a classe `Odometria` da §6.3. Modelo: a cada passo, o erro de posição recebe um
-  incremento normal com variância `deriva_odo²·|Δp| + deriva_pos_giro²·|Δψ|` por eixo, e o erro de
-  rumo `deriva_rumo²·|Δp| + deriva_rumo_giro²·|Δψ|` (PD-18; Δψ = o giro verdadeiro do passo);
+- O que fazer: a classe `Odometria` da §6.3. Modelo: a cada passo, o incremento verdadeiro vai ao
+  frame da base do passo anterior (dxy_b, dψ, dz); dxy_b e dz recebem um ruído normal com variância
+  `deriva_odo²·|Δp| + deriva_pos_giro²·|Δψ|` por eixo, e dψ `deriva_rumo²·|Δp| + deriva_rumo_giro²·|Δψ|`
+  (PD-18; Δp e Δψ = o deslocamento e o giro verdadeiros do passo); a pose estimada integra
+  `pos += (R(ψ_est)·dxy_b, dz)`, `ψ_est += dψ`, e `delta_b()` devolve os três do último passo.
   `deriva_odo` em m/√m (§13: 1,5 cm em 4 m → 0,0075 m/√m no refino), os termos de giro por √rad.
-- Teste (`test_odometria`): deriva 0 → a odometria = a verdade; deriva 0,0075, 10 000 envs andando
-  4 m em passos de 1 cm → desvio padrão do erro final 1,5 ± 0,1 cm.
+  O erro de rumo passa a entrar na posição absoluta, como no real; o alvo da caixa não sente,
+  porque o robô fica parado antes de abrir o PEGAR e o BOTAR.
+- Teste (`test_odometria`): deriva 0 → a odometria = a verdade; deriva 0,0075 e os termos de rumo
+  em 0, 10 000 envs andando 4 m em passos de 1 cm → desvio padrão do erro final 1,5 ± 0,1 cm.
   Mais: só giro no lugar, magnitude do refino, uma volta → desvio do rumo 2° ± 0,1 e da posição
-  2 cm ± 0,1; só translação → os termos de giro não somam nada.
-- Contagem: 0 → ~64. Commit: `feat(v3): odometria simulada`.
+  2 cm ± 0,1; só translação → os termos de giro não somam nada; com o rumo estimado 10° errado e
+  deriva 0, `delta_b()` = o incremento verdadeiro no frame da base (o erro absoluto de rumo não
+  entra no Δ do mapa); depois do `reinicia`, `delta_b()` = 0.
+- Contagem: 0 → ~75. Commit: `feat(v3): odometria simulada`.
 
 ### D3 — `comando.py` (Sonnet)
 
@@ -1223,7 +1288,7 @@ Ondas:
   - `CadeiaCmd` (termo de comando novo): o vetor de comando é o one-hot (E,6) de `v3_tarefa`;
     `resampling_time_range` infinito. Estado por env: `v3_fatia`, `v3_trecho`, relógio do trecho,
     duração sorteada, relógio do detector, atraso pendente, `v3_fim`. O `CadeiaCmd` também dá o
-    `passo` da `v3_odo` uma vez por passo da política; o `Mapa` e a `Caixa` só leem (PD-44). A
+    `passo` da `v3_odo` uma vez por passo da política; o `atualiza_percepcao` só lê (PD-44). A
     tabela de trechos é dado:
 
     | fatia | trechos (tarefa publicada, duração) |
@@ -1251,11 +1316,13 @@ Ondas:
   `g1_limpo` (`ultima_iter_bal`, `g1_limpo/runner.py:47-52`).
 - O que fazer: `garante_v3(env)` cria todos os buffers da §6.4 (idempotente); `mascara(env,
   tarefas)`; o termo `v3(env, env_ids)`: quando `common_step_counter // passos_por_iteracao` muda,
-  chama `v3_cur.fecha_iteracao(it)`; atualiza `v3_freio` (níveis abertos da tarefa de cada env) e
-  `v3_degrau`; devolve o dict de log da §6.7. `passos_por_iteracao` = 24 (`num_steps_per_env`).
+  chama `v3_cur.fecha_iteracao()` (o `Curriculo` conta as próprias iterações, §6.3); atualiza
+  `v3_freio` (níveis abertos da tarefa de cada env) e `v3_degrau`; devolve o dict de log da §6.7.
+  `passos_por_iteracao` vem do `knobs` (`Balanceador.passos_por_iteracao`, 24), o mesmo campo do
+  `num_steps_per_env` do `rl_cfg()`.
 - Teste (`test_curriculo`): `mascara` com tarefas ("ANDAR", "CARREGAR") e `v3_tarefa` = [0,1,2,3]
-  dá [1,0,1,0]; `garante_v3` duas vezes não recria o `v3_cur`; com um env falso
-  (`SimpleNamespace`), `fecha_iteracao` roda uma vez por iteração e não por reset.
+  dá [True, False, True, False] (bool); `garante_v3` duas vezes não recria o `v3_cur`; com um env
+  falso (`SimpleNamespace`), `fecha_iteracao` roda uma vez por iteração e não por reset.
 - Contagem: 537 → ~250. Commit: `feat(v3): estado do currículo no env`.
 
 ### D5 — `recompensas.py`, termos da locomoção e cercas (Sonnet)
@@ -1323,7 +1390,7 @@ Ondas:
     0; para as fatias ANDAR e B, sorteia se o episódio é de terreno, com a fração da célula
     `terreno` da tarefa (ANDAR; CARREGAR na B); episódio de terreno escolhe uma coluna (ANDAR: 1 a
     8; B: só as com plataforma) e a linha ≤ o nível de terreno da tarefa (CARREGAR: ≤
-    `⌊frac_carregar·9⌋`, PD-20), e fixa a célula `terreno`; os outros ficam na coluna 0. Escreve
+    `linha_max_carregar` da coluna, PD-20), e fixa a célula `terreno`; os outros ficam na coluna 0. Escreve
     `terrain.terrain_levels[ids]`, `terrain.terrain_types[ids]` e `scene.env_origins[ids]` =
     `terrain_origins[linha, coluna]` (`terrain_entity.py:216-233`).
   - `base` (reset): fatia ANDAR: ±0,5 m em x e y e rumo livre, sobre a origem; fatias B e C: a faixa
@@ -1332,13 +1399,14 @@ Ondas:
   - `filtros` (reset): `v3_filtro.reinicia`, `v3_odo.reinicia`.
   - startup: `atrito_pe` (`dr.geom_friction`, 0,3–1,0, compartilhado, geoms `*_foot[1-7]_collision`);
     `massa_tronco` (`dr.body_mass`, soma de −1 a +3 kg no `torso_link`); `vies_encoder`
-    (`dr.encoder_bias`, ±0,015); `atraso`: põe `max_lag` = 4 nos buffers de atraso dos atuadores e
-    1 nos dos termos de observação (PD-28).
+    (`dr.encoder_bias`, ±0,015); `atraso`: põe `max_lag` = 4 nos buffers de atraso dos atuadores
+    (construídos com 12, D1) e 1 nos dos termos de observação (construídos com 3, D2) (PD-28).
   - intervalo: `empurrao` (`mdp.push_by_setting_velocity`, `interval_range_s` (5, 5), x e y ±0,5),
     envolvido para gravar `v3_t_empurrao` dos envs empurrados (PD-15).
 - Teste (`test_eventos`): o núcleo de escolha de coluna e linha: fatia B nunca cai na coluna 6
-  (`irregular`); CARREGAR com nível de terreno 9 fica na linha ≤ 6 nas colunas de obstáculo e ≤ 6
-  nas de escada; ANDAR no plano fica na coluna 0.
+  (`irregular`); CARREGAR com nível de terreno 12 fica na linha ≤ 9 nas escadas e nas rampas, ≤ 8
+  no `obstaculos` e ≤ 7 no `caixas`; ANDAR com nível de terreno 12 chega à linha 12; ANDAR no plano
+  fica na coluna 0.
 - Contagem: 550 → ~450 no fim da fase H (~200 na fase D). Commit:
   `feat(v3): reset por fatia, terreno por tarefa e DR desde o começo`.
 
@@ -1355,7 +1423,7 @@ Ondas:
 - Origem: `g1_limpo/algoritmo.py:155-224` (vantagem por grupo) e `g1_limpo/runner.py` inteiro.
 - O que fazer:
   - `PPOPorTarefa(PPO)`: só `compute_returns`. O grupo de cada amostra é o argmax das 6 últimas
-    colunas da observação do crítico (`tarefa_critico`, PD-15). A normalização por grupo e os
+    colunas da observação do crítico (`tarefa_critico`, §6.5). A normalização por grupo e os
     casos de grupo pequeno são os do `g1_limpo`. Sem `_fixa_one_hot` (não há normalizador).
     `CAMINHO = "g1_v3.algoritmo:PPOPorTarefa"`. O núcleo `normaliza_por_grupo(adv, grupo)` é puro.
   - `RunnerV3(MjlabOnPolicyRunner)`: `save` grava `infos["v3_curriculo"] = env.v3_cur.estado()`;
@@ -1376,7 +1444,7 @@ Ondas:
     do `knobs` chega ao cfg. No play: sem corrupção, sem `empurrao`, episódio de 10⁹ s.
   - `tarefa.py`: `TASK_ID = "Mjlab-G1-V3"`, `rl_cfg()` (o `unitree_g1_ppo_runner_cfg` com
     `experiment_name` "g1_v3", `obs_normalization` False no ator e no crítico, `class_name` =
-    `CAMINHO`) e o `register_mjlab_task` com `runner_cls=RunnerV3`. Uma segunda task,
+    `CAMINHO`, `num_steps_per_env` = `Balanceador.passos_por_iteracao`) e o `register_mjlab_task` com `runner_cls=RunnerV3`. Uma segunda task,
     `TASK_ID_SEM_PERCEPCAO = "Mjlab-G1-V3-SemPercepcao"`, com o mesmo cfg e `Percepcao.ligada = False`,
     só para a corrida de custo do I5 (substitui a chave `PERCEPCAO` do notebook antigo); o teste
     confere as duas no registro.
@@ -1398,7 +1466,8 @@ Ondas:
   - `pilota_v3.py` (raiz): carrega `knobs`, `alvos`, `estimador` e `percepcao_lidar` por caminho
     (`importlib.util.spec_from_file_location`); `monta_observacao` dos 1 447 canais com o histórico
     de 5 por bloco e o preenchimento no primeiro passo (I §2.1); o lidar no MuJoCo clássico com
-    `mj_multiRay` e o mesmo padrão; o estimador no laço; o laço de rumo k = 2 do driver; o BOTAR de um
+    `mj_multiRay` e o mesmo padrão; o filtro com o transporte da odometria, inclusive o `z_ref` (o pé
+    mais baixo no frame da odometria, PD-7); o estimador no laço; o laço de rumo k = 2 do driver; o BOTAR de um
     comando só; o detector de fim (`alvos.detecta_fim`) como status. Teclado do `pilota.py`.
   - `registra_juntas_v3.py` (raiz): o roteiro por fases do `registra_juntas.py` com as tarefas da v3;
     o CSV com as colunas de hoje mais `tarefa`, `aviso_fim`, `idade_caixa`, `fracao_mapa_visto`.
@@ -1506,14 +1575,14 @@ E §3 "Pega", "Caixa íntegra e nivelada", "Contato", "Progressão na cadeia", E
 |---|---|
 | E-0 | E0 testes |
 | E-1 | E1 `eventos.py`, E2 `estimador.py`, E3 `comando.py`, E4 `recompensas.py`, E5 `terminacoes.py`, E6 `curriculo.py` + `balanceador.py` (DR por nível), E7 `metricas.py` |
-| E-2 | E8 `observacoes.py` (`Caixa` e crítico), E9 `pilota_v3.py` + `registra_juntas_v3.py`, E10 smoke |
+| E-2 | E8 `observacoes.py` (`caixa` e crítico), E9 `pilota_v3.py` + `registra_juntas_v3.py`, E10 smoke |
 | E-3 | E11 revisão |
 
 **E1 — `eventos.py` (Sonnet).** Origem: `g1_limpo/eventos.py:74-211` (`_topo_por_nivel`,
 `orientacao_de_nascimento`, `posiciona_cena`), `:214-253` (`afasta_cena` → `estaciona_cena`),
 `:256-369` (`tamanho_caixa`, `carga_caixa`); `g1_limpo/env_cfg.py:412-417` (`atrito_caixa`, molde
 do `atrito_pad` e do `atrito_laje`).
-Mudanças: (1) toda escrita de z soma `env_origins[:, 2]` (D3), e `v3_topo` guarda o topo sobre o
+Mudanças: (1) toda escrita de z soma `env_origins[:, 2]` (viab. D3), e `v3_topo` guarda o topo sobre o
 chão local; (2) o nível vem de `v3_cur.nivel("PEGAR")`: topo U[h_k; 0,55], na fatia C
 U[max(h_k; 0,30); 0,55] (S §7); (3) massa U[1; m_k] na B; na C, U[1; m_j] com j o maior nível do PEGAR
 que já passou no portão (S §11.2); (4) `estaciona_cena` na fatia ANDAR: laje e caixa 20 m acima da
@@ -1594,10 +1663,12 @@ o μ mínimo em 0,025 até 0,5; nada desce. Commit: `feat(v3): DR por nível no 
 P3); força total robô → caixa; deslocamento da caixa na laje de P0 a P2; idade média das leituras;
 fração de avisos do detector (S §14). Commit: `feat(v3): métricas da manipulação`.
 
-**E8 — `observacoes.py` (Sonnet).** A classe `Caixa` troca o `caixa_zero`: a cada passo (uma vez),
-`visivel` (site `d435`, 9 pontos da caixa, cápsulas dos braços), `v3_estimador.passo`,
-e a saída `saida_b` + `alvo_no_frame_da_base` (alvo zero no CARREGAR; os 11 canais zero no ANDAR,
-inclusive nas esperas, [C13]). O `Mapa` passa a girar os pontos pelo `v3_incl_imu` (na fase D, a identidade; PD-42). A caixa estimada não entra no filtro do corpo (PD-10).
+**E8 — `observacoes.py` (Sonnet).** O termo `caixa` troca o `caixa_zero`: o `atualiza_percepcao`
+(D2, a mesma guarda no env) ganha `visivel` (site `d435`, 9 pontos da caixa, cápsulas dos braços),
+`v3_estimador.passo` e a saída `saida_b` + `alvo_no_frame_da_base` em `v3_caixa_obs` (alvo zero no
+CARREGAR; os 11 canais zero no ANDAR, inclusive nas esperas, [C13]); o termo `caixa(env)` chama a
+função e devolve `v3_caixa_obs`, no ator e no crítico (o estimador dá um passo só por passo da
+política). O `atualiza_percepcao` passa a girar os pontos pelo `v3_incl_imu` (na fase D, a identidade; PD-42). A caixa estimada não entra no filtro do corpo (PD-10).
 Os canais do crítico (`caixa_verdade`, `alvo_verdade`, `alvo_macro`, `referencia`, `massa`,
 `forca_caixa`) passam a ler os buffers. `giro_base` vira função própria (o sensor do mjlab +
 `v3_vies_giro`) e `gravidade` passa por `v3_incl_imu` (DR §3.4); o ruído do mjlab fica igual.
@@ -1682,7 +1753,7 @@ Ondas: G0 → {G1, G2, G3, G4} → {G5, G6} → G7 (revisão).
 
 **G1 — `eventos.py` (Sonnet).** Fatia B em episódio de terreno: a origem é o centro da plataforma de
 2 m de uma coluna com plataforma; a laje fica a 0,75 m do centro, na direção de uma das 4 bordas; a
-caixa sobre ela; o robô atrás da laje, de frente para a borda, a 0,5–0,65 m dela (D10). Teste: o
+caixa sobre ela; o robô atrás da laje, de frente para a borda, a 0,5–0,65 m dela (viab. D10). Teste: o
 núcleo põe o robô dentro da plataforma, a ≤ 0,65 m da borda e de frente para ela.
 
 **G2 — `curriculo.py` e `balanceador.py` (Haiku).** A célula `terreno` do CARREGAR abre pela regra da
@@ -1691,11 +1762,11 @@ núcleo põe o robô dentro da plataforma, a ≤ 0,65 m da borda e de frente par
 **G3 — `comando.py` (Sonnet).** O sucesso do segmento do CARREGAR no terreno exige também a caixa a ≤
 15° em todo passo (`v3_incl_max_seg`) e sem perda (S §11.3).
 
-**G4 — `metricas.py` (Haiku).** `fracao_fora_da_plataforma` (D10); nível de terreno por tarefa.
+**G4 — `metricas.py` (Haiku).** `fracao_fora_da_plataforma` (viab. D10); nível de terreno por tarefa.
 
 **G5 — smoke da Parte 3b (Sonnet).** Seções 30 a 33: 30. env da fatia B no terreno nasce na
 plataforma; 31. o topo da laje = origem + h, com a origem de uma escada (+1,4 m); 32. o robô
-teleportado um degrau abaixo, com a caixa no peito, não dispara a caixa perdida (D4); 33. a altura da
+teleportado um degrau abaixo, com a caixa no peito, não dispara a caixa perdida (viab. D4); 33. a altura da
 pelve e do joelho medem contra o terreno local.
 
 **G6 — driver (Sonnet).** Roteiro de escada e de rampa com caixa e de obstáculo no
@@ -1739,7 +1810,7 @@ caixa (`dr.body_com_offset`) fica atrás da chave `DR.com_caixa` = False (PD-38)
 escala por degrau.
 
 **H5 — estimador no refino (Sonnet).** A magnitude do `EstimadorCaixa` e da `Odometria` sobe do
-"início" ao "refino" pelo degrau (§6.2 `Estimador`), mais o viés por episódio (até ±2 cm na posição e ±2 cm na meia aresta; dono, 06/10 e 15/10) e
+"início" ao "refino" pelo degrau global, o menor entre as tarefas (PD-41; §6.2 `Estimador`), mais o viés por episódio (até ±2 cm na posição e ±2 cm na meia aresta; dono, 06/10 e 15/10) e
 as rajadas de perda de 0,3–1,0 s (DR §3.5). A orientação erra por um viés por episódio sorteado da
 distribuição medida (mediana 5,3°, p90 15,3°) mais 1° por leitura, no lugar do ruído independente. O
 alvo do BOTAR leva viés por episódio de ±5 cm em xy e ±3 cm em z. Latência e taxa ficam em 33 ms e
@@ -1817,9 +1888,9 @@ Comando único: `cd ~/Documents/g1_training && .venv/bin/python -m unittest disc
 | fator | número | fonte | o que o plano faz |
 |---|---|---|---|
 | s/it do `g1_limpo` na Kaggle (T4, 4 096 envs) | 6,9–7,0 | notebooks | só referência; a GPU do RunPod é outra e o I5 mede de novo (PD-22) |
-| terreno no modelo único (1 410 geoms) | ×1,8 a 2,1 no `env.step` em CPU | viabilidade C7, L1 | aceito pelo dono (terreno desde 06/10); I5 mede na GPU |
+| terreno no modelo único (1 410 geoms) | ×1,8 a 2,1 no `env.step` em CPU | viabilidade C7, L1 | aceito pelo dono (terreno desde 06/10); com R = 13 (PD-20), 117 ladrilhos contra 90 (+30%); I5 mede na GPU |
 | raycast | 205 raios por passo (PD-5), contra 1 024 por passo | viabilidade D7: 2 025 raios = 10–14% do passo em CPU | ~1/5 do custo de 1 024 por passo |
-| filtro de elevação | 51 × 51 células × 4 096 envs; 205 pontos por passo | D7: 26 ms com P 256 em CPU | `custo_filtro.py` mede em CPU; I5 na GPU |
+| filtro de elevação | 51 × 51 células × 4 096 envs; 205 pontos por passo | viab. D7: 26 ms com P 256 em CPU | `custo_filtro.py` mede em CPU; I5 na GPU |
 | filtro do corpo | 205 pontos × ~40 cápsulas × 4 096 envs por passo | — | uma operação vetorizada; I5 mede |
 | primeira camada do ator | 1 447 × 512 (contra 565 × 512) | S §19.1 | sem mudança de rede (fase 5c decide) |
 | orçamento | 30 000 its ([F34]) | S §1 | na T4, 12–15 s/it dariam ~100–125 h; no RunPod, tempo e custo saem do s/it do I5 |
@@ -1936,3 +2007,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-22 | canal da caixa (dono): opção A, a política recebe a leitura da câmera (estimador simulado no treino; D435i + box-vision no real), como em 14/10. O rastreio por Kalman (câmera + lidar + mãos) fica como extensão depois do primeiro treino, sem mudar o formato dos 11 canais. Plano pronto para o despacho pela fase A | resposta do dono em 22/10 |
 | 2026-10-28 | percepção treino × real (dono, 28/10): `raio_min` 0,85 m (o braço + 5 cm, medido por FK) e o mesmo `filtra_corpo` na entrada da odometria real (PD-10); a variância da medida por célula ganha o erro comum da leitura e o piso `sigma_fixo` 2 cm, e o mapa gira pelo mesmo viés do IMU da gravidade, para a confiança não depender da densidade de pontos (PD-42, PD-6; teste de invariância na C0); o driver real faz deskew por ponto e entrega os pontos a cada 20 ms (PD-5); o `mapa` entra no atraso por episódio (PD-25, §6.8); a odometria ganha os termos de giro (PD-18, D2b); contrato do detector na I §2.3. A decimação de pontos no driver foi descartada | `docs/relatorios/2026-10-22-percepcao-sim-real.md` §5 |
 | 2026-10-28 | plataforma (dono, 28/10): a PD-22 chega às tarefas. A D13 deixa de ser o notebook da Kaggle e vira `g1_v3/container/entrada.sh`, o ponto de entrada que a imagem do RunPod chama depois do clone (variáveis `RUN`, `RETOMA`, `ITERS`, `NUM_ENVS`, `PERCEPCAO`, `SAIDA`, `TENSORBOARD`, `SECO`; checagem de GPU e de versões; retomada pela pasta mais nova com checkpoint), com o `test_entrada` em modo seco. A D10 registra `Mjlab-G1-V3-SemPercepcao` para o I5. A fase I troca I4 e I5 pelo pod, mede 4 096 e 8 192 envs e ganha o I6 (retomada). §0, §1.1, §2.1, §3, §6.1, §15 e §17 deixam a Kaggle | pedido do dono depois da checagem de alinhamento |
+| 2026-10-29 | revisão do plano, 14 correções (o dono aprovou; a 12, tudo em Sonnet, ficou fora: a implementação segue com agentes Haiku). (1) transporte vertical do mapa pelo `z_ref`, o pé mais baixo no frame da odometria (PD-7, C0, C1, D2, D11; I §2.4 e PERC §0). (2) `atualiza_percepcao` com a guarda no env: o filtro e o estimador rodam uma vez por passo, e não uma por grupo (D2, E8, §6.4). (3) R = 13 e `linha_max_carregar` inteira: o teto do CARREGAR chega a 0,15 m e 0,27 (PD-20, D1, D7, B3, §6.2, §15). (4) atraso da observação com capacidade 0–3 desde o build (D2, D7, §2.3, §6.5). (5) máscara bool com `torch.where` e nenhum NaN como "não usado" (§6.3, §6.6, B0, D4). (6) odometria integrada no frame da base, com `delta_b()` (§6.3, D2b). (7) `pontos_w` para o `filtra_corpo` e `dist` para o d̄ (§6.3, C1). (8) PD-25 no lugar da PD-14, sem a PD-15 no `tarefa_critico`, prefixo "viab." nos itens da viabilidade. (9) sai o `raio_caixa_na_mao`. (10) estimador e DR do refino pelo degrau global (§6.9, H5). (11) lista dos CSV da Parte 0 pela coluna `fase` (B5). (13) `passos_por_iteracao` no `knobs`. (14) o `Curriculo` conta as próprias iterações, e a retomada não trava os níveis (§6.3, B0, D4). (15) `random_rough` com `scale_with_difficulty` (D1). Contagem: ~+25 linhas no pacote (`observacoes.py` +10, `estimador.py` +10, `percepcao_lidar.py` +3, `balanceador.py` +2), nenhum termo novo | `docs/relatorios/2026-10-29-revisao-plano-v3.md`; resposta do dono em 29/10 |

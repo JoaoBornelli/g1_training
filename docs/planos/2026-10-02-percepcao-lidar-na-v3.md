@@ -64,8 +64,10 @@ o mapa só muda quando o terreno muda.
 **O filtro (a função pura, `torch`/`numpy`, sem simulador):**
 
 1. **Predição, a cada passo da política (50 Hz):** transporta o mapa pelo deslocamento da base no
-   plano (x, y, rumo), e a variância de cada célula cresce com o deslocamento (erro da odometria) e
-   com o tempo (a célula envelhece até "não vista").
+   plano (x, y, rumo) e na vertical (as alturas guardadas descem o quanto o pé mais baixo subiu no
+   frame da odometria, porque o zero da escala anda com o pé; dono, 29/10), e a variância de cada
+   célula cresce com o deslocamento (erro da odometria) e com o tempo (a célula envelhece até "não
+   vista").
 2. **Atualização, a cada leitura do lidar (10 Hz):** os pontos (sensor → base → gravidade) caem nas
    células; cada célula faz a atualização de Kalman da altura com a variância da medida (alcance com
    σ de 2 cm e ângulo com σ de 0,15°, a mesma da §2).
