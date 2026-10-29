@@ -1,0 +1,264 @@
+"""Testes de g1_v3/balanceador.py (B0 do plano, §6.3; S §11.1, §11.2; PD-12, PD-13). Escritos antes do código.
+
+Convenções (§6.3): `celula_id` é o índice em `Curriculo.celulas`, na ordem da B3 (ANDAR 0..5, CARREGAR 6..9,
+PEGAR 10, BOTAR 11). A EMA: n > 0 → x = n_sucesso/n; com n_medidas = 0, s = x; senão s += α(x − s); s começa
+em 0. `registra` com n = 10 e n_sucesso = 10 é sucesso total na iteração; `fecha` chama `fecha_iteracao`.
+A carência de subida (`iters_min_nivel`) é 50 its; nos casos de fatia e de célula ela é desligada com
+`dataclasses.replace`, para o teste não depender dela.
+"""
+import dataclasses
+import math
+import unittest
+
+import torch
+
+from g1_v3 import balanceador
+from g1_v3.knobs import ATIVO
+
+B = ATIVO.balanceador
+N = ATIVO.niveis
+COM = ATIVO.comando
+TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
+PORTAO = B.portao  # 0,75 (S §11.2)
+ALFA = B.alfa      # 0,05 (PD-13)
+SEM_CARENCIA = dataclasses.replace(B, iters_min_nivel=10 ** 6)
+
+
+def novo(k_bal=B):
+    return balanceador.Curriculo(k_bal, N, COM)
+
+
+def cid(cur, tarefa, tipo):
+    # o id é o índice em `celulas`; o teste acha pela (tarefa, tipo), não por número fixo
+    for i, c in enumerate(cur.celulas):
+        if c.tarefa == tarefa and c.tipo == tipo:
+            return i
+    raise AssertionError(f"célula {tarefa}/{tipo} não existe")
+
+
+def fecha(cur, falha=()):
+    # sucesso total em toda célula aberta; as de `falha` registram sucesso 0 (n = 10)
+    for i, c in enumerate(cur.celulas):
+        if c.aberta:
+            cur.registra(i, 10, 0 if i in falha else 10)
+    cur.fecha_iteracao()
+
+
+def so_tipos_python(v):
+    # §6.3: o estado() só tem int, float, bool, str, list, dict (e None)
+    if isinstance(v, dict):
+        return all(isinstance(k, str) and so_tipos_python(x) for k, x in v.items())
+    if isinstance(v, list):
+        return all(so_tipos_python(x) for x in v)
+    return isinstance(v, (int, float, bool, str, type(None)))
+
+
+class TestFracoes(unittest.TestCase):
+
+    def test_sem_deficit_da_um_terco_para_cada(self):
+        # S §11.1: F = piso + (1 − n·piso)(D + ε)/Σ(D + ε); com D = 0 e n = 3, 1/3 cada.
+        f = balanceador.fracoes(torch.zeros(3, dtype=torch.float64), B.piso_tarefa, B.eps)
+        for v in f.tolist():
+            self.assertAlmostEqual(v, 1 / 3, delta=1e-6)
+
+    def test_deficit_dominante_respeita_o_piso_e_soma_um(self):
+        # Um déficit 0,75 e dois zeros: todo F ≥ piso (0,20) e a soma é 1 (S §11.1, piso de tarefa).
+        f = balanceador.fracoes(torch.tensor([0.75, 0.0, 0.0], dtype=torch.float64),
+                                B.piso_tarefa, B.eps)
+        self.assertTrue(bool((f >= B.piso_tarefa - 1e-9).all().item()))
+        self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-6)
+        self.assertGreater(f[0].item(), f[1].item())
+
+
+class TestAberturaInicial(unittest.TestCase):
+
+    def test_so_o_andar_abre_no_comeco(self):
+        # S §11.1: "só o ANDAR abre no começo (fase 0, 100%)".
+        f = novo().fracoes_fatias()
+        self.assertTrue(torch.allclose(f.double(), torch.tensor([1.0, 0.0, 0.0], dtype=torch.float64),
+                                       atol=1e-9))
+
+    def test_nivel_e_degrau_zero_no_comeco(self):
+        # S §11.2: o nível começa em 0 (ANDAR, PEGAR); o degrau do refino começa em 0 (§11.5).
+        c = novo()
+        for tarefa in TAREFAS:
+            with self.subTest(tarefa=tarefa):
+                self.assertEqual(c.degrau(tarefa), 0)
+        self.assertEqual(c.nivel("ANDAR"), 0)
+        self.assertEqual(c.nivel("PEGAR"), 0)
+
+
+class TestAberturaDeFatiaB(unittest.TestCase):
+
+    def test_B_so_com_reto_e_parado_no_portao_e_baixo_junto(self):
+        # S §11.1: a B abre quando reto E parado do ANDAR passam no portão (0,75). A célula seguinte
+        # (baixo, S §11.2) abre quando todas as abertas do ANDAR passam: o mesmo momento aqui.
+        cur = novo(SEM_CARENCIA)
+        reto, parado = cid(cur, "ANDAR", "reto"), cid(cur, "ANDAR", "parado")
+        baixo = cid(cur, "ANDAR", "baixo")
+        # fecha 1: reto passa (s = 1 na primeira medida), parado não (s = 0)
+        fecha(cur, falha={parado})
+        self.assertGreaterEqual(cur.celulas[reto].s, PORTAO)
+        self.assertLess(cur.celulas[parado].s, PORTAO)
+        self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
+        self.assertFalse(cur.celulas[baixo].aberta)
+        primeiro = None
+        for k in range(2, 80):
+            fecha(cur)
+            passam = cur.celulas[reto].s >= PORTAO and cur.celulas[parado].s >= PORTAO
+            aberta_b = cur.fracoes_fatias()[1].item() > 0
+            self.assertEqual(aberta_b, passam, f"fecha {k}: a B abriu fora do critério")
+            self.assertEqual(cur.celulas[baixo].aberta, passam, f"fecha {k}: baixo fora do critério")
+            if aberta_b:
+                primeiro = k
+                break
+        # parado sobe 1 − 0,95^j depois da 1ª medida (j = fechas depois da 1ª): 28 passos para 0,75.
+        esperado = 1 + math.ceil(math.log(1 - PORTAO) / math.log(1 - ALFA))
+        self.assertEqual(primeiro, esperado)
+
+
+class TestAberturaDeFatiaC(unittest.TestCase):
+
+    def test_C_so_com_pegar_nivel_0_no_portao(self):
+        # §11.1 e §11.2: a C abre quando o PEGAR nível 0 passa no portão (0,75). Sem carência, para o
+        # nível não subir e mudar o critério no meio do caminho.
+        cur = novo(SEM_CARENCIA)
+        pegar = cid(cur, "PEGAR", "pegar")
+        while cur.fracoes_fatias()[1].item() == 0:  # abre a B com sucesso total
+            fecha(cur)
+        k_b = cur.it
+        self.assertTrue(cur.celulas[pegar].aberta, "o PEGAR nível 0 deveria abrir junto com a B")
+        # primeira medida do PEGAR falha (s = 0); depois, sucesso total
+        fecha(cur, falha={pegar})
+        self.assertFalse(cur.fracoes_fatias()[2].item() > 0)
+        primeiro = None
+        for _ in range(60):
+            fecha(cur)
+            passa = cur.celulas[pegar].s >= PORTAO
+            aberta_c = cur.fracoes_fatias()[2].item() > 0
+            self.assertEqual(aberta_c, passa, f"fecha {cur.it}: C fora do critério")
+            if aberta_c:
+                primeiro = cur.it
+                break
+        esperado = k_b + 1 + math.ceil(math.log(1 - PORTAO) / math.log(1 - ALFA))
+        self.assertEqual(primeiro, esperado)
+
+
+class TestSubidaDeNivel(unittest.TestCase):
+
+    def test_primeira_subida_so_depois_de_50_its(self):
+        # PD-12: "mínimo de 50 its entre subidas": a 1ª subida conta desde o começo (it = 0).
+        cur = novo()
+        for k in range(1, 50):
+            fecha(cur)
+            self.assertEqual(cur.nivel("PEGAR"), 0, f"subiu cedo, fecha {k}")
+        fecha(cur)  # fecha 50
+        self.assertEqual(cur.nivel("PEGAR"), 1)
+
+    def test_EMA_recomeca_na_primeira_medida_depois_da_subida(self):
+        # PD-12/§6.3: depois da subida, a 1ª medida dá s = x (não o EMA do s antigo).
+        cur = novo()
+        pegar = cid(cur, "PEGAR", "pegar")
+        for _ in range(50):
+            fecha(cur)
+        self.assertEqual(cur.nivel("PEGAR"), 1)
+        fecha(cur, falha={pegar})  # 1ª medida depois da subida: x = 0
+        self.assertAlmostEqual(cur.celulas[pegar].s, 0.0, places=12)
+        fecha(cur)  # próxima medida: s = 0 + α(1 − 0) = 0,05
+        self.assertAlmostEqual(cur.celulas[pegar].s, ALFA, places=9)
+
+    def test_proxima_subida_espera_mais_50_its(self):
+        # Carência de 50 its entre subidas: nível = min(it // 50, 4) com sucesso total.
+        cur = novo()
+        for k in range(1, 201):
+            fecha(cur)
+            self.assertEqual(cur.nivel("PEGAR"), min(k // 50, 4), f"fecha {k}")
+
+
+class TestRetomada(unittest.TestCase):
+
+    def test_carregado_20_its_depois_de_uma_subida_espera_mais_30(self):
+        # §6.3: a subida em 50; carregado em 70, o próximo nível sai em 100 (50 its depois da subida),
+        # e não em 120. O estado é restaurado com `carrega`, e o contador `it` vem junto.
+        cur = novo()
+        for _ in range(70):
+            fecha(cur)
+        self.assertEqual(cur.nivel("PEGAR"), 1)
+        estado = cur.estado()
+        self.assertTrue(so_tipos_python(estado))
+        cur2 = novo()
+        cur2.carrega(estado)
+        self.assertEqual(cur2.estado(), estado)
+        self.assertEqual(cur2.it, 70)
+        for k in range(71, 101):
+            fecha(cur)
+            fecha(cur2)
+            self.assertEqual(cur2.nivel("PEGAR"), cur.nivel("PEGAR"), f"fecha {k}")
+            if k == 99:
+                self.assertEqual(cur2.nivel("PEGAR"), 1, "retomada recomeçou a carência")
+        self.assertEqual(cur2.nivel("PEGAR"), 2)
+
+
+class TestRefino(unittest.TestCase):
+
+    def test_refino_so_depois_do_ultimo_nivel_e_100_its_no_portao_e_nunca_desce(self):
+        # §6.3 / S §11.5: o refino começa com o último nível aberto (PEGAR 4, em it 200) e 100 its
+        # seguidas no portão. Depois, falhar não faz o degrau descer.
+        cur = novo()
+        pegar = cid(cur, "PEGAR", "pegar")
+        for _ in range(200):
+            fecha(cur)
+        self.assertEqual(cur.nivel("PEGAR"), 4)
+        self.assertEqual(cur.degrau("PEGAR"), 0)
+        for _ in range(50):  # até it 250: 50 its depois do último nível, ainda não são 100
+            fecha(cur)
+        self.assertEqual(cur.degrau("PEGAR"), 0)
+        for _ in range(55):  # até it 305: 100 its no portão depois do it 200
+            fecha(cur)
+        self.assertGreaterEqual(cur.degrau("PEGAR"), 1)
+        self.assertEqual(cur.nivel("PEGAR"), 4)  # não passa do último nível
+        degrau = cur.degrau("PEGAR")
+        for _ in range(40):  # falha de verdade: o degrau não desce
+            fecha(cur, falha={pegar})
+            self.assertGreaterEqual(cur.degrau("PEGAR"), degrau)
+
+
+class TestSorteioDeFatias(unittest.TestCase):
+
+    def test_sorteio_com_fracoes_05_03_02_fica_a_1_por_cento(self):
+        # §11.1: sorteia_fatias respeita as frações. A fração é trocada na instância (sem gancho novo).
+        cur = novo()
+        cur.fracoes_fatias = lambda: torch.tensor([0.5, 0.3, 0.2])
+        gerador = torch.Generator().manual_seed(0)
+        amostras = cur.sorteia_fatias(100_000, gerador)
+        freq = torch.bincount(amostras, minlength=3).double() / 100_000
+        for i, f in enumerate((0.5, 0.3, 0.2)):
+            with self.subTest(fatia=i):
+                self.assertAlmostEqual(freq[i].item(), f, delta=0.01)
+
+
+class TestEstado(unittest.TestCase):
+
+    def test_carrega_devolve_o_mesmo_estado_com_o_contador(self):
+        # §6.3: estado() → carrega() é identidade, inclusive o contador `it`.
+        c = novo()
+        for _ in range(20):
+            c.fecha_iteracao()
+        self.assertEqual(c.it, 20)
+        c2 = novo()
+        c2.carrega(c.estado())
+        self.assertEqual(c2.it, 20)
+        self.assertEqual(c2.estado(), c.estado())
+        self.assertTrue(torch.allclose(c2.fracoes_fatias(), c.fracoes_fatias()))
+        for tarefa in TAREFAS:
+            with self.subTest(tarefa=tarefa):
+                self.assertEqual(c2.nivel(tarefa), c.nivel(tarefa))
+                self.assertEqual(c2.degrau(tarefa), c.degrau(tarefa))
+                ids1, f1 = c.fracoes_celulas(tarefa)
+                ids2, f2 = c2.fracoes_celulas(tarefa)
+                self.assertEqual(ids1, ids2)
+                self.assertTrue(torch.allclose(f1, f2))
+
+
+if __name__ == "__main__":
+    unittest.main()
