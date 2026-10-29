@@ -2,7 +2,7 @@
 
 Casos: one-hot da tarefa; ordem dos termos do ator e do crítico (§6.5); atraso por termo (capacidade 3 no cfg,
 PD-28); núcleo do mapa (`passo_de_percepcao`, chão plano); guarda de `atualiza_percepcao` (um cálculo por passo,
-com `_calcula_percepcao` trocado por contador); `referencia_do_alvo` com alvo −1 (zero) e a referência carregada
+com `_calcula_percepcao` e `_calcula_caixa` trocados por contadores); `referencia_do_alvo` com alvo −1 (zero) e a referência carregada
 por `knobs.caminho`.
 """
 import dataclasses
@@ -86,17 +86,21 @@ class ObservacoesTest(unittest.TestCase):
         self.assertLess(float(h[vistas].abs().max()), 0.01)
 
     def test_guarda_calcula_a_percepcao_uma_vez_por_passo(self):
-        # `atualiza_percepcao` só chama `_calcula_percepcao` uma vez por common_step_counter
+        # `atualiza_percepcao` só chama `_calcula_percepcao` e `_calcula_caixa` uma vez por common_step_counter
         env = types.SimpleNamespace(common_step_counter=5, v3_percepcao_passo=-1,
-                                    v3_mapa_obs=None)
+                                    v3_mapa_obs=None, v3_caixa_obs=None)
         with mock.patch.object(observacoes, "_calcula_percepcao",
-                               return_value=torch.zeros(1, 882)) as calc:
+                               return_value=torch.zeros(1, 882)) as calc, \
+             mock.patch.object(observacoes, "_calcula_caixa",
+                               return_value=torch.zeros(1, 11)) as caixa:
             observacoes.atualiza_percepcao(env)
             observacoes.atualiza_percepcao(env)  # mesmo passo
             self.assertEqual(calc.call_count, 1)
+            self.assertEqual(caixa.call_count, 1)
             env.common_step_counter = 6
             observacoes.atualiza_percepcao(env)  # passo seguinte
             self.assertEqual(calc.call_count, 2)
+            self.assertEqual(caixa.call_count, 2)
 
     def test_referencia_com_alvo_menos_um_e_zero(self):
         # §6.6: zero (não NaN) quando o alvo é −1; `v3_ref` é o Referencias carregado do npz (§6.4)

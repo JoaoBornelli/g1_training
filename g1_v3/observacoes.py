@@ -166,7 +166,8 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
 
     A leitura usa a visibilidade da D435i (o site `d435`, o FOV do RGB, os 9 pontos e as cápsulas dos braços; PD-11)
     e a distância câmera-caixa para o σ relativo.
-    ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8).
+    ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8) e sem alvo (`v3_alvo_idx` < 0: o `v3_alvo_w`
+    pode ser velho).
     """
     robo, caixa_ = env.scene["robot"], env.scene["box"]
     ids, _ = robo.find_sites((_CAMERA,))
@@ -181,7 +182,7 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     odo, tarefa = env.v3_odo, env.v3_tarefa
     saida = env.v3_estimador.saida_b(odo, robo.data.root_link_quat_w)
     alvo = alvo_no_frame_da_base(env.v3_alvo_w, odo)
-    alvo = torch.where((tarefa == CARREGAR)[:, None], torch.zeros_like(alvo), alvo)
+    alvo = torch.where(((tarefa == CARREGAR) | (env.v3_alvo_idx < 0))[:, None], torch.zeros_like(alvo), alvo)
     out = torch.cat([saida, alvo], -1)
     return torch.where((tarefa == ANDAR)[:, None], torch.zeros_like(out), out)
 

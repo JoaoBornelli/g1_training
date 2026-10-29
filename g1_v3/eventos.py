@@ -148,6 +148,8 @@ def reset_base_por_fatia(env, env_ids, faixa_andar: dict, faixa_manipula: dict):
 def reinicia_filtros(env, env_ids):
     """Reset, depois da base: estado de estimação do episódio (D7, `filtros`).
 
+    Zera o filtro de elevação, a odometria e o `v3_estimador` (o sorteio do viés de meia aresta e de orientação
+    sai de novo por episódio; sem isso a primeira leitura sairia com o estado do anterior).
     ⚠ Roda DEPOIS de `base`: a pose que a odometria recebe é a que a base acabou de ganhar. Pelo mesmo
     motivo, o `v3_odo` começa com a pose verdadeira (PD-18).
     ⚠ Lê o `qpos`, não o `xpos`: no reset o `xpos` ainda é o do fim do episódio anterior (o `forward` vem depois).
@@ -156,6 +158,7 @@ def reinicia_filtros(env, env_ids):
     env.v3_filtro.reinicia(env_ids)
     q = env.sim.data.qpos[env_ids][:, robo.indexing.free_joint_q_adr]
     env.v3_odo.reinicia(env_ids, q[:, :3], q[:, 3:7])
+    env.v3_estimador.reinicia(env_ids)
 
 
 def atraso(env, env_ids, passos_max: int, decimacao: int):

@@ -337,7 +337,7 @@ class CadeiaCmd(CommandTerm):
         # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
         g = recompensas.portoes_do_alvo(
             idx, (m["caixa_p"][:, :2] - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), zero, m["incl_graus"],
-            A.incl_inicio_graus, m["contatos"], zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
+            recompensas.incl_lim(env), m["contatos"], zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
         inv = g["desloc"] * g["incl"] * g["maos"]
         pega = (env.v3_tarefa == PEGAR) & ~env.v3_p4_fechado
         ok_pega = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], recompensas.incl_lim(env),
