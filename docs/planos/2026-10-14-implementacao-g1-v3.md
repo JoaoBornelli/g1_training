@@ -476,6 +476,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `passos_por_iteracao` | 24 | o `num_steps_per_env` do `rl_cfg()` (D10) e a guarda de iteração do termo `v3` (D4) leem este campo |
 | `Niveis` | `pegar` | ((0,55; 1), (0,45; 2), (0,30; 3), (0,15; 4), (0,04; 5)) | S §11.2 |
 | | `botar` | (0,55; 0,45; 0,30; 0,15; 0,04) | S §11.2 |
+| | `topo_min_c` | 0,30 m (o topo mínimo da laje na fatia C) | S §7 (29/10: núcleo `sorteia_topo_e_massa`) |
 | `Terreno` | `linhas`, `tamanho` | 13; (8,0; 8,0) | PD-20; `terrains/config.py` |
 | | `tetos_andar` | degrau 0,20; rampa 0,36; obstáculo 0,15 | S §11.2 |
 | | `colunas` | (`plano`, `escada`, `escada_inv`, `rampa`, `rampa_inv`, `escada_aleatoria`, `irregular`, `obstaculos`, `caixas`) | D1; a ordem das colunas do gerador (29/10: o `eventos` lê daqui, sem importar a `cena`) |
@@ -808,6 +809,92 @@ class FiltroDeElevacao:
                                                                 # R com o erro comum da leitura e piso σ_fixo² (PD-42);
                                                                 # d̄ = média de `dist` (E,R) dos pontos válidos da célula
     def recorte(self) -> torch.Tensor: ...                      # (E,882): 441 alturas, depois 441 confianças (I §2.4)
+```
+
+**Fase E: núcleos puros (29/10)**
+
+Assinaturas que a lane E0 testa e as lanes E1 a E6 implementam. Índices de alvo: P0..P4 = 0..4,
+B1..B4 = 5..8, −1 = nenhum (`knobs.ALVOS`). Todo núcleo devolve 0 ou False no índice −1, nunca NaN (§6.6).
+
+```python
+# eventos.py (E1)
+def sorteia_topo_e_massa(fatia, nivel_pegar: int, nivel_massa_c: int, origem_z, k_niv: Niveis, k_cena: Cena,
+                         gerador) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
+    # (topo (E,) sobre o chão local, topo_w (E,) = origem_z + topo, massa (E,) kg). (h_k, m_k) = k_niv.pegar[nível];
+    # h_0 = k_niv.pegar[0][0]; m_min = k_cena.caixa_massa_base. B: topo U[h_k; h_0], massa U[m_min; m_k];
+    # C: topo U[max(h_k; k_niv.topo_min_c); h_0], massa U[m_min; m_j], j = nivel_massa_c (−1 → m_min);
+    # ANDAR: topo 0, massa m_min (a cena estaciona). fatia (E,) long, índice em FATIAS; origem_z (E,)
+
+# comando.py (E3)
+def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus, d_caixa_p4, d_pelve_p4,
+                   invariantes, k: Alvos) -> torch.Tensor: ...
+    # (E,) bool. d_palmas (E,2) m, distância de cada palma ao alvo dela no frame da caixa; contatos (E,2) bool
+    # (sensores `palma_E`, `palma_D`); apoio (E,) bool, a caixa ainda toca a laje (`apoio_caixa`);
+    # invariantes (E,) float, o produto `desloc · incl · maos` de `portoes_do_alvo`.
+    # P0, P1: as duas d_palmas ≤ tol_palma; P2: os dois contatos; P3: ~apoio e incl ≤ incl_lim;
+    # P4: d_caixa_p4 ≤ tol_caixa_p4 e d_pelve_p4 ≤ tol_pelve_p4 (o tempo_p4 é do `alvos.avanca`);
+    # sempre `& (invariantes == 1)` (S §8.2: o invariante fora do limite impede o avanço); B1..B4 e −1: False
+def caixa_perdida_agora(fundo_sobre_chao, v_rel, fora_do_alvo, pegou, indice, sobre_laje,
+                        k: Terminacao) -> torch.Tensor: ...
+    # (E,) bool = caiu | arremesso | fora_da_laje (S §10). caiu: fundo_sobre_chao < caixa_folga_chao (o fundo
+    # pelo sensor `altura_caixa`, contra o terreno, PD-21); arremesso: pegou & (v_rel > v_solta) & fora_do_alvo,
+    # com v_rel = ‖v_caixa − v_base‖ e fora_do_alvo = no BOTAR, centro da caixa a > `Alvos.raio_b2` do alvo de
+    # soltura, nas outras tarefas sempre True; fora_da_laje: (0 ≤ indice ≤ 2) & ~sobre_laje (o centro da caixa
+    # fora do retângulo do topo da laje, no frame da laje)
+def sucesso_do_pegar(p4_fechado, falhou, perdeu) -> torch.Tensor: ...
+    # (E,) bool = p4_fechado & ~falhou & ~perdeu (S §11.3, PD-50); falhou = terminação que não é time_out no
+    # trecho seguinte; o invólucro decide QUANDO registra (B: fim do episódio; C: abertura do BOTAR)
+
+# recompensas.py (E4). ⚠ O `RewardTermCfg` do `progresso` e do `perda_caixa` tem peso 1,0 e −1,0: w_p, B_alvo e o
+# custo da perda entram no núcleo, na escala do item 3 da Parte 0 (o mjlab só multiplica por dt).
+def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_graus, a, k: Alvos) -> torch.Tensor: ...
+    # (E,) m (B4: adimensional). P0–P2 e B3: média nas duas palmas de ‖palmas_c − alvos.palmas_alvo_caixa(indice,
+    # a, k)‖ (palmas_c (E,2,3) no frame da caixa); P3, P4, B1, B2: ‖caixa_w − caixa_alvo_w‖; B4:
+    # √((dpelve/tol_pelve_b4)² + (dtronco_graus/tol_tronco_b4_graus)²); −1: 0. A mesma conta de
+    # `parte0/item1_phi._distancia`
+def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_graus, contatos, desvio_tronco_graus,
+                    desvio_recuo, desvio_com, dois_pes, a, k: Alvos) -> dict[str, torch.Tensor]: ...
+    # cada (E,) em [0, 1], 1 fora do intervalo de alvos em que vale; as rampas são `potencial.rampa`:
+    # "desloc": P0–P2 rampa(desloc_pega, desloc_p0p2_frac·a, delta_p0p2_frac·a); B3–B4 rampa(desloc_apoio,
+    #   desloc_b2b4, delta_b2b4); "incl": P2–B2 rampa(incl_graus, incl_lim_graus, delta_incl_graus);
+    # "maos": P2–B2 contatos.sum(−1)/2 (PD-19); "tronco": rampa(desvio_tronco_graus, faixa_tronco_graus,
+    #   delta_tronco_graus); "recuo": fora do B4 rampa(desvio_recuo, faixa_recuo, delta_recuo);
+    # "com": com dois_pes, rampa(desvio_com, faixa_com, delta_com), senão 1 (PD-35). Os mesmos intervalos de
+    # `parte0/item1_phi` (DESLOC_PEGA, MAOS, DESLOC_BOTAR); invariantes = desloc · incl · maos
+def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor: ...
+    # (E,) = potencial.phi(potencial.nucleo(d, sigma) · fator, list(portoes.values())); fator = fator_pouso em B1 e
+    # B2, 1 nos outros (o invólucro calcula); −1 → 0
+def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, w_p, gamma) -> torch.Tensor: ...
+    # (E,) = w_p·potencial.progresso(phi_velho_no_novo, phi_ant, gamma) + b_alvo·avancou, e 0 onde `troca`
+    # (o índice vira −1, PD-36). phi_velho_no_novo = Φ(s′, i) do alvo VELHO no estado novo (D1); b_alvo (E,) =
+    # Recompensa.b_alvo[indice velho]
+def n_qualidade(d_transporte, incl_graus, incl_lim_graus, contatos, k: Alvos) -> torch.Tensor: ...
+    # (E,) = nucleo(d_transporte, tol_caixa_p4) · rampa(incl_graus, incl_lim_graus, delta_incl_graus) ·
+    # contatos.sum(−1)/2 (PD-37)
+def aplica_qualidade(r, q) -> torch.Tensor: ...        # q·relu(r) + min(r, 0): só a parte positiva do rastreio
+def n_perda_caixa(perdeu_agora, b_pagos, custo, devolve: bool) -> torch.Tensor: ...
+    # (E,) = perdeu_agora · (custo + (b_pagos se devolve, senão 0)); peso −1 no cfg
+
+# terminacoes.py (E5)
+def n_caixa_perdida(perdeu_agora, vira_andar: bool) -> torch.Tensor: ...   # perdeu_agora & ~vira_andar
+
+# balanceador.py (E6)
+class Curriculo:
+    def __init__(self, k_bal, k_niv, k_com, k_ter, k_dr: DR | None = None): ...  # sem k_dr, dr() devolve {}
+    def nivel_passou(self, tarefa: str) -> int: ...
+        # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum): nivel(t) se a célula da tarefa
+        # está no portão, senão nivel(t) − 1. Só para PEGAR e BOTAR (uma célula por tarefa)
+    def dr(self) -> dict: ...
+        # o estado de DR (§6.8), só tipos do Python, dentro do `estado()`; sobe no `fecha_iteracao`; nunca desce:
+        # "vies_imu": bool, liga com `reto` e `parado` do ANDAR no portão (o mesmo fecho que abre a fatia B);
+        # "atrito_pad", "atrito_laje": bool, ligam com o PEGAR no portão do nível 0;
+        # "mu_min_pad": float = max(mu_pad_min, atrito_pad[0] − passo_mu_pad·(nivel("PEGAR") + nivel("CARREGAR")))
+        #   depois do portão do PEGAR 0; atrito_pad[0] antes;
+        # "com_caixa": [xy, z] = [0, 0]; com_caixa_frac0 no portão do PEGAR 0; com_caixa_frac_max depois da primeira
+        #   subida de nível do PEGAR ou do CARREGAR (só age com `DR.com_caixa`, PD-38);
+        # "atraso_max": int = atraso_inicio[1]; atraso_portao[1] no portão do PEGAR 0 (o refino é da fase G);
+        # "forca_caixa": bool e "rfi": float (0, depois rfi[0]), ligam na primeira subida de nível do PEGAR ou
+        #   do CARREGAR (a força e o RFI entram no cfg na fase H)
 ```
 
 ### 6.4 Buffers do env
@@ -2202,3 +2289,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | dúvidas da onda D-2: o `twist` é o único escritor de `v3_celula` e lê o episódio de terreno no `terrain_types` (`sorteia_celulas` ganha `sem_tipo`); a unidade do `v3_t_empurrao` e o relógio do `twist`; o `tamanho_caixa` vai à fase E; `grupos(k: Knobs)` (o `mapa` sai sem a percepção; ruído e capacidade do atraso no `knobs`); a composição de `caixa_verdade` e o divisor de `niveis`; o `cerca_com` usa o `subtree_com` e o `body_subtreemass` da raiz; o recuo é a distância no plano da `grade_recuo`; campos novos `Cena.reset_base_andar`, `Cena.prioridade_laje`, `Terreno.borda`, `DR.ruido_obs`, `Recompensa.recuo_carregar` | as lanes D2, D3, D5 e D7 acharam a §6 aberta; o `body_mass` tem forma (mundos, corpos) e o `root_com_pos_w` é o CoM da pelve, não o do robô |
 | 2026-10-29 | `Curriculo`: os sorteios rodam no device do gerador; `id_celula(tarefa, tipo)` substitui os dois `_id_terreno` repetidos do `eventos` e do `comando` | o `v3_gerador` mora na GPU e o `multinomial` da CPU com gerador CUDA falha; função repetida (CLAUDE.md, minimização) |
 | 2026-10-29 | D11: a seção "Contrato com o pilota_v3" do `exporta_cena.py` é o contrato do driver; o mapa do driver sai da `Percepcao` do `pilota_v3`, e a paridade só imprime a diferença do mapa; `T_BASE_SENSOR` é referência, o driver usa a pose viva do site; versão = hash do git; kd conferido por `biasprm[2]` | dúvidas da D11a: o plano não dizia como o mapa entra na paridade nem o que é a versão do pacote |
+| 2026-10-29 | §6.3 "Fase E: núcleos puros": `sorteia_topo_e_massa`, `ok_agora_pegar`, `caixa_perdida_agora`, `sucesso_do_pegar`, `distancia_do_alvo`, `portoes_do_alvo`, `phi_do_alvo`, `n_progresso`, `n_qualidade`, `aplica_qualidade`, `n_perda_caixa`, `n_caixa_perdida`, `Curriculo.nivel_passou` e `Curriculo.dr()`; `Niveis.topo_min_c`; o peso do `progresso` e do `perda_caixa` no cfg é ±1 e a escala mora no núcleo | a lane E0 precisa das assinaturas para testar antes do código, como a D0 precisou |
