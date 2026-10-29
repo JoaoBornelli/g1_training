@@ -323,8 +323,12 @@ class Terreno:  # S §11.2, §12; PD-20
     tamanho: tuple = (8.0, 8.0)  # PD-20; terrains/config.py: tamanho de cada célula (m)
     # (tipo, teto em m): degrau, rampa e obstáculo (S §11.2)
     tetos_andar: tuple = (("degrau", 0.20), ("rampa", 0.36), ("obstaculo", 0.15))
-    # (tipo, linha máxima de CARREGAR): PD-20
-    linha_max_carregar: tuple = (("escadas_rampas", 9), ("obstaculos", 8), ("caixas", 7))
+    # D1; ordem das colunas do gerador (o eventos lê daqui, sem importar a cena)
+    colunas: tuple = ("plano", "escada", "escada_inv", "rampa", "rampa_inv", "escada_aleatoria",
+                      "irregular", "obstaculos", "caixas")
+    # (coluna, linha máxima de CARREGAR): PD-20; uma coluna tem plataforma de 2 m se e só se está aqui
+    linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
+                                 ("escada_aleatoria", 9), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
 
 

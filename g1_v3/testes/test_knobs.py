@@ -84,6 +84,21 @@ class TestKnobs(unittest.TestCase):
             self.assertTrue(set(tarefas) <= set(TAREFAS), regra)
         self.assertEqual(achado, esperado)
 
+    def test_colunas_do_terreno(self):
+        # D1 (§6.2, 29/10): as 9 colunas na ordem do gerador; o eventos lê esta ordem.
+        t = Knobs().terreno
+        self.assertEqual(t.colunas, ("plano", "escada", "escada_inv", "rampa", "rampa_inv",
+                                     "escada_aleatoria", "irregular", "obstaculos", "caixas"))
+        self.assertEqual(len(t.colunas), 9)
+        # PD-20: toda coluna com plataforma de 2 m é uma coluna do gerador.
+        nomes = [n for n, _linha in t.linha_max_carregar]
+        self.assertTrue(set(nomes) <= set(t.colunas))
+        # plano e irregular não têm plataforma de 2 m: fora do CARREGAR.
+        self.assertNotIn("plano", nomes)
+        self.assertNotIn("irregular", nomes)
+        # O balanceador usa só o máximo dos valores (9).
+        self.assertEqual(max(v for _n, v in t.linha_max_carregar), 9)
+
     def test_nenhum_none_no_ativo(self):
         # None = "sai da Parte 0": nenhum pode chegar ao treino. Anda tuplas e tuplas de tuplas.
         def achar_none(nome, valor):
