@@ -238,8 +238,9 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     """Portões de Φ, cada um em [0, 1] (E4; §6.2 `Alvos`, PD-19, PD-35). 1 fora do intervalo em que o portão vale.
 
     "desloc": P0–P2 pela caixa na pega, B3–B4 pelo ponto de apoio; "incl": P2–B2, com `incl_lim_graus` do degrau;
-    "maos": P2–B2, contatos/2 (PD-19); "tronco": faixa do tronco; "recuo": fora do B4; "com": só com os dois
-    pés (PD-35). Desvios são não negativos (quem chama tira o módulo). Os intervalos são os de `parte0/item1_phi`.
+    "maos": P2–B2, contatos/2 (PD-19); "tronco": faixa do tronco, do lado de fora só, 1 no B4 (F9 P2); "recuo": fora
+    do B4; "com": só com os dois pés (PD-35). Desvios são não negativos (quem chama tira o módulo; o tronco entra
+    com relu(incl − IK), S §8.2). Os intervalos são os de `parte0/item1_phi`.
     "com": `desvio_com` = relu(faixa_com − margem), 1 com margem ≥ faixa_com e 0 com margem ≤ 0 (R2, 29/10).
     """
     rampa, um = potencial.rampa, torch.ones_like(desloc_pega)
@@ -250,7 +251,7 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
         desloc=desloc,
         incl=torch.where(dentro, rampa(incl_graus, incl_lim_graus, k.delta_incl_graus), um),
         maos=torch.where(dentro, contatos.float().sum(-1) / 2.0, um),
-        tronco=rampa(desvio_tronco_graus, k.faixa_tronco_graus, k.delta_tronco_graus),
+        tronco=torch.where(indice == _B4, um, rampa(desvio_tronco_graus, k.faixa_tronco_graus, k.delta_tronco_graus)),
         recuo=torch.where(indice == _B4, um, rampa(desvio_recuo, k.faixa_recuo, k.delta_recuo)),
         com=torch.where(dois_pes, rampa(desvio_com, 0.0, k.delta_com), um),
     )
@@ -432,8 +433,9 @@ def _topo_do(env, indice):
     return torch.where(_em(indice, _B1_B3), env.v3_topo_destino, env.v3_topo)
 
 
-def _ref_do_alvo(env, indice):
-    """(E,8) da referência do alvo `indice` (palmas, pelve, tronco; `observacoes.referencia_do_alvo`). Lazy."""
+def ref_do_alvo(env, indice):
+    """(E,8) da referência do alvo `indice` (palmas, pelve, tronco; `observacoes.referencia_do_alvo`). Lazy.
+    Pública (F9 S4): a observação `referencia` do crítico chama esta, a mesma fonte da recompensa."""
     from g1_v3.observacoes import referencia_do_alvo
 
     return referencia_do_alvo(indice, _topo_do(env, indice), env.v3_meia, env.v3_ref, K)
@@ -441,7 +443,7 @@ def _ref_do_alvo(env, indice):
 
 def _recuo_ref(env, indice):
     """Recuo de referência (m) do alvo `indice`: o transporte no P4 e no CARREGAR, `ref.recuo` nos outros (E4; B4 não
-    usa). O transporte é `ref.caixa_transporte_b(a)`, a referência da IK (F4: `Recompensa.recuo_carregar` saiu daqui).
+    usa). O transporte é `ref.caixa_transporte_b(a)`, a referência da IK.
     É o `ik` da `cerca_recuo` nas quatro tarefas (S7, 29/10): uma conta só."""
     ref, a = env.v3_ref, env.v3_meia
     transporte = ref.caixa_transporte_b(a)[:, :2].norm(dim=-1)
@@ -460,7 +462,7 @@ def _phi_env(env, indice, sigma):
     palmas_w = robo.data.site_pos_w[:, robo.find_sites(_PALMAS_SITIOS)[0]]  # (E,2,3)
     palmas_c = torch.einsum("eij,eki->ekj", alvos.frame_da_caixa(quat, estimador.yaw(robo.data.root_link_quat_w)),
                             palmas_w - caixa_w[:, None])
-    ref_do = _ref_do_alvo(env, indice)
+    ref_do = ref_do_alvo(env, indice)
     dpelve = env.scene["altura_pelve"].data.heights[:, 0] - ref_do[:, 6]
     d = distancia_do_alvo(indice, palmas_c, caixa_w, alvo_da_caixa_w(env, indice), dpelve,
                           incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
@@ -475,7 +477,7 @@ def _phi_env(env, indice, sigma):
     portoes = portoes_do_alvo(
         indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), desloc_apoio,
         torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), _contato_palmas(env),
-        (incl_torso(env) - torch.rad2deg(ref_do[:, 7])).abs(), (rec - _recuo_ref(env, indice)).abs(),
+        torch.relu(incl_torso(env) - torch.rad2deg(ref_do[:, 7])), (rec - _recuo_ref(env, indice)).abs(),
         torch.relu(K.faixa_com - margem_com(com, cantos)), dois, a, K)
     return phi_do_alvo(indice, d, sigma, fator, portoes)
 
@@ -535,11 +537,16 @@ def vivo(env, tarefas):
 
 
 def altura_pe(env, tarefas):
-    """Altura do pé sobre o terreno (PD-21) e a velocidade horizontal dos tornozelos. ANDAR e CARREGAR."""
+    """Altura do pé sobre o terreno (PD-21) e a velocidade horizontal dos tornozelos. ANDAR e CARREGAR.
+    F9 P4: zero com o comando do twist zero (o ANDAR parado final pagava 1,0/s com os pés parados).
+    """
     robo = env.scene["robot"]
     h = env.scene["altura_pes"].data.heights  # (E,2): folga do pé acima do terreno
     v = robo.data.body_link_vel_w[:, robo.find_bodies(_PES_CORPOS)[0], :2]  # (E,2,2): [lin, ang] → lin xy
-    return _fim(env, tarefas, n_altura_pe(h, v, R.alvo_pe, R.std_pe, R.tanh_pe), paga=True)
+    cmd = env.command_manager.get_command("twist")
+    anda = cmd.norm(dim=-1) > 0
+    valor = n_altura_pe(h, v, R.alvo_pe, R.std_pe, R.tanh_pe)
+    return _fim(env, tarefas, torch.where(anda, valor, torch.zeros_like(valor)), paga=True)
 
 
 def escorrego(env, tarefas):
@@ -640,7 +647,7 @@ def cerca_tronco(env, tarefas):
     """
     incl = incl_torso(env)
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
-    ik = torch.where(manip, torch.rad2deg(_ref_do_alvo(env, env.v3_alvo_idx)[:, 7]), torch.zeros_like(incl))
+    ik = torch.where(manip, torch.rad2deg(ref_do_alvo(env, env.v3_alvo_idx)[:, 7]), torch.zeros_like(incl))
     return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus))
 
 
@@ -661,14 +668,16 @@ def cerca_torque(env, tarefas):
 def cerca_pelve(env, tarefas):
     """Altura da pelve sobre o terreno contra a referência da tarefa (S §9.3).
 
-    ik: `pelve_de_pe` no ANDAR; `pelve_com_caixa(a)` no CARREGAR; `referencia_do_alvo` no PEGAR e no BOTAR.
+    ik: `pelve_de_pe` no ANDAR; `pelve_com_caixa(a)` no CARREGAR; `ref_do_alvo` no PEGAR e no BOTAR com alvo.
+    ⚠ F9 S1: com −1 (espera do PEGAR, BOTAR depois do B4) a referência do alvo tem pelve 0; vale a pose de pé.
     """
     h = env.scene["altura_pelve"].data.heights[:, 0]
     ref = env.v3_ref
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
     ik = torch.where(carrega, ref.pelve_com_caixa(env.v3_meia).to(h), torch.full_like(h, ref.pelve_de_pe))
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
-    ik = torch.where(manip, _ref_do_alvo(env, env.v3_alvo_idx)[:, 6].to(h), ik)
+    manip = manip & (env.v3_alvo_idx >= 0)
+    ik = torch.where(manip, ref_do_alvo(env, env.v3_alvo_idx)[:, 6].to(h), ik)
     return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve))
 
 
@@ -677,10 +686,13 @@ def cerca_recuo(env, tarefas):
 
     recuo = ‖xy da caixa − xy da pelve‖ no mundo: a mesma medida da `grade_recuo` (`dados/gera_referencias.py:109`),
     e não o x no frame da base (29/10). ik: `_recuo_ref` (o transporte no CARREGAR e no P4; `ref.recuo` nos outros).
+    ⚠ F9 M14: no BOTAR com o alvo B4 ou −1 a caixa já está solta, e a cerca vale zero.
     """
     robo = env.scene["robot"]
     recuo = (env.scene["box"].data.root_link_pos_w[:, :2] - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)
-    return _fim(env, tarefas, n_cerca_recuo(recuo, _recuo_ref(env, env.v3_alvo_idx).to(recuo), R.lim_recuo))
+    custo = n_cerca_recuo(recuo, _recuo_ref(env, env.v3_alvo_idx).to(recuo), R.lim_recuo)
+    solta = (env.v3_tarefa == TAREFAS.index("BOTAR")) & ((env.v3_alvo_idx == _B4) | (env.v3_alvo_idx < 0))
+    return _fim(env, tarefas, torch.where(solta, torch.zeros_like(custo), custo))
 
 
 def contato_fora(env, tarefas):
@@ -713,6 +725,9 @@ def progresso(env, tarefas):
     phi_novo = torch.where(troca, torch.full_like(phi_novo, -1.0), phi_novo)  # sentinela: sem alvo
     b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
     b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
+    # ⚠ F9 P3: o bônus do B2 vale × núcleo da velocidade de chegada (σ do pouso do degrau); sem toque (−1), vale 1
+    fator_b2 = potencial.nucleo(env.v3_v_chegada.clamp(min=0), por_degrau(env, *R.sigma_pouso))
+    b = torch.where(i_ef == alvos.B2, b * fator_b2, b)
     perdeu = env.v3_perdeu
     r = n_progresso(phi_ef, env.v3_phi, av, b, troca, perdeu, R.progresso, R.gamma)
     pagos = av & (i_ef >= alvos.P2) & ~(troca & perdeu)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)

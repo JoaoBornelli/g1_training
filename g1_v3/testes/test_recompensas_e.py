@@ -97,9 +97,13 @@ class TestPassoAPassoComItem1(unittest.TestCase):
         np.testing.assert_allclose(c.phi().numpy(), c.res["phi"], atol=TOL, rtol=0)
 
     def test_phi_botar_bate_com_item1(self):
-        # Teste E4: phi_do_alvo no caminho do BOTAR bate, passo a passo, com item1_phi["phi"] (1e-5)
+        # Teste E4: phi_do_alvo no caminho do BOTAR bate, passo a passo, com item1_phi["phi"] (1e-5).
+        # ⚠ DÚVIDA (F9 P2): no B4 o portão do tronco vale 1, mas o `item1_phi` (parte0, fora desta lane) ainda tem a rampa
+        # de |incl − IK|; por isso o B4 só é checado no sentido (o Φ sobe), e o item1 deve ser atualizado.
         c = self.botar
-        np.testing.assert_allclose(c.phi().numpy(), c.res["phi"], atol=TOL, rtol=0)
+        fora = c.tr["indice"] != alvos.B4
+        np.testing.assert_allclose(c.phi().numpy()[fora], c.res["phi"][fora], atol=TOL, rtol=0)
+        self.assertTrue(np.all(c.phi().numpy()[~fora] >= c.res["phi"][~fora] - TOL))
 
 
 class TestDistancia(unittest.TestCase):
@@ -277,7 +281,8 @@ def _env_progresso(idx, av, p4_fechado, phi_ant, sigma, sigma_velho):
         v3_alvo_idx=torch.tensor([idx]), v3_avancou=torch.tensor([av]), v3_p4_fechado=torch.tensor([p4_fechado]),
         v3_phi=torch.tensor([phi_ant], dtype=torch.float32), v3_sigma=torch.tensor([sigma], dtype=torch.float32),
         v3_sigma_velho=torch.tensor([sigma_velho], dtype=torch.float32), v3_b_pagos=torch.zeros(1),
-        v3_perdeu=torch.zeros(1, dtype=torch.bool))
+        v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_degrau=torch.zeros(1, dtype=torch.long),
+        v3_v_chegada=torch.full((1,), -1.0))
 
 
 class TestInclLim(unittest.TestCase):
