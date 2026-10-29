@@ -910,6 +910,41 @@ class Curriculo:
         #   do CARREGAR (a força e o RFI entram no cfg na fase H)
 ```
 
+**Fase F: núcleos puros (29/10)**
+
+Assinaturas que a lane F0 testa e as lanes F1 a F4 implementam. Índices: B1..B4 = 5..8. Todo núcleo devolve
+False ou 0 fora dos índices dele, nunca NaN (§6.6).
+
+```python
+# eventos.py (F2; a F5 entra aqui: o nível do BOTAR vem de `v3_cur.nivel("BOTAR")`)
+def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerador
+                    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: ...
+    # (theta (n,) rad U[−destino_giro_max_graus; +], y (n,) m U[−destino_jitter_y; +], longe (n,) m
+    # U[0; jitter_x_max[nivel_botar]] (o jitter só para longe, [C38]), topo (n,) m U[botar[nivel]; botar[0]])
+    # O invólucro `posiciona_destino(env, ids)`: alvos.laje_destino(recuo(topo, a) + longe, theta, y,
+    # prateleira_meia_xy, destino_borda) → (alvo_b, centro_b); leva ao mundo pelo rumo da base; a laje gira para
+    # rumo + θ; z do topo = env_origins_z + topo; grava `v3_topo_destino`; devolve o ponto de soltura no mundo (E,3)
+
+# comando.py (F1)
+def ok_agora_botar(indice, d_horiz_b1, d_caixa_b2, apoio_N, peso_N, afasta_palmas, apoiada, v_caixa,
+                   dpelve, dtronco_graus, invariantes, k: Alvos) -> torch.Tensor: ...
+    # (E,) bool. B1: d_horiz_b1 ≤ tol_b1_horizontal (a caixa na horizontal do ponto 5 cm acima da soltura);
+    # B2: d_caixa_b2 ≤ raio_b2 e apoio_N ≥ apoio_b2_mg·peso_N; B3: as duas afasta_palmas (E,2) ≥ b3_afasta, apoiada
+    # e ‖v_caixa‖ < v_parada_b3 (PD-39); B4: |dpelve| ≤ tol_pelve_b4 e |dtronco_graus| ≤ tol_tronco_b4_graus;
+    # sempre `& (invariantes == 1)` (o produto `desloc · incl · maos` de `portoes_do_alvo`); P0..P4 e −1: False.
+    # ⚠ O B4 da caixa perdida (E3) passa a usar este núcleo: sem conta repetida na cadeia
+def sucesso_do_botar(b4_fechado, falhou, perdeu) -> torch.Tensor: ...  # b4_fechado & ~falhou & ~perdeu (PD-50)
+
+# terminacoes.py (F3)
+def n_chegada(primeiro_contato, vz_ant, limite) -> torch.Tensor: ...
+    # (E,) bool = primeiro_contato & (−vz_ant > limite); vz_ant (E,) m/s, negativa na descida; limite (E,) do degrau:
+    # recompensas.por_degrau(env, *Terminacao.chegada) (o `_por_degrau` da E4 fica público)
+
+# recompensas.py (F4): sem núcleo novo. O `progresso` já cobre B1–B4 por `distancia_do_alvo`, `portoes_do_alvo`
+# (desloc_apoio = ‖xy da caixa − xy de `v3_ponto_apoio`‖) e `phi_do_alvo` (fator = `fator_pouso` com σ =
+# por_degrau(*sigma_pouso) em B1 e B2). As cercas de B1–B3 usam `v3_topo_destino` no lugar de `v3_topo`.
+```
+
 ### 6.4 Buffers do env
 
 Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padrão de
@@ -2312,3 +2347,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | revisão D14 (`docs/relatorios/2026-10-29-v3-revisao-parte1.md`): `caixa_faces` com `tangent`; `nao_pes_chao` com um primário por corpo; a queda registra falha antes da âncora; sem o currículo `v3` no play; alvo do PD com ação zero = `q_de_pé` − viés; exceções da regra "todo número no knobs" e `knobs.NUNCA`; `Cena.estaciona_z` e `Cena.caixa_condim`; o detector de fim do driver vai à E9 | 2 bloqueios e 4 defeitos silenciosos da revisão; o resto é regra e texto |
 | 2026-10-29 | E4: `v3_phi` com a sentinela −1 (a entrada no alvo paga 0); `v3_b_pagos` só do P2 em diante e zerado pela cadeia no reset; `Recompensa.freio_limiar_andar` e `freio_limiar_correr` | a lane E4 achou que o primeiro passo do P0 pagaria Φ(P0) de graça, e os limiares do `freio` sem knob |
 | 2026-10-29 | E3: `Alvos.sigma_min` = 0,01 m (o piso do σ do alvo métrico; sai do literal da cadeia); `recompensas.incl_lim(env)` e `recompensas.incl_torso(env)` públicos, e a cadeia os usa (o limite de inclinação do `ok_agora` segue o degrau, como o do Φ; sem cópia da conta do tronco) | a lane E3 achou o literal e as duas contas que divergiriam na fase G |
+| 2026-10-29 | §6.3 "Fase F: núcleos puros": `sorteia_destino`, `ok_agora_botar` (o B4 da perda passa a usá-lo), `sucesso_do_botar`, `n_chegada`; `recompensas.por_degrau` público; a F5 entra na F2; `Alvos.v_parada_b3` = 0,05 m/s (PD-39); o jitter da laje de destino só para longe é U[0; `jitter_x_max`[nível do BOTAR]]; as cercas de B1–B3 usam `v3_topo_destino` | a lane F0 precisa das assinaturas antes do código; o jitter "só para longe" não tinha número |
