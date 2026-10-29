@@ -1,4 +1,4 @@
-"""Os checks da v3 (D12 e E10 do plano, seções 1 a 29: Partes 1 a 3).
+"""Os checks da v3 (D12 e E10 do plano, seções 1 a 33: Partes 1 a 3b).
 
     python -m g1_v3.smoke
 
@@ -1022,6 +1022,167 @@ def s29_andar_parado_final_acaba_em_time_out():
         env.close()
 
 
+# =============================================================================
+# Parte 3b (G5): CARREGAR no terreno. A fatia B é forçada numa escada, na linha mais alta que `linha_max_carregar`
+# permite. A origem do sub-terreno é o topo da plataforma (mjlab primitive_terrains.py:233-236, a caixa do meio).
+def _abre_b_na_escada(env) -> float:
+    """Fatia B forçada numa escada na linha de `linha_max_carregar`, com a cena e a base postas. Devolve o degrau (m).
+
+    ⚠ Estado forçado, como o `sorteia_fatia` escreve: nível, tipo e origem do sub-terreno. Quem chama faz o `reset` antes.
+    ⚠ O degrau da linha é `tetos_andar.degrau × linha/(linhas−1)`: o mjlab põe `difficulty = linha/(num_rows−1)`
+       (terrain_generator.py:253-258) e `step = 0 + difficulty × teto` (primitive_terrains.py:79-81). Na linha 9: 0,15 m.
+    """
+    from g1_v3 import eventos
+    from g1_v3.comando import FATIA_B
+    from g1_v3.knobs import ATIVO
+
+    t, k = ATIVO.terreno, ATIVO.cena
+    linha = dict(t.linha_max_carregar)["escada"]
+    coluna = t.colunas.index("escada")
+    ids = torch.arange(env.num_envs, device=env.device)
+    ter = env.scene["terrain"]
+    ter.terrain_levels[ids] = linha
+    ter.terrain_types[ids] = coluna
+    env.scene.env_origins[ids] = ter.terrain_origins[linha, coluna]  # como `sorteia_fatia` (eventos.py:146-148)
+    env.v3_fatia[:] = FATIA_B
+    eventos.posiciona_cena(env, ids)
+    eventos.reset_base_por_fatia(env, ids, dict(k.reset_base_andar), dict(k.reset_base_manipula))
+    env.sim.forward()  # ⚠ a leitura das poses depois da escrita pede o forward (como em s06)
+    return dict(t.tetos_andar)["degrau"] * linha / (t.linhas - 1)
+
+
+def _base_alem_da_borda(env, z):
+    """Põe a base parada além da borda da plataforma, no rumo da cena, a `z` (E,); roda `forward` e `sense`.
+
+    ⚠ 1,15 m do centro = a borda (plataforma/2 = 1,0 m) + o meio do primeiro anel de degrau (`step_width` 0,30 m,
+       config.py:49). O anel fica um degrau abaixo da plataforma (primitive_terrains.py:133-135).
+    """
+    from g1_v3.knobs import ATIVO
+
+    robo = env.scene["robot"]
+    rumo = env.v3_rumo_cena
+    alem = ATIVO.terreno.plataforma / 2 + 0.15
+    pose = robo.data.root_link_pose_w.clone()
+    pose[:, :2] = env.scene.env_origins[:, :2] + alem * torch.stack([torch.cos(rumo), torch.sin(rumo)], -1).float()
+    pose[:, 2] = z
+    robo.write_root_link_pose_to_sim(pose)
+    robo.write_root_link_velocity_to_sim(torch.zeros(env.num_envs, 6, device=env.device))
+    env.sim.forward()
+    env.sim.sense()  # ⚠ o raycast das alturas só atualiza no `sense` (raycast_sensor.py:691)
+    return pose
+
+
+def _caixa_no_peito(env, pose):
+    """Põe a caixa no peito da base `pose` (n,7): `caixa_transporte_b` (a IK) levado ao mundo, velocidade zero."""
+    from mjlab.utils.lab_api.math import quat_apply
+
+    caixa_b = env.v3_ref.caixa_transporte_b(env.v3_meia).to(pose.dtype)
+    alvo = torch.zeros(pose.shape[0], 7, device=pose.device)
+    alvo[:, :3] = pose[:, :3] + quat_apply(pose[:, 3:7], caixa_b)
+    alvo[:, 3] = 1.0
+    _poe_caixa_parada(env, alvo)
+    env.sim.forward()
+    env.sim.sense()
+
+
+def s30_env_da_fatia_b_no_terreno_nasce_na_plataforma():
+    from g1_v3.estimador import yaw
+    from g1_v3.knobs import ATIVO
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_b_na_escada(env)
+        base, origem = env.scene["robot"].data, env.scene.env_origins[:, :2]
+        d_base = (base.root_link_pos_w[:, :2] - origem).abs().amax(-1)
+        check("base dentro do quadrado da plataforma (‖xy da base − origem‖∞ < plataforma/2)",
+              bool((d_base < ATIVO.terreno.plataforma / 2).all()), f"{d_base.tolist()}")
+        rumo = env.v3_rumo_cena
+        laje = env.scene["table"].data.root_link_pos_w[:, :2] - origem
+        L = ATIVO.terreno.laje_do_centro
+        check("centro da laje a laje_do_centro do centro (± 1e-3)",
+              bool(((laje.norm(dim=-1) - L).abs() <= 1e-3).all()), f"{laje.norm(dim=-1).tolist()}")
+        na_direcao = torch.stack([torch.cos(rumo), torch.sin(rumo)], -1) * L
+        check("centro da laje na direção de v3_rumo_cena (± 1e-3)", bool(torch.allclose(laje, na_direcao, atol=1e-3)))
+        lo, hi = dict(ATIVO.cena.reset_base_manipula)["yaw"]
+        d_yaw = torch.remainder(yaw(base.root_link_quat_w) - rumo + math.pi, 2 * math.pi) - math.pi
+        check("rumo do robô (estimador.yaw) para fora, na faixa yaw da base",
+              bool(((d_yaw >= lo - 1e-3) & (d_yaw <= hi + 1e-3)).all()), f"{d_yaw.tolist()}")
+    finally:
+        env.close()
+
+
+def s31_topo_da_laje_e_origem_de_escada_alta():
+    from g1_v3.knobs import ATIVO
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_b_na_escada(env)
+        origem_z = env.scene.env_origins[:, 2]
+        print(f"  origem z na linha mais alta da escada: {origem_z.tolist()}")
+        # ⚠ DÚVIDA: o plano diz ~1,4 m, mas o mjlab põe a origem em (num_steps + 1) × degrau (primitive_terrains.py:233-236):
+        # com 10 degraus de 0,15 m na linha 9 seriam ~1,65 m. O check fica em > 1,0 m; o valor sai impresso acima.
+        check("origem de escada alta: z > 1,0 m (o plano diz ~1,4 m)", bool((origem_z > 1.0).all()), f"{origem_z.tolist()}")
+        topo_w = origem_z + env.v3_topo
+        laje_z = env.scene["table"].data.root_link_pos_w[:, 2]
+        check("laje: topo = origem + v3_topo (± 1e-4)",
+              torch.allclose(laje_z + ATIVO.cena.prateleira_meia_z, topo_w, atol=1e-4),
+              f"{(laje_z + ATIVO.cena.prateleira_meia_z - topo_w).abs().max().item():.2e}")
+    finally:
+        env.close()
+
+
+def s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa():
+    env = _abre_env(4)
+    try:
+        env.reset()
+        degrau = _abre_b_na_escada(env)
+        _abre_cargar_no_curriculo(env)  # M1: o twist sorteia célula do CARREGAR; fechada, `multinomial` falha
+        _abre_trecho_de(env, "CARREGAR")
+        z = env.scene["robot"].data.root_link_pos_w[:, 2] - degrau  # um degrau abaixo da base de hoje
+        pose = _base_alem_da_borda(env, z)
+        _caixa_no_peito(env, pose)
+        print(f"  origem z {env.scene.env_origins[:, 2].tolist()}, base z {pose[:, 2].tolist()}, degrau {degrau:.3f} m")
+        env.step(_zeros(env))  # UM passo, ação zero (a caixa não está presa às mãos: só a regra da altura conta)
+        perdeu = env.termination_manager.get_term("caixa_perdida")
+        check("um degrau abaixo, caixa no peito: `caixa_perdida` False (D4)", not bool(perdeu.any()),
+              f"{perdeu.tolist()}")
+        check("um degrau abaixo, caixa no peito: v3_perdeu False", not bool(env.v3_perdeu.any()))
+    finally:
+        env.close()
+
+
+def s33_altura_da_pelve_mede_contra_o_terreno_local():
+    from g1_v3 import terminacoes
+    from g1_v3.env_cfg import TODAS
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        degrau = _abre_b_na_escada(env)
+        _abre_cargar_no_curriculo(env)
+        _abre_trecho_de(env, "CARREGAR")
+        pelve = env.v3_ref.pelve_de_pe
+        origem_z = env.scene.env_origins[:, 2]
+        z_degrau = origem_z - degrau  # chão do anel, um degrau abaixo do topo da plataforma (origem)
+        pose = _base_alem_da_borda(env, z_degrau + pelve)  # a base de pé sobre o degrau
+        _caixa_no_peito(env, pose)
+        sp = env.scene["altura_pelve"].data
+        alt = sp.heights[:, 0]
+        print(f"  origem z {origem_z.tolist()}, z do degrau {z_degrau.tolist()}, "
+              f"chão medido pelo sensor {(sp.frame_pos_w[:, 0, 2] - alt).tolist()}")
+        check("altura da pelve (sensor) = pelve_de_pe ± 5 cm: mede contra o terreno local (D3, D4)",
+              bool(((alt - pelve).abs() <= 0.05).all()), f"{alt.tolist()}")
+        sj = env.scene["altura_joelhos"].data  # (E,2): o chão medido por cada joelho tem de ser o do degrau
+        chao_j = sj.frame_pos_w[:, :, 2] - sj.heights
+        check("altura do joelho (sensor): chão medido = z do degrau ± 5 cm (contra o terreno local)",
+              bool(((chao_j - z_degrau[:, None]).abs() <= 0.05).all()), f"{chao_j.tolist()}")
+        check("queda False com a base de pé sobre o degrau", not bool(terminacoes.queda(env, TODAS).any()))
+    finally:
+        env.close()
+
+
 SECOES = (
     ("1 cfg monta e a task registra", s01_cfg_e_registro),
     ("2 env de 4 mundos em CPU, ator com 1 447 canais", s02_env_nasce_com_1447_canais),
@@ -1053,6 +1214,10 @@ SECOES = (
     ("27 caixa de 5 cm não termina; de 10 cm termina", s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina),
     ("28 one-hot fica em BOTAR durante o atraso", s28_one_hot_fica_em_botar_durante_o_atraso),
     ("29 ANDAR parado final acaba em time_out", s29_andar_parado_final_acaba_em_time_out),
+    ("30 env da fatia B no terreno nasce na plataforma", s30_env_da_fatia_b_no_terreno_nasce_na_plataforma),
+    ("31 topo da laje = origem + h, origem de escada alta", s31_topo_da_laje_e_origem_de_escada_alta),
+    ("32 degrau abaixo com caixa no peito: sem perda (D4)", s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa),
+    ("33 altura da pelve e do joelho contra o terreno local", s33_altura_da_pelve_mede_contra_o_terreno_local),
 )
 
 
