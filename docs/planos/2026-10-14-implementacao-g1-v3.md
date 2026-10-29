@@ -665,6 +665,49 @@ class EstimadorCaixa:
 def alvo_no_frame_da_base(alvo_w, odo: Odometria) -> torch.Tensor: ...  # (E,3)
 ```
 
+**`comando.py` e `observacoes.py` (núcleos puros; 29/10)**
+
+```python
+def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Tensor: ...  # (n,3): vx, vy, wz (D3)
+@dataclass
+class TabelaTrechos:          # a tabela da D3 achatada nas três fatias; tensores (T,)
+    tarefa: torch.Tensor      # long, índice em TAREFAS publicado no trecho
+    por_detector: torch.Tensor  # bool: o trecho acaba pelo aviso do detector mais o atraso
+    proximo: torch.Tensor     # long, −1 = fim da cadeia
+    inicio: torch.Tensor      # (3,) long, o primeiro trecho de ANDAR, B e C
+def monta_tabela_trechos(k_cad: Cadeia, device) -> TabelaTrechos: ...
+def avanca_trecho(trecho, relogio, duracao, aviso, atraso, dt, tabela: TabelaTrechos
+                  ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: ...
+    # (novo_trecho, novo_relogio, avancou, fim). trecho (E,) long; relogio (E,) float: o tempo no trecho por
+    # tempo, ou o tempo desde o aviso no trecho por detector (0 antes); duracao (E,) a duração sorteada do
+    # trecho por tempo; aviso (E,) bool, o detector já avisou neste trecho (o invólucro guarda o latch);
+    # atraso (E,) o atraso sorteado na abertura do trecho por detector. Por tempo: relógio += dt, avança com
+    # relógio ≥ duração. Por detector: relógio += dt só com aviso, avança com aviso e relógio ≥ atraso. Ao
+    # avançar, relógio = 0; fim = avançou e proximo = −1 (o trecho fica no último). A tarefa publicada é
+    # tabela.tarefa[trecho]: no atraso vale a do trecho corrente (o one-hot fica em BOTAR no atraso do BOTAR)
+def tempo_da_ancora(t_abertura, t_empurrao, ancora_s) -> torch.Tensor: ...
+    # (E,) max(t_abertura, t_empurrao) + ancora_s; sem empurrão no segmento, t_empurrao = t_abertura (PD-15)
+def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho, t_ancora, perdeu,
+                        carregar, k: Comando) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # (registra, sucesso), (E,) bool. cmd (E,3) o comando do segmento; int_proj, int_cmd (E,2) [linear, giro]:
+    # Σ(v·ĉ)dt e Σ|c|dt, Σ(ω·sinal)dt e Σ|wz|dt; deriva_pos (E,) m e deriva_rumo (E,) rad desde a âncora;
+    # t_fecho e t_ancora (E,) s; perdeu, carregar (E,) bool. registra = t_fecho ≥ t_ancora. Canal ativo
+    # (|c| ≥ limiar_canal): int_proj/int_cmd ≥ razao_portao. Canal linear zero: deriva_pos < deriva_pos_m;
+    # canal giro zero: deriva_rumo < deriva_rumo_rad. sucesso = todos os canais E (não carregar OU não perdeu)
+
+def passo_de_percepcao(filtro, dist, dirs_s, sensor_pos_w, sensor_rot_w, base_pos_w, rumo, z_pe_min_w,
+                       incl_imu, capsulas_w, raios, dxy_b, dpsi, z_ref, dt, k: Percepcao, gerador
+                       ) -> torch.Tensor: ...
+    # (E,882): pontos_no_frame_do_mapa → filtra_corpo (pontos_w, capsulas_w, sensor_pos_w) →
+    # filtro.prediz(dxy_b, dpsi, z_ref, dt) → filtro.atualiza(pontos, validos, dist) → filtro.recorte()
+def _calcula_percepcao(env) -> torch.Tensor: ...  # lê o env (D2) e chama passo_de_percepcao
+    # `atualiza_percepcao(env)` é só a guarda: chama `_calcula_percepcao` uma vez por common_step_counter
+def referencia_do_alvo(indice, h, a, ref: Referencias, k: Alvos) -> torch.Tensor: ...
+    # (E,8): palmas_alvo_caixa(indice, a, k) achatadas (6); pelve e tronco da referência do alvo:
+    # ref.pelve_z(h, a) e ref.tronco(h, a) de P0 a P3 e de B1 a B3, ref.pelve_com_caixa(a) e 0 no P4,
+    # ref.pelve_de_pe e 0 no B4; zero com indice −1 (§6.6). h = v3_topo, a = v3_meia
+```
+
 **`eventos.py` (núcleo puro; 29/10)**
 
 ```python
@@ -724,6 +767,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | buffer | forma | escrito por | lido por |
 |---|---|---|---|
 | `v3_cur` | `balanceador.Curriculo` | `curriculo` | todos |
+| `v3_ref` | `alvos.Referencias` (29/10) | `curriculo.garante_v3` | `observacoes`, `recompensas`, `comando` |
 | `v3_fatia` | (E,) long | `eventos.sorteia_fatia` | `comando`, `eventos` |
 | `v3_trecho` | (E,) long | `comando.cadeia` | `comando`, `metricas` |
 | `v3_tarefa` | (E,) long, índice em `TAREFAS` | `comando.cadeia` | todos |
@@ -2077,3 +2121,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | transporte do mapa (C1) e critério da invariância (C0), decisões do dono: o mapa anda em células inteiras e guarda o resto e o rumo, com o giro no `recorte` (a célula mais perto a cada passo congelava o mapa a 50 Hz); o teste de densidade compara média ≤ 1 cm e p95 ≤ 3 cm fora da borda do degrau, e |Δc| ≤ 0,03 em 90% das células. Achado: na borda lateral da vista a confiança do caso de 205 pontos fica menor (lê a célula menos vezes); a frase da PD-5 "a densidade não muda a confiança" não vale ali, e o erro é conservador. Contagem: `percepcao_lidar.py` +10 linhas; custo +7% | diagnóstico de 29/10 (`test_recorte_com_2_leituras_nao_depende_da_densidade`) |
 | 2026-10-29 | portão da Parte 0, decisões do dono (`docs/relatorios/2026-10-29-v3-parte0.md` §3): D1 o `progresso` usa o Φ do alvo velho no passo do avanço; D2 o `L_alvo` fica, e o critério do item 8 não vale nos plays de CARREGAR (passo miúdo); D3 `fator_pouso` gradual de 0,10 a 0,05 m (`altura_pouso_inicio`); D4 cercas pela média só nos passos em que agem (PD-30); D5 o custo do filtro fica para o I5, em GPU; D6 o teto do `aperto` sai da perda sem o aperto evitado; D7 `sacudida` = 0,05 (spec); D8 ganho de afrouxar numa rampa de 20 s. Contagem: `potencial.py` +2, `knobs.py` +1; um campo novo (`altura_pouso_inicio`), nenhum termo novo | portão da B6 |
 | 2026-10-29 | núcleo do `eventos` na §6.3 (`escolhe_celula_terreno`) e a tabela das colunas no `knobs` (`Terreno.colunas`; `linha_max_carregar` por coluna, no mesmo formato): o teste puro não importa a `cena`, que importa o mjlab. Contagem: `knobs.py` +2 | pergunta da lane D0-3 |
+| 2026-10-29 | núcleos puros do `comando` e do `observacoes` na §6.3 (`sorteia_velocidade`, `TabelaTrechos`, `monta_tabela_trechos`, `avanca_trecho`, `tempo_da_ancora`, `sucesso_do_segmento`, `passo_de_percepcao`, `_calcula_percepcao`, `referencia_do_alvo`) e o buffer `v3_ref` na §6.4; o `atualiza_percepcao` vira só a guarda. Nenhum termo novo | perguntas da lane D0-2 |
