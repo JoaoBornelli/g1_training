@@ -236,8 +236,6 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     banda_torque: float = 0.2  # S §9.3: banda do torque (fração do τ_max)
     lim_pelve: float = 0.08  # S §9.3: limite da pelve (m)
     lim_recuo: float = 0.08  # S §9.3: limite do recuo (m)
-    # D5 (29/10): recuo_IK do CARREGAR (m), o mesmo recuo que a cerca_recuo mede
-    recuo_carregar: float = 0.25
     # Tabela por regex (cada junta casa UMA regex; ver test_knobs). Valores em N·m.
     tau_max: tuple = (  # S §9.3: joelho e hip_roll 139; hip_pitch, hip_yaw, waist_yaw 88; etc.
         (r".*knee_joint", 139.0), (r".*hip_roll_joint", 139.0),

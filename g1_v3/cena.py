@@ -353,7 +353,10 @@ def sensores(k: Knobs = ATIVO) -> tuple:
     apoio = ContactSensorCfg(name="apoio_caixa",
                              primary=ContactMatch(mode="geom", pattern=BOX_GEOM, entity="box"),
                              secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),
-                             fields=("found", "force"), reduce="netforce", num_slots=1)
+                             fields=("found", "force"), reduce="netforce", num_slots=1,
+                             # ⚠ `track_air_time`: o `compute_first_contact` da `chegada` e da métrica exige (mjlab
+                             # levanta RuntimeError sem ele). P = 1 (um geom só), então o primeiro contato é (E,1).
+                             track_air_time=True)
     mesa = tuple(
         ContactSensorCfg(name=nome, primary=ContactMatch(mode="geom", pattern=grupo, entity=robo),
                          secondary=ContactMatch(mode="geom", pattern=TABLE_GEOM, entity="table"),

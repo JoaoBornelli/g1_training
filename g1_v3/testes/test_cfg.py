@@ -59,7 +59,7 @@ TAREFAS_E = {
     "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": ANDAR_PEGAR_BOTAR,
     "perda_caixa": TODAS,
 }
-TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR}
+TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR, "chegada": ("BOTAR",)}  # chegada: fase F (§6.5)
 TAREFAS_D5 = {
     "rastreio_linear": TODAS, "rastreio_angular": TODAS, "passo": ANDAR_CARREGAR, "vivo": ANDAR_CARREGAR,
     "altura_pe": ANDAR_CARREGAR, "escorrego": TODAS, "vz": TODAS, "giro_xy": TODAS, "vel_junta": TODAS,

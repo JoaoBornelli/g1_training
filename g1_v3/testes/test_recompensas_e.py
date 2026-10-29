@@ -326,19 +326,20 @@ class TestProgressoSigmaDoAlvoVelho(unittest.TestCase):
 
 class TestCercaRecuoNoP4(unittest.TestCase):
     """S7 (revisão E11): no PEGAR e no BOTAR com o alvo P4, a `cerca_recuo` mede contra a referência do transporte
-    (`recuo_carregar`, 0,25 m), e não contra `ref.recuo` (0,40 m, o recuo da pega). A caixa está a 0,25 m: custo 0."""
+    (`ref.caixa_transporte_b`, norma xy de 0,25 m no mock), e não contra `ref.recuo` (0,40 m, o recuo da pega). A caixa
+    está a 0,25 m: custo 0. (F4: o `Recompensa.recuo_carregar` saiu; a referência é só a do `_recuo_ref`.)"""
 
     def _env(self, tarefa):
+        transporte = torch.tensor([[0.25, 0.0, 0.0]])  # o que o mock de referência devolve no CARREGAR
         robo = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3)))
-        caixa = types.SimpleNamespace(
-            data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[R.recuo_carregar, 0.0, 0.0]])))
+        caixa = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=transporte))
 
         class Referencia:
             def recuo(self, topo, a):
                 return torch.full((1,), 0.40)
 
             def caixa_transporte_b(self, a):
-                return torch.tensor([[R.recuo_carregar, 0.0, 0.0]])
+                return transporte
 
         return types.SimpleNamespace(
             device="cpu", scene={"robot": robo, "box": caixa}, v3_tarefa=torch.tensor([TAREFAS.index(tarefa)]),

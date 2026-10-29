@@ -320,11 +320,9 @@ class velocidade_de_chegada:
     """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje no BOTAR, por env. Sem peso.
 
     Um valor por episódio: o do primeiro contato, zero antes. Lê `v3_vz_caixa_ant` (a vz do passo anterior,
-    escrita pelo `terminacoes.chegada`), o mesmo número que o termo julga.
+    escrita pelo `comando.cadeia`), o mesmo número que a terminação `chegada` julga.
     ⚠ `reduce="last"` no cfg: o valor é o do contato, e o episódio mantém até o fim.
     ⚠ `reset` com buffer próprio: o contato do episódio anterior não pode sobreviver.
-    ⚠ DÚVIDA: a ordem do `MetricsManager` e do `TerminationManager` no passo não está medida; se as métricas
-    rodam depois da terminação, `v3_vz_caixa_ant` já é a vz do passo corrente.
     """
 
     def __init__(self, cfg, env):
@@ -333,7 +331,7 @@ class velocidade_de_chegada:
         self.dt = env.step_dt
 
     def __call__(self, env) -> torch.Tensor:
-        novo = (env.scene[APOIO_CAIXA].compute_first_contact(dt=self.dt)
+        novo = (env.scene[APOIO_CAIXA].compute_first_contact(dt=self.dt)[:, 0]
                 & (env.v3_tarefa == BOTAR) & ~self.marcada)
         self.valor = torch.where(novo, -env.v3_vz_caixa_ant, self.valor)
         self.marcada = self.marcada | novo

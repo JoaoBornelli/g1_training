@@ -121,16 +121,15 @@ def n_chegada(primeiro_contato, vz_ant, limite) -> torch.Tensor:
 def chegada(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
     """Invólucro de `n_chegada`. Lê o `apoio_caixa` (caixa × laje) e o `v3_vz_caixa_ant`; o limite vem do degrau.
 
-    ⚠ `v3_vz_caixa_ant` é escrito AQUI, no fim de cada passo e para TODO env (sem máscara): é o valor do
-    passo anterior que o núcleo lê. Nenhum módulo o escrevia (a §6.4 diz `comando.cadeia`; ⚠ DÚVIDA: se o
-    `comando.cadeia` passar a escrevê-lo, há dois escritores).
+    Só LÊ o `v3_vz_caixa_ant`: o escritor é o `comando.cadeia`, no fim de cada passo, para todo env. Então o
+    buffer tem a vz do passo anterior, que é o que a terminação julga (§6.4).
+    ⚠ `compute_first_contact` devolve (E,P); o apoio tem um primário só, então lê a coluna 0.
     ⚠ `mascara` e `recompensas` são importados aqui dentro, como em `queda`.
     """
     from g1_v3 import recompensas
     from g1_v3.curriculo import mascara
 
-    primeiro = env.scene["apoio_caixa"].compute_first_contact(dt=env.step_dt)
+    primeiro = env.scene["apoio_caixa"].compute_first_contact(dt=env.step_dt)[:, 0]
     limite = recompensas.por_degrau(env, *ATIVO.terminacao.chegada)
     cheg = n_chegada(primeiro, env.v3_vz_caixa_ant, limite)
-    env.v3_vz_caixa_ant[:] = env.scene["box"].data.root_link_lin_vel_w[:, 2]
     return torch.where(mascara(env, tarefas), cheg, torch.zeros_like(cheg))

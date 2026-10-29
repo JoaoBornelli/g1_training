@@ -242,8 +242,8 @@ class CadeiaCmdCfg(CommandTermCfg):
 class CadeiaCmd(CommandTerm):
     """Tarefa publicada, trechos da fatia (S §7) e alvos do PEGAR (§6.2 `Alvos`, E3). Escreve v3_trecho, v3_tarefa,
     v3_fim, v3_aviso, v3_freio, v3_degrau, v3_alvo_idx, v3_alvo_w, v3_caixa_pega_w, v3_sigma, v3_relogio_alvo,
-    v3_avancou, v3_pegou, v3_p4_fechado, v3_b4_fechado, v3_perdeu, v3_perdeu_agora, v3_ponto_apoio (BOTAR, F1); dá o
-    `passo` da `v3_odo` uma vez por passo (PD-44)."""
+    v3_avancou, v3_pegou, v3_p4_fechado, v3_b4_fechado, v3_perdeu, v3_perdeu_agora, v3_ponto_apoio (BOTAR, F1),
+    v3_vz_caixa_ant (F-2: a vz da caixa, todo env, todo passo); dá o `passo` da `v3_odo` uma vez por passo (PD-44)."""
 
     cfg: CadeiaCmdCfg
 
@@ -520,6 +520,9 @@ class CadeiaCmd(CommandTerm):
         if ids.numel():
             self._abre_trecho(ids, novo[ids], m)
         env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w, self.deriva)
+        # vz da caixa para a `chegada` e a métrica do passo seguinte. A cadeia roda depois das terminações, das
+        # recompensas, das métricas e do reset: quem lê no passo seguinte vê a vz do passo anterior (§6.4).
+        env.v3_vz_caixa_ant[:] = env.scene["box"].data.root_link_lin_vel_w[:, 2]
 
     def _resample(self, env_ids) -> None:  # chamado no reset do episódio (CommandTerm.reset)
         env = self._env

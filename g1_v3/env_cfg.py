@@ -133,6 +133,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "queda": TerminationTermCfg(func=terminacoes.queda, params={"tarefas": TODAS}),
         "caixa_perdida": TerminationTermCfg(func=terminacoes.caixa_perdida, params={
             "tarefas": PEGAR_CARREGAR_BOTAR, "vira_andar": k.cadeia.caixa_perdida_vira_andar}),
+        # F-2: a caixa tocou a laje descendo acima do limite do degrau (só no BOTAR; `batente` é da fase G).
+        "chegada": TerminationTermCfg(func=terminacoes.chegada, params={"tarefas": ("BOTAR",)}),
     }
 
     # ------------------------------------------------------------ 7. eventos (§6.5 na ordem; §6.8 os da fase D)
