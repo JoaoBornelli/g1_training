@@ -106,10 +106,12 @@ def reinicia_filtros(env, env_ids):
 
     ⚠ Roda DEPOIS de `base`: a pose que a odometria recebe é a que a base acabou de ganhar. Pelo mesmo
     motivo, o `v3_odo` começa com a pose verdadeira (PD-18).
+    ⚠ Lê o `qpos`, não o `xpos`: no reset o `xpos` ainda é o do fim do episódio anterior (o `forward` vem depois).
     """
     robo = env.scene["robot"]
     env.v3_filtro.reinicia(env_ids)
-    env.v3_odo.reinicia(env_ids, robo.data.root_link_pos_w[env_ids], robo.data.root_link_quat_w[env_ids])
+    q = env.sim.data.qpos[env_ids][:, robo.indexing.free_joint_q_adr]
+    env.v3_odo.reinicia(env_ids, q[:, :3], q[:, 3:7])
 
 
 def atraso(env, env_ids, passos_max: int, decimacao: int):

@@ -20,8 +20,8 @@ _CAMINHO_REF = str(knobs.caminho(knobs.Contrato().referencias))  # relativo à r
 _CAMINHO_MID360 = str(knobs.caminho("g1_v3/dados/mid360_passos.npz"))  # PD-5, gerado por gera_mid360.py
 
 # Buffers da §6.4 que `garante_v3` cria, por forma e dtype. Forma sem a dimensão E. Os valores iniciais
-# seguem a §6.4: alvo −1 = nenhum; t_empurrao −∞ = sem empurrão; 0 no resto.
-_LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_celula", "v3_freio", "v3_degrau")
+# seguem a §6.4: alvo e célula −1 = nenhum; t_empurrao −∞ = sem empurrão; 0 no resto.
+_LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_freio", "v3_degrau")
 _BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_p4_fechado", "v3_b4_fechado",
           "v3_perdeu_agora")
 _ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo", "v3_phi",
@@ -65,6 +65,7 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     for nome in _LONGOS:
         _cria(env, nome, (), torch.long)
     _cria(env, "v3_alvo_idx", (), torch.long, -1)
+    _cria(env, "v3_celula", (), torch.long, -1)
     for nome in _BOOLS:
         _cria(env, nome, (), torch.bool, False)
     for nome in _ESCALARES:

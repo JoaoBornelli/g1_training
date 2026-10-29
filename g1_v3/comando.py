@@ -57,7 +57,7 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
     giro = k.giro_tetos[min(nivel, 3)]
     if tipo == "terreno":  # PD-12: o terreno usa o reto do nível, com teto de `terreno_v_max`
         frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
-    v = torch.zeros(n, 3)
+    v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
     if tipo == "parado":
         return v
     if tipo == "baixo":  # S §19, conflito 5: metade linear, metade giro no lugar
@@ -235,9 +235,6 @@ class CadeiaCmd(CommandTerm):
         fat = env.v3_fatia[env_ids]
         self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])
         env.v3_fim[env_ids] = False
-        # PD-44: o passo da odometria é dado aqui e no compute; no reset a pose estimada é a verdadeira
-        env.v3_odo.reinicia(env_ids, self.robot.data.root_link_pos_w[env_ids],
-                            self.robot.data.root_link_quat_w[env_ids])
 
     def compute(self, dt: float) -> None:
         env = self._env
@@ -276,24 +273,25 @@ class TwistV3Cfg(UniformVelocityCommandCfg):
         return TwistV3(self, env)
 
 
-_METRICAS = ("soma_erro_marcha", "soma_cmd_marcha", "razao_marcha",
-             "eficiencia_min", "eficiencia_media", "segmentos")
+_METRICAS = ("razao_marcha", "eficiencia_min", "eficiencia_media", "segmentos")
 
 
 class TwistV3(UniformVelocityCommand):
     """Cópia do TwistComRazaoDeMarcha (g1_limpo/comando.py:2276) com o comando por célula e o sucesso por segmento.
     ⚠ Não chama `super()._resample_command`: o sorteio é da célula (§6.3), e o `standing`/`turning` do fabricante
-    ficam fora."""
+    ficam fora. As `error_vel_*` do fabricante seguem em `metrics` (§6.7); o juiz é o sucesso por segmento.
+    ⚠ As somas da razão de marcha são acumuladores internos, fora de `metrics`: o log não as recebe."""
 
     cfg: TwistV3Cfg
 
     def __init__(self, cfg: TwistV3Cfg, env):
         super().__init__(cfg, env)
-        self.metrics.clear()  # error_vel_* não são o juiz; o juiz é o sucesso por segmento
         n, dev = self.num_envs, self.device
         self.k = cfg.k
         for m in _METRICAS:
             self.metrics[m] = torch.zeros(n, device=dev)
+        self.soma_erro_marcha = torch.zeros(n, device=dev)
+        self.soma_cmd_marcha = torch.zeros(n, device=dev)
         # média da base (vx, vy, wz) nos últimos `janela_media_s` (S §19, conflito 5); zera só no reset
         self.v_media_b = torch.zeros(n, 3, device=dev)
         self._hist = torch.zeros(n, round(self.k.janela_media_s / env.step_dt), 3, device=dev)
@@ -325,7 +323,7 @@ class TwistV3(UniformVelocityCommand):
 
     def _fecha(self, ids, falha) -> None:
         # Fecha o segmento de `ids` com a pose e o relógio do instante; `falha` (terminação que não é
-        # time_out) zera o sucesso, mas o registro segue a regra da âncora (S §11.3 "sem queda").
+        # time_out) zera o sucesso e registra mesmo antes da âncora (D3 item 4; S §11.3 "sem queda").
         env, k = self._env, self.k
         ancora = env.v3_ancora[ids]
         pos = self.robot.data.root_link_pos_w[ids, :2]
@@ -335,6 +333,7 @@ class TwistV3(UniformVelocityCommand):
             self.seg_cmd[ids], self.seg_proj[ids], self.seg_int[ids], dpos, drum,
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], k)
         suc = suc & ~falha
+        reg = reg | falha
         cel = self.seg_cel[ids]
         for c in cel[reg & (cel >= 0)].unique().tolist():  # uma chamada por célula (registra é escalar)
             m = reg & (cel == c)
@@ -381,13 +380,14 @@ class TwistV3(UniformVelocityCommand):
             env.v3_ancora[pronta, 1] = self.robot.data.root_link_pos_w[pronta, 1]
             env.v3_ancora[pronta, 2] = self.robot.data.heading_w[pronta]
             self.ancora_feita[pronta] = True
-        # 4. diagnósticos (§6.7): razão de marcha, fora do portão; média da base
+        # 4. diagnósticos (§6.7): error_vel_* do fabricante, razão de marcha fora do portão; média da base
+        super()._update_metrics()
         ativo = (n_lin > k.limiar_canal).float()
-        self.metrics["soma_erro_marcha"] += (cmd[:, :2] - vel).norm(dim=1) * ativo
-        self.metrics["soma_cmd_marcha"] += n_lin * ativo
-        soma = self.metrics["soma_cmd_marcha"]
+        self.soma_erro_marcha += (cmd[:, :2] - vel).norm(dim=1) * ativo
+        self.soma_cmd_marcha += n_lin * ativo
+        soma = self.soma_cmd_marcha
         self.metrics["razao_marcha"][:] = torch.where(
-            soma > 0.0, 1.0 - self.metrics["soma_erro_marcha"] / soma.clamp(min=1e-6), torch.zeros_like(soma))
+            soma > 0.0, 1.0 - self.soma_erro_marcha / soma.clamp(min=1e-6), torch.zeros_like(soma))
         self._hist[:, self._i] = torch.cat([vel, wz[:, None]], dim=1)
         self._i = (self._i + 1) % self._hist.shape[1]
         self.v_media_b = self._hist.mean(dim=1)
@@ -400,6 +400,8 @@ class TwistV3(UniformVelocityCommand):
         self._hist[env_ids] = 0.0
         self.v_media_b[env_ids] = 0.0
         self._agora[env_ids] = 0.0
+        self.soma_erro_marcha[env_ids] = 0.0
+        self.soma_cmd_marcha[env_ids] = 0.0
         extras = super().reset(env_ids)  # zera as métricas e o contador, e reamostra (chama `_resample`)
         self._abre(env_ids)
         return extras
