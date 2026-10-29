@@ -1,0 +1,102 @@
+Item 3 da Parte 0: escada de custos, B_alvo, w_p e pesos das cercas (S §9.4, §10, §16 item 3)
+unidade: retorno do mjlab (× dt = 0.02 s); custo/s = w·média(x); C = custo/s × duração.
+
+1. Custo por s dos reguladores (custos_por_s; valor por s, negativo = custo)
+  trecho    arquivo             linhas  completo  taxa_acao  vel_junta  acel_junta   energia     total
+  pegar     23250_k2               150       NÃO        nan    -0.0321     -0.0013       nan   -0.0334
+  pegar     23250_topo004          350       sim    -0.0097    -0.0130     -0.0003   -0.0016   -0.0246
+  pegar     24800_botar_t015       150       sim    -0.0220    -0.0181     -0.0011   -0.0029   -0.0440
+  pegar     24800_mu06_m3          350       sim    -0.0085    -0.0048     -0.0002   -0.0009   -0.0143
+  pegar     24800_mu10_m1          350       sim    -0.0081    -0.0050     -0.0002   -0.0008   -0.0142
+  pegar     24800_mu10_m5          350       sim    -0.0086    -0.0045     -0.0002   -0.0010   -0.0144
+  pegar     todos juntos                     sim    -0.0114    -0.0091     -0.0004   -0.0015   -0.0223
+  carregar  23250_topo004          500       sim    -0.0742    -0.0317     -0.0055   -0.0028   -0.1143
+  carregar  24800_mu06_m3          500       sim    -0.0754    -0.0076     -0.0016   -0.0020   -0.0866
+  carregar  24800_mu10_m1          500       sim    -0.0606    -0.0083     -0.0019   -0.0017   -0.0725
+  carregar  24800_mu10_m5          500       sim    -0.1040    -0.0109     -0.0022   -0.0027   -0.1197
+  carregar  todos juntos                     sim    -0.0786    -0.0146     -0.0028   -0.0023   -0.0983
+  botar     23250_k2               100       NÃO        nan    -0.0032     -0.0002       nan   -0.0034
+  botar     24800_botar_t015       100       sim    -0.0150    -0.0069     -0.0005   -0.0018   -0.0242
+  botar     todos juntos                     sim    -0.0150    -0.0069     -0.0005   -0.0018   -0.0242
+  andar     5000_botar             300       NÃO        nan    -0.0359     -0.0060       nan   -0.0419
+  andar     5350_botar             300       NÃO        nan    -0.0317     -0.0042       nan   -0.0359
+  andar     todos juntos                 parcial        nan    -0.0338     -0.0051       nan   -0.0389
+  parado    5000_andar_parado      300       NÃO        nan    -0.0008     -0.0001       nan   -0.0009
+  parado    5350_andar_parado      300       NÃO        nan    -0.0014     -0.0001       nan   -0.0015
+  parado    5800_andar_parado      300       NÃO        nan    -0.0016     -0.0001       nan   -0.0016
+  parado    todos juntos                 parcial        nan    -0.0013     -0.0001       nan   -0.0013
+  incompletos (sem a_* ou alvo_pd_*: taxa_acao e energia NaN; total = só vel e acel): pegar/23250_k2, botar/23250_k2, andar/5000_botar, andar/5350_botar, parado/5000_andar_parado, parado/5350_andar_parado, parado/5800_andar_parado
+  médias usadas: PEGAR = ['23250_topo004', '24800_botar_t015', '24800_mu06_m3', '24800_mu10_m1', '24800_mu10_m5']; BOTAR = ['24800_botar_t015'] (ANDAR e CARREGAR não entram no roteiro).
+
+2. Trechos de viagem do roteiro (item 1) e B_alvo_i = 1,5·C/dt (PD-31); ganho e quociente (PD-32)
+  alvo trecho   fase     dur s   Φ ini   Φ fim      ΔΦ custo/s ret    C ret  B passo  B·dt ret  quoc passo
+  P0   ate_P0   PEGAR     1.00  0.0000  1.0000 +1.0000     -0.0223   0.0223   1.6721    0.0334      1.1147
+  P1   P0_P1    PEGAR     0.50  0.3679  1.0000 +0.6321     -0.0223   0.0111   0.8360    0.0167      0.8817
+  P2   P2       PEGAR     0.02  1.0000  1.0000 +0.0000     -0.0223   0.0004   0.0334    0.0007           –
+  P3   P3       PEGAR     0.50  0.3679  1.0000 +0.6321     -0.0223   0.0111   0.8360    0.0167      0.8817
+  P4   P4       PEGAR     1.00  0.0000  1.0000 +1.0000     -0.0223   0.0223   1.6721    0.0334      1.1147
+  B1   ate_B1   BOTAR     1.00  0.0000  0.9987 +0.9987     -0.0242   0.0242   1.8144    0.0363      1.2112
+  B2   B1_B2    BOTAR     0.50  0.3678  0.9999 +0.6320     -0.0242   0.0121   0.9072    0.0181      0.9569
+  B3   B3       BOTAR     0.50  0.3679  1.0000 +0.6321     -0.0242   0.0121   0.9072    0.0181      0.9568
+  B4   B4       BOTAR     1.00  0.0000  1.0000 +1.0000     -0.0242   0.0242   1.8144    0.0363      1.2096
+  ⚠ durações: roteiro do item 1 (Suposições 4 e 5). C ret = custo/s × dur; B passo = 1,5·C/dt;
+    quoc passo = C/(ΔΦ·dt), w_p por passo que cobre o custo (sem o 1,5); ΔΦ ≤ 0 = –.
+  w_p (por passo, knob) = 1,5 × max(quoc) = 1,5 × 1.2112 = 1.8167 (decide BOTAR B1, trecho ate_B1); retorno do progresso no trecho = w_p·ΔΦ·dt = 0.0363 ≥ 1,5·C = 0.0363
+
+3. Troca de alvo, por passo no mesmo passo: B_alvo_i > w_p·(Φ_velho − γ·Φ_novo)
+  alvo   Φ velho   Φ novo   w_p·(Φv−γΦn)    B_alvo  B·dt ret  1,5× (info)  veredito
+  P0           –   0.0000              –    1.6721    0.0334            –  n/a (sem alvo velho)
+  P1      1.0000   0.3679         1.1551    0.8360    0.0167       1.7326  FALHA
+  P2      1.0000   1.0000         0.0182    0.0334    0.0007       0.0273  OK
+  P3      1.0000   0.3679         1.1551    0.8360    0.0167       1.7326  FALHA
+  P4      1.0000   0.0000         1.8167    1.6721    0.0334       2.7251  FALHA
+  B1      1.0000   0.0000         1.8167    1.8144    0.0363       2.7251  FALHA
+  B2      0.9987   0.3678         1.1529    0.9072    0.0181       1.7293  FALHA
+  B3      1.0000   0.3679         1.1551    0.9072    0.0181       1.7326  FALHA
+  B4      1.0000   0.0000         1.8167    1.8144    0.0363       2.7251  FALHA
+  P0 entra do −1 (PD-36 não dá o Φ do −1): sem alvo velho, não checado. B1 entra do fim do P4.
+
+4. Escada da S §10 (cada desigualdade compara retorno com retorno; passo = retorno ÷ dt)
+  desigualdade                                                        esq ret  dir ret  esq passo  dir passo  veredito
+  queda > perda                                                        4.0000   0.1247   200.0000     6.2332  OK
+  perda > volta                                                        0.1247   0.0363     6.2332     1.8167  OK
+  queda > mergulho                                                     4.0000   0.0698   200.0000     3.4888  OK
+  (1) queda > reguladores até 20 s no BOTAR + B_alvo restantes         4.0000   0.5927   200.0000    29.6359  OK
+  (2) perda > B_alvo P0–P3 + Φ máx·w_p (perda = 1,2 × lado direito)    0.1247   0.1039     6.2332     5.1943  OK
+  queda (knob terminacao, por passo) = 200.0; reguladores BOTAR até 20 s = +0.4839 ret; ΣB P0–P3 = 3.3776 passo; ΣB B1–B4 = 5.4433 passo; w_p = 1.8167
+  perda_caixa = 1,2 × lado direito de (2): retorno 0.1247; por passo (knob) = retorno/dt = 6.2332
+  devolve_b_alvo = False (True só se a escada (queda > perda > volta, queda > mergulho, (1)) não fecha com a perda fixa)
+
+5. Cercas de postura (PD-30): média por passo no PEGAR (w = 1), peso = −0,5·G ÷ média
+  G (ganho médio por s do progresso no roteiro do PEGAR) = 0.03369; 0,5·G = 0.01685
+  cerca   unid.    média/passo  % passos>0   NaN  peso proposto
+  sola    °             0.9062        7.1%     0  -0.01859
+  giro    °             0.4797        2.7%     0  -0.03512
+  tronco  °             1.7633       11.5%     0  -0.00955
+  com     m             0.0006        1.8%     0  -29.03462
+  torque  fração        2.1285       89.7%   150  -0.00792
+  pelve   m             0.1368       86.6%     0  -0.12317
+  recuo   m             0.0588       87.0%     0  -0.28643
+  torque sem valor no 23250_k2 (sem alvo_pd_*): NaN fora da média.
+
+Diagnósticos
+  soma literal do progresso no PEGAR, retorno/s = -0.00081 (negativo: por isso PD-30 usa a subida de Φ, Suposição 8). G = 0.03369 retorno/s (conferir: G antigo 0,03369).
+  BOTAR por S §7: distância da caixa P4 → soltura (roteiro) = 0.608 m; ÷ 0.25 m/s = 2.43 s; roteiro das viagens B1–B4 = 3.00 s.
+  PEGAR nos CSV: a fase pegar dura 3.0 s e 7.0 s (não 0,5–2,2 s por alvo; sem a divisão por alvo nos CSV).
+
+Suposições (não definidas no plano; o número depende delas)
+  1. C de cada alvo = custo/s × duração do trecho de viagem que chega a ele; as esperas (_espera) ficam fora (o bônus já foi pago na chegada).
+  2. Reguladores = custos_por_s total (vel_junta, acel_junta, taxa_acao, energia). As cercas não entram no C: o peso delas sai nesta conta (PD-30).
+  3. Custo/s do PEGAR = média dos 5 arquivos completos; do BOTAR = 24800_botar_t015 (único completo). 23250_k2 fica fora das médias (sem taxa e energia).
+  4. Duração de cada trecho de viagem = roteiro do item 1 (P0 1,0 s; P1 0,5 s; P2 1 passo; P3 0,5 s; P4 1,0 s; B1 1,0 s; B2 0,5 s; B3 0,5 s; B4 1,0 s). O plano manda medir no CSV e, no BOTAR, usar distância/0,25: não há a divisão por trecho; o total do BOTAR por distância está no diagnóstico.
+  5. A fase pegar dos CSV não tem a divisão por alvo (só fase, alvo_x/y/z e oh_*); não usei os tempos medidos.
+  6. Φ novo = Φ da primeira linha do trecho; Φ velho = Φ da linha anterior. P0 não tem alvo velho (n/a). B1 usa o último Φ do PEGAR (o BOTAR começa no P4).
+  7. Ganho de Φ por s (PD-32) = subida de Φ dentro do trecho (Φ fim − Φ ini) ÷ duração. Trecho sem subida (P2) fica fora do máximo.
+  8. G (PD-30, retorno/s) = w_p × Σ ΔΦ·dt dos trechos de viagem do PEGAR ÷ duração total do roteiro do PEGAR (com esperas). PD-30 não diz se é a soma literal de r; a soma literal é negativa (diagnóstico).
+  9. Cercas: média por passo sobre os 6 PEGAR (torque NaN fora); peso = −0,5·G ÷ média (sinal negativo, como custos_por_s).
+  10. Escada (1): queda = |terminacao|·dt; reguladores até os 20 s do episódio no BOTAR = custo/s × 20 (limite superior: o plano não fixa quando o BOTAR começa); B_alvo restantes = B1–B4 (queda logo no início).
+  11. Escada (2): perda = 1,2 × (ΣB P0–P3 + w_p·Φ máx), Φ máx = 1; r_aperto = 0 (item 15 ainda não feito).
+  12. Volta à pose de pé = w_p·Φ máx (paga uma vez, como potencial, sem bônus). Mergulho = B_P0 + w_p·Φ máx.
+  13. perda_caixa (peso −1) paga perda·dt no passo da perda, como a terminação paga −200·dt.
+  14. devolve_b_alvo = True só se (queda > perda), (perda > volta), (queda > mergulho) e (1) não fecham com a perda fixa.
+Linhas deste script: 316
