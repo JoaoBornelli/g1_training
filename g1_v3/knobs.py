@@ -167,6 +167,7 @@ class Alvos:  # S §8.2; PD-23
     tempo_b2: float = 0.3  # S §8.2: tempo de permanência em B2 (s)
     b3_afasta: float = 0.05  # S §8.2: afastamento das palmas em B3 (m)
     tempo_b3: float = 0.5  # S §8.2: tempo de permanência em B3 (s)
+    v_parada_b3: float = 0.05  # PD-39: caixa parada no B3, ‖v_caixa‖ abaixo disto (m/s)
     tol_pelve_b4: float = 0.03  # S §8.2: tolerância da pelve em B4 (m)
     tol_tronco_b4_graus: float = 5.0  # S §8.2: tolerância do tronco em B4 (graus)
     tempo_b4: float = 0.5  # S §8.2: tempo de permanência em B4 (s)
