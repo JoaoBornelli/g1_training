@@ -1,0 +1,46 @@
+Item 1 da Parte 0: Φ e progresso no caminho roteirizado (S §8.2, §9.1, §16 item 1)
+pesos: w_p = 1, B_alvo = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] (sem medida; item 3). γ = 0.99; a = 0.1 m; passo 0.02 s.
+
+PEGAR  (laje 0,30 m, a = 0.10 m, 177 passos)
+  trecho      alvo passos  Φ início     Φ fim     min ΔΦ        Σ r
+  ate_P0      P0       51    0.0000    1.0000  +0.00e+00    +0.7761
+  P0_P1       P1       25    0.3679    1.0000  +2.20e-05    -0.1858
+  P2          P2        1    1.0000    1.0000          –    -0.0100
+  P3          P3       25    0.3679    1.0000  +2.20e-05    -0.1858
+  P4          P4       75    0.0000    1.0000  +0.00e+00    -0.4727
+
+BOTAR  (laje 0,15 m, a = 0.10 m, 216 passos)
+  trecho      alvo passos  Φ início     Φ fim     min ΔΦ        Σ r
+  ate_B1      B1       51    0.0000    0.9987  -1.26e-03    +0.7592
+  B1_B2       B2       40    0.3678    1.0000  +0.00e+00    -0.3323
+  B3          B3       50    0.3679    1.0000  +0.00e+00    -0.4358
+  B4          B4       75    0.0000    1.0000  +0.00e+00    -0.4987
+
+Critérios (linha do item 1 do plano):
+1. Φ não desce dentro de cada alvo: FALHA; pior ΔΦ = -1.26e-03 (BOTAR, alvo B1); tolerância -1e-09
+2. Pairar a 1 cm por 2 s soma ≤ 0: OK; maior soma = -3.64e-01
+     P0: σ = 0.3481, Φ parado = 0.9992, Σ r = -9.89e-01
+     P1: σ = 0.1493, Φ parado = 0.9955, Σ r = -9.86e-01
+     P2: σ = 0.0100, Φ parado = 0.3679, Σ r = -3.64e-01
+     P3: σ = 0.0498, Φ parado = 0.9604, Σ r = -9.51e-01
+     P4: σ = 0.4861, Φ parado = 0.9996, Σ r = -9.90e-01
+     B1: σ = 0.6076, Φ parado = 0.9997, Σ r = -9.90e-01
+     B2: σ = 0.0498, Φ parado = 0.9604, Σ r = -9.51e-01
+     B3: σ = 0.0498, Φ parado = 0.9604, Σ r = -9.51e-01
+     B4: σ = 15.8900, Φ parado = 0.9996, Σ r = -9.90e-01
+3. Tombar a caixa 40.0° no P3: OK; Φ reto = 1.0000, Φ tombada = 0.3333 ≤ rampa(40°) = 0.3333
+4. Soltar uma mão divide Φ por 2: OK; Φ duas mãos = 1.0000, Φ uma mão = 0.5000, razão = 0.500000 (esperado 0,5)
+
+Resultado: 3 OK / 1 FALHA
+Premissas (o plano não define estes pontos; cada um é dúvida para o dono):
+  pesos: w_p = 1 e B_alvo = 0 (knobs `progresso` e `b_alvo` são None; saem do item 3).
+  σ do alvo = d no início do trecho de mesmo índice, com piso de 1 cm; B4 sem piso (como o item 2).
+  k: palmas = média das duas distâncias (caixa sem giro, então a distância é no frame da caixa); caixa = 3D.
+  desloc. P0–P2: x_lim = 1,0·a = 0,10 m, Δ = 0,5·a; B3 e B4: x_lim 2 cm, Δ 2 cm, ponto de apoio = fim do B2.
+  inclinação: x_lim = 30° (início da fase aprender), Δ = 15°. Só se usa no P2–B2 e no tombar.
+  contato da palma = a até 3 cm do ponto do P1 (o plano diz 'em contato', sem número).
+  faixa: tronco e recuo. P4 usa a FK da pose de pé com caixa; o roteiro do P4 usa o tronco e a pelve da pega.
+  faixa do CoM NÃO entra: precisa das juntas e dos pés (PD-35), que o roteiro sintético não tem.
+  fator de pouso: σ = 1,0 m/s (início), altura 5 cm, v por diferença finita do roteiro.
+  pairar: índice fixo no alvo. Se a pausa dispara o avanço (ok_agora), a soma muda; ok_agora não é simulado.
+  tombar e soltar mão: as palmas não giram com a caixa; só muda o termo de inclinação e o de contato.
