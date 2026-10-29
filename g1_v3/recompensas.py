@@ -7,7 +7,6 @@ passo, o vivo, a altura do pé, o escorregão, as taxas e a energia, os limites 
 altura da base, as seis cercas (sola, giro, tronco, CoM, torque, pelve, recuo) e o contato fora dos pés.
 Fase E (E4): o progresso (Φ do alvo corrente), a qualidade do rastreio no CARREGAR, o contato com a laje, o
 freio, a perda da caixa, e o contato com a caixa fora da janela da pega. A sacudida e o aperto são da fase H.
-
 ⚠ Todo termo recebe `tarefas` e vale zero fora delas com `torch.where` (§6.6). Nunca multiplicar pela
 máscara: NaN × 0 = NaN, e o NaN de um env fora da tarefa chega à recompensa e ao ator.
 ⚠ Os termos que pagam positivo (`vivo`, `altura_pe`, `passo`, rastreios) zeram depois da caixa perdida
@@ -388,14 +387,15 @@ def _cantos_mundo(pose, cantos):
     return (quat_apply(q, v).reshape(E, 2, -1, 3) + pos).reshape(E, -1, 3)
 
 
-def _por_degrau(env, ini, fim):
-    """Valor do degrau da tarefa corrente: início + (fim − início)·d/5 (plano §6.9; E4)."""
+def por_degrau(env, ini, fim):
+    """Valor do degrau da tarefa corrente: início + (fim − início)·d/5 (plano §6.9; E4). Pública: a `terminacoes.chegada`
+    e o σ do pouso a usam (F4)."""
     return ini + (fim - ini) * env.v3_degrau.float() / ATIVO.balanceador.degraus
 
 
 def incl_lim(env):
     """`incl_lim` dos invariantes: 30° → 15° pelo degrau (§6.9)."""
-    return _por_degrau(env, K.incl_inicio_graus, K.incl_fim_graus)
+    return por_degrau(env, K.incl_inicio_graus, K.incl_fim_graus)
 
 
 def incl_torso(env):
@@ -440,11 +440,13 @@ def _ref_do_alvo(env, indice):
 
 
 def _recuo_ref(env, indice):
-    """Recuo de referência (m) do alvo `indice`: transporte no P4, `ref.recuo` nos outros (E4; B4 não usa).
-    Também é o `ik` da `cerca_recuo` no PEGAR e no BOTAR (S7, 29/10): uma conta só."""
+    """Recuo de referência (m) do alvo `indice`: o transporte no P4 e no CARREGAR, `ref.recuo` nos outros (E4; B4 não
+    usa). O transporte é `ref.caixa_transporte_b(a)`, a referência da IK (F4: `Recompensa.recuo_carregar` saiu daqui).
+    É o `ik` da `cerca_recuo` nas quatro tarefas (S7, 29/10): uma conta só."""
     ref, a = env.v3_ref, env.v3_meia
     transporte = ref.caixa_transporte_b(a)[:, :2].norm(dim=-1)
-    return torch.where(indice == _P4, transporte, ref.recuo(_topo_do(env, indice), a).to(transporte))
+    carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
+    return torch.where((indice == _P4) | carrega, transporte, ref.recuo(_topo_do(env, indice), a).to(transporte))
 
 
 def _phi_env(env, indice, sigma):
@@ -464,7 +466,7 @@ def _phi_env(env, indice, sigma):
                           incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
     # fator de pouso: B1 e B2, com o fundo da caixa sobre a laje de destino (D3 da Parte 0)
     fundo = caixa_w[:, 2] - a - (env.scene.env_origins[:, 2] + env.v3_topo_destino)
-    pouso = potencial.fator_pouso(caixa.data.root_link_lin_vel_w[:, 2], fundo, R.sigma_pouso[0],
+    pouso = potencial.fator_pouso(caixa.data.root_link_lin_vel_w[:, 2], fundo, por_degrau(env, *R.sigma_pouso),
                                   R.altura_pouso, R.altura_pouso_inicio)
     fator = torch.where(_em(indice, _POUSO), pouso, torch.ones_like(pouso))
     cantos, com, dois = _pes_e_com(env)
@@ -674,14 +676,11 @@ def cerca_recuo(env, tarefas):
     """Recuo do centro da caixa além de `lim_recuo` da referência (S §9.3). PEGAR, CARREGAR e BOTAR.
 
     recuo = ‖xy da caixa − xy da pelve‖ no mundo: a mesma medida da `grade_recuo` (`dados/gera_referencias.py:109`),
-    e não o x no frame da base (29/10). ik: `R.recuo_carregar` no CARREGAR; no PEGAR e no BOTAR, `_recuo_ref` (o
-    transporte no P4 e na espera do detector, `ref.recuo` nos outros; S7, 29/10).
+    e não o x no frame da base (29/10). ik: `_recuo_ref` (o transporte no CARREGAR e no P4; `ref.recuo` nos outros).
     """
     robo = env.scene["robot"]
     recuo = (env.scene["box"].data.root_link_pos_w[:, :2] - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)
-    carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
-    ik = torch.where(carrega, torch.full_like(recuo, R.recuo_carregar), _recuo_ref(env, env.v3_alvo_idx).to(recuo))
-    return _fim(env, tarefas, n_cerca_recuo(recuo, ik, R.lim_recuo))
+    return _fim(env, tarefas, n_cerca_recuo(recuo, _recuo_ref(env, env.v3_alvo_idx).to(recuo), R.lim_recuo))
 
 
 def contato_fora(env, tarefas):
@@ -725,7 +724,7 @@ def progresso(env, tarefas):
 def contato_laje(env, tarefas):
     """Contato com a laje: soma da rampa de força dos três sensores da laje (`cena.MESA_POR_GRUPO`), com o joelho
     pelo degrau (§6.9). Cópia de `g1_limpo` `contato_mesa`. PEGAR e BOTAR."""
-    joelho = _por_degrau(env, R.laje_joelho_N[0], R.laje_joelho_N[1])
+    joelho = por_degrau(env, R.laje_joelho_N[0], R.laje_joelho_N[1])
     sat = torch.clamp(R.laje_saturacao_N - joelho, min=_EPS)
     soma = 0.0
     for nome, _ in MESA_POR_GRUPO:
