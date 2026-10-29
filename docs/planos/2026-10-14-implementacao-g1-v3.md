@@ -551,7 +551,9 @@ def avanca(indice, ok_agora, relogio, dt, tempos) -> tuple[torch.Tensor, torch.T
     # (P2: 0; P4: tempo_p4; B2: tempo_b2; B3: tempo_b3; B4: tempo_b4); `ok_agora` falso zera o relógio
 def detecta_fim(pelve_sobre_pe, tronco, palmas_b, vel_juntas, ref_pelve, ref_palmas_b,
                 relogio, dt, k: Detector) -> tuple[torch.Tensor, torch.Tensor]: ...
-    # (aviso, novo_relogio): I §4.2; a média de |q̇| usa a janela de estavel_s (média móvel no relógio)
+    # (aviso, novo_relogio): I §4.2; o relógio conta enquanto a pose fecha E a média de |q̇| nas 29 juntas
+    # fica abaixo do limiar a cada passo; avisa com relógio ≥ estavel_s (sem estado além do relógio; o real
+    # usa a mesma regra, e por isso nunca avisa antes do treino). Depois do B4, `avanca` leva o índice a −1
 ```
 
 **`potencial.py`**
