@@ -154,10 +154,11 @@ class TestFiltroDeElevacao(unittest.TestCase):
         self.assertAlmostEqual(esperado, 0.758, delta=0.001)
 
     def test_transporte_de_0_10_desloca_uma_celula(self):
-        # Transporte de 0,10 m para a frente: a célula vista em x = +0,5 vai a x = +0,4.
+        # Transporte de 0,10 m para a frente em 5 passos de 2 cm (1 m/s a 50 Hz): x = +0,5 vai a x = +0,4.
         f = _filtro()
         f.atualiza(*_leitura([(0.5, 0.0, 0.15)], dist=[0.5]))
-        _prediz(f, dxy=(0.10, 0.0))
+        for _ in range(5):
+            _prediz(f, dxy=(0.02, 0.0))
         h, c = _mapa(f)
         self.assertAlmostEqual(h[_idx(0.4, 0.0)], 0.15, delta=0.01)
         self.assertGreater(c[_idx(0.4, 0.0)], 0.0)
@@ -194,7 +195,8 @@ class TestFiltroDeElevacao(unittest.TestCase):
         # Tolerância de ±1 célula (C0).
         f = _filtro()
         f.atualiza(*_leitura([(0.5, 0.0, 0.15)], dist=[0.5]))
-        _prediz(f, dpsi=math.pi / 2)
+        for _ in range(75):  # 1,05 rad/s a 50 Hz
+            _prediz(f, dpsi=math.pi / 150)
         h, c = _mapa(f)
         vistos = np.flatnonzero(c > 0.0)
         self.assertEqual(len(vistos), 1)
@@ -363,9 +365,18 @@ class TestInvarianciaADensidade(unittest.TestCase):
         h2, c2 = _mapa(f2)
         sel = (cont1 >= 2) & (cont2 >= 2)
         self.assertGreater(sel.sum(), 20)  # sem isto, o teste passa por vazio
+        self.assertTrue((c1[sel] > 0).all() and (c2[sel] > 0).all())  # lida 2 vezes = vista: o transporte leva a leitura
         self.assertGreater(h2[sel].max(), 0.10)  # o degrau está no recorte
-        self.assertLessEqual(np.abs(h1[sel] - h2[sel]).max(), 0.01)
-        self.assertLessEqual(np.abs(c1[sel] - c2[sel]).max(), 0.03)
+        # Altura: a célula da borda mistura chão e degrau na proporção que os raios sorteiam, e fica fora. Nas
+        # outras, cada célula erra ~0,9 cm (dp) nos dois casos: ±1 cm no viés; ±3 cm em 95% (réplica, PERC §0).
+        x_fim = -0.6 + 0.02 * (N_PASSOS - 1)
+        borda = np.abs(x_fim + 1.0 - CELULA * (np.arange(N_CEL) // N_REC) - DEGRAU_X) < CELULA / 2
+        dh = (h1 - h2)[sel & ~borda]
+        self.assertLessEqual(abs(dh.mean()), 0.01)
+        self.assertLessEqual(np.percentile(np.abs(dh), 95), 0.03)
+        # Confiança ±0,03 em 90% das células. O resto fica na borda da vista: a 205 raios a célula é lida mais
+        # raramente e envelhece pelo transporte (PD-7). O n da leitura já não entra (PD-42).
+        self.assertLessEqual(np.mean(np.abs(c1[sel] - c2[sel]) > 0.03), 0.10)
 
 
 class TestPadraoMid360(unittest.TestCase):
