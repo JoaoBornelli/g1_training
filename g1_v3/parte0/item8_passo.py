@@ -27,6 +27,7 @@ TOQUE_M = 0.02  # "pé a < 2 cm do chão" (B5). ⚠ comum.CONTATO_M é 2 cm acim
 SAIDA = Path(__file__).resolve().parent / "saida" / "item8_passo.txt"
 LIMITE_L = 0.60  # m: teto de L_alvo do critério (B5)
 FOLGA_MAX = 1.2  # L_alvo ≤ 1,2 × o maior passo medido (B5)
+NA_D2 = "N/A (passo miúdo, D2)"  # plays de CARREGAR: o critério 1,2 × maior passo não vale (D2, dono 29/10)
 
 
 def _yaw(q) -> float:
@@ -96,9 +97,10 @@ def main() -> None:
         r["trecho"] = trecho
         res.append(r)
         L, la = r["L"], l_alvo(r["v"])
+        r["carregar"] = fase == "carregar"
         # ⚠ sem toque (o pé nunca sobe 2 cm), o maior passo medido é 0: o critério reprova, não some
         mx = float(L.max()) if len(L) else 0.0
-        c1 = crit_txt(nome, la <= FOLGA_MAX * mx, f"{la:.3f} ≤ {FOLGA_MAX * mx:.3f}")
+        c1 = NA_D2 if r["carregar"] else crit_txt(nome, la <= FOLGA_MAX * mx, f"{la:.3f} ≤ {FOLGA_MAX * mx:.3f}")
         c2 = crit_txt(nome, la <= LIMITE_L, f"{la:.3f} ≤ {LIMITE_L:.2f}")
         med = f"{L.mean():8.3f}" if len(L) else f"{'-':>8}"
         linhas.append(f"{nome:<18}{trecho:<10}{r['v']:7.3f}{len(L):8d}{med}{mx:8.3f}"
@@ -113,7 +115,8 @@ def main() -> None:
         L = np.concatenate([r["L"] for r in grupo])
         v = float(np.mean([r["v"] for r in grupo]))
         la, mx = l_alvo(v), float(L.max())
-        c1 = crit_txt(f"nível {n_v}", la <= FOLGA_MAX * mx, f"{la:.3f} ≤ {FOLGA_MAX * mx:.3f}")
+        c1 = NA_D2 if all(r["carregar"] for r in grupo) else crit_txt(
+            f"nível {n_v}", la <= FOLGA_MAX * mx, f"{la:.3f} ≤ {FOLGA_MAX * mx:.3f}")
         c2 = crit_txt(f"nível {n_v}", la <= LIMITE_L, f"{la:.3f} ≤ {LIMITE_L:.2f}")
         linhas.append(f"  nível {n_v:<5} plays {len(grupo)}  v {v:.3f}  toques {len(L)}  L med {L.mean():.3f}  "
                       f"L max {mx:.3f}  L_alvo {la:.3f}  {c1:<30}{c2}")

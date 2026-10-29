@@ -3,7 +3,8 @@
 Propõe os pesos e checa cada desigualdade:
 1. `B_alvo` por alvo (P0–P4, B1–B4) = 1,5 × custo dos reguladores no trecho até o alvo (PD-31).
 2. `w_p` do progresso = 1,5 × o maior custo por s ÷ ganho de Φ por s, nos trechos de viagem do roteiro (PD-32).
-3. Troca de alvo: B_alvo_i > w_p·(Φ_velho − γ·Φ_novo), medido no roteiro (checagem pedida pelo orquestrador).
+3. Troca de alvo (D1, dono 29/10): no passo do avanço o `progresso` paga B_alvo + w_p·(γΦ(s′, i_velho) − Φ(s, i_velho)).
+   Checagem: esse passo tem de pagar mais que ficar parado perto do alvo, w_p·(γ−1)·Φ(s, i_velho).
 4. Escada da S §10 com os pesos propostos; `perda_caixa` = 1,2 × lado direito de (2); `devolve_b_alvo` (PD-33).
 5. Pesos das cercas (PD-30) a partir de `cercas_por_passo` nos PEGAR.
 
@@ -112,8 +113,21 @@ def pernas(tr, phi, fase) -> list:
         passos = (b - a + 1) - (1 if a == 0 else 0)
         out.append(dict(fase=fase, nome=str(nomes[a]), alvo=int(idx[a]), espera=str(nomes[a]).endswith("_espera"),
                         dur=passos * DT, phi0=float(phi[a]), phi1=float(phi[b]),
-                        prev=float(phi[a - 1]) if a > 0 else None))
+                        prev=float(phi[a - 1]) if a > 0 else None, a=int(a)))
     return out
+
+
+def phi_velho_no_novo(tr, res, refs, pts, a, src):
+    """D1: Φ do alvo VELHO no estado do passo do avanço (s′, linha a). O mesmo potencial de item1.avalia com o
+    índice trocado só nesse passo; alvo velho, caixa do alvo e σ vêm de `src` = (trajetória, resultado, linha)."""
+    tv, rv, r = src
+    idx = np.array(tr["indice"], dtype=int)
+    idx[a] = tv["indice"][r]
+    alvo = tr["caixa"][res["fim"][res["trecho"]]].copy()
+    alvo[a] = tv["caixa"][rv["fim"][rv["trecho"][r]]]
+    sig = np.array(res["sigma"], dtype=float)
+    sig[a] = rv["sigma"][r]
+    return float(I1.avalia(dict(tr, indice=idx), refs, pts, alvo=alvo, sigma=sig)["phi"][a])
 
 
 def main():
@@ -127,12 +141,19 @@ def main():
     pe, bo = C.trajetoria_pegar(), C.trajetoria_botar()
     for tr in (pe, bo):
         tr["incl"] = np.zeros(len(tr["t"]))
-    phi_pe = I1.avalia(pe, refs, I1.pontos_de(pe))["phi"]
-    phi_bo = I1.avalia(bo, refs, I1.pontos_de(bo))["phi"]
+    pts_pe, pts_bo = I1.pontos_de(pe), I1.pontos_de(bo)
+    res_pe, res_bo = I1.avalia(pe, refs, pts_pe), I1.avalia(bo, refs, pts_bo)
+    phi_pe, phi_bo = res_pe["phi"], res_bo["phi"]
     pl_pe, pl_bo = pernas(pe, phi_pe, "PEGAR"), pernas(bo, phi_bo, "BOTAR")
     pl_bo[0]["prev"] = float(phi_pe[-1])  # entrada no B1: o roteiro do BOTAR começa no fim do P4
     viagem = [p for p in pl_pe + pl_bo if not p["espera"]]
     T_pe = (len(pe["t"]) - 1) * DT  # duração do roteiro do PEGAR (com as esperas)
+    for p in viagem:  # Φ do alvo velho no passo do avanço (D1); o B1 vem do fim do PEGAR
+        if p["prev"] is None:
+            continue
+        tr, res, pts = (pe, res_pe, pts_pe) if p["fase"] == "PEGAR" else (bo, res_bo, pts_bo)
+        src = (tr, res, p["a"] - 1) if p["a"] > 0 else (pe, res_pe, len(pe["t"]) - 1)
+        p["phi2"] = phi_velho_no_novo(tr, res, refs, pts, p["a"], src)
 
     # --- custos e quocientes por trecho de viagem (PD-32) ---
     for p in viagem:
@@ -150,7 +171,14 @@ def main():
     # --- ganho médio por s do progresso (PD-30): subida de Φ nos trechos de viagem do PEGAR ÷ T_pe ---
     subida_pe = sum(max(p["phi1"] - p["phi0"], 0.0) for p in pl_pe if not p["espera"])
     G = w_p * subida_pe * DT / T_pe  # retorno por s: w_p·ΔΦ·dt somado ÷ T
-    lit_pe = w_p * float(np.sum(GAMMA * phi_pe[1:] - phi_pe[:-1])) * DT / T_pe  # retorno/s da soma literal de r
+    # soma literal do progresso no PEGAR (D1): o passo do avanço usa Φ(s′, i_velho); B nas trocas P1–P4
+    nx = phi_pe[1:].copy()
+    trocas_pe = [p for p in viagem if p["fase"] == "PEGAR" and p["prev"] is not None]
+    for p in trocas_pe:
+        nx[p["a"] - 1] = p["phi2"]
+    soma_w = w_p * float(np.sum(GAMMA * nx - phi_pe[:-1]))
+    soma_b = sum(p["B"] for p in trocas_pe)
+    lit_pe = (soma_w + soma_b) * DT / T_pe  # retorno/s
 
     # --- cercas (PD-30) ---
     ref = C._ref()
@@ -163,18 +191,20 @@ def main():
     for k in CERCAS:
         x = np.concatenate(acc[k])
         fin = x[np.isfinite(x)]
-        media = float(fin.mean()) if fin.size else np.nan
+        age = fin[fin > 0]  # D4: média só nos passos em que a cerca age
+        media = float(age.mean()) if age.size else np.nan
         cercas[k] = dict(media=media, pct=float((fin > 0).mean()) if fin.size else np.nan,
                          nans=int((~np.isfinite(x)).sum()), peso=(-FRAC_CERCA * G / media) if media > 0 else None)
 
-    # --- troca de alvo (checagem pedida pelo orquestrador) ---
+    # --- troca de alvo (D1): avanço = B + w_p·(γΦ(s′, velho) − Φ(s, velho)); parado = w_p·(γ−1)·Φ(s, velho) ---
     trocas = []
     for p in viagem:
         if p["prev"] is None:
             trocas.append((p, None))
             continue
-        lim = w_p * (p["prev"] - GAMMA * p["phi0"])
-        trocas.append((p, lim))
+        avanco = p["B"] + w_p * (GAMMA * p["phi2"] - p["prev"])
+        parado = w_p * (GAMMA - 1) * p["prev"]
+        trocas.append((p, (avanco, parado)))
 
     # --- escada da S §10 (todos os lados em retorno, × dt) ---
     B_pos = {NOMES[p["alvo"]]: p["B"] for p in viagem}  # um B por alvo; os P e B aparecem uma vez
@@ -186,7 +216,9 @@ def main():
     w_ap = w_aperto()  # lido da saída do item 15
     r_ap_r = w_ap * I15.custo(I15.F_OPERACAO) * I15.JANELA  # r_aperto que a perda evita (retorno)
     lado1_dir = reguladores_r + soma_b * DT + r_ap_r
-    lado2_dir = (soma_p03 + w_p * PHI_MAX) * DT + r_ap_r
+    lado2_sem = (soma_p03 + w_p * PHI_MAX) * DT  # sem o aperto evitado: não depende de w (item 15 lê)
+    lado2_dir = lado2_sem + r_ap_r
+    perda_sem_r = MARGEM_PERDA * lado2_sem  # retorno
     perda_r = MARGEM_PERDA * lado2_dir  # retorno
     perda_passo = perda_r / DT  # knob perda_caixa (por passo)
     ineq = [
@@ -238,18 +270,17 @@ def main():
           f"retorno do progresso no trecho = w_p·ΔΦ·dt = {w_p * decisivo['d_phi'] * DT:.4f} ≥ 1,5·C = {MARGEM_B * decisivo['C']:.4f}")
     emite("")
 
-    emite("3. Troca de alvo, por passo no mesmo passo: B_alvo_i > w_p·(Φ_velho − γ·Φ_novo)")
-    emite(f"  {'alvo':<5}{'Φ velho':>9}{'Φ novo':>9}{'w_p·(Φv−γΦn)':>15}{'B_alvo':>10}{'B·dt ret':>10}"
-          f"{'1,5× (info)':>13}  veredito")
-    for p, lim in trocas:
+    emite("3. Troca de alvo (D1), por passo: avanço = B_alvo + w_p·(γΦ(s′, velho) − Φ(s, velho)) > parado = w_p·(γ−1)·Φ(s, velho)")
+    emite(f"  {'alvo':<5}{'Φ velho s':>10}{'Φ velho s′':>11}{'avanço':>11}{'avanço ret':>11}{'parado':>11}  veredito")
+    for p, par in trocas:
         nome = NOMES[p["alvo"]]
-        if lim is None:
-            emite(f"  {nome:<5}{'–':>9}{p['phi0']:>9.4f}{'–':>15}{p['B']:>10.4f}{p['B'] * DT:>10.4f}"
-                  f"{'–':>13}  n/a (sem alvo velho)")
+        if par is None:
+            emite(f"  {nome:<5}{'–':>10}{p['phi0']:>11.4f}{'–':>11}{'–':>11}{'–':>11}  n/a (sem alvo velho)")
             continue
-        ok = p["B"] > lim
-        emite(f"  {nome:<5}{p['prev']:>9.4f}{p['phi0']:>9.4f}{lim:>15.4f}{p['B']:>10.4f}{p['B'] * DT:>10.4f}"
-              f"{MARGEM_B * lim:>13.4f}  {'OK' if ok else 'FALHA'}")
+        av, pa = par
+        ok = av > pa
+        emite(f"  {nome:<5}{p['prev']:>10.4f}{p['phi2']:>11.4f}{av:>11.4f}{av * DT:>11.4f}{pa:>11.4f}  "
+              f"{'OK' if ok else 'FALHA'}")
     emite("  P0 entra do −1 (PD-36 não dá o Φ do −1): sem alvo velho, não checado. B1 entra do fim do P4.")
     emite("")
 
@@ -264,23 +295,25 @@ def main():
           f"{I15.JANELA:.0f} s = {r_ap_r:.4f} retorno ({r_ap_r / DT:.4f} por passo)")
     emite(f"  perda_caixa = 1,2 × lado direito de (2): retorno {perda_r:.4f}; por passo (knob) = retorno/dt = "
           f"{perda_passo:.4f}")
+    emite(f"  perda_caixa sem o aperto evitado (não depende de w; o item 15 lê): retorno {perda_sem_r:.4f}; "
+          f"por passo {perda_sem_r / DT:.4f}")
     emite(f"  devolve_b_alvo = {devolve} (True só se a escada (queda > perda > volta, queda > mergulho, (1)) "
           f"não fecha com a perda fixa)")
     emite("")
 
-    emite("5. Cercas de postura (PD-30): média por passo no PEGAR (w = 1), peso = −0,5·G ÷ média")
+    emite("5. Cercas de postura (PD-30, D4): média por passo só nos passos em que a cerca age (> 0), peso = −0,5·G ÷ média")
     emite(f"  G (ganho médio por s do progresso no roteiro do PEGAR) = {G:.5f}; 0,5·G = {FRAC_CERCA * G:.5f}")
-    emite(f"  {'cerca':<8}{'unid.':<7}{'média/passo':>13}{'% passos>0':>12}{'NaN':>6}  peso proposto")
+    emite(f"  {'cerca':<8}{'unid.':<7}{'média (>0)':>13}{'% passos que age':>17}{'NaN':>6}  peso proposto")
     for k in CERCAS:
         c = cercas[k]
         peso = f"{c['peso']:+.5f}" if c["peso"] is not None else "indefinido (sem custo no PEGAR)"
-        emite(f"  {k:<8}{UNIDADES[k]:<7}{c['media']:>13.4f}{100 * c['pct']:>11.1f}%{c['nans']:>6}  {peso}")
+        emite(f"  {k:<8}{UNIDADES[k]:<7}{c['media']:>13.4f}{100 * c['pct']:>16.1f}%{c['nans']:>6}  {peso}")
     emite("  torque sem valor no 23250_k2 (sem alvo_pd_*): NaN fora da média.")
     emite("")
 
     emite("Diagnósticos")
-    emite(f"  soma literal do progresso no PEGAR, retorno/s = {lit_pe:+.5f} (negativo: por isso PD-30 usa a "
-          f"subida de Φ, Suposição 8). G = {G:.5f} retorno/s (conferir: G antigo 0,03369).")
+    emite(f"  soma literal do progresso no PEGAR (D1; B_P0 não entra: o roteiro começa em P0), retorno/s = "
+          f"{lit_pe:+.5f} (w_p {soma_w * DT / T_pe:+.5f}; B {soma_b * DT / T_pe:+.5f}). G = {G:.5f} retorno/s (PD-30).")
     ini_b2 = [i for i, nm in enumerate(bo["trecho"]) if nm == "B1_B2"][0]
     dist = float(np.sum(np.linalg.norm(np.diff(bo["caixa"][:ini_b2 + 1], axis=0), axis=1)))
     dur_viagem_b = sum(p["dur"] for p in viagem if p["fase"] == "BOTAR")
@@ -303,19 +336,20 @@ def main():
         "a divisão por trecho; o total do BOTAR por distância está no diagnóstico.",
         "5. A fase pegar dos CSV não tem a divisão por alvo (só fase, alvo_x/y/z e oh_*); não usei os tempos medidos.",
         "6. Φ novo = Φ da primeira linha do trecho; Φ velho = Φ da linha anterior. P0 não tem alvo velho (n/a). "
-        "B1 usa o último Φ do PEGAR (o BOTAR começa no P4).",
+        "B1 usa o último Φ do PEGAR (o BOTAR começa no P4). Φ velho s′ (D1) = o mesmo Φ com o índice do alvo velho "
+        "só no passo do avanço, com a caixa e o σ do trecho que termina.",
         "7. Ganho de Φ por s (PD-32) = subida de Φ dentro do trecho (Φ fim − Φ ini) ÷ duração. Trecho sem subida "
         "(P2) fica fora do máximo.",
         "8. G (PD-30, retorno/s) = w_p × Σ ΔΦ·dt dos trechos de viagem do PEGAR ÷ duração total do roteiro do PEGAR "
-        "(com esperas). PD-30 não diz se é a soma literal de r; a soma literal é negativa (diagnóstico).",
-        "9. Cercas: média por passo sobre os 6 PEGAR (torque NaN fora); peso = −0,5·G ÷ média (sinal negativo, como "
-        "custos_por_s).",
+        "(com esperas). A subida de Φ é mantida (PD-30); a soma literal sai no diagnóstico.",
+        "9. Cercas: média por passo sobre os 6 PEGAR, só nos passos em que a cerca age (> 0; D4), torque NaN fora; "
+        "peso = −0,5·G ÷ média (sinal negativo, como custos_por_s).",
         "10. Escada (1): queda = |terminacao|·dt; reguladores até os 20 s do episódio no BOTAR = custo/s × 20 "
         "(limite superior: o plano não fixa quando o BOTAR começa); B_alvo restantes = B1–B4 (queda logo no início); "
         "+ r_aperto.",
         "11. Escada (2): perda = 1,2 × (ΣB P0–P3 + w_p·Φ máx + r_aperto), Φ máx = 1. r_aperto = w_aperto (linha "
         "'proposto' da saída do item 15, primeira coluna) × custo_aperto(117,5; 117,5; F_ref) × 20 s, retorno. "
-        "Laço: o item 15 lê perda_caixa desta saída para o seu w máximo; rodar o item 15 de novo pode mudar w_aperto.",
+        "Sem laço: o item 15 lê a linha 'perda_caixa sem o aperto evitado' (não depende de w) para o seu w máximo.",
         "12. Volta à pose de pé = w_p·Φ máx (paga uma vez, como potencial, sem bônus). Mergulho = B_P0 + w_p·Φ máx.",
         "13. perda_caixa (peso −1) paga perda·dt no passo da perda, como a terminação paga −200·dt.",
         "14. devolve_b_alvo = True só se (queda > perda), (perda > volta), (queda > mergulho) e (1) não fecham com a "

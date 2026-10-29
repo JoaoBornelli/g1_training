@@ -3,8 +3,8 @@
 Propõe os pesos do `aperto` e da `sacudida`:
 1. Derivada de `custo_aperto` em 117,5 N e em F_ref (autograd; diferença central como conferência);
    critério: derivada em 117,5 N ≥ 20% da derivada em F_ref.
-2. Ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s, com w = 1 e por w (pior caso: solta de uma vez).
-3. Peso máximo w ≤ 0,5 × perda_caixa (em retorno) ÷ (ganho de afrouxar em 20 s, em retorno, por w); w proposto.
+2. Ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s, com w = 1 (rampa linear, D8; pior caso como info).
+3. Peso máximo w ≤ 0,5 × perda sem o aperto evitado (retorno, item 3; D6) ÷ ganho da rampa (retorno, por w); w proposto.
 4. `sacudida` pela regra da PD-34: custo no p50 = 10% do ganho máximo do rastreio linear por s.
 
 Unidade: retorno do mjlab (`scale_by_dt`, × dt). Um termo de valor x e peso w soma w·x·dt por passo.
@@ -84,10 +84,10 @@ def ganho_rampa_20s():
 
 
 def perda_do_item3():
-    """perda_caixa por passo (knob) lida da saída do item 3; o retorno é o knob × dt."""
-    m = re.search(r"perda_caixa = .*?por passo \(knob\) = retorno/dt = ([0-9.]+)", ITEM3.read_text(encoding="utf-8"))
+    """Perda sem o aperto evitado (retorno), lida da linha estável do item 3 (não depende de w)."""
+    m = re.search(r"perda_caixa sem o aperto evitado[^\n]*?retorno ([0-9.]+)", ITEM3.read_text(encoding="utf-8"))
     if m is None:
-        raise SystemExit(f"perda_caixa não achada em {ITEM3}")
+        raise SystemExit(f"perda sem o aperto não achada em {ITEM3}")
     return float(m.group(1))
 
 
@@ -153,21 +153,21 @@ def main():
     emite("2. Ganho acumulado de afrouxar de 117,5 N para 49 N (w = 1; por w = o mesmo número × w)")
     emite(f"  {'':<56} {'por passo':>12} {'retorno':>12}")
     linha(f"custo(117,5 N) − custo(49 N), por s (w = 1)", ganho_s, ganho_s * DT)
-    linha("ganho em 20 s, w = 1 (solta de uma vez, segura 49 N)", None, ganho_20)
-    linha("info: ganho em 20 s, w = 1, descida linear em 20 s", None, ganho_rampa)
+    linha("info: pior caso, solta de uma vez e segura 49 N por 20 s (w = 1)", None, ganho_20)
+    linha("usado (D8): rampa linear 117,5 → 49 N em 20 s (w = 1)", None, ganho_rampa)
     emite()
 
     # --- 3. peso máximo ---
-    perda_passo = perda_do_item3()
-    perda_ret = perda_passo * DT
-    w_max = FRAC_PERDA * perda_ret / ganho_20
+    perda_ret = perda_do_item3()  # sem o aperto evitado (D6): não depende de w
+    w_max = FRAC_PERDA * perda_ret / ganho_rampa
     w = floor_1_sig(w_max)
-    ganho_w = w * ganho_20
-    emite("3. Peso máximo: w ≤ 0,5 × perda_caixa (retorno) ÷ ganho de afrouxar em 20 s (retorno, por w)")
+    ganho_w = w * ganho_rampa
+    emite("3. Peso máximo (D6, D8): w ≤ 0,5 × perda sem o aperto evitado (retorno) ÷ ganho de afrouxar numa rampa de 20 s")
     emite(f"  {'':<56} {'por passo':>12} {'retorno':>12}")
-    linha("perda_caixa (item 3; por passo = knob, retorno = knob × dt)", perda_passo, perda_ret)
-    linha("w máximo = 0,5 × perda ÷ ganho(w = 1)", w_max, FRAC_PERDA * perda_ret)
-    linha("w proposto (1 algarismo, para baixo): ganho em 20 s", w, ganho_w)
+    linha("perda_caixa sem o aperto evitado (item 3; retorno)", perda_ret / DT, perda_ret)
+    linha("ganho de afrouxar, rampa 117,5 → 49 N em 20 s (w = 1)", None, ganho_rampa)
+    linha("w máximo = 0,5 × perda ÷ ganho da rampa (w na coluna por passo)", w_max, None, 5)
+    linha("w proposto (1 algarismo, para baixo): ganho da rampa", w, ganho_w)
     hold = w * c_op * JANELA
     linha("info: custo de segurar 117,5 N por 20 s com w proposto", None, -hold)
     criterio("(c) w proposto ≤ w máximo", w <= w_max, f"w = {w}, máximo = {w_max:.5f}")
@@ -198,20 +198,20 @@ def main():
     emite()
     emite("Suposições")
     emite("  1. F_esq = F_dir = F no ponto de operação; a derivada é d/dF de custo_aperto(F, F, F_ref).")
-    emite("  2. Ganho de afrouxar = pior caso: a força cai de 117,5 N para 49 N de uma vez e fica 20 s.")
-    emite(f"     A descida linear em 20 s (info) dá {100 * ganho_rampa / ganho_20:.0f}% do ganho; o critério usa o pior caso.")
-    emite("  3. perda_caixa = 1,2 × (2) do item 3, lida de saida/item3_escada.txt; retorno = knob × dt.")
+    emite("  2. Ganho de afrouxar = rampa linear de 117,5 N a 49 N em 20 s (D8). O pior caso (solta de uma vez) é "
+          f"info: {100 * ganho_rampa / ganho_20:.0f}% dele vira o teto.")
+    emite("  3. Perda do teto = 1,2 × (ΣB P0–P3 + w_p·Φ máx) do item 3, sem o aperto evitado (D6), lida da linha "
+          "'perda_caixa sem o aperto evitado' de saida/item3_escada.txt; retorno.")
     emite("  4. Ganho máximo do rastreio linear por s = rastreio_linear (1,0) × 1 (rastreio_normalizado ≤ 1).")
     emite("  5. A sacudida usa 2,9 e 17 (p50 da S §11.5) como normas no p50; o custo no p50 é 2 (teste da H2).")
     emite("  6. w proposto arredondado para baixo com 1 algarismo; a sacudida fica no valor exato de PD-34.")
     emite("  7. Os pesos são os do topo (degrau 5, d = 5); o degrau 0 multiplica por d/5 no H2, não aqui.")
     emite()
     emite("Dúvidas")
-    emite("  a. Ganho de afrouxar: degrau (pior caso, usado) ou rampa em 20 s (info)? A diferença é 2,6×.")
-    emite(f"  b. Segurar 117,5 N por 20 s com w = {w} custa {hold:.4f} em retorno, acima da perda "
+    emite(f"  a. Segurar 117,5 N por 20 s com w = {w} custa {hold:.4f} em retorno, acima da perda sem o aperto "
           f"({perda_ret:.4f}). O critério (c) não olha esse custo; confirmar se é aceitável.")
-    emite("  c. 'Ganho máximo do rastreio linear por s' = 1,0 (peso do knob × 1). Confirmar essa leitura.")
-    emite(f"  d. O p50 da spec (2,9 e 17) não reproduz no 23250_topo004 (medido: {a_med:.2f} e {alfa_med:.2f}, "
+    emite("  b. 'Ganho máximo do rastreio linear por s' = 1,0 (peso do knob × 1). Confirmar essa leitura.")
+    emite(f"  c. O p50 da spec (2,9 e 17) não reproduz no 23250_topo004 (medido: {a_med:.2f} e {alfa_med:.2f}, "
           f"por diferença finita da posição e do quaternion). Com o medido, w = {w_alt:.4f}, não {w_sac:g}. "
           "Confirmar qual p50 vale.")
     emite()
