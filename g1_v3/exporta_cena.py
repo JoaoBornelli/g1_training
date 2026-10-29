@@ -51,9 +51,13 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `qvel_inicial` | f64 (nv,) | idem |
 | `mocap_pos_inicial` | f64 (nmocap, 3) | m; zeros (0, 3) se não há mocap |
 | `mocap_quat_inicial` | f64 (nmocap, 4) | quaternion wxyz; zeros (0, 4) se não há mocap |
+| `origens_terreno` | f64 (linhas, colunas, 3) | m; `env.scene["terrain"].terrain_origins`: a origem de cada sub-terreno, [linha, coluna] |
+| `colunas_terreno` | str (9,) | nome de cada coluna do gerador, na ordem de `ATIVO.terreno.colunas` |
+| `origem_reset` | f64 (3,) | m; `env.scene.env_origins[0]` depois do `env.reset()`: a origem da cena exportada (o `--coluna` parte dela) |
 
-- Chão do driver: o plano z = 0 (F9 M12). É a coluna `plano` do terreno (`knobs.colunas[0]`, `cena.py`); a fatia C e o
-  reset do exportador são plano. O `pilota_v3` põe o topo da laje de destino sobre z = 0.
+- Chão do driver: o plano z = 0 (F9 M12). É a coluna `plano` do terreno (`knobs.colunas[0]`, `cena.py`); a fatia C é
+  plano. O `pilota_v3` põe o topo da laje de destino sobre z = 0. ⚠ DÚVIDA: a origem do reset é `origem_reset` (lida
+  do env); nada no exportador força a coluna `plano`. Confirmar na fase I.
 
 ### `contrato.json` (UTF-8, `indent=2`)
 
@@ -449,6 +453,11 @@ def exporta(pasta: Path) -> None:
     dados["qvel_inicial"] = d0.qvel.copy()
     dados["mocap_pos_inicial"] = d0.mocap_pos.copy() if m.nmocap else np.zeros((0, 3))
     dados["mocap_quat_inicial"] = d0.mocap_quat.copy() if m.nmocap else np.zeros((0, 4))
+    # G6 (terreno): a grade do gerador, os nomes das colunas e a origem em que o reset pôs o env 0. A origem do reset
+    # é LIDA do env: nada aqui força a coluna `plano`. O `registra_juntas_v3 --coluna` parte dela.
+    dados["origens_terreno"] = _np(env.scene["terrain"].terrain_origins).astype(np.float64)
+    dados["colunas_terreno"] = np.array(ATIVO.terreno.colunas)
+    dados["origem_reset"] = _np(env.scene.env_origins)[0].astype(np.float64)
 
     t_base = _t_base_sensor(m, d0, int(dados["id_base"]), dados["ids_junta_qpos"])
     contrato = _contrato(m, dados, t_base)

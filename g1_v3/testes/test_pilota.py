@@ -187,5 +187,67 @@ class TestPilota(unittest.TestCase):
         np.testing.assert_array_equal(quadro_tarefa, esperado)
 
 
+def _carrega_registra():
+    """Carrega o `registra_juntas_v3.py` da raiz por caminho (ele importa o `pilota_v3` da raiz)."""
+    spec = importlib.util.spec_from_file_location("registra_juntas_v3_teste", RAIZ / "registra_juntas_v3.py")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+class TestRegistraTerreno(unittest.TestCase):
+    """G6: roteiros de terreno e a pose da cena no sub-terreno, núcleos puros do `registra_juntas_v3.py`."""
+
+    COLUNAS = ["plano", "escada", "escada_inv", "rampa", "rampa_inv", "escada_aleatoria",
+               "irregular", "obstaculos", "caixas"]
+    LINHA_MAX = {"escada": 9, "escada_inv": 9, "rampa": 9, "rampa_inv": 9, "escada_aleatoria": 9,
+                 "obstaculos": 8, "caixas": 7}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = _carrega_registra()
+
+    def test_roteiros_de_terreno_tem_a_sequencia_do_carregar(self):
+        for nome in ("escada", "rampa", "obstaculo"):
+            fases = self.R.analisa_roteiro(nome)
+            self.assertEqual([f.tarefa for f in fases], ["ANDAR", "PEGAR", "CARREGAR", "CARREGAR"], nome)
+            self.assertEqual((fases[-1].segundos, fases[-1].vx), (8.0, 0.25), nome)
+
+    def test_resolve_terreno_sem_coluna_so_serve_ao_roteiro_sem_terreno(self):
+        self.assertIsNone(self.R.resolve_terreno("c", None, None, 0, self.COLUNAS, self.LINHA_MAX))
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("escada", None, None, 0, self.COLUNAS, self.LINHA_MAX)
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("c", None, 3, 0, self.COLUNAS, self.LINHA_MAX)
+
+    def test_resolve_terreno_recusa_coluna_sem_plataforma_linha_acima_do_teto_e_borda_fora(self):
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("c", "irregular", 0, 0, self.COLUNAS, self.LINHA_MAX)
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("c", "escada", 10, 0, self.COLUNAS, self.LINHA_MAX)
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("c", "escada", 0, 4, self.COLUNAS, self.LINHA_MAX)
+        self.assertEqual(self.R.resolve_terreno("c", "obstaculos", 8, 0, self.COLUNAS, self.LINHA_MAX), 7)
+
+    def test_pose_no_sub_terreno_leva_a_laje_a_0_75_rumo_a_borda(self):
+        # Laje no reset a 0,50 m do centro (`prateleira_xy[0]`), z 0,55; sub-terreno em (3, 4, 0,3).
+        laje = np.array([0.5, 0.0, 0.55])
+        for borda, (dx, dy) in ((0, (1, 0)), (1, (0, 1)), (2, (-1, 0)), (3, (0, -1))):
+            pos, _ = self.R.pose_no_sub_terreno(laje, np.array([1.0, 0, 0, 0]), np.zeros(3),
+                                                np.array([3.0, 4.0, 0.3]), borda, 0.75, 0.5)
+            np.testing.assert_allclose(pos, [3.0 + 0.75 * dx, 4.0 + 0.75 * dy, 0.85], atol=1e-9, err_msg=str(borda))
+
+    def test_pose_no_sub_terreno_gira_o_quaternio_e_mantem_o_robo_em_relacao_a_caixa(self):
+        caixa = np.array([0.5, 0.0, 0.55])
+        robo = np.array([0.0, 0.0, 0.8])
+        q_id = np.array([1.0, 0.0, 0.0, 0.0])
+        args = (np.zeros(3), np.array([3.0, 4.0, 0.3]), 1, 0.75, 0.5)
+        caixa2, q2 = self.R.pose_no_sub_terreno(caixa, q_id, *args)
+        robo2, _ = self.R.pose_no_sub_terreno(robo, q_id, *args)
+        np.testing.assert_allclose(q2, [np.cos(np.pi / 4), 0, 0, np.sin(np.pi / 4)], atol=1e-9)
+        # A cena inteira gira junta: o vetor robô→caixa gira com ela, e o comprimento não muda.
+        np.testing.assert_allclose(robo2 - caixa2, self.R._rz(np.pi / 2) @ (robo - caixa), atol=1e-9)
+
+
 if __name__ == "__main__":
     unittest.main()

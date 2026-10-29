@@ -2,6 +2,7 @@
 
     python registra_juntas_v3.py --cena ~/g1_pilota_v3/ --checkpoint ~/Downloads/model_9499.pt
     python registra_juntas_v3.py ... --roteiro carregar --saida carrega
+    python registra_juntas_v3.py ... --roteiro escada --coluna escada --linha 4 --borda 1 --saida escada
 
 Irmão do `pilota_v3.py` (D11 do plano): mesma cena, mesmo `Percepcao`, mesma `monta_observacao` e
 mesmo `Ator`, todos IMPORTADOS dele. A diferença é que aqui NÃO tem teclado — um roteiro troca a
@@ -15,7 +16,8 @@ O que sai, e nada mais:
                         `ckpt`, `giro_ang`, `fracao_mapa_visto`, `a_<junta>`, `alvo_pd_<junta>`,
                         a FORÇA NA CAIXA (`fn_E`, `fn_D`, `fn_tot`, `fz_rob`, `n_rob`), `rel_x/y/z`,
                         `aviso_fim` (0/1, o detector de fim), `idade_caixa` (s) e `alvo_x/y/z` (m, mundo; NaN
-                        fora do PEGAR e do BOTAR, e no PEGAR antes da primeira leitura válida da caixa)
+                        fora do PEGAR e do BOTAR, e no PEGAR antes da primeira leitura válida da caixa),
+                        `coluna`, `linha`, `borda` (o sub-terreno da cena; vazio e -1 sem ele)
   <saida>.limites.csv   junta, lo, hi, default — a régua para ler o CSV
 
 ⚠ O DRIVER É A BASE. Nada de física extra aqui (sem --atrito, --massa, --mu-caixa...): a cena é a que
@@ -66,6 +68,7 @@ def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
 #             (o alvo é o topo da laje + a) e o robô sai sem ela. A laje e a caixa ficam onde o BOTAR as deixou.
 #   carregar  roteiro B (cadeia B, E9): ANDAR parado -> PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
 #             O PEGAR dura o tempo do roteiro; o aviso de fim vai só para a coluna `aviso_fim`.
+_CARREGAR_TERRENO = "espera:ANDAR:1.0,pegar:PEGAR:7.0,espera:CARREGAR:1.0,carregar:CARREGAR:8.0:0.25"
 ROTEIROS = {
     "c": ("espera:ANDAR:1.0,"
           "pegar:PEGAR:7.0,"
@@ -79,7 +82,13 @@ ROTEIROS = {
                  "pegar:PEGAR:7.0,"
                  "espera:CARREGAR:1.0,"
                  "carregar:CARREGAR:10.0:0.8"),
+    # G6: a mesma sequência do `carregar`, com o CARREGAR a 0,25 m/s por 8 s (a velocidade do terreno, viab. D10).
+    # A coluna NÃO vem do nome: vem de `--coluna`. Sugestões: escada -> escada; rampa -> rampa; obstaculo -> obstaculos.
+    "escada": _CARREGAR_TERRENO,
+    "rampa": _CARREGAR_TERRENO,
+    "obstaculo": _CARREGAR_TERRENO,
 }
+ROTEIROS_DE_TERRENO = ("escada", "rampa", "obstaculo")
 
 
 class Fase:
@@ -145,6 +154,59 @@ def enderecos_da_caixa(m: mujoco.MjModel, id_caixa: int) -> tuple[int, int]:
     return int(m.jnt_qposadr[jid]), int(m.jnt_dofadr[jid])
 
 
+def _rz(yaw: float) -> np.ndarray:
+    """Matriz de rotação de `yaw` em torno de z."""
+    c, s = np.cos(yaw), np.sin(yaw)
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def _qmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Produto de quatérnios wxyz (a·b)."""
+    w1, x1, y1, z1 = a
+    w2, x2, y2, z2 = b
+    return np.array([w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2, w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+                     w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2, w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2])
+
+
+def pose_no_sub_terreno(pos: np.ndarray, quat: np.ndarray, origem_reset: np.ndarray, origem_sub: np.ndarray,
+                        borda: int, laje_do_centro: float, laje_x: float) -> tuple[np.ndarray, np.ndarray]:
+    """Leva a pose de um corpo da cena do reset ao sub-terreno, com a laje a `laje_do_centro` do centro, rumo à borda.
+
+    A cena inteira gira `borda`·90° em torno da origem do reset e vai para `origem_sub`; depois o conjunto anda
+    `laje_do_centro − laje_x` rumo à borda (o desloc da G1). Robô, caixa e laje recebem a MESMA transformada,
+    então o robô continua onde estava em relação à caixa.
+    """
+    yaw = borda * np.pi / 2
+    rz = _rz(yaw)
+    desloc = rz @ np.array([laje_do_centro - laje_x, 0.0, 0.0])
+    q_yaw = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
+    return np.asarray(origem_sub) + desloc + rz @ (pos - origem_reset), _qmul(q_yaw, quat)
+
+
+def resolve_terreno(roteiro: str, coluna: str | None, linha: int | None, borda: int, colunas: list[str],
+                    linha_max: dict[str, int]) -> int | None:
+    """Índice da coluna do gerador para `--coluna`, ou None sem terreno. Recusa o que o CARREGAR não cobre.
+
+    ⚠ Um roteiro de terreno sem `--coluna` sai com erro: o nome do roteiro não escolhe a coluna.
+    ⚠ Só as colunas de `linha_max` têm plataforma de 2 m (PD-20); a linha tem de ficar até o teto da coluna.
+    """
+    if coluna is None:
+        if linha is not None:
+            raise SystemExit("--linha sem --coluna")
+        if roteiro in ROTEIROS_DE_TERRENO:
+            raise SystemExit(f"o roteiro {roteiro!r} é de terreno e pede --coluna e --linha (ver a docstring)")
+        return None
+    if linha is None:
+        raise SystemExit("--coluna pede --linha")
+    if coluna not in linha_max:
+        raise SystemExit(f"a coluna {coluna!r} não tem plataforma de 2 m (PD-20): use uma de {', '.join(linha_max)}")
+    if not 0 <= linha <= linha_max[coluna]:
+        raise SystemExit(f"linha {linha} fora de 0..{linha_max[coluna]} na coluna {coluna!r} (teto de CARREGAR, PD-20)")
+    if not 0 <= borda <= 3:
+        raise SystemExit("--borda vai de 0 a 3 (90° em 90°)")
+    return colunas.index(coluna)
+
+
 def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], afasta: float,
                  laje: bool, caixa: bool) -> None:
     """Manda para longe o que a tarefa manda, como o treino faz.
@@ -206,12 +268,22 @@ def main() -> None:
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
+    ap.add_argument("--coluna", default=None,
+                    help="coluna do gerador de terreno (ex.: escada, rampa, obstaculos): leva a cena a esse sub-terreno")
+    ap.add_argument("--linha", type=int, default=None, help="linha do gerador (até o teto da coluna, PD-20)")
+    ap.add_argument("--borda", type=int, default=0,
+                    help="borda da plataforma para onde a laje olha: 0..3, de 90° em 90° (só com --coluna)")
     args = ap.parse_args()
     if args.tempo <= 0:
         raise SystemExit("--tempo tem de ser > 0")
 
     fases = analisa_roteiro(args.roteiro)
     m, c, _contrato = carrega_cena(args.cena)
+    if args.coluna is not None and "origens_terreno" not in c:
+        raise SystemExit("a cena não tem o terreno (origens_terreno, colunas_terreno): reexporte com exporta_cena")
+    indice_coluna = resolve_terreno(args.roteiro, args.coluna, args.linha, args.borda,
+                                    [str(n) for n in c.get("colunas_terreno", ())],
+                                    dict(pv._KN.terreno.linha_max_carregar))
     d = mujoco.MjData(m)
     ator = Ator(args.checkpoint)
     # ⚠ Duas cópias com a mesma iteração geram CSVs indistinguíveis; nome + hash dos bytes identifica.
@@ -248,6 +320,33 @@ def main() -> None:
     envelope = np.asarray(c["envelope_treino"], dtype=np.float64)
     tetos = np.minimum(pv._TETOS_PADRAO, envelope)
     piloto = Piloto(tuple(tetos), envelope)
+    # ⚠ O SUB-TERRENO entra no `c` ANTES do `Percepcao` e do `restaura`: o `restaura` monta o estado do reset a
+    # partir de `qpos_inicial` e `mocap_*_inicial`, e a percepção e a visão leem a pose já no sub-terreno.
+    # Velocidades: o reset grava qvel zero; se um dia não for zero, a linear também gira (não feito aqui).
+    # ⚠ DÚVIDA: o `--afasta` (laje e caixa, na marcha) anda em +x do MUNDO; com `--borda` ≠ 0 o afastamento sai de
+    # lado do robô, e não na direção da borda. Não mudei: o orquestrador decide se o afasta passa a seguir o rumo.
+    sub_terreno = indice_coluna is not None
+    if sub_terreno:
+        origem_reset = np.asarray(c["origem_reset"], dtype=np.float64)
+        origem_sub = np.asarray(c["origens_terreno"], dtype=np.float64)[args.linha, indice_coluna]
+        laje_x = float(pv._KN.cena.prateleira_xy[0])
+        laje_do_centro = pv._KN.terreno.laje_do_centro
+
+        def leva(pos, quat):
+            return pose_no_sub_terreno(pos, quat, origem_reset, origem_sub, args.borda, laje_do_centro, laje_x)
+
+        adr_caixa_reset, _ = enderecos_da_caixa(m, int(c["id_caixa"]))
+        q = np.array(c["qpos_inicial"], dtype=np.float64)
+        for ini in (0, adr_caixa_reset):  # a raiz (pelve) e a caixa: juntas livres, pose em qpos[adr:adr+7]
+            q[ini:ini + 3], q[ini + 3:ini + 7] = leva(q[ini:ini + 3], q[ini + 3:ini + 7])
+        mp = np.array(c["mocap_pos_inicial"], dtype=np.float64)
+        mq = np.array(c["mocap_quat_inicial"], dtype=np.float64)
+        id_mocap_reset = int(m.body_mocapid[int(c["id_laje"])])
+        mp[id_mocap_reset], mq[id_mocap_reset] = leva(mp[id_mocap_reset], mq[id_mocap_reset])
+        c.update(qpos_inicial=q, mocap_pos_inicial=mp, mocap_quat_inicial=mq)
+    sub = dict(coluna=args.coluna or "", linha=args.linha if sub_terreno else -1,
+               borda=args.borda if sub_terreno else -1)
+
     percepcao = Percepcao(m, c)
     # ⚠ Limiar do mapa: o mesmo de `metricas.fracao_mapa_visto` (a fração de células VISTAS).
     limiar_visto = pv._KN.percepcao.limiar_visto
@@ -265,6 +364,9 @@ def main() -> None:
         f"{f.rotulo}({f.tarefa},{f.segundos:g}s" + (f",vx={f.vx:g}" if f.vx else "") + ")"
         for f in fases) + f"   × {args.voltas}")
     print("[registra_v3] fase E: caixa pelo estimador da D435i (sem ruído); aviso de fim na coluna aviso_fim")
+    if sub_terreno:
+        print(f"[registra_v3] sub-terreno: coluna {args.coluna} linha {args.linha} borda {args.borda} "
+              f"origem {origem_sub.round(3).tolist()}")
 
     viewer = None
     if not args.sem_viewer:
@@ -308,7 +410,7 @@ def main() -> None:
 
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
-                          "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt}
+                          "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt, **sub}
                     # O alvo gravado é o PONTO do PEGAR (a caixa vista) ou o de soltura do BOTAR (a laje, F7), o que o
                     # driver manda; I §4.1. O `alvos.caixa_alvo_w` pede o índice P0..B4, que o driver não tem.
                     ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa in ("PEGAR", "BOTAR") and visao.aberto
