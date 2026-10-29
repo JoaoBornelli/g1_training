@@ -1,0 +1,70 @@
+Item 6 (S §16, §19 conflito 5): rastreio em comando baixo
+
+Custo por segundo de cada play (valor por s; negativo = custo; NaN = sem CSV)
+  arquivo             fase     taxa_acao  vel_junta  acel_junta  energia     total
+  5000_botar          andar          nan     -0.036      -0.006      nan    -0.042
+  5350_botar          andar          nan     -0.032      -0.004      nan    -0.036
+  5000_andar_parado   parado         nan     -0.001      -0.000      nan    -0.001
+  5350_andar_parado   parado         nan     -0.001      -0.000      nan    -0.002
+  5800_andar_parado   parado         nan     -0.002      -0.000      nan    -0.002
+  média andando (2 arquivos): -0.039; média parado (3): -0.001
+  custo da marcha por s, todos juntos: 0.038
+  ⚠ taxa_acao e energia ficam fora do total: os CSV não têm a_* nem alvo_pd_*.
+
+c = 0,05 (valor por s)
+  tipo    escopo              ganho    custo  exec−estátua  exec−marcha  veredito
+  linear  todos juntos        +1,00    -0,04         +0,96        +1,00  OK
+  linear  5000_botar          +1,00    -0,04         +0,96        +1,00  OK
+  linear  5350_botar          +1,00    -0,03         +0,97        +1,00  OK
+  giro    todos juntos        +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5000_botar          +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5350_botar          +0,50    -0,03         +0,47        +0,50  OK  (custo do linear: sem CSV de giro)
+
+c = 0,1 (valor por s)
+  tipo    escopo              ganho    custo  exec−estátua  exec−marcha  veredito
+  linear  todos juntos        +1,00    -0,04         +0,96        +1,00  OK
+  linear  5000_botar          +1,00    -0,04         +0,96        +1,00  OK
+  linear  5350_botar          +1,00    -0,03         +0,97        +1,00  OK
+  giro    todos juntos        +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5000_botar          +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5350_botar          +0,50    -0,03         +0,47        +0,50  OK  (custo do linear: sem CSV de giro)
+
+c = 0,25 (valor por s)
+  tipo    escopo              ganho    custo  exec−estátua  exec−marcha  veredito
+  linear  todos juntos        +1,00    -0,04         +0,96        +1,00  OK
+  linear  5000_botar          +1,00    -0,04         +0,96        +1,00  OK
+  linear  5350_botar          +1,00    -0,03         +0,97        +1,00  OK
+  giro    todos juntos        +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5000_botar          +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5350_botar          +0,50    -0,03         +0,47        +0,50  OK  (custo do linear: sem CSV de giro)
+
+c = 0,5 (valor por s)
+  tipo    escopo              ganho    custo  exec−estátua  exec−marcha  veredito
+  linear  todos juntos        +1,00    -0,04         +0,96        +1,00  OK
+  linear  5000_botar          +1,00    -0,04         +0,96        +1,00  OK
+  linear  5350_botar          +1,00    -0,03         +0,97        +1,00  OK
+  giro    todos juntos        +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5000_botar          +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5350_botar          +0,50    -0,03         +0,47        +0,50  OK  (custo do linear: sem CSV de giro)
+
+c = 1,0 (valor por s)
+  tipo    escopo              ganho    custo  exec−estátua  exec−marcha  veredito
+  linear  todos juntos        +1,00    -0,04         +0,96        +1,00  OK
+  linear  5000_botar          +1,00    -0,04         +0,96        +1,00  OK
+  linear  5350_botar          +1,00    -0,03         +0,97        +1,00  OK
+  giro    todos juntos        +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5000_botar          +0,50    -0,04         +0,46        +0,50  OK  (custo do linear: sem CSV de giro)
+  giro    5350_botar          +0,50    -0,03         +0,47        +0,50  OK  (custo do linear: sem CSV de giro)
+
+Passo: não entra no ganho (conta 0). É ≥ 0, então o ganho real é maior e o critério fica
+a favor. A marcha no lugar paga o custo da marcha (não há CSV dela).
+Suposições (não definidas no plano; o número depende delas):
+  3. taxa_acao e energia são NaN (sem a_* e alvo_pd_*); o custo está incompleto. Para
+     virar o linear, esses termos teriam de somar mais de 1,00 por s.
+  4. O custo do ANDAR andando é de um play a 0,65 m/s, usado igual para todo c.
+     Não há play em 0,05 a 0,25 m/s.
+  5. Não há CSV de giro: o giro usa o custo do linear.
+  6. Não há CSV de marcha no lugar: assumida com o custo da marcha e ganho 0.
+  7. Passo fora do ganho: a definição por segundo depende de cadência e de FK (item 8).
+  8. Por arquivo: cada andando é comparado com a média dos três parados (5800 não tem par).
+Resultado: todas as linhas OK.
