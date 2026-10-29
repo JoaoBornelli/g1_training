@@ -1,4 +1,4 @@
-"""Os checks da v3 (D12 e E10 do plano, seções 1 a 24: Partes 1 e 2).
+"""Os checks da v3 (D12 e E10 do plano, seções 1 a 29: Partes 1 a 3).
 
     python -m g1_v3.smoke
 
@@ -446,24 +446,42 @@ def s15_tempo_por_passo():
 
 # =============================================================================
 # Parte 2 (E10): cadeia B. Os buffers `v3_*` são forçados na seção que diz; o resto roda como no treino.
-def _trecho_de(cad, tarefa: str, n: int, device):
-    """(n,) long: o primeiro trecho da tabela com a `tarefa` (em B para PEGAR e CARREGAR)."""
+def _trecho_de(cad, tarefa: str, n: int, device, fatia: int = 1, ultimo: bool = False):
+    """(n,) long: o primeiro trecho da `tarefa` dentro da `fatia` (1 = FATIA_B, o padrão; 2 = FATIA_C), ou o último.
+
+    ⚠ O ANDAR aparece duas vezes na fatia C (a espera e o ANDAR parado final): `ultimo` escolhe o final.
+    """
     from g1_v3.knobs import TAREFAS
-    i = int((cad.tab.tarefa == TAREFAS.index(tarefa)).nonzero()[0])
+    ini = int(cad.tab.inicio[fatia])
+    fim = int(cad.tab.inicio[fatia + 1]) if fatia < 2 else len(cad.tab.tarefa)
+    idx = (cad.tab.tarefa == TAREFAS.index(tarefa)).nonzero().flatten()
+    idx = idx[(idx >= ini) & (idx < fim)]
+    i = int(idx[-1] if ultimo else idx[0])
     return torch.full((n,), i, dtype=torch.long, device=device)
 
 
-def _abre_trecho_de(env, tarefa: str):
-    """Força a fatia B e abre o trecho de `tarefa` em todos os mundos, pelo `_abre_trecho` que o `compute` usa.
+def _abre_trecho_de(env, tarefa: str, fatia: int = 1, ultimo: bool = False):
+    """Força a `fatia` (B por padrão) e abre o trecho de `tarefa` em todos os mundos, pelo `_abre_trecho` do `compute`.
 
-    ⚠ Força: o reset sorteou um trecho de ANDAR, e aqui `v3_fatia` vai a B. Devolve o termo `cadeia`.
+    ⚠ Força: o reset sorteou um trecho de ANDAR da fatia A, e aqui `v3_fatia` vai à `fatia`. Devolve o termo `cadeia`.
     """
-    from g1_v3.comando import FATIA_B
     cad = env.command_manager.get_term("cadeia")
     n = env.num_envs
-    env.v3_fatia[:] = FATIA_B
+    env.v3_fatia[:] = fatia
     ids = torch.arange(n, device=env.device)
-    cad._abre_trecho(ids, _trecho_de(cad, tarefa, n, env.device), cad._mede())
+    cad._abre_trecho(ids, _trecho_de(cad, tarefa, n, env.device, fatia, ultimo), cad._mede())
+    return cad
+
+
+def _abre_botar_c(env):
+    """Fatia C forçada e o trecho de BOTAR aberto em todos os mundos (o caminho do `compute`). Devolve o `cadeia`.
+
+    ⚠ Estado forçado: o reset sorteou ANDAR (fatia A). O BOTAR abre a laje de destino (`posiciona_destino`) e não põe
+    a caixa: as seções que querem a caixa a põem à mão. Quem chama faz o `env.reset()` antes.
+    """
+    from g1_v3.comando import FATIA_C
+    cad = _abre_trecho_de(env, "BOTAR", FATIA_C)
+    env.sim.forward()  # ⚠ a leitura das poses depois da escrita da laje pede o forward (como em s06)
     return cad
 
 
@@ -818,6 +836,177 @@ def s24_atraso_do_atuador_depois_do_portao_do_pegar():
         env.close()
 
 
+# =============================================================================
+# Parte 3 (F8): fatia C, o BOTAR. Os trechos vêm de `cad.tab`; o estado é forçado onde a seção diz.
+def s25_fatia_c_forcada_laje_de_destino_a_frente():
+    from g1_v3.comando import FATIA_C
+    from g1_v3.knobs import ATIVO, TAREFAS
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_botar_c(env)
+        check("fatia C forçada", bool((env.v3_fatia == FATIA_C).all()))
+        check("tarefa publicada = BOTAR", bool((env.v3_tarefa == TAREFAS.index("BOTAR")).all()))
+        topo_w = env.scene.env_origins[:, 2] + env.v3_topo_destino
+        # ⚠ a laje é mocap: o centro do corpo fica `prateleira_meia_z` abaixo do topo (como em s16)
+        laje = env.scene["table"].data
+        check("laje de destino: topo = origem + v3_topo_destino (± 1e-4)",
+              torch.allclose(laje.root_link_pos_w[:, 2] + ATIVO.cena.prateleira_meia_z, topo_w, atol=1e-4),
+              f"{(laje.root_link_pos_w[:, 2] + ATIVO.cena.prateleira_meia_z - topo_w).abs().max().item():.2e}")
+        # x no frame da base, pelo rumo do corpo (`heading_w`, o mesmo de `comando._mede`)
+        base = env.scene["robot"].data
+        dxy = laje.root_link_pos_w[:, :2] - base.root_link_pos_w[:, :2]
+        x_base = torch.cos(base.heading_w) * dxy[:, 0] + torch.sin(base.heading_w) * dxy[:, 1]
+        check("laje de destino à frente da base (x > 0 no rumo do corpo)", bool((x_base > 0).all()),
+              f"x {x_base.tolist()}")
+    finally:
+        env.close()
+
+
+def s26_alvo_de_soltura_no_topo_mais_a():
+    from g1_v3.alvos import B1
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _abre_botar_c(env)
+        check("alvo corrente = B1", bool((env.v3_alvo_idx == B1).all()), str(env.v3_alvo_idx.tolist()))
+        # ⚠ `_abre_botar` põe o centro da caixa a `a` acima do ponto de soltura, que está no topo da laje
+        esperado = env.scene.env_origins[:, 2] + env.v3_topo_destino + env.v3_meia
+        check("alvo de soltura: z = origem + v3_topo_destino + v3_meia (± 1e-4)",
+              torch.allclose(env.v3_alvo_w[:, 2], esperado, atol=1e-4),
+              f"{(env.v3_alvo_w[:, 2] - esperado).abs().max().item():.2e}")
+    finally:
+        env.close()
+
+
+def s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina():
+    def roda(altura: float) -> dict:
+        """Caixa parada, fundo `altura` acima do topo, sobre o ponto de soltura; ação zero por até 0,3 s."""
+        env = _abre_env(4)
+        try:
+            env.reset()
+            _abre_botar_c(env)
+            env.v3_degrau[:] = 0  # ⚠ estado forçado: o degrau 0 põe o limite da chegada em 1,0 m/s (início)
+            n, dev, dt = env.num_envs, env.device, env.step_dt
+            caixa = env.scene["box"]
+            # ⚠ `v3_alvo_w` é o centro a `a` acima do topo: o fundo fica `altura` acima do topo se o centro sobe `altura`
+            pose = torch.zeros(n, 7, device=dev)
+            pose[:, :3] = env.v3_alvo_w
+            pose[:, 2] += altura
+            pose[:, 3] = 1.0
+            caixa.write_root_link_pose_to_sim(pose)
+            caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev))
+            env.sim.forward()
+            topo_w = env.scene.env_origins[:, 2] + env.v3_topo_destino
+            gap0 = caixa.data.root_link_pos_w[:, 2] - env.v3_meia - topo_w
+            # queda livre de `altura` (sem contato antes): o toque é no passo em que a caixa percorre `altura`
+            g = float(-env.sim.mj_model.opt.gravity[2])
+            k_toque = math.ceil(math.sqrt(2 * altura / g) / dt) - 1
+            zeros = _zeros(env)
+            passos = math.ceil(0.3 / dt)
+            cheg, toque, palma = [], [], []
+            for _ in range(passos):
+                env.step(zeros)
+                # ⚠ o termo lê-se pelo `termination_manager` (o valor do último `compute`); depois do passo, o mundo que
+                # terminou já foi reiniciado, então as poses só valem antes do disparo
+                cheg.append(env.termination_manager.get_term("chegada").clone())
+                toque.append(env.scene["apoio_caixa"].data.found.amax(-1) > 0)
+                palma.append((env.scene["palma_E"].data.found.amax(-1) > 0) | (env.scene["palma_D"].data.found.amax(-1) > 0))
+            return dict(gap0=gap0, cheg=torch.stack(cheg), toque=torch.stack(toque), palma=torch.stack(palma),
+                        k_toque=k_toque, altura=altura)
+        finally:
+            env.close()
+
+    d5, d10 = roda(0.05), roda(0.10)
+    # 5 cm: queda livre de 0,99 m/s, abaixo do limite do degrau 0 (1,0 m/s): não termina
+    check("5 cm: fundo a 5 cm do topo", bool(torch.allclose(d5["gap0"], torch.full_like(d5["gap0"], 0.05), atol=1e-4)))
+    check("5 cm: a caixa toca a laje nos 0,3 s", bool(d5["toque"].any(dim=0).all()))
+    check("5 cm: a chegada nunca dispara (0,99 m/s < 1,0)", not bool(d5["cheg"].any()),
+          f"disparos {int(d5['cheg'].sum())}")
+    check("5 cm: as palmas não tocam a caixa antes do toque", not bool(d5["palma"][:d5["k_toque"]].any()))
+    # 10 cm: queda livre de 1,40 m/s: dispara no passo do toque (± 2 passos, pelo tempo da queda livre)
+    check("10 cm: fundo a 10 cm do topo", bool(torch.allclose(d10["gap0"], torch.full_like(d10["gap0"], 0.10), atol=1e-4)))
+    primeiro = d10["cheg"].float().argmax(dim=0)
+    check("10 cm: a chegada dispara em todo mundo (1,40 m/s)", bool(d10["cheg"].any(dim=0).all()))
+    # ⚠ DÚVIDA: a tolerância de ± 2 passos é escolha desta seção; o plano não a fixa
+    check("10 cm: o disparo é no passo do toque (± 2 passos da queda livre)",
+          bool(((primeiro - d10["k_toque"]).abs() <= 2).all()), f"primeiro {primeiro.tolist()}, toque {d10['k_toque']}")
+    check("10 cm: as palmas não tocam a caixa antes do toque", not bool(d10["palma"][:d10["k_toque"]].any()))
+
+
+def s28_one_hot_fica_em_botar_durante_o_atraso():
+    from g1_v3.knobs import ATIVO, TAREFAS
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        cad = _abre_botar_c(env)
+        n, dt, dev = env.num_envs, env.step_dt, env.device
+        i_botar = TAREFAS.index("BOTAR")
+        atraso_max = ATIVO.cadeia.atraso_botar_s[1]
+        margem = 2 * dt  # ⚠ DÚVIDA: o plano pede "uma margem" sem valor; escolha desta seção: 2 passos
+        zeros = _zeros(env)
+        aviso0 = torch.full((n,), -1, dtype=torch.long, device=dev)  # passo do primeiro aviso, −1 = não veio
+        troca = torch.full((n,), -1, dtype=torch.long, device=dev)  # passo em que o trecho sai do BOTAR, −1 = não saiu
+        ok = torch.ones(n, dtype=torch.bool, device=dev)
+        # ⚠ para quando todo mundo trocou, ou no tempo máximo (aviso em 1,5 s + atraso máximo + margem)
+        for p in range(math.ceil((1.5 + atraso_max + margem) / dt)):
+            env.step(zeros)
+            aviso0 = torch.where((aviso0 < 0) & env.v3_aviso, torch.full_like(aviso0, p), aviso0)
+            # depois do primeiro aviso e antes da troca, o one-hot e a tarefa ficam em BOTAR; o passo da troca é o próprio
+            pre = (aviso0 >= 0) & (troca < 0)
+            botar = env.v3_tarefa == i_botar
+            troca = torch.where((troca < 0) & ~botar, torch.full_like(troca, p), troca)
+            ok &= ~pre | (botar & (cad.command[:, i_botar] > 0.5)) | (troca == p)
+            if bool((troca >= 0).all()):
+                break
+        t_aviso = (aviso0 + 1).float() * dt
+        t_troca = (troca + 1).float() * dt
+        # ⚠ o aviso é a pose de pé sem caixa com 0,5 s de estabilidade: não pode vir antes disso (± 1 passo)
+        check("aviso do BOTAR em até 1,5 s (a pose de pé sem caixa)", bool(((aviso0 >= 0) & (t_aviso <= 1.5)).all()),
+              f"aviso em {t_aviso.tolist()} s")
+        check("aviso não antes de 0,5 s de pose estável", bool((t_aviso >= 0.5 - dt).all()), f"{t_aviso.tolist()} s")
+        limite = 0.5 + atraso_max + margem
+        check("trecho sai do BOTAR até 0,5 s + atraso máximo + margem", bool(((troca >= 0) & (t_troca <= limite)).all()),
+              f"troca em {t_troca.tolist()} s, limite {limite:.2f} s")
+        check("tarefa e one-hot em BOTAR de todo passo do aviso até a troca", bool(ok.all()))
+    finally:
+        env.close()
+
+
+def s29_andar_parado_final_acaba_em_time_out():
+    from g1_v3.comando import FATIA_C
+    from g1_v3.knobs import ATIVO
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        # ⚠ estado forçado: o ANDAR parado final da fatia C (o último trecho ANDAR da tabela), aberto direto
+        _abre_trecho_de(env, "ANDAR", FATIA_C, ultimo=True)
+        n, dt = env.num_envs, env.step_dt
+        zeros = _zeros(env)
+        fim = torch.full((n,), -1, dtype=torch.long, device=env.device)
+        queda_no_fim = torch.zeros(n, dtype=torch.bool, device=env.device)
+        for p in range(math.ceil(2 * ATIVO.cadeia.andar_final_s / dt)):
+            env.step(zeros)
+            # ⚠ `time_outs` é o valor do último `compute`; a `queda` lê-se no mesmo passo
+            novo = env.termination_manager.time_outs & (fim < 0)
+            fim = torch.where(novo, torch.full_like(fim, p), fim)
+            queda_no_fim |= novo & env.termination_manager.get_term("queda")
+            if bool((fim >= 0).all()):
+                break
+        check("ANDAR final: time_out em todo mundo", bool((fim >= 0).all()), f"passos {fim.tolist()}")
+        t_fim = (fim + 1).float() * dt
+        # ⚠ o v3_fim sai no `compute` do passo k e o time_out aparece no passo k + 1: a tolerância é de 2 passos
+        check("time_out no fim do ANDAR (andar_final_s ± 2 passos)",
+              bool(((t_fim - ATIVO.cadeia.andar_final_s).abs() <= 2 * dt).all()), f"{t_fim.tolist()} s")
+        check("queda False no passo do time_out", not bool(queda_no_fim.any()))
+    finally:
+        env.close()
+
+
 SECOES = (
     ("1 cfg monta e a task registra", s01_cfg_e_registro),
     ("2 env de 4 mundos em CPU, ator com 1 447 canais", s02_env_nasce_com_1447_canais),
@@ -844,6 +1033,11 @@ SECOES = (
     ("22 laje sai com o CARREGAR que anda", s22_laje_sai_com_o_carregar_que_anda),
     ("23 tamanho do crítico confere com §6.5", s23_tamanho_do_critico_confere_com_6_5),
     ("24 atraso do atuador em {0..8} depois do portão do PEGAR", s24_atraso_do_atuador_depois_do_portao_do_pegar),
+    ("25 fatia C forçada: laje de destino à frente no BOTAR", s25_fatia_c_forcada_laje_de_destino_a_frente),
+    ("26 alvo de soltura no topo + a", s26_alvo_de_soltura_no_topo_mais_a),
+    ("27 caixa de 5 cm não termina; de 10 cm termina", s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina),
+    ("28 one-hot fica em BOTAR durante o atraso", s28_one_hot_fica_em_botar_durante_o_atraso),
+    ("29 ANDAR parado final acaba em time_out", s29_andar_parado_final_acaba_em_time_out),
 )
 
 
