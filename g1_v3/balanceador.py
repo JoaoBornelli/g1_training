@@ -200,17 +200,26 @@ class Curriculo:
             return [], torch.zeros(0, dtype=torch.float64)
         return ids, fracoes(self._deficit(ids), self.k.piso_sub, self.k.eps)
 
+    # os sorteios rodam e devolvem no device do gerador (o `v3_gerador` mora na GPU); sem gerador, CPU
     def sorteia_fatias(self, n: int, gerador) -> torch.Tensor:
-        return torch.multinomial(self.fracoes_fatias(), n, replacement=True, generator=gerador)
+        dev = "cpu" if gerador is None else gerador.device
+        return torch.multinomial(self.fracoes_fatias().to(dev), n, replacement=True, generator=gerador)
 
     def sorteia_celulas(self, tarefa: str, n: int, gerador, sem_tipo: str | None = None) -> torch.Tensor:
+        dev = "cpu" if gerador is None else gerador.device
         ids, f = self.fracoes_celulas(tarefa)
+        f = f.to(dev)
         if sem_tipo is not None:
             # ⚠ a fração da célula `sem_tipo` vale 0: o `twist` fora do episódio de terreno nunca cai nela (§6.4,
             # `v3_celula`). Sem `sem_tipo` a sequência de sorteio é a de sempre.
-            f = torch.where(torch.tensor([self.celulas[i].tipo != sem_tipo for i in ids], dtype=torch.bool), f,
-                            torch.zeros_like(f))
-        return torch.tensor(ids, dtype=torch.long)[torch.multinomial(f, n, replacement=True, generator=gerador)]
+            f = torch.where(torch.tensor([self.celulas[i].tipo != sem_tipo for i in ids], dtype=torch.bool, device=dev),
+                            f, torch.zeros_like(f))
+        return torch.tensor(ids, dtype=torch.long, device=dev)[
+            torch.multinomial(f, n, replacement=True, generator=gerador)]
+
+    def id_celula(self, tarefa: str, tipo: str) -> int:
+        # §6.3: `celulas` está na ordem de LAYOUT e nunca muda, então o índice vem da mesma tabela
+        return _POS[(tarefa, tipo)]
 
     def nivel(self, tarefa: str) -> int:
         return self._nivel[tarefa]

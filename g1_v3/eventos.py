@@ -20,15 +20,10 @@ from mjlab.envs.mdp.events import push_by_setting_velocity, reset_root_state_uni
 ANDAR, B, C = 0, 1, 2
 
 
-def _id_terreno(cur, tarefa: str) -> int:
-    # índice da célula `terreno` da tarefa na lista do balanceador (§6.3: ordem de abertura da B3)
-    return next(i for i, c in enumerate(cur.celulas) if c.tarefa == tarefa and c.tipo == "terreno")
-
-
 def _fracao_terreno(cur, tarefa: str) -> float:
     # fração da célula `terreno` no sorteio da tarefa; 0 enquanto a célula está fechada
     ids, f = cur.fracoes_celulas(tarefa)
-    i = _id_terreno(cur, tarefa)
+    i = cur.id_celula(tarefa, "terreno")
     return float(f[ids.index(i)]) if i in ids else 0.0
 
 

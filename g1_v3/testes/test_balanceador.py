@@ -284,6 +284,32 @@ class TestSorteioSemTerreno(unittest.TestCase):
         self.assertIn(ter, com.tolist())
 
 
+class TestIdCelula(unittest.TestCase):
+
+    def test_id_do_terreno_de_cada_tarefa_e_do_reto_do_carregar(self):
+        # §6.3: ANDAR 0..5 (terreno = 5), CARREGAR 6..9 (reto = 6, terreno = 9)
+        cur = novo()
+        self.assertEqual(cur.id_celula("ANDAR", "terreno"), 5)
+        self.assertEqual(cur.id_celula("CARREGAR", "terreno"), 9)
+        self.assertEqual(cur.id_celula("CARREGAR", "reto"), 6)
+        self.assertEqual(cur.celulas[cur.id_celula("CARREGAR", "terreno")].tipo, "terreno")
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "sem CUDA: o teste de device roda no pod")
+class TestDevice(unittest.TestCase):
+
+    def test_sorteios_devolvem_no_device_do_gerador_cuda(self):
+        cur = novo()
+        cur.celulas[cid(cur, "ANDAR", "terreno")].aberta = True
+        gerador = torch.Generator(device="cuda").manual_seed(0)
+        fatias = cur.sorteia_fatias(16, gerador)
+        self.assertEqual(fatias.device.type, "cuda")
+        sem = cur.sorteia_celulas("ANDAR", 16, gerador)
+        self.assertEqual(sem.device.type, "cuda")
+        com = cur.sorteia_celulas("ANDAR", 16, gerador, sem_tipo="terreno")
+        self.assertEqual(com.device.type, "cuda")
+
+
 class TestEstado(unittest.TestCase):
 
     def test_carrega_devolve_o_mesmo_estado_com_o_contador(self):

@@ -31,11 +31,6 @@ _EPS = 1e-6
 
 # --- sorteio de velocidade (§6.3, D3 item 1) ----------------------------------------------------------
 
-def _id_terreno(cur, tarefa: str) -> int:
-    # id da célula `terreno` da tarefa em `Curriculo.celulas` (§6.3): o episódio de terreno a usa sem sorteio
-    return next(i for i, c in enumerate(cur.celulas) if c.tarefa == tarefa and c.tipo == "terreno")
-
-
 def _u(n, g):  # U[0,1) no device do gerador (None: default)
     return torch.rand(n, generator=g, device=None if g is None else g.device)
 
@@ -423,10 +418,10 @@ class TwistV3(UniformVelocityCommand):
                 continue
             # episódio de terreno: `terrain_types` ≠ 0 (coluna 0 = plano), escrito pelo `sorteia_fatia` antes deste
             # reset (§6.4). Nele a célula é a `terreno` da tarefa; fora dele, sorteia sem a `terreno`.
-            # ⚠ DÚVIDA: se a célula `terreno` estiver fechada quando o sorteio de terreno cai nela, ela ainda
-            # recebe velocidade. A §6.4 não diz se o `sorteia_fatia` exige a célula aberta.
+            # Com a célula `terreno` fechada, o `sorteia_fatia` não escolhe terreno (`eventos._fracao_terreno` = 0):
+            # ela não recebe velocidade fechada.
             ter = env.scene["terrain"].terrain_types[ids].to(ids.device) != 0
-            cel = torch.full((len(ids),), _id_terreno(env.v3_cur, nome), dtype=torch.long, device=ids.device)
+            cel = torch.full((len(ids),), env.v3_cur.id_celula(nome, "terreno"), dtype=torch.long, device=ids.device)
             fora = ~ter
             if fora.any():
                 cel[fora] = env.v3_cur.sorteia_celulas(nome, int(fora.sum()), g, sem_tipo="terreno").to(ids.device)
