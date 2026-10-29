@@ -20,10 +20,8 @@ import torch
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.events import push_by_setting_velocity, reset_root_state_uniform
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz
 
-from g1_v3.cena import PALM_PAD_GEOMS, TABLE_GEOM
 from g1_v3.knobs import ATIVO, Cena, Niveis
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
@@ -316,26 +314,32 @@ def carga(env, env_ids):
     env.sim.model.body_inertia[env_grid, body_grid] = inercia.unsqueeze(-1).unsqueeze(-1).expand(n, len(bid), 3)
 
 
-def atrito_pad(env, env_ids):
+def atrito_pad(env, env_ids, *, asset_cfg):
     """Reset `atrito_pad`: μ dos pads de palma, coluna 0, por `dr.geom_friction` do mjlab (PD-46; §6.8).
 
+    ⚠ `asset_cfg` chega RESOLVIDO pelos `params` do cfg (`env_cfg.py`); sem isso o `dr.geom_friction` mexe em todas
+    as geoms do robô (S1). É o padrão de `tamanho_caixa`.
     Ligado por `v3_cur.dr()["atrito_pad"]` (portão do PEGAR no nível 0). A borda de baixo desce com o nível
-    (`mu_min_pad`). Antes do portão, μ = 1,0, o valor de `Cena.pad_atrito`.
+    (`mu_min_pad`). Antes do portão, μ = `Cena.pad_atrito[0]` (R5).
     """
     d = env.v3_cur.dr()
-    faixa = (d["mu_min_pad"], ATIVO.dr.atrito_pad[1]) if d.get("atrito_pad") else (1.0, 1.0)
-    dr.geom_friction(env, env_ids, ranges=faixa, asset_cfg=SceneEntityCfg("robot", geom_names=PALM_PAD_GEOMS))
+    mu = ATIVO.cena.pad_atrito[0]
+    faixa = (d["mu_min_pad"], ATIVO.dr.atrito_pad[1]) if d.get("atrito_pad") else (mu, mu)
+    dr.geom_friction(env, env_ids, ranges=faixa, asset_cfg=asset_cfg)
 
 
-def atrito_laje(env, env_ids):
+def atrito_laje(env, env_ids, *, asset_cfg):
     """Reset `atrito_laje`: μ da laje, coluna 0, por `dr.geom_friction` do mjlab (PD-46; §6.8).
 
-    Ligado por `v3_cur.dr()["atrito_laje"]` (portão do PEGAR no nível 0). Antes do portão, μ = 1,0.
+    ⚠ `asset_cfg` chega resolvido pelos `params` do cfg, pelo mesmo motivo de `atrito_pad` (S1).
+    Ligado por `v3_cur.dr()["atrito_laje"]` (portão do PEGAR no nível 0). Antes do portão, μ =
+    `Cena.prateleira_atrito[0]` (R5).
     ⚠ A laje tem `priority` 3 (`Cena.prioridade_laje`): o contato com a caixa usa o μ DELA.
     """
     d = env.v3_cur.dr()
-    faixa = ATIVO.dr.atrito_laje if d.get("atrito_laje") else (1.0, 1.0)
-    dr.geom_friction(env, env_ids, ranges=faixa, asset_cfg=SceneEntityCfg("table", geom_names=(TABLE_GEOM,)))
+    mu = ATIVO.cena.prateleira_atrito[0]
+    faixa = ATIVO.dr.atrito_laje if d.get("atrito_laje") else (mu, mu)
+    dr.geom_friction(env, env_ids, ranges=faixa, asset_cfg=asset_cfg)
 
 
 def vies_imu(env, env_ids):
@@ -349,6 +353,7 @@ def vies_imu(env, env_ids):
         u = _uniforme(g, (2, n, 3), dev)
         giro = (2.0 * u[0] - 1.0) * ATIVO.dr.vies_imu_giro
         ang = ((2.0 * u[1] - 1.0) * math.radians(ATIVO.dr.vies_imu_incl_graus)).to(torch.float32)
+        ang[:, 2] = 0.0  # ⚠ sem giro em z: a inclinação do IMU é em x e y (DR §3.4); o z gira o mapa (PD-42; M5)
         incl = matrix_from_quat(quat_from_euler_xyz(ang[:, 0], ang[:, 1], ang[:, 2]))
     else:
         giro = torch.zeros(n, 3, device=dev)

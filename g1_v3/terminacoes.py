@@ -96,13 +96,14 @@ def queda(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
     return torch.where(mascara(env, tarefas), cai, torch.zeros_like(cai))
 
 
-def caixa_perdida(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
-    """Invólucro de `n_caixa_perdida`. Lê `v3_perdeu_agora` e a chave `ATIVO.cadeia` (PD-27).
+def caixa_perdida(env: ManagerBasedRlEnv, tarefas: tuple[str, ...], vira_andar: bool) -> torch.Tensor:
+    """Invólucro de `n_caixa_perdida`. Lê `v3_perdeu_agora`; a chave `vira_andar` vem do cfg por `params` (S9, PD-27).
 
+    ⚠ Uma fonte só da chave: a cadeia (`comando.cadeia`) lê o mesmo `cfg.k`, e este termo não lê o `ATIVO`.
     ⚠ `curriculo.mascara` é importado aqui dentro, pelo mesmo motivo de `queda`.
     """
     from g1_v3.curriculo import mascara
 
-    cai = n_caixa_perdida(env.v3_perdeu_agora, ATIVO.cadeia.caixa_perdida_vira_andar)
+    cai = n_caixa_perdida(env.v3_perdeu_agora, vira_andar)
     # ⚠ torch.where, e não multiplicação: o mesmo motivo de `queda`.
     return torch.where(mascara(env, tarefas), cai, torch.zeros_like(cai))

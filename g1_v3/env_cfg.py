@@ -43,7 +43,7 @@ _RECOMPENSAS = (
     ("tronco_plano", ANDAR_CARREGAR), ("altura_base", ANDAR_CARREGAR), ("cerca_sola", PEGAR_BOTAR),
     ("cerca_giro", TODAS), ("cerca_tronco", TODAS), ("cerca_com", TODAS), ("cerca_torque", TODAS),
     ("cerca_pelve", TODAS), ("cerca_recuo", PEGAR_CARREGAR_BOTAR), ("contato_fora", TODAS),
-    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", PEGAR_CARREGAR_BOTAR),
+    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", TODAS),
     ("perda_caixa", TODAS), ("terminacao", TODAS),
 )
 # Pesos que NÃO vêm do `knobs`: o `progresso` e o `perda_caixa` entram com ±1 no cfg, e a escala mora no núcleo
@@ -129,7 +129,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "time_out": TerminationTermCfg(func=terminacoes.fim_da_cadeia, time_out=True),
         # A queda vale nas quatro tarefas (D6): o `n_queda` separa ANDAR/CARREGAR de PEGAR/BOTAR por dentro, por par.
         "queda": TerminationTermCfg(func=terminacoes.queda, params={"tarefas": TODAS}),
-        "caixa_perdida": TerminationTermCfg(func=terminacoes.caixa_perdida, params={"tarefas": PEGAR_CARREGAR_BOTAR}),
+        "caixa_perdida": TerminationTermCfg(func=terminacoes.caixa_perdida, params={
+            "tarefas": PEGAR_CARREGAR_BOTAR, "vira_andar": k.cadeia.caixa_perdida_vira_andar}),
     }
 
     # ------------------------------------------------------------ 7. eventos (§6.5 na ordem; §6.8 os da fase D)
@@ -141,8 +142,10 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
                                params={"position_range": (0.0, 0.0), "velocity_range": (0.0, 0.0)}),
         "cena": EventTermCfg(func=eventos.posiciona_cena, mode="reset"),
         "carga": EventTermCfg(func=eventos.carga, mode="reset"),
-        "atrito_pad": EventTermCfg(func=eventos.atrito_pad, mode="reset"),
-        "atrito_laje": EventTermCfg(func=eventos.atrito_laje, mode="reset"),
+        "atrito_pad": EventTermCfg(func=eventos.atrito_pad, mode="reset", params={
+            "asset_cfg": SceneEntityCfg("robot", geom_names=cena.PALM_PAD_GEOMS)}),
+        "atrito_laje": EventTermCfg(func=eventos.atrito_laje, mode="reset", params={
+            "asset_cfg": SceneEntityCfg("table", geom_names=(cena.TABLE_GEOM,))}),
         "vies_imu": EventTermCfg(func=eventos.vies_imu, mode="reset"),
         "filtros": EventTermCfg(func=eventos.reinicia_filtros, mode="reset"),
         "atrito_pe": EventTermCfg(func=dr.geom_friction, mode="startup", params={

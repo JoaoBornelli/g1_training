@@ -55,7 +55,7 @@ PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
 # Fase E (§6.5, §6.6, E8): recompensas e terminação novas. Os pesos do `progresso` e do `perda_caixa` são ±1 no cfg.
 TAREFAS_E = {
-    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": PEGAR_CARREGAR_BOTAR,
+    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": TODAS,
     "perda_caixa": TODAS,
 }
 TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR}
