@@ -117,3 +117,9 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Pesquisa:** sem internet; triagem por agente Opus com cada conserto provado por monkeypatch (`docs/relatorios/2026-10-30-v3-fase-i-triagem-smoke.md`). Achado de fundo: com o PD real (`Contrato.pd`, tornozelo kp 40, o do `unitree_rl_gym`) a ação zero não fica de pé (cai em ~1,1 s); a memória "de pé é grátis no mjlab" não vale na v3. Sete seções supunham o contrário.
 - **Considerado:** subir o kp do tornozelo (muda o contrato com o robô real: rejeitado); segurar a base no smoke (o smoke testa a cadeia, não o equilíbrio).
 - **Solução:** `.tolist()` no `init_state`; `.to(dtype)` no empurrão; `"lidar" in env.scene.sensors`; o helper `_segura_base` e os checks corrigidos no smoke. O equilíbrio desde o passo 0 é trabalho da política (o currículo começa com 100 % de ANDAR).
+
+### 11. O exportador e o pilota buscavam nomes sem o prefixo `robot/` (resolvido; achado no I2)
+
+- **Problema:** o mjlab compõe a cena e prefixa os nomes de cada entidade (`robot/mid360`, `robot/torso_link`). O `exporta_cena.py:373` quebrava ("site `mid360` não existe"); o `pilota_v3.py` buscava `mid360`, `left_foot`, `d435`, `torso_link` e as palmas sem prefixo. O `mj_name2id` devolve −1, e −1 indexa o último elemento: no driver, a percepção e a visão leriam o site ou o corpo errado, em silêncio.
+- **Pesquisa:** sem internet; o `registra_juntas_v3.py:233` e o `exporta_cena.py:243` já usavam o prefixo; o s04 do smoke tinha o mesmo defeito.
+- **Solução:** um helper `acha_id(m, tipo, nome)` no pilota, que falha em voz alta com id < 0; todos os nomes do robô com prefixo; o contrato grava `sensor_site = "robot/mid360"`. Depois: exportação e paridade passam (9 blocos, Δ ≤ 2,3e−7 contra 1e−5).
