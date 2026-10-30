@@ -395,6 +395,7 @@ class Contrato:                      # I §2, §3; S §6.3, §19.1
 def dim_ator(c: Contrato = Contrato()) -> int: ...   # 1 447 (assert no teste)
 def q_de_pe(c: Contrato = Contrato()) -> "np.ndarray": ...   # (29,), lê `referencias.npz`["q_de_pe"]
 def caminho(rel: str) -> "Path": ...  # relativo à raiz do repo, a partir de __file__
+TAU_MAX: tuple  # (29,) N·m na ordem de JUNTAS, montada de `Recompensa.tau_max` por regex no import (30/10, P20; `import re`)
 ```
 
 As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de onde vem o número.
@@ -457,7 +458,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `desvio_bracos`, `desvio_cintura`, `desvio_quadril`, `tronco_plano`, `altura_base`, `alvo_base` | −0,1; −1,0; −1,0; −5,0; −10,0; 0,78 | S §9.2 |
 | | `cerca_sola`, `cerca_giro`, `cerca_tronco`, `cerca_com`, `cerca_torque`, `cerca_pelve`, `cerca_recuo` | `None` (Parte 0, item 3) | S §9.3; PD-30 |
 | | `lim_sola_graus`, `lim_giro_graus`, `lim_tronco_graus`, `lim_com`, `lim_torque`, `banda_torque`, `lim_pelve`, `lim_recuo` | 5; 30; 15; 0,03; 0,8; 0,2; 0,08; 0,08 | S §9.3 |
-| | `tau_max` | por regex: joelho e `hip_roll` 139; `hip_pitch`, `hip_yaw`, `waist_yaw` 88; cintura e tornozelo 50; ombro, cotovelo, `wrist_roll` 25; `wrist_pitch`, `wrist_yaw` 5 | S §9.3 |
+| | `tau_max` | por regex: joelho e `hip_roll` 139; `hip_pitch`, `hip_yaw`, `waist_yaw` 88; cintura e tornozelo 50; ombro, cotovelo, `wrist_roll` 25; `wrist_pitch`, `wrist_yaw` 5. A tupla por junta é `knobs.TAU_MAX` (29,), na ordem de `JUNTAS`, montada desta tabela no import (30/10, P20): a `cerca_torque` e o evento `rfi` a importam | S §9.3 |
 | | `pares_torque`, `tau_par` | ((`waist_pitch_joint`, `waist_roll_joint`), (`left_ankle_pitch_joint`, `left_ankle_roll_joint`), (`right_ankle_pitch_joint`, `right_ankle_roll_joint`)); 50,0 | PD-45 |
 | | `contato_fora`, `contato_fora_N` | −1,0; 1,0 | S §9.2 |
 | | `contato_laje`, `laje_joelho_N`, `laje_saturacao_N` | −2,0; (50; 10) (início; refino, §6.9); 100 | S §9.2; `g1_limpo/knobs.py` `Contato` |
@@ -465,7 +466,8 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `freio_limiar_andar`, `freio_limiar_correr` | 0,05; 1,5 (regime pelo comando: parado abaixo de 0,05, correndo de 1,5 em diante) | `g1_limpo/recompensas.py` `velocidade_por_regime` (29/10: saem do literal) |
 | | `progresso`, `b_alvo` (9 valores, um por alvo) | `None`; `None` (Parte 0, item 3) | S §9.4 |
 | | `gamma` | 0,99 | S §9.1 |
-| | `sacudida`, `aperto`, `F_ref` | `None`; `None` (Parte 0, item 15); 49,0 | S §8.2, §11.5 |
+| | `sacudida`, `aperto`, `F_ref` | −0,05; −0,02; 49,0. Custos: o peso do cfg é o knob, NEGATIVO, como as cercas (30/10, P2); o fator d/5 mora no termo (§6.9) | S §8.2, §11.5; Parte 0, item 15 (D6, D7) |
+| | `sacudida_norma` | (5,04; 31,56): m/s² e rad/s², o p50 medido no 23250_topo004 (item 15); com ela o custo vale 2 no p50 (a regra da PD-34). Provisória: recalibrar na fase I pelo `Episodio/aceleracao_da_caixa` | 30/10, P8 e P10 (a spec dizia 2,9 e 17, que nenhum método reproduz) |
 | | `terminacao` | −200,0 | S §10 |
 | | `perda_caixa`, `devolve_b_alvo` | `None`; `None` (Parte 0, item 3) | S §10 |
 | | `sigma_pouso`, `altura_pouso`, `altura_pouso_inicio` | (1,0; 0,35); 0,05; 0,10 | S §9.1; D3 da Parte 0 (dono, 29/10): o fator entra aos 0,10 m e fica pleno aos 0,05 m |
@@ -473,7 +475,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `incl_manip_graus`, `joelho_min` | 70; 0,05 | S §10 |
 | | `caixa_folga_chao`, `v_solta` | o valor do `g1_limpo/knobs.py` `Terminacao`; 1,2 | S §10 |
 | | `chegada` | (1,0; 0,25) | S §10 |
-| | `hip_yaw_max`, `batente_frac` | 1,0; 1,0 | S §10 |
+| | `hip_yaw_max`, `batente_frac` | 1,0; 1,0 (o `batente` vigia as 29 juntas, com `>` estrito: 1,0 não termina, 1,01 termina; 30/10, P13, P14) | S §10 |
 | `Balanceador` | `piso_tarefa`, `piso_sub`, `eps`, `portao`, `alfa` | 0,20; 0,10; 0,02; 0,75; 0,05 | S §11; PD-13 |
 | | `iters_min_nivel`, `iters_refino`, `degraus` | 50; 100; 5 | PD-12; S §11.5 |
 | | `passos_por_iteracao` | 24 | o `num_steps_per_env` do `rl_cfg()` (D10) e a guarda de iteração do termo `v3` (D4) leem este campo |
@@ -493,14 +495,16 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `vies_imu_giro`, `vies_imu_incl_graus` | 0,05 rad/s; 1,0 | §6.8 ANDAR no portão |
 | | `atrito_pad`, `atrito_laje`, `passo_mu_pad`, `mu_pad_min` | (0,6; 1,0); (0,3; 1,0); 0,025; 0,5 | §6.8; PD-46 |
 | | `com_caixa`, `com_caixa_frac0`, `com_caixa_frac_max` | False; (0,2; 0,2); (0,3; 0,2) (xy; z, × meia aresta) | §6.8; PD-38: a chave liga o `dr.body_com_offset` |
-| | `forca_caixa_N`, `forca_caixa_dur_s`, `forca_caixa_periodo_s` | (5; 20); (0,1; 0,3); (3; 8) | §6.8 CARREGAR |
+| | `forca_caixa_N`, `forca_caixa_dur_s`, `forca_caixa_periodo_s` | (−11,5; 11,5) N POR EIXO (o `apply_body_impulse` do mjlab sorteia por componente: ‖F‖ ≤ 11,5·√3 = 19,9 N; 30/10, P3); (0,1; 0,3); (3; 8) | §6.8 CARREGAR |
 | | `rfi` | (0,05; 0,1) × `tau_max` (início; refino) | §6.8 |
-| | `pd`, `forca_motor`, `forca_motor_bracos`, `solref`, `solref_base` | (0,9; 1,1); (0,9; 1,1); (0,8; 1,1); (0,015; 0,03); 0,02 (faixas no degrau global 5; degrau 0 = 1,0 e `solref_base`) | §6.8 refino; PD-41 |
+| | `pd`, `forca_motor`, `forca_motor_bracos`, `solref`, `solref_base` | (0,9; 1,1); (0,9; 1,1); (0,8; 1,1); (0,015; 0,03); 0,02 (faixas no degrau global 5; degrau 0 = 1,0 e `solref_base`, o default do MuJoCo: nenhuma geom da cena muda o `solref`). O `solref` vai às geoms que mandam no contato (30/10, P17) | §6.8 refino; PD-41 |
 | `Estimador` | `taxa_hz`, `latencia_s`, `idade_max` | 30; 0,033; 2,0 | I §2.3; `lidar_sim/sensores/tipos.py` |
 | | `fov_h_graus`, `fov_v_graus`, `alcance` | 69; 42; (0,28; 3,0) | PD-11 |
-| | `vies_meia`, `vies_alvo_botar_xy`, `vies_alvo_botar_z`, `ori_persistente` | início (0,005; 0,01; 0,005; True); refino (0,02; 0,05; 0,03; True) | S §13 (dono, 15/10) |
+| | `vies_meia`, `vies_pos`, `vies_alvo_botar_xy`, `vies_alvo_botar_z` | início (0,005; 0,0; 0,01; 0,005); refino (0,02; 0,02; 0,05; 0,03), em m (o `vies_pos` começa em 0: o início fica igual ao de hoje, orquestrador 30/10). Viés POR EPISÓDIO, UNIFORME em ±valor por eixo ("até ±2 cm"; a gaussiana passava de 2 cm em 32 % das amostras). O `vies_pos` é novo (30/10, P21c, d); o `ori_persistente` sai (P21b) | S §13 (dono, 15/10) |
 | | `pontos_visiveis_min` | 3 | PD-11 |
-| | `sigma_pos`, `sigma_ori_graus`, `perda`, `deriva_odo` | início (0,005; 1,0; 0,005; 0,002 m/√m); refino: 2% da distância, mediana 5,3°, 2,2%, 0,0075 m/√m | PD-18; S §13 |
+| | `sigma_pos`, `perda`, `deriva_odo` | início (0,005; 0,005; 0,002 m/√m); refino: 2% da distância, 2,2%, 0,0075 m/√m | PD-18; S §13 |
+| | `ori_graus`, `ori_leitura_graus` | ((1,5; 2,5); (5,3; 15,3)): (mediana; p90) em graus do ÂNGULO do viés de orientação do episódio, lognormal, eixo uniforme, (início; refino); (0,0; 1,0): σ por eixo, em graus, do rotvec do ruído de cada leitura, de 0 no início a 1° no refino pelo degrau global (o início fica igual ao de hoje, que usa só o viés persistente; orquestrador 30/10), composto com o viés por quatérnio. Saem o `sigma_ori_graus` (era σ por eixo, e a χ₃ não dá a razão p90/mediana 2,89 medida) e o `ori_persistente` (30/10, P21a, b) | S §13; box-vision (`DESENVOLVIMENTO.md:649-651`) |
+| | `rajada_s`, `rajada_taxa` | (0,3; 1,0) s, a duração U de uma rajada de perda; (0; 0,035) por s, a taxa de abertura (início; refino). Gilbert-Elliott: ~4,4 % de perda no refino, 2× os 2,2 % medidos (margem da câmera do G1) (30/10, P21e) | DR §3.5 |
 | | `deriva_rumo` | início 0,002 rad/√m; refino 0,005 rad/√m | PD-18 |
 | | `deriva_pos_giro`, `deriva_rumo_giro` | início (0,004 m/√rad; 0,0035 rad/√rad) = 1 cm e 0,5° por volta; refino (0,008; 0,014) = 2 cm e 2° por volta | PD-18 (dono, 28/10) |
 | | `d435_pos`, `d435_pitch` | (0,0576235; 0,01753; 0,42987); 0,8307767 | `lidar_sim/sensores/montagem.py` |
@@ -513,8 +517,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | | `sigma_fixo` | 0,02 | PD-42 |
 | | `margem_corpo` | 0,03 | PD-10 |
 | | `mid360_pos`, `mid360_quat` | (0,0002835; 0,00003; 0,428434); (0; 0,99967; 0; −0,02556) | PERC §2; `montagem.py` |
-| `Refino` | `regras` | tuplas (regra, tarefas, seção, campo): `laje_joelho_N` (PEGAR, BOTAR; `recompensa.laje_joelho_N`); `incl_lim` (PEGAR, CARREGAR, BOTAR; `alvos`, (`incl_inicio_graus`, `incl_fim_graus`)); `chegada` (BOTAR; `terminacao.chegada`); `sigma_pouso` (BOTAR; `recompensa.sigma_pouso`). O campo é um par (início; refino), ou dois nomes (início, fim) | §6.9; S §11.5 |
-| | `fator_por_degrau`, `tarefas_fator`, `degrau_batente` | (`aperto`, `sacudida`); (PEGAR, CARREGAR, BOTAR); 1 | §6.9: peso × d/5; batente e `hip_yaw` do degrau 1 em diante |
+| `Refino` | `degrau_batente` | 1 | §6.9: batente e `hip_yaw` do degrau 1 em diante. Saem `regras`, `fator_por_degrau` e `tarefas_fator` (30/10, P1): nenhum leitor no pacote (só o `test_knobs`). Os pares das regras da §6.9 moram nas seções delas (`Recompensa.laje_joelho_N`, `sigma_pouso`; `Alvos.incl_inicio_graus`, `incl_fim_graus`; `Terminacao.chegada`) e o `recompensas.por_degrau` os lê; as tarefas do fator d/5 são as do `env_cfg` |
 
 ### 6.3 Funções puras
 
@@ -995,6 +998,175 @@ def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho
 # O log do currículo (`curriculo.py`) ganha `nivel_terreno_<tarefa>` (`Curriculo.nivel_terreno`) para ANDAR e CARREGAR.
 ```
 
+#### Fase H: núcleos puros (30/10)
+
+Contrato da Parte 4 (refino), com as decisões do caso 7 do registro (`docs/relatorios/2026-10-30-v3-problemas-e-solucoes.md`).
+Os ids P1–P24 são os do rascunho (`docs/relatorios/2026-10-30-v3-fase-h-rascunho-do-contrato.md`); onde ele e o caso 7
+divergem, valem o caso 7 e este bloco. Todo núcleo devolve 0 ou False fora da máscara, nunca NaN (§6.6); o invólucro aplica
+a máscara com `torch.where`. Dois degraus (§6.9): o da TAREFA, `v3_degrau` (E,) long, que a cadeia escreve na abertura do
+trecho (regras de termo e `batente`); o GLOBAL, `Curriculo.degrau_global()`, o menor entre as 4 tarefas (PD-41: DR do
+refino, estimador, deriva da odometria e viés do alvo do BOTAR).
+
+```python
+# balanceador.py (H1). P1: a fórmula da §6.9 mora numa função só, aqui. O módulo é puro (§1.5): o `dr()` a chama sem
+# import, e os módulos do env a importam daqui. Não nasce `valor_do_degrau`.
+def no_degrau(ini, fim, d, degraus): ...   # ini + (fim − ini)·d/degraus; float, ou tensor (E,) com `d` tensor
+class Curriculo:
+    def degrau_global(self) -> int: ...    # min(degrau(t) for t in TAREFAS) (PD-41, P5); 0..5; nunca desce
+    def dr(self) -> dict: ...
+        # o da fase E, mais as chaves do refino pelo g = degrau_global(). Só tipos do Python; nada novo no `estado()`:
+        # tudo deriva dos degraus e das travas, que já estão nele.
+        # "pd": [no_degrau(1, DR.pd[0], g, degraus), no_degrau(1, DR.pd[1], g, degraus)] (escala; g = 0 → [1, 1]);
+        # "forca_motor", "forca_motor_bracos": o mesmo par, com DR.forca_motor e DR.forca_motor_bracos;
+        # "solref": [no_degrau(solref_base, solref[0], g, ·), no_degrau(solref_base, solref[1], g, ·)] (s; g = 0 → [0,02; 0,02]);
+        # "rfi" (substitui a linha da E): 0,0 antes da trava "subida"; depois no_degrau(rfi[0], rfi[1], g, ·) (fração de τ_max);
+        # "atraso_max" (substitui a linha da E): atraso_refino[1] com g ≥ degrau_atraso_refino (PD-41); senão
+        #   atraso_portao[1] com a trava "portao0", e atraso_inicio[1] antes dela;
+        # "forca_caixa": segue a trava "subida", sem escala pelo degrau (P15).
+
+# potencial.py (H1). P13: o |q − c|/m do `excesso_de_junta` vira função; o `batente` e a métrica `fracao_do_curso` a usam.
+def curso(q, centro, meio) -> torch.Tensor: ...   # (E,J) |q − c|/m: 1 no batente do modelo. `excesso_de_junta` passa a chamá-la
+
+# knobs.py (H1). P20: a tupla por junta sai da tabela por regex, no import (`import re`, stdlib).
+TAU_MAX: tuple   # (29,) N·m na ordem de JUNTAS, de `Recompensa.tau_max`; `recompensas` e `eventos` a importam, sem ciclo
+```
+
+```python
+# recompensas.py (H2)
+def por_degrau(env, ini, fim): ...   # invólucro de `no_degrau` no degrau da TAREFA: no_degrau(ini, fim, env.v3_degrau.float(),
+    # degraus). Chamam: incl_lim, o pouso do _phi_env, o fator do B2 no progresso, contato_laje, sacudida, aperto e
+    # terminacoes.chegada. É a única ponte entre o degrau da tarefa e a fórmula
+def n_sacudida(dv_lin, dw, dt, norma_lin, norma_ang) -> torch.Tensor: ...
+    # (E,) adimensional (PD-34). dv_lin, dw (E,3): a velocidade linear (m/s) e angular (rad/s) da caixa no mundo, menos as da
+    # chamada anterior; dt = env.step_dt (s). = Σ dv_lin²/(dt·norma_lin)² + Σ dw²/(dt·norma_ang)² = (a/norma_lin)² +
+    # (α/norma_ang)², sem raiz. Com `Recompensa.sacudida_norma` = (5,04; 31,56), o p50 medido no 23250 vale 2 (P8, P10)
+class sacudida:   # termo-classe do mjlab (P9): __init__(self, cfg, env), __call__(self, env, tarefas), reset(self, env_ids=None)
+    v_ant: torch.Tensor   # (E,6) [lin xyz, ang xyz] de `box.root_link_vel_w` na chamada anterior; 0 no começo e no reset
+    def custo(self, env) -> torch.Tensor: ...
+        # (E,) n_sacudida(Δv[:, :3], Δv[:, 3:], env.step_dt, *R.sacudida_norma), sem fator e sem máscara; atualiza a v_ant.
+        # ⚠ As recompensas rodam antes do `sim.forward()`: o cvel está um subpasso atrasado em TODA chamada, e o Δ entre duas
+        # chamadas é de um step_dt exato. Um buffer escrito pela cadeia (pós-forward) errava o Δt em 25 % (P9). A v_ant é da
+        # classe, e não buffer do env (§6.4). A métrica `aceleracao_da_caixa` usa uma instância própria desta classe
+    def __call__(self, env, tarefas): ...
+        # _fim(env, tarefas, torch.where(presa, custo·por_degrau(env, 0, 1), 0)); presa = _em(v3_alvo_idx, _CAIXA_ALVO)
+        # (P3, P4, B1, B2; no CARREGAR o índice fica no P4). P11: sem `~apoio`. Sem `paga`. Peso = Recompensa.sacudida (−0,05)
+def forcas_por_face(normal_w, forca_w, achado, R_caixa) -> tuple[torch.Tensor, torch.Tensor]: ...
+    # (F_esq (E,), F_dir (E,)) em N. Do sensor `caixa_faces` (P12: reduce="maxforce", 12 fatias, global_frame): normal_w e
+    # forca_w (E,S,3) no mundo, a normal da caixa (primário) para o robô; achado (E,S) bool (found > 0); R_caixa (E,3,3) =
+    # alvos.frame_da_caixa(quat da caixa, rumo da base) (PD-29; colunas x, y, z). n_c = R_caixaᵀ·normal_w; a face é o eixo
+    # do argmax |n_c|, com o sinal de n_c nele (P12: pela normal, e não pela posição); F_n = |⟨forca_w, normal_w⟩|.
+    # F_esq = Σ F_n nas fatias com achado e face +y (a palma esquerda: `palmas_alvo_caixa` 0 = +y); F_dir: face −y. As faces
+    # ±x (frente e fundo, onde o tronco apoia) e ±z não entram (S §8.2). Fatia sem achado: 0 por torch.where (NaN não passa)
+def aperto(env, tarefas): ...
+    # s = scene["caixa_faces"].data; R_caixa = frame_da_caixa(quat da caixa, estimador.yaw(quat da base)) (a conta do
+    # _phi_env); valor = potencial.custo_aperto(*forcas_por_face(s.normal, s.force, s.found > 0, R_caixa), R.F_ref) ·
+    # por_degrau(env, 0, 1); _fim(env, tarefas, torch.where(presa, valor, 0)), com a máscara da sacudida. O núcleo do custo é
+    # o `potencial.custo_aperto` de hoje (sem cópia). Peso = Recompensa.aperto (−0,02)
+# O `_TAU_MAX` do módulo sai: a `cerca_torque` lê `knobs.TAU_MAX` (P20).
+
+# terminacoes.py (H3)
+def n_batente(q, centro, meio, frac_max, q_hip_yaw, hip_yaw_max, degrau, degrau_min) -> torch.Tensor: ...
+    # (E,) bool = ((potencial.curso(q, centro, meio) > frac_max).any(−1) | (|q_hip_yaw| > hip_yaw_max).any(−1))
+    #   & (degrau ≥ degrau_min). q (E,29) rad, as 29 juntas (P13: E §3 "nenhuma junta chega ao limite"); centro e meio (29,)
+    #   ou (E,29), dos limites duros do modelo (`joint_pos_limits`, os do `limite_junta`); `>` estrito (P14); q_hip_yaw (E,2)
+    #   rad; degrau (E,) long = v3_degrau. O "e" da S §10 são dois gatilhos (OU)
+def batente(env, tarefas): ...
+    # frac_max = Terminacao.batente_frac (1,0); hip_yaw_max = Terminacao.hip_yaw_max (1,0 rad); degrau_min =
+    # Refino.degrau_batente (1); os índices dos dois hip_yaw saem de JUNTAS no import; torch.where(mascara, ·, False).
+    # Núcleo + invólucro, como os outros termos da v3: a classe `NoBatente` do g1_limpo não é copiada
+```
+
+```python
+# eventos.py (H4). A faixa sai do `env.v3_cur.dr()` (H1); o evento só aplica (o padrão do `atrito_pad`).
+# ⚠ O invólucro de um `dr.*` leva o MESMO `@requires_model_fields` da função do mjlab: o EventManager só expande por mundo
+#   os campos do `term_cfg.func` (event_manager.py:383-386); sem o decorador, o índice de mundo estoura.
+# ⚠ Cada `SceneEntityCfg` vai num parâmetro próprio: o manager só resolve os que estão direto em `params` (manager_base.py:140-146).
+def _dist(env) -> dr.Distribution: ...   # P16: U[lo; hi] pelo `v3_gerador` (o `_uniforme`), no dtype e no device de `lo`
+@requires_model_fields("actuator_gainprm", "actuator_biasprm")
+def pd(env, env_ids, *, asset_cfg): ...
+    # reset. dr.pd_gains(kp_range = kd_range = tuple(dr()["pd"]), operation="scale", distribution=_dist(env)): escala sobre o
+    # default do modelo C, kp e kd sorteados à parte, por junta; asset_cfg = o robô, todos os grupos de atuador
+@requires_model_fields("actuator_forcerange", "jnt_actfrcrange", "tendon_actfrcrange")
+def forca_motor(env, env_ids, *, asset_cfg_pernas, asset_cfg_bracos): ...
+    # reset. Duas chamadas de dr.effort_limits(operation="scale", distribution=_dist(env)): pernas e cintura com
+    # dr()["forca_motor"], braços com dr()["forca_motor_bracos"]. ⚠ P18: o `actuator_ids` indexa os 9 GRUPOS de atuador (um
+    # por linha de `Contrato.pd`, `cena._atuadores`), e não os 29 nomes: braços = as linhas cuja regex casa
+    # `shoulder|elbow|wrist` (7 e 8); pernas e cintura = as outras (0 a 6). O `env_cfg` calcula as duas listas pela regex
+@requires_model_fields("geom_solref")
+def solref(env, env_ids, *, asset_cfg_robo, asset_cfg_laje, asset_cfg_caixa): ...
+    # reset. u = U[dr()["solref"]], UM por env (v3_gerador), escrito em geom_solref[env, geom, 0] das geoms que mandam no
+    # contato (P17: vale o solref da geom de maior priority; com priority igual, a média pelo solmix): no robô, os 14 pés
+    # (priority 1 contra o 0 do terreno) e os 4 pads (`.*_pad`); a laje (priority 3); a caixa. O terreno fica no default
+    # (0,02); a coluna 1 do solref não muda. O padrão de escrita é o do `tamanho_caixa`
+@requires_model_fields("body_ipos", recompute=RecomputeLevel.set_const)
+def com_caixa(env, env_ids, *, asset_cfg): ...
+    # reset; no cfg só com DR.com_caixa (PD-38, P19). fx, fz = dr()["com_caixa"]; dr.body_com_offset(ranges={0: (−fx, fx),
+    # 1: (−fx, fx), 2: (−fz, fz)}, distribution=_dist(env), operation=dr.Operation("meia", torch.zeros_like,
+    # base + r·a[:, None, None], uses_defaults=True)), a = v3_meia[env_ids]: a faixa é fração da meia aresta do mundo
+class forca_caixa(mdp.apply_body_impulse): ...
+    # mode="step" (P4). __call__: sem dr()["forca_caixa"], não faz nada; senão super().__call__ (o sorteio é POR EIXO em
+    # force_range = DR.forca_caixa_N = (−11,5; 11,5): ‖F‖ ≤ 19,9 N; P3) e então zera o wrench (`write_external_wrench_to_sim`
+    # com zeros) dos envs fora de (v3_tarefa == CARREGAR) & v3_pegou & ~v3_perdeu. ⚠ Sem a máscara, a força empurraria para
+    # fora da laje a caixa estacionada a 20 m (ANDAR) e a do P0–P2 (perda por `fora_da_laje`). ⚠ É a exceção do P16: o
+    # mjlab sorteia no RNG global
+def rfi(env, env_ids): ...
+    # mode="step" (P4; env_ids = None). s = dr()["rfi"]; τ = (2u − 1)·s·TAU_MAX (E,29) N·m, u (E,29) do v3_gerador;
+    # env.sim.data.qfrc_applied[:, robo.indexing.joint_v_adr] = τ (s = 0 escreve zero). Escrito uma vez por passo da
+    # política, vale nos 4 subpassos
+# O atraso 0–3 não pede código: o `curriculo.v3` já chama `eventos.atraso` quando dr()["atraso_max"] passa do teto inicial.
+# A gravidade sai (PD-40).
+```
+
+```python
+# estimador.py (H5). P21; o `EstimadorCaixa.passo` lê as chaves novas. Saem o `_z_ori` e a chave "ori_persistente".
+class EstimadorCaixa:
+    # Estado por episódio, sorteado no `reinicia` (gerador None: tudo 0, sem viés): _z_meia (E,) e _z_pos (E,3) U[−1; 1]
+    # (P21d: uniforme, "até ±2 cm"; o _z_meia era N(0, 1)); _eixo_ori (E,3) unitário, uniforme na esfera (N(0, I)
+    # normalizado, com piso no denominador: sem gerador, 0); _z_ang (E,) N(0, 1); _rajada_ate (E,) s, −∞.
+    def passo(self, t, caixa_pos_w, caixa_quat_w, meia, visivel, magnitude: dict, dist=None): ...
+        # magnitude, escalares (chave ausente = 0): sigma_pos (m), sigma_pos_rel (fração da distância), ori_mediana_graus,
+        # ori_p90_graus, ori_leitura_graus, perda, vies_meia (m), vies_pos (m), rajada_taxa (1/s).
+        # posição da amostra = a interpolada + _z_pos·vies_pos + σ·N(0, 1) por eixo; meia = meia + _z_meia·vies_meia.
+        # orientação (P21a, b): θ = mediana·exp(σ_ln·_z_ang) em rad, σ_ln = ln(p90/mediana)/1,2816 (Φ⁻¹(0,9), constante da
+        #   normal, e não número de treino); θ = 0 com mediana 0 (sem NaN); q_viés = quat(rotvec(_eixo_ori·θ)); q_leit =
+        #   quat(rotvec(N(0, 1)·ori_leitura)), sorteado a cada passo; amostra = q_viés ⊗ q_leit ⊗ q_interpolado (wxyz).
+        #   Com (5,3°; 15,3°): σ_ln = 0,827 e 0,49 % acima de 45° (medido: 0,2 %).
+        # rajada (P21e; Gilbert-Elliott): dt = t − o t do passo anterior (0 no primeiro); um env fora de rajada abre uma com
+        #   U[0; 1) < rajada_taxa·dt, e então _rajada_ate = t + U[k.rajada_s]; a amostra da grade com instante < _rajada_ate
+        #   é inválida (soma com a perda isolada de hoje). Sem gerador: sem rajada.
+
+# comando.py (H5)
+def deriva_do_degrau(k: Estimador, g: int, degraus: int) -> dict: ...
+    # {"odo", "rumo", "pos_giro", "rumo_giro"} = no_degrau(par[0], par[1], g, degraus) dos pares deriva_odo, deriva_rumo,
+    # deriva_pos_giro e deriva_rumo_giro (PD-18). Substitui o `CadeiaCmd.deriva`, fixo no índice 0
+# CadeiaCmd.compute: `env.v3_odo.passo(pos da raiz, quat da raiz, deriva_do_degrau(cfg.est, v3_cur.degrau_global(), ·))`, uma
+#   vez por passo, depois do `_abre_trecho` e antes do `_grava_chegada` (PD-44, §6.4). ⚠ Achado de 30/10, fora do caso 7: o
+#   commit fce6a42 (F9) tirou essa chamada, sem registro, e desde então a odometria do treino não anda: `delta_b` é zero, o
+#   mapa não é transportado, e a caixa e o alvo do ator saem no frame da pose do reset. A H5 a devolve.
+# CadeiaCmd._abre_botar (P22): com `v3_gerador`, soltura += (2u − 1)·(vxy, vxy, vz), u (n,3) do v3_gerador, vxy e vz =
+#   no_degrau dos pares Estimador.vies_alvo_botar_xy e vies_alvo_botar_z no degrau global, ANTES de gravar o `v3_alvo_w`: o
+#   viés vale para a observação, para o Φ do B1 e do B2 e para o raio da perda (o robô real só conhece o alvo estimado;
+#   ‖viés‖ ≤ 7,7 cm < 0,10 m do enunciado). Sem gerador: sem viés (a convenção da §6.3)
+```
+
+```python
+# curriculo.py (H6): o log do termo `v3` ganha "atraso_max" e "mu_min_pad" (do `dr()` que ele já lê) e "degrau_global" (P23).
+# runner.py (H6): o `RunnerV3.__init__` chama `_embrulha_log()`, que troca o `self.logger.log` por um que chama o original e,
+#   com o writer, grava `Policy/std/<junta>` = action_std.mean(0)[j] (o rsl_rl grava só `Policy/mean_std`, logger.py:211),
+#   com os nomes de `env.unwrapped.action_manager.get_term("joint_pos").target_names` (a ordem da ação). Zero import do projeto.
+# observacoes.py (H5b): _magnitude(k: Estimador, g: int, degraus: int) -> dict, nas chaves do `EstimadorCaixa.passo`:
+#   sigma_pos = no_degrau(k.sigma_pos[0], 0, g, ·) (m); sigma_pos_rel = no_degrau(0, k.sigma_pos[1], g, ·); ori_mediana_graus
+#   e ori_p90_graus = no_degrau dos dois pares de `ori_graus`; ori_leitura_graus = no_degrau do par; perda, vies_meia,
+#   vies_pos e rajada_taxa = no_degrau do par. Sai o `_MAGNITUDE_INICIO`: o `_calcula_caixa` monta a magnitude a cada passo
+#   pelo `v3_cur.degrau_global()`. forca_caixa (crítico, P7) = metricas.forca_robo_caixa(env)[:, None]/100: a força total
+#   robô → caixa do `caixa_robo` (a soma dos módulos das fatias; S §6.2), e não o impulso do evento.
+# metricas.py (H5b): `aceleracao_da_caixa`, termo-classe com uma `recompensas.sacudida` própria: a cada passo, `custo(env)`
+#   (sem o fator d/5); soma e conta os passos com a caixa presa (P3, P4, B1, B2); o `__call__` devolve a flag; o `reset` loga
+#   `Episodio/aceleracao_da_caixa` (o custo médio do episódio, pelo `_loga_episodios`), zera e reinicia a instância (P23).
+#   A `fracao_do_curso` passa a usar `potencial.curso`.
+# cena.py (H4b): `caixa_faces` com reduce="maxforce" (P12; o "none" corta os contatos acima de 12 sem critério).
+```
+
 ### 6.4 Buffers do env
 
 Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padrão de
@@ -1015,7 +1187,7 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_meia`, `v3_massa` | (E,) | `eventos` | todos |
 | `v3_topo`, `v3_topo_destino` | (E,) topo da laje sobre o chão local | `eventos` | `comando`, `recompensas` |
 | `v3_caixa_pega_w`, `v3_alvo_w` | (E,3) | `comando.cadeia` | `observacoes`, `recompensas` |
-| `v3_estimador`, `v3_odo` | objetos de `estimador.py`, criados pelo `garante_v3` com o `v3_gerador` (a `v3_odo` na fase D; o `v3_estimador` na fase E) | `observacoes.atualiza_percepcao` (estimador); `comando.cadeia` (odometria, PD-44) | `observacoes`, `metricas` |
+| `v3_estimador`, `v3_odo` | objetos de `estimador.py`, criados pelo `garante_v3` com o `v3_gerador` (a `v3_odo` na fase D; o `v3_estimador` na fase E). Fase H: os vieses por episódio e a rajada do estimador moram no objeto (P21) | `observacoes.atualiza_percepcao` (estimador, com a magnitude do degrau global); `comando.cadeia` (odometria, PD-44: um `passo` por passo, com a deriva do degrau global; H5 devolve a chamada que o fce6a42 tirou) | `observacoes`, `metricas` |
 | `v3_filtro`, `v3_padrao` | objetos de `percepcao_lidar.py` | `observacoes.atualiza_percepcao` | `observacoes` |
 | `v3_percepcao_passo`, `v3_mapa_obs`, `v3_caixa_obs` | int, o `common_step_counter` da última atualização; (E,882); (E,11) | `observacoes.atualiza_percepcao` | os termos `mapa` e `caixa` do ator e do crítico, `metricas` |
 | `v3_freio`, `v3_degrau` | (E,) long, da tarefa corrente | `comando.cadeia` | `recompensas`, `terminacoes` |
@@ -1030,6 +1202,12 @@ Todos com prefixo `v3_`, criados por `curriculo.garante_v3(env)` (cópia do padr
 | `v3_rumo_cena` | (E,) rad | `eventos.posiciona_cena` (o `garante_v3` cria com 0): o rumo da cena de B e C, 0 no plano e k·π/2 no terreno (G1) | `eventos._base_da_pega` |
 | `v3_vies_giro`, `v3_incl_imu` | (E,3); (E,3,3) giro fixo do IMU | `eventos.vies_imu` | `observacoes` (`giro_base`, `gravidade`) |
 | `v3_t_empurrao`, `v3_ancora` | (E,) instante do último empurrão no episódio, em s desde o começo do episódio (−∞ sem empurrão; o `sorteia_fatia` volta a −∞ no reset); (E,4) pose da âncora do canal zero (x, y, rumo, instante). O evento grava `episode_length_buf · step_dt`; o `twist` mede no relógio próprio, zerado no reset do comando, porque o mjlab reseta os comandos antes de zerar o `episode_length_buf` (`manager_based_rl_env.py:581-590`); os dois diferem em até 1 passo (29/10) | `eventos.empurrao`; `comando.twist` | `comando.twist` (PD-15) |
+
+Fase H (30/10): NENHUM buffer novo no env. A `sacudida` guarda a velocidade da caixa da chamada anterior, `v_ant` (E,6),
+na própria classe (termo-classe do mjlab, zerada no `reset` do termo; P9), e a métrica `aceleracao_da_caixa` numa instância
+própria: estado de termo, e não buffer do env. O degrau global sai de `v3_cur.degrau_global()`; os vieses e a rajada do
+estimador moram no `v3_estimador`; os relógios da força na caixa, no termo `forca_caixa` (o `apply_body_impulse` do mjlab);
+o viés do alvo do BOTAR entra no `v3_alvo_w` na abertura do BOTAR (P22), e então vale para a observação, o Φ e a perda.
 
 ### 6.5 Termos (nomes exatos, na ordem do dict)
 
@@ -1046,7 +1224,8 @@ depois `vel_lin_base` (3, histórico 5); depois, sem histórico: `caixa_verdade`
 no frame da base 3, rotvec do quat da caixa no frame da base 3, meia aresta 1; zero sem caixa),
 `alvo_verdade` (3), `alvo_macro` (10: one-hot de P0–B4 e "nenhum"), `referencia` (8: palmas 6, pelve
 1, tronco 1), `niveis` (4, nível / último índice do nível de cada tarefa, a conta do `Curriculo`), `degrau` (1, /5), `massa` (1, /5 kg), `forca_caixa` (1, /100
-N); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem histórico; o grupo da
+N: a força total robô → caixa do sensor `caixa_robo`, a soma dos módulos das fatias, `metricas.forca_robo_caixa`; 30/10,
+P7, a letra da S §6.2); e por ÚLTIMO `tarefa_critico` (6, one-hot da tarefa corrente, sem histórico; o grupo da
 vantagem, D9).
 
 **Recompensas:** `rastreio_linear`, `rastreio_angular`, `passo`, `vivo`, `altura_pe`, `escorrego`,
@@ -1054,15 +1233,20 @@ vantagem, D9).
 `desvio_cintura`, `desvio_quadril`, `tronco_plano`, `altura_base`, `cerca_sola`, `cerca_giro`,
 `cerca_tronco`, `cerca_com`, `cerca_torque`, `cerca_pelve`, `cerca_recuo`, `contato_fora`,
 `contato_laje`, `freio`, `progresso`, `sacudida`, `aperto`, `perda_caixa`, `terminacao`.
+Fase H (30/10): `sacudida` (termo-classe) e `aperto` entram depois do `progresso`, em PEGAR, CARREGAR e BOTAR, com o peso
+cru do knob, negativo (−0,05 e −0,02; P2); o fator d/5 do degrau da tarefa mora no termo (§6.9).
 
-**Terminações:** `time_out`, `queda`, `caixa_perdida`, `chegada`, `batente`.
+**Terminações:** `time_out`, `queda`, `caixa_perdida`, `chegada`, `batente`. O `batente` (fase H) vale nas 4 tarefas, com
+`time_out=False`, e liga com o degrau da tarefa ≥ `Refino.degrau_batente` (§6.9).
 
 **Eventos:** reset, nesta ordem (29/10, E11 S4: `cena` antes de `base`, porque a base da pega nasce pelo recuo da caixa sorteada): `fatia`, `cena`, `base`, `juntas`, `carga`, `atrito_pad`,
 `atrito_laje`, `vies_imu`, `pd`, `forca_motor`, `solref`, `com_caixa`, `filtros`; startup: `atrito_pe`,
-`massa_tronco`, `vies_encoder`, `tamanho_caixa`, `atraso`; intervalo: `empurrao`, `forca_caixa`,
-`rfi`. Cada fase acrescenta os seus (D: `fatia`, `base`, `juntas`, `filtros`, os startup menos
+`massa_tronco`, `vies_encoder`, `tamanho_caixa`, `atraso`; intervalo: `empurrao`; passo (`mode="step"`, todo passo, depois
+do comando; 30/10, P4): `forca_caixa`, `rfi`. Cada fase acrescenta os seus (D: `fatia`, `base`, `juntas`, `filtros`, os startup menos
 `tamanho_caixa`, `empurrao`; E: `cena`, `carga`, `atrito_pad`, `atrito_laje`, `vies_imu`, `tamanho_caixa`; H: `pd`, `forca_motor`, `solref`, `com_caixa`,
-`forca_caixa`, `rfi`).
+`forca_caixa`, `rfi`). O `com_caixa` só entra no cfg com `DR.com_caixa` (PD-38, P19). No play saem o `empurrao` e as cinco
+DR do refino, `pd`, `forca_motor`, `solref`, `forca_caixa` e `rfi` (30/10, P24: o play mostra o robô nominal, como o
+exportador e o driver).
 
 **Terminações (nota):** a chave `time_out` usa a função `fim_da_cadeia` (D6), com `time_out=True`.
 
@@ -1082,10 +1266,13 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 ### 6.7 Chaves de log e checkpoint
 
 - Currículo (`Curriculum/v3/<k>`): `frac_ANDAR`, `frac_B`, `frac_C`, `s_<tarefa>_<tipo>`,
-  `nivel_<tarefa>`, `degrau_<tarefa>`, `atraso_max`, `mu_min_pad`.
+  `nivel_<tarefa>`, `nivel_terreno_<tarefa>`, `degrau_<tarefa>`, `degrau_global`, `atraso_max`, `mu_min_pad` (as três
+  últimas entram na H6; 30/10, P23).
 - Twist (`Metrics/twist/<k>`): `razao_marcha`, `eficiencia_min`, `eficiencia_media`, `segmentos`,
   mais os do fabricante.
-- Métricas (`Episode_Metrics/<k>`): as das tarefas D8, E7, F6, G4 e H6.
+- Métricas (`Episode_Metrics/<k>`): as das tarefas D8, E7, F6, G4 e H5b (`aceleracao_da_caixa`, com o valor por episódio
+  em `Episodio/aceleracao_da_caixa`; P23).
+- Política (`Policy/std/<junta>`): o std da ação por junta, 29 chaves, pelos nomes da ação (H6; S §14).
 - Checkpoint: `infos["v3_curriculo"] = env.v3_cur.estado()`. Sem estado de episódio (o mesmo motivo
   do `g1_limpo/runner.py:24-27`).
 
@@ -1108,11 +1295,11 @@ Depois da caixa perdida (`v3_perdeu`), os termos que pagam positivo por passo (`
 | | atraso | 0–2 passos |
 | cada nível seguinte do PEGAR e do CARREGAR | borda de baixo do μ dos pads | desce 0,025 por nível até 0,5 |
 | | CoM da caixa | até ±0,3 (xy), ±0,2 (z) |
-| | força na caixa (CARREGAR) | impulso 5–20 N, 0,1–0,3 s, a cada 3–8 s |
+| | força na caixa (CARREGAR) | impulso U[±11,5] N por eixo (‖F‖ ≤ 19,9 N), 0,1–0,3 s, a cada 3–8 s; só no CARREGAR, com a caixa na mão e sem perda (evento de passo; 30/10, P3) |
 | | RFI | 0,05 × limite de torque |
 | refino, por degrau (linear de 0 a 5) | ganho do PD | 1,0 → 0,9–1,1 |
 | | força do motor | 1,0 → 0,9–1,1 (braços 0,8–1,1) |
-| | `solref[0]` do chão e da caixa | 0,02 → 0,015–0,03 |
+| | `solref[0]` das geoms que mandam no contato: os 14 pés, os 4 pads, a laje e a caixa, um valor por env (30/10, P17) | 0,02 → 0,015–0,03 |
 | | atraso | 0–2 → 0–3 |
 | | RFI | 0,05 → 0,1 |
 | | estimador | "início" → "refino" (§6.2 `Estimador`) |
@@ -2154,54 +2341,166 @@ Commits: um por tarefa, prefixo `feat(v3):`.
 
 ### 12.4 Fase H — Parte 4: refino
 
-Atende: S §16 Parte 4, §11.5, §10 (`NoBatente`), §12 (DR do refino), §13 (erro do estimador), §8.2
-(`r_aperto`). Enunciado: E §3 "Sem batente", "Caixa íntegra e nivelada", "Movimento controlado".
+Atende: S §16 Parte 4, §11.5, §10 (batente), §12 (DR do refino), §13 (erro do estimador), §8.2
+(`r_aperto`), §14 (aceleração da caixa, std por junta). Enunciado: E §3 "Sem batente", "Caixa íntegra e nivelada",
+"Movimento controlado".
 
-Ondas: H0 → H1 → {H2, H3, H4, H5, H6} → H7 → H8 (revisão final). O H1 vem antes porque os outros leem
-a `valor_do_degrau`.
+Contrato (30/10): §6.3 "Fase H: núcleos puros"; as linhas de 30/10 das §6.2, §6.4, §6.5, §6.7 e §6.8; as decisões do caso 7
+do registro (`docs/relatorios/2026-10-30-v3-problemas-e-solucoes.md`), que mandam sobre o rascunho
+(`docs/relatorios/2026-10-30-v3-fase-h-rascunho-do-contrato.md`, P1–P24). Todas as lanes em Haiku (§20, 29/10). Cada lane
+escreve PRIMEIRO o teste que falha com o código de hoje e depois o código: não há onda de testes separada. A H7 é o smoke
+(não roda). Suíte antes da fase: 399 testes, 1 pulado. Lanes da mesma onda têm arquivos disjuntos (§1.4).
 
-**H1 — `curriculo.py` (Sonnet).** `valor_do_degrau(env, regra) -> (E,)`: o valor da regra da §6.9
-para o degrau da tarefa corrente de cada env. Os termos e as terminações leem por ela. Teste: degrau
-0 → início; 5 → fim; 3 → 60% do caminho.
+| onda | lane | arquivos (só estes) | conteúdo | linhas antes → depois |
+|---|---|---|---|---|
+| H-1 | H1 | `knobs.py`, `balanceador.py`, `potencial.py`, `testes/test_knobs.py`, `testes/test_potencial.py`, `testes/test_balanceador_h.py` (novo) | `no_degrau`, `degrau_global`, as chaves do refino no `dr()`, `curso`, `TAU_MAX`, os campos novos e o sinal do `aperto` e da `sacudida`; saem os campos mortos do `Refino` | knobs 485 → ~487; balanceador 296 → ~312; potencial 120 → ~124 |
+| H-2 | H2 | `recompensas.py`, `testes/test_recompensas_h.py` (novo) | `por_degrau` sobre a `no_degrau`, `n_sacudida`, `sacudida` (classe), `forcas_por_face`, `aperto`, `knobs.TAU_MAX` | 783 → ~835 |
+| H-2 | H3 | `terminacoes.py`, `testes/test_terminacoes_h.py` (novo) | `n_batente`, `batente` | 137 → ~160 |
+| H-2 | H4 | `eventos.py`, `testes/test_eventos_h.py` (novo) | `_dist`, `pd`, `forca_motor`, `solref`, `com_caixa`, `forca_caixa`, `rfi` | 475 → ~550 |
+| H-2 | H5 | `estimador.py`, `comando.py`, `testes/test_estimador_h.py` (novo), `testes/test_comando_h.py` (novo) | vieses uniformes, orientação lognormal + 1° por leitura, rajada; `deriva_do_degrau`, o `v3_odo.passo` de volta, o viés do alvo do BOTAR | estimador 316 → ~345; comando 775 → ~790 |
+| H-2 | H6 | `curriculo.py`, `runner.py`, `testes/test_curriculo_h.py` (novo), `testes/test_runner_h.py` (novo) | as três chaves do log; `Policy/std/<junta>` | curriculo 128 → ~131; runner 42 → ~58 |
+| H-3 | H4b | `env_cfg.py`, `cena.py`, `testes/test_cfg.py` | as linhas da §6.5 (termos, terminação, eventos com o modo), o play sem as cinco DR (P24), `caixa_faces` com `maxforce` (P12) | env_cfg 185 → ~212; cena 423 → 423 |
+| H-3 | H5b | `observacoes.py`, `metricas.py`, `knobs.py`, `testes/test_observacoes_h.py` (novo), `testes/test_metricas_h.py` (novo), `testes/test_observacoes.py` (só o env falso do `_calcula_caixa_com` ganha `v3_cur`) | a magnitude pelo degrau global; o canal `forca_caixa` do crítico; `aceleracao_da_caixa`; saem `sigma_ori_graus` e `ori_persistente` | observacoes 375 → ~378; metricas 497 → ~525; knobs ~487 → ~485 |
+| H-3 | H7 | `smoke.py` | seções 34 a 39 | 1 272 → ~1 450 |
+| H-4 | H8 | (Opus, revisão) | — | — |
 
-**H2 — `recompensas.py` (Sonnet).**
-- `sacudida`: custo da PD-34 com a aceleração linear e angular da caixa por diferença da velocidade
-  (`Δv/dt`), fator d/5; máscara: caixa presa (P3 a B2 e o CARREGAR), tarefas PEGAR, CARREGAR, BOTAR.
-- `aperto`: `custo_aperto(F_esq, F_dir, F_ref)`; F por face: cada contato do `caixa_faces` vai à face
-  pelo argmax de |p_local|/a no frame da caixa (PD-29), e F_esq, F_dir são as somas das normais nas
-  faces ±y; fator d/5; mesma máscara (S §8.2).
-- Teste: `sacudida` no p50 do 23250 = 2; `aperto` com 117,5 N nas duas faces = 0,909; contato na face
-  da frente não entra.
+Por que três ondas de código: a H-1 cria o que todo mundo lê (a fórmula do degrau, o degrau global, os campos do knobs); a
+H-2 escreve os termos, cada um no seu arquivo; a H-3 monta o cfg, que referencia os termos da H-2, e a observação e a métrica,
+que leem o estimador (H5) e a `sacudida` (H2). Os campos `Estimador.sigma_ori_graus` e `ori_persistente` saem só na H-3,
+junto com o `observacoes._magnitude` que os lê no import: tirá-los na H-1 quebraria a suíte até a H-3.
 
-**H3 — `terminacoes.py` (Sonnet).** `batente`: cópia de `NoBatente` (`g1_limpo/terminacoes.py:
-158-196`) com `frac_max` = 1,0 (o ângulo do batente da tabela, S §6.5) e |`hip_yaw`| > 1 rad; só com
-degrau ≥ 1 da tarefa corrente. Teste: uma junta a 100% do meio curso no degrau 1 termina; no degrau 0
-não.
+**H1 — `knobs.py`, `balanceador.py`, `potencial.py` (Haiku).** `balanceador.no_degrau` (a fórmula da §6.9 numa função só,
+P1); `Curriculo.degrau_global()` (P5); as chaves `pd`, `forca_motor`, `forca_motor_bracos` e `solref` e as linhas novas de
+`rfi` e `atraso_max` no `dr()`; `potencial.curso`, com o `excesso_de_junta` sobre ela (P13); `knobs.TAU_MAX` (P20);
+`Recompensa.sacudida` −0,05, `aperto` −0,02 (P2) e `sacudida_norma` (P8, P10); `DR.forca_caixa_N` (P3); `Estimador.ori_graus`,
+`ori_leitura_graus`, `vies_pos`, `rajada_s`, `rajada_taxa` (P21); saem `Refino.regras`, `fator_por_degrau` e `tarefas_fator`
+(P1). Teste:
+- `no_degrau(ini, fim, d, 5)`: d = 0 → ini; d = 5 → fim; d = 3 → ini + 0,6·(fim − ini): `laje_joelho_N` 50 − 40·0,6 =
+  **26,0 N**; `incl_lim` 30 − 15·0,6 = **21,0°**; `chegada` 1,0 − 0,75·0,6 = **0,55 m/s**; `sigma_pouso` 1,0 − 0,65·0,6 =
+  **0,61 m/s**; o fator (0 → 1) **0,6**. Com d tensor [0, 3, 5] e (50; 10): [50, 26, 10].
+- `degrau_global()`: degraus (ANDAR, PEGAR, CARREGAR, BOTAR) = (5, 3, 4, 0) → 0; (5, 3, 4, 2) → 2; (5, 5, 5, 5) → 5.
+- `dr()`: g = 0 sem travas: pd, forca_motor e forca_motor_bracos [1, 1], solref [0,02; 0,02], rfi 0, atraso_max 1; g = 0
+  com "portao0" e "subida": rfi 0,05, atraso_max 2; g = 2 com as travas: atraso_max 2; g = 3 (degraus (5, 3, 4, 3)) com as
+  travas: pd e forca_motor **[0,94; 1,06]**, forca_motor_bracos **[0,88; 1,06]**, solref **[0,017; 0,026]**, rfi **0,08**,
+  atraso_max **3**; g = 5: pd e forca_motor [0,9; 1,1], forca_motor_bracos [0,8; 1,1], solref [0,015; 0,03], rfi 0,1,
+  atraso_max 3. Monotonia (PD-24): de g para g + 1, o lo não sobe e o hi não desce. Só tipos do Python; `carrega(estado())`
+  dá o mesmo `dr()`.
+- `potencial.curso(q, 0, 1)` = |q|; centro + 1,01·meio → 1,01. Os testes de hoje do `excesso_de_junta` seguem verdes.
+- knobs: `TAU_MAX` com 29 valores, joelho e `hip_roll` 139, `hip_pitch`, `hip_yaw` e `waist_yaw` 88, cintura e tornozelo
+  50, ombro, cotovelo e `wrist_roll` 25, `wrist_pitch` e `wrist_yaw` 5; os sinais e os valores novos; 11,5·√3 ≤ 20; o
+  `Refino` sem os três campos (o laço das `regras` do `test_dr_e_refino` sai).
 
-**H4 — `eventos.py`, DR do refino (Sonnet).** Pelo degrau global, o menor entre as tarefas (PD-41), no reset: `dr.pd_gains` (escala 1 ± 0,1·d/5); `dr.effort_limits` (escala;
-braços 0,8–1,1 no degrau 5); `solref` do chão e da caixa por evento próprio com
-`@requires_model_fields("geom_solref")` (o mjlab não tem DR de `solref`; padrão de
-`g1_limpo/eventos.py:256-301`); RFI por passo em `qfrc_applied` (0,05 → 0,1 × `tau_max`); força na
-caixa no CARREGAR com `mdp.apply_body_impulse` (5–20 N, 0,1–0,3 s, a cada 3–8 s). A gravidade ±0,1
-sai (PD-40). O atraso global sobe para 0–3 quando o degrau global chega a 3 (PD-41). O CoM da
-caixa (`dr.body_com_offset`) fica atrás da chave `DR.com_caixa` = False (PD-38). Teste: os núcleos de
-escala por degrau.
+**H2 — `recompensas.py` (Haiku).** `por_degrau` vira o invólucro de uma linha da `no_degrau` (as chamadas não mudam);
+`n_sacudida` e a classe `sacudida` (P9; a máscara do P11; norma do P10); `forcas_por_face` (P12) e `aperto` (S §8.2, com o
+`potencial.custo_aperto`); a `cerca_torque` lê `knobs.TAU_MAX` e o `_TAU_MAX` sai (P20). Teste:
+- `n_sacudida` com dt = 0,02 e a norma (5,04; 31,56): ‖Δv‖ = 5,04·dt e ‖Δω‖ = 31,56·dt → **2,0** (o p50 medido no 23250 = 2,
+  agora com a norma do mesmo p50); o p50 da spec (2,9; 17) → (2,9/5,04)² + (17/31,56)² = **0,621**; Δ zero → 0; o valor não
+  depende da direção de Δv.
+- `sacudida` (env falso): a 1ª chamada, com v = 0, vale 0; a 2ª, com o Δ do p50, vale **2,0** no degrau 5, **1,2** no
+  degrau 3 e 0 no degrau 0; 0 com o alvo −1, P0–P2, B3, B4 ou fora das tarefas; o `custo` atualiza a `v_ant` também nos envs
+  mascarados; `reset([0])` zera só a `v_ant` do env 0.
+- `forcas_por_face`: 117,5 N nas normais +y e −y → **(117,5; 117,5)**; um contato de 200 N na face −x (frente) e outro na +z
+  não mudam F_esq nem F_dir (**contato na face da frente não entra**); fatia sem achado com força NaN não entra e a saída é
+  finita; a caixa girada 90° em yaw (normais giradas pelo mesmo R) dá o mesmo resultado; força (0; 100; 30) na normal +y →
+  100 (só a componente normal); dois contatos na face +y somam.
+- `aperto` (env falso, alvo P4, CARREGAR): 117,5 N nas duas faces → 1 − e^(−117,5/49) = **0,909** no degrau 5, **0,545**
+  no degrau 3, 0 no degrau 0; 49 N nas duas → 0,632; uma face só → 0; alvo −1 → 0; fora da tarefa com NaN na força → 0 e
+  finito (§6.6).
+- `por_degrau` com `v3_degrau` [0, 3, 5] e (50; 10) → [50, 26, 10]; o módulo não tem mais `_TAU_MAX`.
 
-**H5 — estimador no refino (Sonnet).** A magnitude do `EstimadorCaixa` e da `Odometria` sobe do
-"início" ao "refino" pelo degrau global, o menor entre as tarefas (PD-41; §6.2 `Estimador`), mais o viés por episódio (até ±2 cm na posição e ±2 cm na meia aresta; dono, 06/10 e 15/10) e
-as rajadas de perda de 0,3–1,0 s (DR §3.5). A orientação erra por um viés por episódio sorteado da
-distribuição medida (mediana 5,3°, p90 15,3°) mais 1° por leitura, no lugar do ruído independente. O
-alvo do BOTAR leva viés por episódio de ±5 cm em xy e ±3 cm em z. Latência e taxa ficam em 33 ms e
-30 Hz (dono, 15/10).
+**H3 — `terminacoes.py` (Haiku).** `n_batente` e `batente` (§6.3 "Fase H"; S §10): as 29 juntas (P13), `>` estrito com
+`Terminacao.batente_frac` (P14), o |q − c|/m de `potencial.curso`, e |`hip_yaw`| > `hip_yaw_max`; só com o degrau da tarefa
+≥ `Refino.degrau_batente`. Núcleo + invólucro, sem a classe `NoBatente`. Teste (centro 0, meio 1):
+- uma junta a **1,01** do meio curso no degrau 1 → termina; a −1,01 → termina; a 1,01 no degrau 0 → não; a **1,0** exata no
+  degrau 1 → não (o `>` estrito: por isso o teste é a 1,01, P14);
+- |`hip_yaw`| = 1,01 rad no degrau 1 → termina; 0,99 → não; −1,01 → termina; 1,01 no degrau 0 → não;
+- invólucro (env falso): o `left_ankle_roll_joint` a centro + 1,01·meio no degrau 1 → termina (o tornozelo é vigiado,
+  P13); limites assimétricos (−0,5; 1,5): q = 1,52 → termina, 1,49 → não; tarefa fora de `tarefas` → não.
 
-**H6 — métricas e log (Haiku).** Degrau por tarefa; std da ação por junta (S §14).
+**H4 — `eventos.py`, DR do refino (Haiku).** `_dist` (P16), `pd`, `forca_motor` (P18), `solref` (P17), `com_caixa` (P19),
+`forca_caixa` (subclasse, P3, P4, P15) e `rfi` (P4, P20), todos com a faixa do `dr()` (H1). A gravidade sai (PD-40); o
+atraso 0–3 já sai do `dr()` pelo `curriculo.v3` (PD-41). Teste:
+- `_dist`: as amostras ficam em [lo; hi]; o mesmo `v3_gerador` com a mesma semente repete os valores, qualquer que seja o
+  `torch.manual_seed`.
+- `rfi` (env falso, `qfrc_applied` (4, 35) com uns, `joint_v_adr` = 6..34): com `dr()["rfi"]` = 0,1, |τ_j| ≤ 0,1·`TAU_MAX[j]`,
+  não todo zero, e as 6 colunas da junta livre ficam como estavam; com 0,0, as 29 colunas viram zero; a mesma semente repete.
+- `solref` (env falso, `geom_solref` (4, G, 2) com (0,02; 1,0)): com [0,015; 0,03], as geoms dos três `asset_cfg` recebem um
+  u por env em [0,015; 0,03], o MESMO nas geoms do env; as outras geoms e a coluna 1 não mudam.
+- `pd` e `forca_motor` (com `dr.pd_gains` e `dr.effort_limits` trocados por `mock`): o `pd_gains` recebe `kp_range` =
+  `kd_range` = a faixa do `dr()`, `operation="scale"` e um `dr.Distribution`; o `effort_limits` é chamado duas vezes, pernas
+  com `forca_motor` e braços com `forca_motor_bracos`; o `model_fields` de cada invólucro contém o da função do mjlab.
+- `com_caixa` (com `dr.body_com_offset` em `mock`): `ranges` = {0: (−fx, fx), 1: (−fx, fx), 2: (−fz, fz)} do `dr()`; o
+  `combine` da `Operation` com base 0 e r = 1 dá a meia aresta de cada env; `uses_defaults` True; `body_ipos` no `model_fields`.
+- `forca_caixa` (cfg e env falsos, o asset grava o wrench escrito por env): com a trava, só o env em CARREGAR com `v3_pegou`
+  e sem `v3_perdeu` fica com força não nula, e |F| ≤ 11,5 por eixo; os outros (ANDAR; CARREGAR sem pegar; perdida) ficam
+  em zero; sem a trava, nada é escrito.
 
-**H7 — smoke da Parte 4 (Sonnet).** Seções 34 a 38: 34. degrau forçado a 5: `laje_joelho_N` = 10,
-chegada 0,25, σ do pouso 0,35; 35. `batente` só com degrau ≥ 1; 36. `pd_gains` dentro de 0,9–1,1 no
-degrau 5; 37. `com_caixa` ligado por 200 passos em 16 mundos sem erro de heap (decide a PD-38); 38.
-`save` → `load` com degraus e estado de DR.
+**H5 — `estimador.py` e `comando.py` (Haiku).** O `EstimadorCaixa` do §6.3 "Fase H" (vieses uniformes por episódio,
+orientação lognormal + 1° por leitura por quatérnio, rajadas; P21); `comando.deriva_do_degrau` e o `v3_odo.passo` de volta
+no `compute` (PD-44; achado de 30/10: o fce6a42 o tirou); o viés do alvo do BOTAR no `v3_alvo_w` (P22). Latência e taxa
+ficam em 33 ms e 30 Hz (dono, 15/10). Teste:
+- sem gerador e com a magnitude vazia, a saída é a de hoje (os testes da fase E seguem verdes); sem gerador, `vies_pos`
+  0,02 não muda a posição.
+- viés de posição (semente 0, 4 000 envs, `sigma_pos` 0, `vies_pos` 0,02, caixa parada): o erro por eixo fica em
+  [−0,02; 0,02], é o mesmo em todas as leituras do episódio e muda depois do `reinicia`; |média| < 0,001 m e desvio padrão
+  **0,0115 ± 0,001** (U[±0,02]: 0,02/√3). O mesmo para a meia aresta com `vies_meia` 0,02.
+- orientação (10 000 envs, (5,3°; 15,3°), `ori_leitura_graus` 0, caixa e base na identidade): o ângulo do rotvec da
+  `saida_b` tem mediana **5,3 ± 0,2°** e p90 **15,3 ± 0,8°**, constante no episódio; só a leitura (viés 0, 1,0°): o ângulo
+  muda a cada leitura, com mediana **1,54 ± 0,1°** (χ₃ de σ 1°); mediana 0 → sem erro e sem NaN.
+- rajada (`rajada_s` (0,5; 0,5); taxa 10⁶/s só no passo de t = 0,02, 0 nos outros; passos de 0,02 s): a idade em t = 0,50
+  é ≥ 0,48 s, e em t = 0,60 é < 0,1 s (a primeira amostra válida é a de 0,533 s); com a taxa 0, a idade em t = 0,50 é < 0,1 s.
+- `deriva_do_degrau(K.estimador, g, 5)`: g = 0 → (0,002; 0,002; 0,004; 0,0035); g = 5 → (0,0075; 0,005; 0,008; 0,014);
+  g = 3 → (**0,0053**; 0,0038; 0,0064; 0,0098) para (odo; rumo; pos_giro; rumo_giro).
+- `compute` (cadeia sem `__init__`, os passos internos em `mock`): um `v3_odo.passo` por chamada, com a pose da raiz e a
+  deriva do degrau global (falha hoje: o `compute` não chama).
+- `_abre_botar` (semente 0, 2 000 envs, `posiciona_destino` em `mock`): g = 5 → viés em [−0,05; 0,05] em x e y e
+  [−0,03; 0,03] em z, desvio padrão de x **0,0289 ± 0,002**; g = 3 → em ±0,034 e ±0,02; g = 0 → em ±0,01 e ±0,005; sem
+  gerador → `v3_alvo_w` = soltura + (0, 0, a), como hoje.
+
+**H6 — `curriculo.py` e `runner.py` (Haiku).** As chaves `atraso_max`, `mu_min_pad` e `degrau_global` no log do `v3` (P23);
+`Policy/std/<junta>` no `RunnerV3` (S §14). Teste:
+- log (env falso do `test_curriculo`) com os degraus (5, 3, 4, 2): `degrau_global` 2, `atraso_max` 1, `mu_min_pad` 0,6.
+- `_embrulha_log` num `RunnerV3` sem `__init__`, com logger e writer falsos: depois de `logger.log(it=7, action_std=std (3,29),
+  …)`, o original é chamado uma vez com os mesmos argumentos e o writer recebe 29 escalares `Policy/std/<junta>`, a média de
+  cada coluna, no it 7; com o writer None, nenhum escalar.
+
+**H4b — `env_cfg.py` e `cena.py`, a montagem (Haiku).** As linhas da §6.5: `sacudida` e `aperto` depois do `progresso`, em
+PEGAR, CARREGAR e BOTAR, com o peso do knob; `batente` depois da `chegada`, nas 4 tarefas; `pd`, `forca_motor`, `solref` e
+`com_caixa` (só com `DR.com_caixa`) entre o `vies_imu` e o `filtros`; `forca_caixa` e `rfi` em `mode="step"` depois do
+`empurrao`; no play saem as cinco DR do refino (P24); `caixa_faces` com `reduce="maxforce"` (P12). Teste (`test_cfg.py`):
+- os pesos da `sacudida` e do `aperto` = os do knob, < 0; as tarefas = (PEGAR, CARREGAR, BOTAR); o `batente` com as 4
+  tarefas e `time_out` False; a ordem dos dicts confere com a §6.5 (as listas do teste já trazem os nomes).
+- `pd`, `forca_motor`, `solref` em `mode="reset"`; `forca_caixa` e `rfi` em `mode="step"`; o `com_caixa` fora do cfg com a
+  chave desligada e dentro (reset) com ela ligada; os `actuator_ids` dos braços = [7, 8] e das pernas = [0..6] (pela regex do
+  `Contrato.pd`); `force_range` (−11,5; 11,5), `torque_range` (0; 0), `duration_s` e `cooldown_s` do knob.
+- no play, nenhum de `empurrao`, `pd`, `forca_motor`, `solref`, `forca_caixa`, `rfi`.
+- o `caixa_faces` com `reduce` "maxforce" e o build de todo sensor segue passando.
+
+**H5b — `observacoes.py`, `metricas.py` e `knobs.py` (Haiku).** `_magnitude(k, g, degraus)` pelo degrau global e o
+`_calcula_caixa` sobre ela; o canal `forca_caixa` do crítico (P7); a métrica `aceleracao_da_caixa` (P23) e a
+`fracao_do_curso` sobre `potencial.curso`; saem `Estimador.sigma_ori_graus` e `ori_persistente`. Teste:
+- `_magnitude` com g = 3 (f = 0,6): `sigma_pos` 0,005·0,4 = **0,002 m**; `sigma_pos_rel` **0,012**; `ori_mediana_graus`
+  1,5 + 3,8·0,6 = **3,78**; `ori_p90_graus` 2,5 + 12,8·0,6 = **10,18**; `ori_leitura_graus` 1,0; `perda` 0,005 + 0,017·0,6 =
+  **0,0152**; `vies_meia` e `vies_pos` 0,005 + 0,015·0,6 = **0,014**; `rajada_taxa` **0,021**; g = 0 e g = 5 dão os pares do
+  knob; sem as chaves velhas.
+- `forca_caixa` (env falso): duas fatias do `caixa_robo` com ±117,5 N em y → **2,35** (soma dos módulos /100, e não a soma
+  vetorial, que daria 0); sem contato → 0; forma (E, 1).
+- `aceleracao_da_caixa` (env falso): um env com a caixa presa (P4) por 3 passos, Δv do p50 em cada → no `reset`,
+  `Episodio/aceleracao_da_caixa` = [2,0]; o env sem caixa presa não entra; o `__call__` devolve a flag.
+- `Estimador` sem `sigma_ori_graus` e `ori_persistente`.
+
+**H7 — smoke da Parte 4 (Haiku).** Seções 34 a 39, sem rodar (o dono roda na fase I): 34. degrau da tarefa forçado a 5:
+`por_degrau` dá `laje_joelho_N` 10, `chegada` 0,25 e σ do pouso 0,35, e a `sacudida` e o `aperto` saem finitos e ≥ 0;
+35. `batente` só com degrau ≥ 1 (uma junta posta 2 % além do limite), e a contagem de passos além do batente POR JUNTA em
+200 passos aleatórios no degrau 1 (imprime: se um tornozelo dominar, o ajuste por família é do dono; P13); 36. no degrau
+global 5, kp e kd na faixa 0,9–1,1 do default, a força do motor em 0,9–1,1 (braços 0,8–1,1), o `solref[0]` em 0,015–0,03 e
+o mesmo nas geoms do env, o terreno em 0,02, o RFI ≤ 0,1·τ_max e a caixa estacionada (ANDAR) sem força; no degrau 0, tudo no
+default; 37. `com_caixa` ligado por 200 passos em 16 mundos sem erro de heap (decide a PD-38); 38. `save` → `load` com os
+degraus e as travas do DR: `estado()`, `dr()` e `degrau_global()` iguais; 39. a odometria anda com a base (o achado de 30/10).
 
 **H8 — revisão final do código (Opus).** Revisão inteira contra o plano, a S e a I, antes da fase I.
+
+Commits: um por lane, prefixo `feat(v3):`.
 
 ---
 
@@ -2415,3 +2714,5 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | contrato da fase G (§6.3 "Fase G: núcleos puros", §6.4 `v3_rumo_cena` e `v3_incl_max_seg` com o `twist` de escritor): a cena de B no terreno gira para uma das 4 bordas e anda até a laje ficar a 0,75 m do centro; o sucesso do segmento do CARREGAR no terreno exige a caixa ≤ 15° em todo passo (`Comando.incl_max_terreno_graus`); `fracao_fora_da_plataforma` e o nível de terreno no log. Decisão do dono: a laje a 0,75 m vale e o robô fica onde a S4 o põe (0,48–0,95 m da borda; a viab. D10 pedia 0,5–0,65), medido na fase I. A G2 já estava na fase D | conferência do orquestrador e resposta do dono |
 | 2026-10-30 | revisão G7 (`docs/relatorios/2026-10-29-v3-revisao-parte3b.md`), decisões do dono: P1, "fora da plataforma" é o chão sob a pelve a mais de 1 cm do z da origem, e o log da métrica é a média por episódio (S1); P2, a qualidade do CARREGAR na célula `terreno` mede a caixa no frame da pelve (pelve + `caixa_transporte_b`), e no plano fica o alvo de hoje (S3); P3, `linha_max_carregar` da `escada_aleatoria` = 6; P4, as caixas da coluna `caixas` sem giro; P5, a PD-12 fica (U[0,25; 1,0] m/s no terreno). Fora do dono: S2, o exportador força a fatia B no plano; a plataforma real por coluna; a origem da escada na linha 9 é 1,05 m; a ordem dos argumentos do `sucesso_do_segmento` segue o código | revisão G7 e respostas do dono |
 | 2026-10-30 | métricas de evento por episódio (registro de problemas, caso 1): cada termo de evento escreve no `reset` um vetor 1-D em `extras["log"]["Episodio/<nome>"]`; o `Episode_Metrics/<nome>` vira a fração de episódios com o evento. A média transversal da F9 (`_media_dos_com_evento`) sai: logava 0,054 contra 0,259 por episódio | pesquisa (código do mjlab 1.5.3 e do rsl_rl 5.4.0; Isaac Lab #2977) |
+| 2026-10-30 | contrato da fase H (§6.3 "Fase H: núcleos puros"; linhas de 30/10 nas §6.2, §6.4, §6.5, §6.7 e §6.8; §12.4 refeita), com as decisões do caso 7 sobre os 24 problemas do rascunho: P1, a fórmula do degrau numa função só, `balanceador.no_degrau`, e o `recompensas.por_degrau` como o invólucro dela no degrau da tarefa (não nasce `valor_do_degrau`; saem `Refino.regras`, `fator_por_degrau` e `tarefas_fator`); P2, `aperto` −0,02 e `sacudida` −0,05; P3/P4/P15, a `forca_caixa` é subclasse de `apply_body_impulse` em `mode="step"`, ±11,5 N por eixo, mascarada ao CARREGAR com a caixa na mão e travada pela primeira subida de nível; o `rfi` também é de passo; P5, `Curriculo.degrau_global()` = o menor degrau, e o `dr()` deriva dele a DR do refino; P6, o `env_cfg.py` e o `observacoes.py` saem das lanes paralelas (onda H-3); P7, o canal `forca_caixa` do crítico = a força total do `caixa_robo`/100; P8/P10, `sacudida_norma` = (5,04; 31,56); P9, a `sacudida` é termo-classe com a `v_ant` (E,6) própria, sem buffer no env; P11, a máscara do aperto e da sacudida é o índice (P3, P4, B1, B2); P12, `caixa_faces` com `maxforce` e a face pela normal; P13/P14, o `batente` vigia as 29 juntas, `>` estrito, teste a 1,01, sobre `potencial.curso`; P16, os `dr.*` novos sorteiam no `v3_gerador` por um `dr.Distribution`; P17, `solref` por env nos pés, pads, laje e caixa; P18, `effort_limits` por `actuator_ids` dos grupos; P19, `body_com_offset` com uma `dr.Operation` × meia aresta, só com `DR.com_caixa`; P20, `knobs.TAU_MAX`; P21, viés de orientação lognormal (mediana, p90) + 1° por leitura, vieses de posição e de meia aresta uniformes ±2 cm, rajadas de 0,3–1,0 s com λ 0 → 0,035/s, sai o `ori_persistente`; P22, o viés do alvo do BOTAR no `v3_alvo_w`; P23, `aceleracao_da_caixa` e as chaves `atraso_max`, `mu_min_pad` e `degrau_global`; P24, as cinco DR do refino fora do play. Achado fora do caso 7: o fce6a42 (F9) tirou o `v3_odo.passo` do `CadeiaCmd.compute`, e a odometria do treino não anda desde então; a H5 a devolve, com a deriva do degrau global, e o smoke 39 confere. Lanes Haiku em três ondas de arquivos disjuntos, cada uma com o teste que falha antes do código. Contagem: ~+290 linhas no pacote, sem o smoke (a soma das estimativas da tabela da §12.4), nenhum termo fora da §6.5 | `docs/relatorios/2026-10-30-v3-problemas-e-solucoes.md`, caso 7; `docs/relatorios/2026-10-30-v3-fase-h-rascunho-do-contrato.md` |
+| 2026-10-30 | ajuste do orquestrador ao contrato da fase H: `Estimador.ori_leitura_graus` = (0,0; 1,0) e `vies_pos` = (0,0; 0,02) pelo degrau global, para o início do treino ficar igual ao de hoje (só o viés persistente de σ 1° por eixo, sem viés de posição); o ruído novo só cresce com o refino. Regressão achada pelo agente do contrato: o `fce6a42` (F9) apagou o `env.v3_odo.passo(...)` do `CadeiaCmd.compute` (PD-44); a chamada volta antes da fase H (registro de problemas, caso 8) | conferência do orquestrador |
