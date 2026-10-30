@@ -95,9 +95,9 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Pontos que o contrato final fechou sem decisão nas pesquisas (agente Opus do contrato, conferidos pelo orquestrador):** a fórmula do degrau mora em `balanceador.no_degrau` (o `balanceador` é puro e o `dr()` precisa dela; o `eventos` não importa o `recompensas`), e o `recompensas.por_degrau` vira o invólucro de uma linha; `potencial.curso` é extraído (o `excesso_de_junta` com `mole` = 1,0 divide por zero) e serve ao batente e à `fracao_do_curso`; o `solref` vai aos 4 pads (palma e dorso); o `com_caixa` segue só a chave `DR.com_caixa`. Ajuste do orquestrador: `ori_leitura_graus` = (0; 1°) e `vies_pos` = (0; 0,02 m) pelo degrau global, para o início do treino ficar igual ao de hoje (só o viés persistente de σ 1° por eixo); o ruído novo só cresce com o refino. O viés do alvo do BOTAR no degrau 0 (±1 cm) é o par do knob decidido pelo dono em 15/10.
 - **Fase I:** recalibrar a norma da sacudida pelo log; medir a terminação do batente por junta (smoke 35) antes de um treino longo; conferir o `solref` do contato, o heap do `com_caixa` (smoke 37) e os índices dos grupos de atuadores.
 
-### 8. A odometria do treino parou de andar no commit `fce6a42` (em correção)
+### 8. A odometria do treino parou de andar no commit `fce6a42` (resolvido)
 
 - **Problema:** a lane 1 da F9 apagou, sem registro, a linha `env.v3_odo.passo(...)` do `CadeiaCmd.compute`. O contrato PD-44 manda a cadeia dar o passo da odometria uma vez por passo, e a docstring da classe seguiu dizendo isso. Sem a chamada, o mapa do ator não é transportado e a caixa e o alvo saem no frame da pose do reset. Nenhum teste pegou. Achado pelo agente do contrato da fase H.
 - **Pesquisa:** não se aplica (regressão contra o contrato documentado); conferido no `git log -S "v3_odo.passo"`.
-- **Solução:** a chamada volta antes da fase H, com um teste de regressão que conta a chamada; a fase H (H5) troca só a deriva pela do degrau global.
+- **Solução:** a chamada volta antes da fase H, depois da abertura do trecho e antes das escritas do fim do `compute`, com um teste de regressão que conta a chamada e a ordem (falhava com 0 chamadas; 400 testes, 1 pulado). A fase H (H5) troca só a deriva pela do degrau global.
 - **Fase I:** o smoke 39 (novo na fase H) confere a odometria andando.
