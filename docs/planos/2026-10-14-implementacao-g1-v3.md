@@ -483,7 +483,7 @@ As outras seções, com os campos e os valores iniciais. A coluna "fonte" diz de
 | `Terreno` | `linhas`, `tamanho` | 13; (8,0; 8,0) | PD-20; `terrains/config.py` |
 | | `tetos_andar` | degrau 0,20; rampa 0,36; obstáculo 0,15 | S §11.2 |
 | | `colunas` | (`plano`, `escada`, `escada_inv`, `rampa`, `rampa_inv`, `escada_aleatoria`, `irregular`, `obstaculos`, `caixas`) | D1; a ordem das colunas do gerador (29/10: o `eventos` lê daqui, sem importar a `cena`) |
-| | `linha_max_carregar` | por coluna (nome, linha): `escada`, `escada_inv`, `rampa`, `rampa_inv`, `escada_aleatoria` 9; `obstaculos` 8; `caixas` 7. Uma coluna tem plataforma de 2 m se e só se está aqui | PD-20 |
+| | `linha_max_carregar` | por coluna (nome, linha): `escada`, `escada_inv`, `rampa`, `rampa_inv` 9; `escada_aleatoria` 6 (G7 P3: o degrau dela é U(0; 0,20)·(0,5 + 0,5·t), até 0,15 m na linha 6); `obstaculos` 8; `caixas` 7, com as caixas sem giro (`box_yaw_range` = (0, 0), G7 P4). Uma coluna tem plataforma de 2 m se e só se está aqui | PD-20 |
 | | `plataforma` | 2,0 | S §12 |
 | | `borda` | 20,0 m (`border_width` do gerador) | D1 (29/10: sai da `cena`) |
 | `DR` | `atrito_pe`, `massa_tronco`, `vies_encoder` | (0,3; 1,0); (−1,0; 3,0) kg; 0,015 rad | §6.8 startup; o tamanho da caixa mora em `Cena.caixa_meia_faixa` e `caixa_n_variantes` |
@@ -966,12 +966,13 @@ def cena_na_plataforma(terreno_b, k_ter: Terreno, k_cena: Cena, gerador) -> tupl
 #   R(rumo)·(caixa_xy + (dx, dy)); v3_caixa_xy = desloc + R(rumo)·(caixa_xy + (dx, dy)); v3_rumo_cena = rumo. Toda
 #   conta base → mundo passa por `alvos.base_para_mundo` (F9 R3).
 # _base_da_pega: xy = origem + v3_caixa_xy − R(v3_rumo_cena)·(d, 0); yaw = v3_rumo_cena + o jitter da faixa (S4).
-# Decisão do dono (29/10): a laje fica a 0,75 m; o robô fica onde a S4 o põe (0,48–0,95 m da borda, e não os
+# ⚠ A "plataforma de 2 m" é nominal: a meia real é 1,20 m nas escadas, 1,63–1,79 nas rampas (estrela), 2,15 na
+# escada aleatória, 0,96 nos obstáculos (G7 R3). Decisão do dono (29/10): a laje fica a 0,75 m; o robô fica onde a S4 o põe (0,48–0,95 m da borda, e não os
 # 0,5–0,65 m da viab. D10); a `fracao_fora_da_plataforma` (G4) mede na fase I.
 
 # comando.py (G3)
 def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho, t_ancora, perdeu,
-                        carregar, k: Comando, incl_max_seg, terreno) -> tuple[torch.Tensor, torch.Tensor]: ...
+                        carregar, incl_max_seg, terreno, k: Comando) -> tuple[torch.Tensor, torch.Tensor]: ...
     # o de hoje, e mais: sucesso &= ~(carregar & terreno & (incl_max_seg > k.incl_max_terreno_graus)) (S §11.3: no
     # CARREGAR do TERRENO, a caixa a ≤ 15° em todo passo). incl_max_seg (E,) graus; terreno (E,) bool, a célula do
     # segmento é `terreno`.
@@ -979,9 +980,14 @@ def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho
 # graus) a cada passo. O B4 da caixa perdida mede a pelve como o detector (`z_pe_min`, R6), e não pelo `h` (F9).
 
 # metricas.py (G4)
-# fracao_fora_da_plataforma: por env, a fração dos passos de CARREGAR em episódio de terreno da fatia B com a base
-#   fora do quadrado da plataforma (‖xy da base − xy da origem‖∞ > plataforma/2); média só sobre os envs com o
-#   evento (`_media_dos_com_evento`, F9 M5).
+# fracao_fora_da_plataforma: por env, a fração dos passos de CARREGAR em episódio de terreno da fatia B com o robô
+#   sobre terreno: o chão sob a pelve (z da pelve − `altura_pelve`) a mais de 1 cm do z da origem (G7 P1, decisão do
+#   dono: a plataforma real não é de 2 m em toda coluna). O log é a média por EPISÓDIO: o `reset(env_ids)` guarda a
+#   média das frações dos episódios que fecham, e o `__call__` devolve essa constante (G7 S1).
+# recompensas (G7 P2, decisão do dono): na célula `terreno` do CARREGAR, o alvo da qualidade é pelve + `caixa_transporte_b`
+# no frame da pelve (z incluso); no plano fica o de hoje (chão sob a pelve + 0,90, que pega o andar agachado, E §4.4).
+# exporta_cena (G7 S2): o `exporta` força a fatia B no plano depois do `env.reset()` (o caminho do treino), para o
+# registro nascer com a laje e a caixa à frente do robô.
 # O log do currículo (`curriculo.py`) ganha `nivel_terreno_<tarefa>` (`Curriculo.nivel_terreno`) para ANDAR e CARREGAR.
 ```
 
@@ -2132,7 +2138,8 @@ núcleo põe a laje a 0,75 m do centro, rumo à borda sorteada, e o robô dentro
 **G4 — `metricas.py` (Haiku).** `fracao_fora_da_plataforma` (viab. D10); nível de terreno por tarefa.
 
 **G5 — smoke da Parte 3b (Sonnet).** Seções 30 a 33: 30. env da fatia B no terreno nasce na
-plataforma; 31. o topo da laje = origem + h, com a origem de uma escada (+1,4 m); 32. o robô
+plataforma; 31. o topo da laje = origem + h, com a origem de uma escada (na linha 9: (n + 1)·degrau = 1,05 m, n = 6 degraus;
+G7 R3); 32. o robô
 teleportado um degrau abaixo, com a caixa no peito, não dispara a caixa perdida (viab. D4); 33. a altura da
 pelve e do joelho medem contra o terreno local.
 
@@ -2402,3 +2409,4 @@ arquivos da lane), faz o commit por caminho explícito, confere que não há `Co
 | 2026-10-29 | F4 e F-2a: sai o `Recompensa.recuo_carregar` (§6.2). O `recuo_IK` da `cerca_recuo` no CARREGAR passa a ser o transporte da IK (`ref.caixa_transporte_b`), a mesma fonte do P4: um número só para a caixa no peito | lanes F4 e F-2a |
 | 2026-10-29 | revisão F9 (`docs/relatorios/2026-10-29-v3-revisao-parte3.md`), decisões do dono: P1, o `v3_ponto_apoio` nasce no fecho do B2 (invariante B3–B4); P2, o portão do tronco do Φ é de um lado só, relu(incl − IK), e vale 1 no B4; P3, o B_alvo[B2] paga vezes o núcleo da velocidade de chegada (`v3_v_chegada`, §6.4), com o σ do pouso do degrau; P4, a `altura_pe` paga zero com o comando do twist zero (o ANDAR parado final pagava 1,725 contra ≤ 0,20 da escada B1–B4; com o pé parado o termo vale exp(0) = 1; desvio da conta "parado" da S §9.2); P5, o `v3_aviso` é o latch do aviso no trecho, e o canal do alvo do ator no BOTAR zera com ele, como o driver (R2, R5); P6, o PEGAR só fica pendente de registro depois que o P0 abre (sem leitura da caixa a falha é da percepção); P7, o reset por `time_out` com o BOTAR pendente registra com falhou = False (o `time_out` não é terminação, S §10). Fora do dono: S1, a `cerca_pelve` com índice −1 usa a pose de pé; S3, o `afasta` desconta o `palma_face`; S4, o `recompensas.ref_do_alvo` público é a fonte da `referencia` do crítico; R3, `alvos.base_para_mundo` único, um yaw só, e as tolerâncias do B4 (`Alvos.tol_pelve_b4`, `tol_tronco_b4_graus`) com o default lido do `Detector` (`tol_pelve`, `tol_tronco_graus`; I §4.2: são as mesmas): um literal só; M12, o chão do driver em z = 0 na coluna `plano` | revisão F9 e respostas do dono |
 | 2026-10-29 | contrato da fase G (§6.3 "Fase G: núcleos puros", §6.4 `v3_rumo_cena` e `v3_incl_max_seg` com o `twist` de escritor): a cena de B no terreno gira para uma das 4 bordas e anda até a laje ficar a 0,75 m do centro; o sucesso do segmento do CARREGAR no terreno exige a caixa ≤ 15° em todo passo (`Comando.incl_max_terreno_graus`); `fracao_fora_da_plataforma` e o nível de terreno no log. Decisão do dono: a laje a 0,75 m vale e o robô fica onde a S4 o põe (0,48–0,95 m da borda; a viab. D10 pedia 0,5–0,65), medido na fase I. A G2 já estava na fase D | conferência do orquestrador e resposta do dono |
+| 2026-10-30 | revisão G7 (`docs/relatorios/2026-10-29-v3-revisao-parte3b.md`), decisões do dono: P1, "fora da plataforma" é o chão sob a pelve a mais de 1 cm do z da origem, e o log da métrica é a média por episódio (S1); P2, a qualidade do CARREGAR na célula `terreno` mede a caixa no frame da pelve (pelve + `caixa_transporte_b`), e no plano fica o alvo de hoje (S3); P3, `linha_max_carregar` da `escada_aleatoria` = 6; P4, as caixas da coluna `caixas` sem giro; P5, a PD-12 fica (U[0,25; 1,0] m/s no terreno). Fora do dono: S2, o exportador força a fatia B no plano; a plataforma real por coluna; a origem da escada na linha 9 é 1,05 m; a ordem dos argumentos do `sucesso_do_segmento` segue o código | revisão G7 e respostas do dono |
