@@ -7,7 +7,8 @@ da origem (G7 P1).
 
 Ordem do mjlab (`envs/manager_based_rl_env.py`, `managers/metrics_manager.py`): num passo, `compute()` chama o
 `__call__` e só depois o `reset(env_ids)` roda; o reset do manager lê o valor "last" antes do `func.reset`. Os
-testes seguem essa ordem: passos → `reset` → `__call__`.
+testes seguem essa ordem: passos → `reset` → `__call__`. O valor por episódio sai no `reset`, em
+`extras["log"]["Episodio/fracao_fora_da_plataforma"]`; o `__call__` devolve a flag "teve passo de evento".
 """
 import types
 import unittest
@@ -21,6 +22,7 @@ CARREGAR = TAREFAS.index("CARREGAR")
 ANDAR = TAREFAS.index("ANDAR")
 FATIA_B = FATIAS.index("B")
 PELVE = 0.8  # z da pelve sobre o plano (m)
+CHAVE = "Episodio/fracao_fora_da_plataforma"
 
 
 class Cena(dict):
@@ -34,7 +36,7 @@ def env_falso(tarefa, fatia, terreno):
     altura = types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.zeros(n, 4)))
     cena = Cena(robot=robo, terrain=types.SimpleNamespace(terrain_types=torch.tensor(terreno)), altura_pelve=altura)
     cena.env_origins = torch.zeros(n, 3)
-    return types.SimpleNamespace(num_envs=n, device="cpu", scene=cena,
+    return types.SimpleNamespace(num_envs=n, device="cpu", scene=cena, extras={"log": {}},
                                  v3_tarefa=torch.tensor(tarefa), v3_fatia=torch.tensor(fatia))
 
 
@@ -55,7 +57,7 @@ class MetricasGTest(unittest.TestCase):
         pisa(env, [0.0])
         m(env)
         m.reset(torch.tensor([0]))
-        self.assertAlmostEqual(float(m(env)[0]), 0.0, places=6)
+        self.assertAlmostEqual(float(env.extras["log"][CHAVE][0]), 0.0, places=6)
 
     def test_pelve_sobre_o_primeiro_degrau_conta(self):
         # Chão = origem − 0,15 m (o primeiro degrau): fora em todo passo do episódio.
@@ -64,11 +66,11 @@ class MetricasGTest(unittest.TestCase):
         pisa(env, [-0.15])
         m(env)
         m.reset(torch.tensor([0]))
-        self.assertAlmostEqual(float(m(env)[0]), 1.0, places=6)
+        self.assertAlmostEqual(float(env.extras["log"][CHAVE][0]), 1.0, places=6)
 
     def test_log_e_a_media_dos_episodios_que_fecham(self):
         # env 0: fora em 1 de 5 passos → 0,2. env 1: fora em 3 de 5 → 0,6. env 2: ANDAR, sem evento, fora em
-        # todo passo: não entra (se entrasse, a média seria 0,27). A média é 0,4 e vale para todo env.
+        # todo passo: não entra (se entrasse, a média seria 0,27). O log é [0,2; 0,6]: a média por episódio é 0,4.
         env = env_falso(tarefa=[CARREGAR, CARREGAR, ANDAR], fatia=[FATIA_B, FATIA_B, FATIA_B],
                         terreno=[1, 1, 1])
         m = metricas.fracao_fora_da_plataforma(None, env)
@@ -79,11 +81,20 @@ class MetricasGTest(unittest.TestCase):
                           [0.0, 0.0, -0.15]]
         for chao in chao_por_passo:
             pisa(env, chao)
-            m(env)
+            out = m(env)
+        self.assertTrue(torch.equal(out, torch.tensor([1.0, 1.0, 0.0])), out)  # flag: teve evento
         m.reset(torch.arange(3))
-        out = m(env)
-        self.assertEqual(tuple(out.shape), (3,))
-        self.assertTrue(torch.allclose(out, torch.full((3,), 0.4)), out)
+        self.assertTrue(torch.allclose(env.extras["log"][CHAVE], torch.tensor([0.2, 0.6])),
+                        env.extras["log"][CHAVE])
+
+    def test_lote_sem_evento_nao_loga(self):
+        # só ANDAR no lote: nenhum episódio com evento, e a chave não sai
+        env = env_falso(tarefa=[ANDAR], fatia=[FATIA_B], terreno=[1])
+        m = metricas.fracao_fora_da_plataforma(None, env)
+        pisa(env, [-0.15])
+        m(env)
+        m.reset(torch.tensor([0]))
+        self.assertNotIn(CHAVE, env.extras["log"])
 
 
 if __name__ == "__main__":

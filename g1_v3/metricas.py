@@ -74,15 +74,16 @@ def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
     return (valor * m).sum(dim=-1) / m.sum(dim=-1).clamp(min=1.0)
 
 
-def _media_dos_com_evento(valor: torch.Tensor, com_evento: torch.Tensor) -> torch.Tensor:
-    """Média de `valor` sobre os envs com `com_evento`, igual em todo env (E,). Zero sem evento.
+def _loga_episodios(env, nome: str, valor: torch.Tensor, com_evento: torch.Tensor, env_ids) -> None:
+    """Põe em `extras["log"]["Episodio/<nome>"]` o `valor` dos envs de `env_ids` com `com_evento` (um por episódio).
 
-    ⚠ O mjlab tira a média sobre todos os envs que resetam (`metrics_manager.py:113-124`): o zero dos envs sem
-    evento diluiria a métrica (F9 M5). Uma constante tem média ela mesma, então o reset dá a média dos com evento.
+    Chamado no `reset` do termo, ANTES de zerar o buffer: o valor é o do episódio que fecha. O rsl_rl tira a média
+    dos elementos de todos os passos da iteração (`rsl_rl/utils/logger.py:185-196`): a média por episódio. Sem evento
+    no lote, a chave não sai. O prefixo é `Episodio/`, nunca `Episode_Metrics/`, que o mjlab sobrescreve.
     """
-    return torch.ones_like(valor) * _media_por_env(valor[None], com_evento[None])  # um env só no eixo: a média global
-    # ⚠ DÚVIDA: a média é sobre TODOS os envs no último passo, e o reset do mjlab a tira sobre o lote que reseta.
-    # Igual quando o lote é o todo; se resetarem em passos diferentes, o valor pode diferir da média do lote.
+    v = valor[env_ids][com_evento[env_ids]]
+    if v.numel():
+        env.extras["log"]["Episodio/" + nome] = v
 
 
 def tempo_de_voo(env, sensor_name: str = PES_CHAO) -> torch.Tensor:
@@ -241,10 +242,13 @@ class phi_medio_do_alvo:
     """Média do Φ (`v3_phi`) nos passos em que o alvo é `alvo` e a tarefa tem caixa, por env. Sem peso.
 
     ⚠ Φ é o potencial do passo ANTERIOR (§6.4): o valor do passo em que o `v3_alvo_idx` é `alvo`.
-    ⚠ `reduce="last"` no cfg: o valor é a média CORRENTE desde o reset, como `passo_medio`.
+    ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve o alvo" (`Episode_Metrics/phi_<alvo>` = fração dos
+    episódios com o alvo); o `reset` loga a média por episódio (`Episodio/phi_<alvo>`).
     """
 
     def __init__(self, cfg, env):
+        self.env = env
+        self.nome = "phi_" + _NOMES_ALVOS[cfg.params["alvo"]]
         self.soma = torch.zeros(env.num_envs, device=env.device)
         self.n = torch.zeros(env.num_envs, device=env.device)
 
@@ -252,11 +256,12 @@ class phi_medio_do_alvo:
         ok = (env.v3_alvo_idx == alvo) & _com_caixa(env)
         self.soma = self.soma + torch.where(ok, env.v3_phi, torch.zeros_like(self.soma))
         self.n = self.n + ok.float()
-        return _media_dos_com_evento(self.soma / self.n.clamp(min=1.0), self.n > 0)
+        return (self.n > 0).float()
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
+        _loga_episodios(self.env, self.nome, self.soma / self.n.clamp(min=1.0), self.n > 0, env_ids)
         self.soma[env_ids] = 0.0
         self.n[env_ids] = 0.0
 
@@ -264,20 +269,24 @@ class phi_medio_do_alvo:
 class tempo_no_alvo:
     """Segundos em que o alvo corrente é `alvo` e a tarefa tem caixa, até o instante, por env. Sem peso.
 
-    ⚠ `reduce="last"` no cfg: o valor é o total corrente, e o último passo é o do episódio.
+    ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve o alvo" (fração dos episódios com o alvo); o `reset`
+    loga o total do episódio em segundos (`Episodio/tempo_<alvo>`).
     """
 
     def __init__(self, cfg, env):
+        self.env = env
+        self.nome = "tempo_" + _NOMES_ALVOS[cfg.params["alvo"]]
         self.passos = torch.zeros(env.num_envs, device=env.device)
         self.dt = env.step_dt
 
     def __call__(self, env, alvo: int) -> torch.Tensor:
         self.passos = self.passos + ((env.v3_alvo_idx == alvo) & _com_caixa(env)).float()
-        return _media_dos_com_evento(self.passos * self.dt, self.passos > 0)
+        return (self.passos > 0).float()
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
+        _loga_episodios(self.env, self.nome, self.passos * self.dt, self.passos > 0, env_ids)
         self.passos[env_ids] = 0.0
 
 
@@ -328,24 +337,38 @@ class deslocamento_da_caixa:
         self.marcada[env_ids] = False
 
 
-def velocidade_de_chegada(env) -> torch.Tensor:
+class velocidade_de_chegada:
     """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje, por env. Sem peso.
 
     Lê `v3_v_chegada` (§6.4, F9 P3), o número que o B_alvo[B2] e a `chegada` julgam; −1 = sem toque.
-    ⚠ `reduce="last"` no cfg: a média é a dos envs com toque (F9 M5).
+    ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve toque" (fração dos episódios com toque); o `reset`
+    loga o valor do episódio que fecha com toque (`Episodio/velocidade_de_chegada`), antes de o `command_manager`
+    voltar o `v3_v_chegada` a −1.
     """
-    v = env.v3_v_chegada
-    return _media_dos_com_evento(v, v >= 0.0)
+
+    def __init__(self, cfg, env):
+        self.env = env
+
+    def __call__(self, env) -> torch.Tensor:
+        return (env.v3_v_chegada >= 0.0).float()
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        v = self.env.v3_v_chegada
+        _loga_episodios(self.env, "velocidade_de_chegada", v, v >= 0.0, env_ids)
 
 
 class deslocamento_depois_do_apoio:
     """Maior deslocamento da caixa no plano xy desde `v3_ponto_apoio`, nos passos de B3 a B4 sem `v3_perdeu`. Sem peso.
 
     ⚠ O ponto nasce no fecho do B2 (F9 P1): o B2 não entra. Só xy, como `deslocamento_da_caixa`.
-    ⚠ `reduce="last"` no cfg, com o maior no próprio buffer: o `max` do mjlab diluiria os envs sem apoio (F9 M5).
+    ⚠ `reduce="last"` no cfg: o `max` do mjlab diluiria os envs sem apoio (F9 M5). O `__call__` devolve a flag
+    "teve apoio"; o `reset` loga o maior deslocamento do episódio (`Episodio/deslocamento_depois_do_apoio`).
     """
 
     def __init__(self, cfg, env):
+        self.env = env
         self.maior = torch.zeros(env.num_envs, device=env.device)
         self.marcada = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
@@ -355,11 +378,12 @@ class deslocamento_depois_do_apoio:
         desl = torch.norm((env.scene[CAIXA].data.root_link_pos_w - env.v3_ponto_apoio)[:, :2], dim=-1)
         self.maior = torch.where(ok, torch.maximum(self.maior, desl), self.maior)
         self.marcada = self.marcada | ok
-        return _media_dos_com_evento(self.maior, self.marcada)
+        return self.marcada.float()
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
+        _loga_episodios(self.env, "deslocamento_depois_do_apoio", self.maior, self.marcada, env_ids)
         self.maior[env_ids] = 0.0
         self.marcada[env_ids] = False
 
@@ -370,17 +394,14 @@ class fracao_fora_da_plataforma:
     Sobre terreno = o chão sob a pelve (z da pelve − `altura_pelve`) a mais de 1 cm do z da origem (`env_origins`,
     G7 P1). Episódio de terreno: coluna > 0 em `terrain_types`.
 
-    ⚠ O log é a média POR EPISÓDIO (G7 S1): o `reset(env_ids)` guarda a média das frações dos episódios que fecham
-    (só os com evento), e o `__call__` devolve essa constante para todo env. Sem evento no lote, zero.
-    ⚠ DÚVIDA (ordem do mjlab): o `compute()` do passo roda antes do `reset`, e o reset do manager lê o valor "last"
-    antes do `func.reset`. Logo o episódio que fecha no reset k aparece no log só no reset k+1 (o valor lido em k é
-    a constante de k−1). Não resolvido aqui; o S1 pede a constante.
+    ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve passo de evento" (fração dos episódios com evento);
+    o `reset` loga a fração por episódio dos que fecham com evento (`Episodio/fracao_fora_da_plataforma`).
     """
 
     def __init__(self, cfg, env):
+        self.env = env
         self.passos = torch.zeros(env.num_envs, device=env.device)
         self.fora = torch.zeros(env.num_envs, device=env.device)
-        self.media = torch.zeros((), device=env.device)
 
     def __call__(self, env) -> torch.Tensor:
         evento = (env.v3_tarefa == CARREGAR) & (env.v3_fatia == FATIA_B) & (env.scene["terrain"].terrain_types > 0)
@@ -388,14 +409,13 @@ class fracao_fora_da_plataforma:
         fora = (chao - env.scene.env_origins[:, 2]).abs() > 0.01
         self.passos = self.passos + evento.float()
         self.fora = self.fora + (evento & fora).float()
-        return torch.ones(env.num_envs, device=env.device) * self.media
+        return (self.passos > 0).float()
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
-        com_evento = self.passos[env_ids] > 0
-        frac = self.fora[env_ids] / self.passos[env_ids].clamp(min=1.0)
-        self.media = _media_por_env(frac[None], com_evento[None])[0]
+        _loga_episodios(self.env, "fracao_fora_da_plataforma", self.fora / self.passos.clamp(min=1.0),
+                        self.passos > 0, env_ids)
         self.passos[env_ids] = 0.0
         self.fora[env_ids] = 0.0
 
