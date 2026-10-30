@@ -538,6 +538,9 @@ class CadeiaCmd(CommandTerm):
         ids = (avancou & ~fim).nonzero().flatten()  # no fim da cadeia o trecho não reabre (S §7)
         if ids.numel():
             self._abre_trecho(ids, novo[ids], m)
+        # PD-44: o `passo` da odometria uma vez por passo, antes das escritas do fim. Um commit (fce6a42) tirou esta
+        # chamada e a odometria do treino parou (registro de problemas, 30/10, caso 8)
+        env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w, self.deriva)
         self._grava_chegada()
         # vz da caixa para a `chegada` e a métrica do passo seguinte. A cadeia roda depois das terminações, das
         # recompensas, das métricas e do reset: quem lê no passo seguinte vê a vz do passo anterior (§6.4).

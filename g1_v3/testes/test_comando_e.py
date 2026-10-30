@@ -139,6 +139,41 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         self.assertEqual([round(v, 6) for v in env.v3_caixa_pega_w[0].tolist()], [1.3, 2.0, 0.1])
         self.assertEqual(env.v3_phi.tolist(), [-1.0])
 
+    def test_compute_da_o_passo_da_odometria_uma_vez_com_a_pose_da_raiz(self):
+        # PD-44: a cadeia dá o `passo` da `v3_odo` uma vez por passo, com a pose da raiz e a deriva. Um commit (fce6a42)
+        # tirou essa chamada e a odometria do treino parou; sem ela o mapa não é transportado (registro 30/10, caso 8)
+        env = _env_falso(comando.P0, tarefa=comando.ANDAR)
+        env.v3_trecho = torch.zeros(1, dtype=torch.long)
+        env.v3_aviso = torch.zeros(1, dtype=torch.bool)
+        env.v3_fim = torch.zeros(1, dtype=torch.bool)
+        env.v3_vz_caixa_ant = torch.zeros(1)
+        env.v3_odo = mock.Mock()
+        env.scene = {"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))}
+        obj = _cadeia_sem_env(env)
+        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[1.0, 2.0, 0.5]]),
+                                                                     root_link_quat_w=torch.tensor([[1.0, 0, 0, 0]])))
+        obj.deriva = {"odo": 0.1, "rumo": 0.2, "pos_giro": 0.3, "rumo_giro": 0.4}
+        obj.tab = None  # a tabela só vai ao `avanca_trecho`, que está mockado
+        obj.relogio = torch.zeros(1)
+        obj.alvo_s = torch.zeros(1)
+        obj.pega = torch.zeros(1, dtype=torch.bool)
+        obj.bota = torch.zeros(1, dtype=torch.bool)
+        ordem = []
+        env.v3_odo.passo.side_effect = lambda *a: ordem.append("odo")
+        obj._mede = mock.Mock(return_value=_medidas())
+        obj._perda = mock.Mock()
+        obj._abre_p0 = mock.Mock()
+        obj._alvos = mock.Mock()
+        obj._detector = mock.Mock()
+        obj._grava_chegada = mock.Mock(side_effect=lambda: ordem.append("chegada"))
+        nao_avancou = (torch.zeros(1, dtype=torch.long), torch.zeros(1), torch.zeros(1, dtype=torch.bool),
+                       torch.zeros(1, dtype=torch.bool))
+        with mock.patch.object(comando, "avanca_trecho", return_value=nao_avancou):
+            obj.compute(DT)
+        env.v3_odo.passo.assert_called_once_with(obj.robot.data.root_link_pos_w, obj.robot.data.root_link_quat_w,
+                                                 obj.deriva)
+        self.assertEqual(ordem, ["odo", "chegada"])  # a odometria anda antes das escritas do fim (grava_chegada)
+
 
 class TestOkAgoraPegar(unittest.TestCase):
 
