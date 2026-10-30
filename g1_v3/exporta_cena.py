@@ -22,6 +22,8 @@ observação: o `constroi_env` põe o teto dos buffers em 0 (como o `encoder_bia
 
 A lane D11b escreve o `pilota_v3.py` SÓ por este texto. Se um campo mudar aqui, muda no texto e na lane.
 
+O `cena.mjb` é o robô e a caixa NOMINAIS, sem a DR do treino (atritos, massa do tronco, tamanho e massa da caixa).
+
 ### `cena.npz` (`np.load(..., allow_pickle=False)`)
 
 Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qpos_inicial` a
@@ -446,6 +448,9 @@ def exporta(pasta: Path) -> None:
     m: mujoco.MjModel = env.sim.mj_model
     dados = coleta_cena(env)
 
+    # ⚠ A meia do reset é a NOMINAL, a mesma do `cena.mjb`, e não a sorteada pelo startup `tamanho_caixa`: sem isto, o
+    # `recuo` e o `topo + v3_meia` do reset forçado usam uma caixa que o `mjb` não tem. O `v3_meia` já existe aqui.
+    env.v3_meia[:] = float(dados["meia_aresta"])
     env.reset()
     # S2 (G7): o reset exportado é a fatia B no plano, com a laje e a caixa à frente do robô (E §4.4; S4).
     # ⚠ Mesmo caminho do treino (`sorteia_fatia` e os eventos `cena` e `base`), como o `_abre_b_na_escada` do smoke,
@@ -462,8 +467,8 @@ def exporta(pasta: Path) -> None:
     eventos.reset_base_por_fatia(env, ids, dict(ATIVO.cena.reset_base_andar), dict(ATIVO.cena.reset_base_manipula))
     eventos.reinicia_filtros(env, ids)
     env.sim.forward()  # ⚠ a leitura das poses depois da escrita pede o forward (como em s06)
-    # ⚠ DÚVIDA: o evento `carga` (massa e inércia da caixa) não roda aqui. Ele escreve `sim.model.body_mass`, e o
-    # `cena.mjb` sai de `sim.mj_model`. Se os dois não estiverem ligados, a massa do mjb não é `v3_massa`. Não mudei.
+    # ⚠ O evento `carga` (reset) escreve só `sim.model.body_mass`, o modelo do Warp. O `cena.mjb` sai de `sim.mj_model`,
+    # que é nominal por desenho: o `carga` não chega ao `mjb`. No nível 0 do PEGAR a massa sorteada é 1,0 kg, igual à nominal.
     d0 = espelha_estado(env, m)
     dados["qpos_inicial"] = d0.qpos.copy()
     dados["qvel_inicial"] = d0.qvel.copy()
