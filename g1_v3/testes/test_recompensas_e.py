@@ -213,14 +213,14 @@ class TestQualidade(unittest.TestCase):
 
 class TestPerdaCaixa(unittest.TestCase):
     def test_perda_sem_devolver_b_pagos(self):
-        # Teste E4: n_perda_caixa com devolve False: só o custo, no passo da perda
+        # Teste E4: n_perda_caixa com devolve False: só o custo, no passo em que o sinal de perda sobe (um passo depois da perda, caso 4)
         out = recompensas.n_perda_caixa(torch.tensor([True, False]), torch.tensor([0.5, 0.5]),
                                         R.perda_caixa, False)
         self.assertAlmostEqual(float(out[0]), R.perda_caixa, places=4)
         self.assertEqual(float(out[1]), 0.0)
 
     def test_perda_devolvendo_b_pagos(self):
-        # Teste E4: n_perda_caixa com devolve True: custo + b_pagos, no passo da perda
+        # Teste E4: n_perda_caixa com devolve True: custo + b_pagos, no passo em que o sinal de perda sobe (um passo depois da perda, caso 4)
         out = recompensas.n_perda_caixa(torch.tensor([True, False]), torch.tensor([0.5, 0.5]),
                                         R.perda_caixa, True)
         self.assertAlmostEqual(float(out[0]), R.perda_caixa + 0.5, places=4)

@@ -22,7 +22,7 @@ class TestNCaixaPerdida(unittest.TestCase):
         self.assertFalse(bool(fim.any()))
 
     def test_com_a_chave_desligada_termina_no_passo_da_perda(self):
-        # E5, linha "Teste": com a chave desligada, termina exatamente no passo da perda
+        # E5, linha "Teste": com a chave desligada, termina no passo em que o sinal de perda sobe (um passo depois da perda física, caso 4)
         perdeu = torch.tensor([False, False, True, False])
         fim = terminacoes.n_caixa_perdida(perdeu, vira_andar=False)
         self.assertEqual(fim.tolist(), [False, False, True, False])

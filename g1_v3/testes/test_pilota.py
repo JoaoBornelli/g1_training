@@ -17,7 +17,7 @@ from unittest import mock
 
 import numpy as np
 
-from g1_v3.knobs import TAREFAS, Contrato
+from g1_v3.knobs import ATIVO, TAREFAS, Contrato
 
 RAIZ = Path(__file__).resolve().parents[2]
 CONTRATO = Contrato()
@@ -199,10 +199,8 @@ def _carrega_registra():
 class TestRegistraTerreno(unittest.TestCase):
     """G6: roteiros de terreno e a pose da cena no sub-terreno, núcleos puros do `registra_juntas_v3.py`."""
 
-    COLUNAS = ["plano", "escada", "escada_inv", "rampa", "rampa_inv", "escada_aleatoria",
-               "irregular", "obstaculos", "caixas"]
-    LINHA_MAX = {"escada": 9, "escada_inv": 9, "rampa": 9, "rampa_inv": 9, "escada_aleatoria": 9,
-                 "obstaculos": 8, "caixas": 7}
+    COLUNAS = list(ATIVO.terreno.colunas)
+    LINHA_MAX = dict(ATIVO.terreno.linha_max_carregar)
 
     @classmethod
     def setUpClass(cls):

@@ -1,4 +1,4 @@
-"""Os checks da v3 (D12 e E10 do plano, seções 1 a 33: Partes 1 a 3b).
+"""Os checks da v3 (D12 e E10 do plano, seções 1 a 39: Partes 1 a 4).
 
     python -m g1_v3.smoke
 
@@ -69,6 +69,21 @@ def _abre_env(n: int, k=None, play: bool = False):
 def _zeros(env):
     from g1_v3.knobs import JUNTAS
     return torch.zeros(env.num_envs, len(JUNTAS), device=env.device)
+
+
+def _poe_curriculo(env, degrau, travas=()):
+    """Põe o degrau das 4 tarefas (um int, ou a tupla na ordem de `balanceador.TAREFAS`) e as travas do DR, pelo
+    `estado()` do currículo (§6.8). Quem chama dá o `env.reset()`: o reset sorteia o degrau de cada env
+    (comando.py:458) e os eventos de reset leem o `dr()` novo. Exige um reset antes (o `v3_cur` nasce nele)."""
+    from g1_v3.balanceador import TAREFAS
+    cur = env.v3_cur
+    estado = cur.estado()
+    degraus = degrau if isinstance(degrau, tuple) else (degrau,) * len(TAREFAS)
+    for t, d in zip(TAREFAS, degraus):
+        estado["tarefas"][t]["degrau"] = d
+    for k in ("portao0", "vies", "subida"):
+        estado["dr"][k] = k in travas
+    cur.carrega(estado)
 
 
 def _grade_recorte():
@@ -662,7 +677,7 @@ def s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave():
           f"pagos {on['pagos'].tolist()}")
     check("chave ligada: a tarefa vira ANDAR", bool((on["tarefa"] == TAREFAS.index("ANDAR")).all()))
     check("chave ligada: a cadeia não termina na perda", not bool(on["termina"].any()))
-    check("chave desligada: termina no passo da perda", bool(off["termina"].all()))
+    check("chave desligada: termina um passo depois da perda (caso 4)", bool(off["termina"].all()))
     check("cfg tem o termo `caixa_perdida` (S §10: sem a chave, termina)", on["cfg_tem"] and off["cfg_tem"])
 
 
@@ -1221,6 +1236,232 @@ def s33_altura_da_pelve_mede_contra_o_terreno_local():
         env.close()
 
 
+# =============================================================================
+# Parte 4 (H): recompensas, terminações e DR do refino (H1 a H6). O degrau é forçado pelo `estado()` do currículo.
+def s34_degrau_5_pesa_laje_chegada_e_pouso():
+    from g1_v3 import recompensas
+    from g1_v3.knobs import ATIVO
+
+    R, T = ATIVO.recompensa, ATIVO.terminacao
+    env = _abre_env(4)
+    try:
+        env.reset()
+        env.v3_degrau[:] = 5
+        for nome, par, esperado in (("laje_joelho_N", R.laje_joelho_N, 10.0), ("chegada", T.chegada, 0.25),
+                                    ("sigma_pouso", R.sigma_pouso, 0.35)):
+            v = recompensas.por_degrau(env, *par)
+            check(f"por_degrau({nome}) = {esperado} no degrau 5", bool(torch.allclose(v, torch.full_like(v, esperado), atol=1e-6)),
+                  f"{v.tolist()}")
+        for _ in range(5):
+            env.step(_zeros(env))
+        vals = _por_termo(env)
+        for nome in ("sacudida", "aperto"):
+            # ⚠ o valor do `reward_manager` é peso × custo: o custo sai dividindo pelo peso (negativo)
+            peso = env.cfg.rewards[nome].weight
+            custo = vals[nome] / peso
+            check(f"{nome}: peso negativo", peso < 0, str(peso))
+            check(f"{nome}: custo finito e ≥ 0 depois de 5 passos parados", bool(torch.isfinite(custo).all() and (custo >= 0).all()),
+                  f"{custo.tolist()}")
+    finally:
+        env.close()
+
+
+def s35_batente_so_com_degrau_1_e_contagem_por_junta():
+    from g1_v3 import potencial, terminacoes
+    from g1_v3.env_cfg import TODAS
+    from g1_v3.knobs import ATIVO, JUNTAS
+
+    env = _abre_env(16)
+    try:
+        env.reset()
+        robo = env.scene["robot"]
+        lim = robo.data.joint_pos_limits  # (E,29,2) do modelo
+        j = robo.joint_names.index("left_knee_joint")
+        meio = (lim[:, j, 1] - lim[:, j, 0]) / 2
+        q = robo.data.joint_pos.clone()
+        q[:, j] = lim[:, j, 1] + 0.02 * meio  # 2 % do meio curso além do limite de cima: curso 1,02
+        robo.write_joint_state_to_sim(q, torch.zeros_like(q))
+        env.sim.forward()
+        env.sim.sense()
+        env.v3_degrau[:] = 0
+        check("batente desligado no degrau 0", not bool(terminacoes.batente(env, TODAS).any()))
+        env.v3_degrau[:] = 1
+        check("batente ligado no degrau 1", bool(terminacoes.batente(env, TODAS).all()))
+
+        # MEDIDA (sem check): 200 passos aleatórios com o degrau 1 da tarefa; conta, por junta, os passos além do batente.
+        # ⚠ P13: se um tornozelo dominar, o ajuste por família é decisão do dono (a S §15 pede ≤ 5 % de terminação nova).
+        _poe_curriculo(env, 1)
+        env.reset()
+        contagem = torch.zeros(robo.data.joint_pos.shape[1], device=env.device)
+        for _ in range(200):
+            env.step(torch.rand(16, len(JUNTAS), device=env.device) * 2 - 1)
+            lim = robo.data.joint_pos_limits
+            curso = potencial.curso(robo.data.joint_pos, (lim[..., 0] + lim[..., 1]) / 2, (lim[..., 1] - lim[..., 0]) / 2)
+            contagem += (curso > ATIVO.terminacao.batente_frac).float().sum(dim=0)
+        print("  passos além do batente, por junta (de 16 × 200 = 3 200 por junta):")
+        for nome, c in zip(robo.joint_names, contagem.tolist()):
+            if c > 0:
+                print(f"    {nome}: {int(c)}")
+    finally:
+        env.close()
+
+
+def _geoms_do_solref(env):
+    """(geoms que `eventos.solref` escreve, geoms do terreno). As primeiras vêm das três `asset_cfg` do evento do cfg
+    (P17, mesmo conjunto que o evento usa); as do terreno, pelo regex do mjlab (`terrain$`)."""
+    import mujoco
+    from g1_v3 import eventos
+
+    # ⚠ DÚVIDA: acha o evento pela função (`t.func is eventos.solref`), e não pelo nome; o nome vem da H4b (cfg).
+    ev = next(t for t in env.cfg.events.values() if t.func is eventos.solref)
+    gid = torch.cat([env.scene[c.name].indexing.geom_ids[c.geom_ids]
+                     for c in (ev.params["asset_cfg_robo"], ev.params["asset_cfg_laje"], ev.params["asset_cfg_caixa"])])
+    m = env.sim.mj_model
+    tid = [i for i in range(m.ngeom) if re.search("terrain$", mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or "")]
+    return gid, torch.tensor(tid, dtype=torch.long)
+
+
+def s36_dr_do_refino_zero_no_degrau_0_e_faixa_no_5():
+    from g1_v3.knobs import TAREFAS, TAU_MAX
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        robo = env.scene["robot"]
+        ctrl_de = [a.global_ctrl_ids for a in robo.actuators]  # 9 grupos; os grupos 7 e 8 são os braços (P18)
+        todos = torch.cat(ctrl_de)
+        gid, tid = _geoms_do_solref(env)
+
+        def razao(campo, ctrl, col):  # (E, n): o campo do modelo de cada mundo sobre o default
+            return getattr(env.sim.model, campo)[:, ctrl, col] / env.sim.get_default_field(campo)[ctrl, col]
+
+        # degrau global 0: tudo no default (H1: `pares(ini, fim)` dá o início)
+        for nome, campo, col in (("kp", "actuator_gainprm", 0), ("kd", "actuator_biasprm", 2)):
+            r = razao(campo, todos, col)
+            check(f"degrau 0: {nome} = default", bool(torch.allclose(r, torch.ones_like(r), atol=1e-6)))
+        check("degrau 0: forcerange = default (9 grupos)",
+              all(bool(torch.allclose(r, torch.ones_like(r), atol=1e-6))
+                  for r in (razao("actuator_forcerange", c, 1) for c in ctrl_de)))
+        sr = env.sim.model.geom_solref[:, gid, 0]
+        check("degrau 0: solref das geoms de contato = 0,02", bool(torch.allclose(sr, torch.full_like(sr, 0.02), atol=1e-6)))
+
+        # degrau 5 nas 4 tarefas, com as travas do refino ligadas
+        _poe_curriculo(env, 5, ("portao0", "subida"))
+        env.reset()
+        for nome, campo, col in (("kp", "actuator_gainprm", 0), ("kd", "actuator_biasprm", 2)):
+            r = razao(campo, todos, col)
+            check(f"degrau 5: {nome} em [0,9; 1,1] do default", bool(((r >= 0.9) & (r <= 1.1)).all()))
+            check(f"degrau 5: {nome} não todo igual a 1", not bool(torch.allclose(r, torch.ones_like(r), atol=1e-6)))
+        for i, c in enumerate(ctrl_de):
+            lo = 0.9 if i < 7 else 0.8  # ⚠ P18: braços (grupos 7 e 8) com a faixa de 0,8
+            r = razao("actuator_forcerange", c, 1)
+            check(f"degrau 5: forcerange do grupo {i} em [{lo}; 1,1] do default", bool(((r >= lo) & (r <= 1.1)).all()),
+                  f"{r.tolist()}")
+        sr = env.sim.model.geom_solref[:, gid, 0]
+        check("degrau 5: solref das geoms de contato em [0,015; 0,03]", bool(((sr >= 0.015) & (sr <= 0.03)).all()))
+        check("degrau 5: solref igual entre as geoms de um mundo", bool(torch.allclose(sr, sr[:, :1].expand_as(sr))))
+        st = env.sim.model.geom_solref[:, tid, 0]
+        check("degrau 5: solref do terreno = 0,02", bool(torch.allclose(st, torch.full_like(st, 0.02), atol=1e-6)))
+
+        # RFI: ruído de torque por junta (≤ 0,1·TAU_MAX) e nada na junta livre
+        for _ in range(10):
+            env.step(_zeros(env))
+        qf = env.sim.data.qfrc_applied
+        tau = qf[:, robo.indexing.joint_v_adr]
+        teto = 0.1 * torch.tensor(TAU_MAX, dtype=tau.dtype, device=tau.device)
+        check("RFI: |τ| ≤ 0,1·TAU_MAX por junta", bool((tau.abs() <= teto + 1e-6).all()))
+        check("RFI: torque não todo zero", bool(tau.abs().max() > 0))
+        check("junta livre sem força (6 colunas)", bool((qf[:, robo.indexing.free_joint_v_adr] == 0).all()))
+
+        # fatia ANDAR: a caixa fica estacionada e nenhuma força a toca. A tarefa é fixada em ANDAR a cada passo, para
+        # que um reset não sorteie CARREGAR (a única fatia em que o `forca_caixa` age).
+        caixa, andar = env.scene["box"], TAREFAS.index("ANDAR")
+        sem_forca = True
+        for _ in range(400):
+            env.v3_tarefa[:] = andar
+            env.step(_zeros(env))
+            sem_forca &= bool((caixa.data.body_external_wrench == 0).all())
+        check("ANDAR 400 passos: wrench da caixa zero em todo passo (máscara da forca_caixa)", sem_forca)
+
+        # ⚠ DÚVIDA: não confirmei a API do solref dos contatos (env.sim.data.contact); só imprime o shape, sem check.
+        sc = getattr(getattr(env.sim.data, "contact", None), "solref", None)
+        print("  solref dos contatos:", "não exposto" if sc is None else tuple(sc.shape))
+    finally:
+        env.close()
+
+
+def s37_com_caixa_ligado_sem_erro_de_heap():
+    from g1_v3.knobs import ATIVO, JUNTAS
+
+    # ⚠ PD-38: `com_caixa` só entra no cfg com `DR.com_caixa`; a seção liga a chave só para este cfg
+    k = dataclasses.replace(ATIVO, dr=dataclasses.replace(ATIVO.dr, com_caixa=True))
+    env = _abre_env(16, k=k)
+    try:
+        env.reset()
+        _poe_curriculo(env, 0, ("subida",))
+        env.reset()
+        box = env.scene["box"]
+        ip = env.sim.model.body_ipos[:, int(box.indexing.body_ids[0])]  # (E,3): o CoM da caixa no modelo de cada mundo
+        a = env.v3_meia
+        check("com_caixa: |xy| do CoM ≤ 0,3·a", bool((ip[:, :2].abs() <= 0.3 * a[:, None] + 1e-6).all()))
+        check("com_caixa: |z| do CoM ≤ 0,2·a", bool((ip[:, 2].abs() <= 0.2 * a + 1e-6).all()))
+        check("com_caixa: CoM não todo zero", bool(ip.abs().sum() > 0))
+        ruins = 0
+        for _ in range(200):
+            obs, _rew, _term, _trunc, _info = env.step(torch.rand(16, len(JUNTAS), device=env.device) * 2 - 1)
+            if not (torch.isfinite(obs["actor"]).all() and torch.isfinite(obs["critic"]).all()):
+                ruins += 1
+        check("com_caixa: 200 passos aleatórios em 16 mundos com observação finita", ruins == 0, f"{ruins} passos")
+    finally:
+        env.close()
+
+
+def s38_save_e_load_com_degraus_e_travas():
+    from mjlab.rl import RslRlVecEnvWrapper
+    from g1_v3 import tarefa
+    from g1_v3.runner import RunnerV3
+
+    env = _abre_env(4)
+    try:
+        env.reset()
+        _poe_curriculo(env, (5, 3, 4, 2), ("portao0", "subida"))  # ANDAR, PEGAR, CARREGAR, BOTAR: degrau global 2
+        cur = env.v3_cur
+        wrapper = RslRlVecEnvWrapper(env)
+        agente = dataclasses.asdict(tarefa.rl_cfg())  # ⚠ como o mjlab/scripts/train.py:150 passa o agente
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = RunnerV3(wrapper, agente, log_dir=tmp, device="cpu")  # ⚠ o `_embrulha_log` roda no __init__
+            antes = (cur.estado(), cur.dr(), cur.degrau_global())
+            caminho = os.path.join(tmp, "model_0.pt")
+            runner.save(caminho)
+            _poe_curriculo(env, 0)  # muda o estado depois do save: o load tem de desfazer a mudança
+            runner.load(caminho)
+            depois = (cur.estado(), cur.dr(), cur.degrau_global())
+            check("save → load: estado(), dr() e degrau_global() iguais", depois == antes)
+            check("degrau global = 2 depois do load", cur.degrau_global() == 2, str(cur.degrau_global()))
+    finally:
+        env.close()
+
+
+def s39_odometria_anda_com_a_base():
+    env = _abre_env(4)
+    try:
+        env.reset()
+        robo = env.scene["robot"]
+        # ⚠ achado de 30/10: o fce6a42 tirou o `v3_odo.passo` do `compute`; sem ele a odometria fica parada
+        pose = robo.data.root_link_pose_w.clone()
+        pose[:, 0] += 0.30
+        robo.write_root_link_pose_to_sim(pose)
+        env.sim.forward()
+        env.step(_zeros(env))
+        erro = (env.v3_odo.pos_w[:, :2] - robo.data.root_link_pose_w[:, :2]).norm(dim=-1)
+        check("odometria acompanha a base a < 0,02 m", bool((erro < 0.02).all()), f"{erro.tolist()}")
+        dxy = env.v3_odo.delta_b()[0]
+        check("Δ da odometria no passo do deslocamento passa de 0,25 m", bool((dxy.norm(dim=-1) > 0.25).all()),
+              f"{dxy.norm(dim=-1).tolist()}")
+    finally:
+        env.close()
+
+
 SECOES = (
     ("1 cfg monta e a task registra", s01_cfg_e_registro),
     ("2 env de 4 mundos em CPU, ator com 1 447 canais", s02_env_nasce_com_1447_canais),
@@ -1256,6 +1497,12 @@ SECOES = (
     ("31 topo da laje = origem + h, origem de escada alta", s31_topo_da_laje_e_origem_de_escada_alta),
     ("32 degrau abaixo com caixa no peito: sem perda (D4)", s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa),
     ("33 altura da pelve e do joelho contra o terreno local", s33_altura_da_pelve_mede_contra_o_terreno_local),
+    ("34 degrau 5: laje, chegada e pouso; sacudida e aperto finitos", s34_degrau_5_pesa_laje_chegada_e_pouso),
+    ("35 batente só com degrau ≥ 1; contagem por junta (imprime)", s35_batente_so_com_degrau_1_e_contagem_por_junta),
+    ("36 DR do refino: default no degrau 0; faixa no 5; RFI e caixa", s36_dr_do_refino_zero_no_degrau_0_e_faixa_no_5),
+    ("37 com_caixa ligado: sem erro de heap (PD-38)", s37_com_caixa_ligado_sem_erro_de_heap),
+    ("38 save → load com degraus e travas do DR", s38_save_e_load_com_degraus_e_travas),
+    ("39 odometria anda com a base", s39_odometria_anda_com_a_base),
 )
 
 
