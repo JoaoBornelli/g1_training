@@ -2,7 +2,7 @@
 
     python registra_juntas_v3.py --cena ~/g1_pilota_v3/ --checkpoint ~/Downloads/model_9499.pt
     python registra_juntas_v3.py ... --roteiro carregar --saida carrega
-    python registra_juntas_v3.py ... --roteiro escada --coluna escada --linha 4 --borda 1 --saida escada
+    python registra_juntas_v3.py ... --roteiro terreno --coluna escada --linha 4 --borda 1 --saida escada
 
 Irmão do `pilota_v3.py` (D11 do plano): mesma cena, mesmo `Percepcao`, mesma `monta_observacao` e
 mesmo `Ator`, todos IMPORTADOS dele. A diferença é que aqui NÃO tem teclado — um roteiro troca a
@@ -34,6 +34,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+import torch
 
 import pilota_v3 as pv
 from pilota_v3 import (TAREFAS, Ator, Percepcao, Piloto, Visao, carrega_cena, gira_inverso,
@@ -59,8 +60,8 @@ def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
     return float(np.degrees(np.arccos(np.clip(normal_w @ EZ, -1.0, 1.0))))
 
 
-# ⚠ A cena é exportada do reset do PEGAR: a caixa e a laje já estão à frente do robô.
-# Por isso todo roteiro abre na espera e não numa aproximação.
+# ⚠ A cena vem do `exporta_cena.py`, que força a fatia B no plano (G7 S2): a caixa e a laje já estão à frente
+# do robô. Por isso todo roteiro abre na espera e não numa aproximação.
 #
 # As cadeias do treino, uma em cada entrada. Na v3 cada fase é a tecla do teclado: `v` = PEGAR, `n` = BOTAR,
 # `z` = ANDAR, `b` = CARREGAR.
@@ -68,7 +69,6 @@ def angulo_de_tombo(quat_caixa: np.ndarray, cima_b: np.ndarray) -> float:
 #             (o alvo é o topo da laje + a) e o robô sai sem ela. A laje e a caixa ficam onde o BOTAR as deixou.
 #   carregar  roteiro B (cadeia B, E9): ANDAR parado -> PEGAR -> CARREGAR. A caixa FICA NA MÃO e o robô anda com ela.
 #             O PEGAR dura o tempo do roteiro; o aviso de fim vai só para a coluna `aviso_fim`.
-_CARREGAR_TERRENO = "espera:ANDAR:1.0,pegar:PEGAR:7.0,espera:CARREGAR:1.0,carregar:CARREGAR:8.0:0.25"
 ROTEIROS = {
     "c": ("espera:ANDAR:1.0,"
           "pegar:PEGAR:7.0,"
@@ -84,11 +84,10 @@ ROTEIROS = {
                  "carregar:CARREGAR:10.0:0.8"),
     # G6: a mesma sequência do `carregar`, com o CARREGAR a 0,25 m/s por 8 s (a velocidade do terreno, viab. D10).
     # A coluna NÃO vem do nome: vem de `--coluna`. Sugestões: escada -> escada; rampa -> rampa; obstaculo -> obstaculos.
-    "escada": _CARREGAR_TERRENO,
-    "rampa": _CARREGAR_TERRENO,
-    "obstaculo": _CARREGAR_TERRENO,
+    # G6 / M9: o terreno (escada, rampa, obstáculos) é um roteiro só: a sequência do `carregar`, com o CARREGAR a
+    # 0,25 m/s por 8 s (a velocidade do terreno, viab. D10). A coluna NÃO vem do nome: vem de `--coluna`.
+    "terreno": "espera:ANDAR:1.0,pegar:PEGAR:7.0,espera:CARREGAR:1.0,carregar:CARREGAR:8.0:0.25",
 }
-ROTEIROS_DE_TERRENO = ("escada", "rampa", "obstaculo")
 
 
 class Fase:
@@ -154,18 +153,9 @@ def enderecos_da_caixa(m: mujoco.MjModel, id_caixa: int) -> tuple[int, int]:
     return int(m.jnt_qposadr[jid]), int(m.jnt_dofadr[jid])
 
 
-def _rz(yaw: float) -> np.ndarray:
-    """Matriz de rotação de `yaw` em torno de z."""
-    c, s = np.cos(yaw), np.sin(yaw)
-    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-
-
-def _qmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Produto de quatérnios wxyz (a·b)."""
-    w1, x1, y1, z1 = a
-    w2, x2, y2, z2 = b
-    return np.array([w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2, w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-                     w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2, w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2])
+def _fila(v) -> torch.Tensor:
+    """(1, k) em float64: o formato (E, k) do `alvos` e do `estimador`, com E = 1."""
+    return torch.as_tensor(np.asarray(v, dtype=np.float64)).reshape(1, -1)
 
 
 def pose_no_sub_terreno(pos: np.ndarray, quat: np.ndarray, origem_reset: np.ndarray, origem_sub: np.ndarray,
@@ -175,12 +165,16 @@ def pose_no_sub_terreno(pos: np.ndarray, quat: np.ndarray, origem_reset: np.ndar
     A cena inteira gira `borda`·90° em torno da origem do reset e vai para `origem_sub`; depois o conjunto anda
     `laje_do_centro − laje_x` rumo à borda (o desloc da G1). Robô, caixa e laje recebem a MESMA transformada,
     então o robô continua onde estava em relação à caixa.
+
+    ⚠ As contas são as do `pilota_v3` (`alvos.base_para_mundo` e `estimador._qmul`/`_quat_de_yaw`): uma fonte só.
     """
-    yaw = borda * np.pi / 2
-    rz = _rz(yaw)
-    desloc = rz @ np.array([laje_do_centro - laje_x, 0.0, 0.0])
-    q_yaw = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
-    return np.asarray(origem_sub) + desloc + rz @ (pos - origem_reset), _qmul(q_yaw, quat)
+    rumo = torch.tensor([borda * np.pi / 2], dtype=torch.float64)
+    p = np.asarray(pos, dtype=np.float64) - np.asarray(origem_reset, dtype=np.float64)
+    # O desloc da G1 entra no `p`: `base + R(rumo)·p` o leva girado junto com a cena.
+    p[0] += laje_do_centro - laje_x
+    xy = pv._AL.base_para_mundo(_fila(origem_sub[:2]), rumo, _fila(p[:2]))[0].numpy()
+    q = pv._ES._qmul(pv._ES._quat_de_yaw(rumo), _fila(quat))[0].numpy()
+    return np.array([xy[0], xy[1], origem_sub[2] + p[2]]), q
 
 
 def resolve_terreno(roteiro: str, coluna: str | None, linha: int | None, borda: int, colunas: list[str],
@@ -193,8 +187,11 @@ def resolve_terreno(roteiro: str, coluna: str | None, linha: int | None, borda: 
     if coluna is None:
         if linha is not None:
             raise SystemExit("--linha sem --coluna")
-        if roteiro in ROTEIROS_DE_TERRENO:
-            raise SystemExit(f"o roteiro {roteiro!r} é de terreno e pede --coluna e --linha (ver a docstring)")
+        # M7: a borda só existe no sub-terreno; sem coluna ela sairia calada, no plano.
+        if borda != 0:
+            raise SystemExit("--borda sem --coluna: a borda só existe no sub-terreno")
+        if roteiro == "terreno":
+            raise SystemExit("o roteiro 'terreno' pede --coluna e --linha (ver a docstring)")
         return None
     if linha is None:
         raise SystemExit("--coluna pede --linha")
@@ -213,11 +210,12 @@ def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], 
 
     ⚠ NO `ANDAR` VÃO AS DUAS: tirar só a laje deixaria a caixa caindo no caminho.
     ⚠ NO `CARREGAR` VAI SÓ A LAJE: a caixa está na mão, e andar com ela é a tarefa.
+    ⚠ A LAJE SOBE EM z, como o `eventos.laje_fora` do treino (M3): em +x ela sairia de lado com `--borda` ≠ 0.
     """
     if laje:
         id_mocap = int(m.body_mocapid[int(c["id_laje"])])
         if id_mocap >= 0:
-            d.mocap_pos[id_mocap, 0] += afasta
+            d.mocap_pos[id_mocap, 2] += afasta
         else:
             print("⚠ a laje não é mocap; ela ficou onde estava")
     if caixa:
@@ -263,8 +261,8 @@ def main() -> None:
                          "rotulo:TAREFA:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
     ap.add_argument("--afasta", type=float, default=10.0,
-                    help="metros em +x para onde a cena vai na marcha (ANDAR: laje e "
-                         "caixa; CARREGAR: só a laje)")
+                    help="metros para onde a cena vai na marcha: a laje sobe em z, e a caixa anda em +x "
+                         "(ANDAR: laje e caixa; CARREGAR: só a laje)")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
@@ -322,11 +320,10 @@ def main() -> None:
     piloto = Piloto(tuple(tetos), envelope)
     # ⚠ O SUB-TERRENO entra no `c` ANTES do `Percepcao` e do `restaura`: o `restaura` monta o estado do reset a
     # partir de `qpos_inicial` e `mocap_*_inicial`, e a percepção e a visão leem a pose já no sub-terreno.
-    # Velocidades: o reset grava qvel zero; se um dia não for zero, a linear também gira (não feito aqui).
-    # ⚠ DÚVIDA: o `--afasta` (laje e caixa, na marcha) anda em +x do MUNDO; com `--borda` ≠ 0 o afastamento sai de
-    # lado do robô, e não na direção da borda. Não mudei: o orquestrador decide se o afasta passa a seguir o rumo.
     sub_terreno = indice_coluna is not None
     if sub_terreno:
+        # M4: a pose gira, a velocidade não. Com `qvel_inicial` não nulo, a linear sairia sem girar.
+        assert not np.any(c["qvel_inicial"]), "qvel_inicial não nulo: a velocidade inicial não gira com a cena"
         origem_reset = np.asarray(c["origem_reset"], dtype=np.float64)
         origem_sub = np.asarray(c["origens_terreno"], dtype=np.float64)[args.linha, indice_coluna]
         laje_x = float(pv._KN.cena.prateleira_xy[0])

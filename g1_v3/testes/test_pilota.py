@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -207,18 +208,37 @@ class TestRegistraTerreno(unittest.TestCase):
     def setUpClass(cls):
         cls.R = _carrega_registra()
 
-    def test_roteiros_de_terreno_tem_a_sequencia_do_carregar(self):
-        for nome in ("escada", "rampa", "obstaculo"):
-            fases = self.R.analisa_roteiro(nome)
-            self.assertEqual([f.tarefa for f in fases], ["ANDAR", "PEGAR", "CARREGAR", "CARREGAR"], nome)
-            self.assertEqual((fases[-1].segundos, fases[-1].vx), (8.0, 0.25), nome)
+    def test_roteiro_de_terreno_e_um_so(self):
+        # M9: `escada`, `rampa` e `obstaculo` eram a mesma string; agora é um só, `terreno`.
+        fases = self.R.analisa_roteiro("terreno")
+        self.assertEqual([f.tarefa for f in fases], ["ANDAR", "PEGAR", "CARREGAR", "CARREGAR"])
+        self.assertEqual((fases[-1].segundos, fases[-1].vx), (8.0, 0.25))
+        for antigo in ("escada", "rampa", "obstaculo"):
+            self.assertNotIn(antigo, self.R.ROTEIROS)
 
     def test_resolve_terreno_sem_coluna_so_serve_ao_roteiro_sem_terreno(self):
         self.assertIsNone(self.R.resolve_terreno("c", None, None, 0, self.COLUNAS, self.LINHA_MAX))
         with self.assertRaises(SystemExit):
-            self.R.resolve_terreno("escada", None, None, 0, self.COLUNAS, self.LINHA_MAX)
+            self.R.resolve_terreno("terreno", None, None, 0, self.COLUNAS, self.LINHA_MAX)
         with self.assertRaises(SystemExit):
             self.R.resolve_terreno("c", None, 3, 0, self.COLUNAS, self.LINHA_MAX)
+        # M7: uma borda sem coluna sairia calada no plano, com a borda pedida só no nome do registro.
+        with self.assertRaises(SystemExit):
+            self.R.resolve_terreno("c", None, None, 1, self.COLUNAS, self.LINHA_MAX)
+
+    def test_afasta_sobe_a_laje_em_z_como_o_treino(self):
+        # M3: o treino sobe a laje (`eventos.laje_fora`); o driver a jogava em +x, de lado com `--borda` ≠ 0.
+        m = SimpleNamespace(body_mocapid=np.array([-1, 0]))
+        d = SimpleNamespace(mocap_pos=np.zeros((1, 3)))
+        with mock.patch.object(self.R.mujoco, "mj_forward"):
+            self.R.limpa_a_cena(m, d, {"id_laje": np.int64(1)}, 20.0, laje=True, caixa=False)
+        np.testing.assert_allclose(d.mocap_pos[0], [0.0, 0.0, 20.0])
+
+    def test_driver_nao_tem_copia_da_conta_de_base_e_quaternio(self):
+        # R4: o xy e o quatérnio vêm do `alvos` e do `estimador`, os mesmos que o `pilota_v3` carrega.
+        # Antes do conserto: `_rz` e `_qmul` existem no driver.
+        self.assertFalse(hasattr(self.R, "_rz"))
+        self.assertFalse(hasattr(self.R, "_qmul"))
 
     def test_resolve_terreno_recusa_coluna_sem_plataforma_linha_acima_do_teto_e_borda_fora(self):
         with self.assertRaises(SystemExit):
@@ -245,8 +265,16 @@ class TestRegistraTerreno(unittest.TestCase):
         caixa2, q2 = self.R.pose_no_sub_terreno(caixa, q_id, *args)
         robo2, _ = self.R.pose_no_sub_terreno(robo, q_id, *args)
         np.testing.assert_allclose(q2, [np.cos(np.pi / 4), 0, 0, np.sin(np.pi / 4)], atol=1e-9)
-        # A cena inteira gira junta: o vetor robô→caixa gira com ela, e o comprimento não muda.
-        np.testing.assert_allclose(robo2 - caixa2, self.R._rz(np.pi / 2) @ (robo - caixa), atol=1e-9)
+        # A cena inteira gira junta: o vetor robô→caixa gira 90° em z, e o comprimento não muda.
+        girado = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        np.testing.assert_allclose(robo2 - caixa2, girado @ (robo - caixa), atol=1e-9)
+
+    def test_pose_no_sub_terreno_compoe_o_quaternio_do_robo_com_o_giro_da_cena(self):
+        # Com rotação própria (yaw 0,3) o giro da cena entra à esquerda: yaw total = π/2 + 0,3.
+        q_robo = np.array([np.cos(0.15), 0.0, 0.0, np.sin(0.15)])
+        _, q = self.R.pose_no_sub_terreno(np.zeros(3), q_robo, np.zeros(3), np.zeros(3), 1, 0.0, 0.0)
+        meio = (np.pi / 2 + 0.3) / 2
+        np.testing.assert_allclose(q, [np.cos(meio), 0, 0, np.sin(meio)], atol=1e-9)
 
 
 if __name__ == "__main__":
