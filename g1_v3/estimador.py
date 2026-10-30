@@ -204,7 +204,9 @@ def do_frame_da_base(p_b, odo: Odometria):  # (E,3): o inverso de `alvo_no_frame
 class EstimadorCaixa:
     """Leitura da caixa (I §2.3). A amostra cai na grade k/taxa_hz desde o `reinicia` (no mundo, com o
     ruído e a perda), entrega em t + latencia_s, e a saída é a última válida já entregue. A idade é t − instante,
-    cortada em idade_max; sem leitura válida, idade_max. A saída é convertida para a base pela odometria atual."""
+    cortada em idade_max; sem leitura válida, idade_max. A saída é convertida para a base pela odometria atual.
+    Sem leitura, a caixa presa às palmas (critério `presa_margem`) anda com o meio das palmas e gira com o rumo do
+    eixo delas; solta, fica parada no mundo (D1, dono, 30/10)."""
 
     def __init__(self, n, device, k, gerador):
         self.n, self.device, self.k, self.gerador = n, device, k, gerador
@@ -230,6 +232,12 @@ class EstimadorCaixa:
         self._r_quat = torch.zeros(n, 4, **f)
         self._r_quat[:, 0] = 1.0
         self._r_meia = torch.zeros(n, **f)
+        self._presa = torch.zeros(n, dtype=torch.bool, device=device)  # caixa presa às palmas (D1)
+        self._off = torch.zeros(n, 3, **f)  # caixa − meio das palmas, na última leitura
+        self._psi0 = torch.zeros(n, **f)  # rumo do eixo das palmas na última leitura
+        self._s_pos = torch.zeros(n, 3, **f)  # pose de saída no mundo
+        self._s_quat = torch.zeros(n, 4, **f)
+        self._s_quat[:, 0] = 1.0
         # vieses por episódio, no `reinicia` (gerador None: 0). P21d: posição e meia uniformes ("até ±2 cm"). P21a:
         # orientação lognormal (a χ₃ gaussiana dava p90/mediana 1,63; a medida, 2,89). P21e: rajada, `_rajada_ate`
         self._z_meia = torch.zeros(n, **f)  # U[−1; 1]; a escala vem de vies_meia
@@ -259,6 +267,11 @@ class EstimadorCaixa:
         self._r_pos[ids] = 0.0
         self._r_quat[ids] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self._r_meia[ids] = 0.0
+        self._presa[ids] = False
+        self._off[ids] = 0.0
+        self._psi0[ids] = 0.0
+        self._s_pos[ids] = 0.0
+        self._s_quat[ids] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self._z_meia[ids] = self._sorteia((len(ids),), False, True)
         self._z_pos[ids] = self._sorteia((len(ids), 3), False, True)
         eixo = self._sorteia((len(ids), 3), True)
@@ -266,10 +279,11 @@ class EstimadorCaixa:
         self._z_ang[ids] = self._sorteia((len(ids),), True)
         self._rajada_ate[ids] = float("-inf")
 
-    def passo(self, t, caixa_pos_w, caixa_quat_w, meia, visivel, magnitude: dict, dist=None):
+    def passo(self, t, caixa_pos_w, caixa_quat_w, meia, visivel, magnitude: dict, dist=None, palmas_w=None):
         """`magnitude`: escalares, chave ausente = 0: sigma_pos, sigma_pos_rel (σ da posição = sigma_pos +
         sigma_pos_rel·dist, por eixo; dist (E,) ou escalar), vies_pos e vies_meia (m), ori_mediana_graus e
-        ori_p90_graus (o viés de orientação do episódio), ori_leitura_graus (1° por leitura), perda e rajada_taxa (1/s)."""
+        ori_p90_graus (o viés de orientação do episódio), ori_leitura_graus (1° por leitura), perda e rajada_taxa (1/s).
+        `palmas_w` (E,2,3): palmas esquerda e direita no mundo; None = sem a caixa presa (saída = leitura)."""
         dt = 0.0 if self._t_ant is None else t - self.t  # a rajada usa o intervalo real; 0 no primeiro passo (P21e)
         self._t_ant = self.t = t
         nova = torch.isnan(self._t0)  # primeiro passo depois do reinicia: início da grade e estado anterior = o atual
@@ -327,6 +341,7 @@ class EstimadorCaixa:
         self._quat_p = caixa_quat_w.clone()
         # entrega: amostras com instante ≤ t − latência; o registro guarda a mais recente
         entregue = self._q_t <= t - self.k.latencia_s + 1e-9
+        tem = torch.zeros(self.n, dtype=torch.bool, device=self.device)  # envs com leitura nova neste passo
         if bool(entregue.any()):
             best = self._q_t.masked_fill(~entregue, float("-inf")).argmax(dim=1)
             tem = entregue.any(dim=1)
@@ -335,6 +350,25 @@ class EstimadorCaixa:
             self._r_quat = torch.where(tem[:, None], self._q_quat[ar, best], self._r_quat)
             self._r_meia = torch.where(tem, self._q_meia[ar, best], self._r_meia)
             self._q_t = self._q_t.masked_fill(entregue, float("nan"))
+        # pose de saída: a leitura; sem leitura, a caixa presa às palmas anda com o meio e gira com o rumo do eixo
+        if palmas_w is None:
+            self._presa[:] = False
+            self._s_pos = self._r_pos.clone()
+            self._s_quat = self._r_quat.clone()
+            return
+        meio = palmas_w.mean(1)
+        eixo = palmas_w[:, 1] - palmas_w[:, 0]
+        psi = torch.atan2(eixo[:, 1], eixo[:, 0])
+        self._off = torch.where(tem[:, None], self._r_pos - meio, self._off)
+        self._psi0 = torch.where(tem, psi, self._psi0)
+        self._presa = torch.where(tem, self._off.norm(dim=-1) < self._r_meia + self.k.presa_margem, self._presa)
+        d = psi - self._psi0
+        c, s = torch.cos(d), torch.sin(d)
+        off = self._off
+        girada = meio + torch.stack([c * off[:, 0] - s * off[:, 1], s * off[:, 0] + c * off[:, 1], off[:, 2]], dim=-1)
+        gira = (self._presa & ~tem)[:, None]
+        self._s_pos = torch.where(gira, girada, self._r_pos)
+        self._s_quat = torch.where(gira, _qmul(_quat_de_yaw(d), self._r_quat), self._r_quat)
 
     def tem_leitura(self) -> torch.Tensor:
         """(E,) bool: a caixa já teve leitura válida, com idade < idade_max (E11 S5b: abre o P0 do PEGAR).
@@ -344,10 +378,10 @@ class EstimadorCaixa:
     def saida_b(self, odo: Odometria, base_quat_w):  # (E,8): pos_b 3, rotvec 3, meia 1, idade 1
         seen = torch.isfinite(self._r_t)
         idade = (self.t - self._r_t).clamp(max=self.k.idade_max)  # −∞ (nunca vista) → idade_max
-        d = self._r_pos - odo.pos_w
+        d = self._s_pos - odo.pos_w
         c, s = torch.cos(yaw(odo.quat_w)), torch.sin(yaw(odo.quat_w))
         pos_b = torch.stack([c * d[:, 0] + s * d[:, 1], -s * d[:, 0] + c * d[:, 1], d[:, 2]], dim=-1)
-        rv = reduz_simetria_cubo(_qmul(_conj(base_quat_w), self._r_quat))
+        rv = reduz_simetria_cubo(_qmul(_conj(base_quat_w), self._s_quat))
         out = torch.cat([pos_b, rv, self._r_meia[:, None], idade[:, None]], dim=-1)
         out[~seen, :7] = 0.0
         return out

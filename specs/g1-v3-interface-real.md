@@ -109,8 +109,13 @@ O alvo, por tarefa:
 
 **A caixa nas mãos — DEFINIDO (dono, 14/10).** A caixa vem SEMPRE da câmera e do depth, também
 com a caixa nas mãos. Quando a câmera não vê a caixa (braços na frente, caixa perto demais para o
-depth, de 0,175 a 0,28 m), o estimador mantém a última leitura ancorada no mundo e a idade cresce. O
-modelo aprende a lidar com a leitura velha. A spec §13 dizia "caixa na mão pela cinemática das palmas
+depth, de 0,175 a 0,28 m), a idade cresce e a última leitura segue uma de duas regras (dono, 30/10;
+substitui "ancorada no mundo"): se, na leitura, o centro da caixa estava a menos de meia aresta +
+`presa_margem` (5 cm) do meio das palmas, ela anda com o meio das palmas e gira com o rumo do eixo
+entre elas; se não, fica parada no mundo. As palmas vêm da FK das juntas medidas, no treino e no real.
+É a versão simplificada das previsões "solta" e "presa" do rastreador real (`box_vision_g1`,
+DESENVOLVIMENTO §9.13); o driver real usa o MESMO `EstimadorCaixa.passo` com as medidas do rastreador,
+nunca o estado do Kalman dele. O modelo aprende a lidar com a leitura velha. A spec §13 dizia "caixa na mão pela cinemática das palmas
 depois de `pegou`"; isso saiu, porque `pegou` é um evento do simulador que o robô real não mede.
 **Contrato do detector — DEFINIDO (dono, 28/10).** Sem certeza (caixa parcial, mão na frente), o
 detector entrega "sem leitura", nunca um centro deslocado: o treino só tem leitura boa ou nenhuma.

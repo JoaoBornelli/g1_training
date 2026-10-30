@@ -363,6 +363,7 @@ class Estimador:  # I §2.3; S §13; PD-11, PD-18
     taxa_hz: float = 30.0  # I §2.3: taxa da leitura da caixa (Hz)
     latencia_s: float = 0.033  # I §2.3; lidar_sim/sensores/tipos.py: atraso da leitura (s)
     idade_max: float = 2.0  # I §2.3: idade da leitura cortada (s)
+    presa_margem: float = 0.05  # D1 (dono, 30/10): a última leitura está presa às palmas se |caixa − meio das palmas| < meia + presa_margem (m)
     fov_h_graus: float = 69.0  # PD-11: campo de visão horizontal da D435i (graus)
     fov_v_graus: float = 42.0  # PD-11: campo de visão vertical da D435i (graus)
     alcance: tuple = (0.28, 3.0)  # PD-11: alcance útil do depth (m); mínimo 0,28

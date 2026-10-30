@@ -202,6 +202,94 @@ class TestIdadeDepoisDaLeitura(unittest.TestCase):
         self.assertAlmostEqual(idades[-1], K.idade_max, places=5)
 
 
+def palmas_em(meio, graus=0.0):
+    """Palmas a 20 cm do meio, com o eixo girado `graus` em z a partir de +y: (1, 2, 3)."""
+    a = math.radians(90.0 + graus)
+    d = torch.tensor([math.cos(a), math.sin(a), 0.0], dtype=F) * 0.2
+    m = torch.tensor(meio, dtype=F)
+    return torch.stack([m - d, m + d])[None]
+
+
+def passo_k(est, k, caixa, vis, palmas):
+    """Um passo de 20 ms (t = 0,02·k), sem ruído."""
+    est.passo(0.02 * k, caixa, Q_ID, MEIA, torch.tensor([vis]), magnitude(), palmas_w=palmas)
+
+
+class TestCaixaPresaAsPalmas(unittest.TestCase):
+    # D1 (dono, 30/10): sem leitura, a caixa presa às palmas anda com o meio e gira com o rumo do eixo delas.
+    # Leitura até k=20 (t≈0,4 s, entregue até ≈0,44 s); palmas paradas até k=25; depois andam 10 cm em x (k=50).
+
+    def test_presa_a_5_cm_anda_com_o_meio_e_idade_cresce(self):
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        odo.reinicia(torch.arange(1), POS_ZERO, Q_ID)
+        caixa = torch.tensor([[0.0, 0.05, 0.0]], dtype=F)
+        idades = {}
+        for k in range(51):
+            pm = palmas_em((0.1 * min(1.0, max(0.0, (k - 25) / 25)), 0.0, 0.0))
+            passo_k(est, k, caixa, k <= 20, pm)
+            idades[k] = float(est.saida_b(odo, Q_ID)[0, 7])
+        s = est.saida_b(odo, Q_ID)[0]
+        self.assertAlmostEqual(float(s[0]), 0.10, delta=1e-5)
+        self.assertAlmostEqual(float(s[1]), 0.05, delta=1e-5)
+        self.assertAlmostEqual(idades[50] - idades[26], 0.02 * 24, places=4)
+
+    def test_caixa_a_1_m_fica_parada(self):
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        odo.reinicia(torch.arange(1), POS_ZERO, Q_ID)
+        caixa = torch.tensor([[1.0, 0.0, 0.0]], dtype=F)
+        for k in range(51):
+            pm = palmas_em((0.1 * min(1.0, max(0.0, (k - 25) / 25)), 0.0, 0.0))
+            passo_k(est, k, caixa, k <= 20, pm)
+        s = est.saida_b(odo, Q_ID)[0]
+        self.assertAlmostEqual(float(s[0]), 1.0, delta=1e-5)
+        self.assertAlmostEqual(float(s[1]), 0.0, delta=1e-5)
+
+    def test_presa_sem_leitura_gira_com_o_eixo_das_palmas(self):
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        odo.reinicia(torch.arange(1), POS_ZERO, Q_ID)
+        meio = (0.2, 0.1, 0.0)
+        off = (0.03, 0.04, 0.0)  # |off| = 0,05 < meia + presa_margem
+        caixa = torch.tensor([[meio[0] + off[0], meio[1] + off[1], 0.0]], dtype=F)
+        for k in range(51):
+            passo_k(est, k, caixa, k <= 20, palmas_em(meio, 0.0 if k <= 25 else 30.0))
+        s = est.saida_b(odo, Q_ID)[0]
+        c, sn = math.cos(math.radians(30.0)), math.sin(math.radians(30.0))
+        esperado = (meio[0] + c * off[0] - sn * off[1], meio[1] + sn * off[0] + c * off[1])
+        self.assertAlmostEqual(float(s[0]), esperado[0], delta=1e-4)
+        self.assertAlmostEqual(float(s[1]), esperado[1], delta=1e-4)
+        self.assertAlmostEqual(float(s[5]), math.radians(30.0), delta=1e-4)
+
+    def test_palmas_none_fica_parada(self):
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        odo.reinicia(torch.arange(1), POS_ZERO, Q_ID)
+        caixa = torch.tensor([[0.0, 0.05, 0.0]], dtype=F)
+        for k in range(51):
+            pm = palmas_em((0.1 * min(1.0, max(0.0, (k - 25) / 25)), 0.0, 0.0))
+            passo_k(est, k, caixa, k <= 20, None)
+        s = est.saida_b(odo, Q_ID)[0]
+        self.assertAlmostEqual(float(s[0]), 0.0, delta=1e-5)
+        self.assertAlmostEqual(float(s[1]), 0.05, delta=1e-5)
+
+    def test_presa_com_nova_leitura_volta_a_ser_a_leitura(self):
+        est = EstimadorCaixa(1, DEV, K, None)
+        odo = Odometria(1, DEV, K, None)
+        odo.reinicia(torch.arange(1), POS_ZERO, Q_ID)
+        caixa = torch.tensor([[0.0, 0.05, 0.0]], dtype=F)
+        for k in range(51):
+            pm = palmas_em((0.1 * min(1.0, max(0.0, (k - 25) / 25)), 0.0, 0.0))
+            passo_k(est, k, caixa, k <= 20, pm)
+        nova = torch.tensor([[0.3, 0.05, 0.0]], dtype=F)
+        for k in range(51, 71):  # caixa vista de novo em x = 0,3 m (k = 51..60); a leitura nova chega até ≈1,23 s
+            passo_k(est, k, nova, k <= 60, palmas_em((0.1, 0.0, 0.0)))
+        s = est.saida_b(odo, Q_ID)[0]
+        self.assertAlmostEqual(float(s[0]), 0.3, delta=1e-5)
+        self.assertAlmostEqual(float(s[1]), 0.05, delta=1e-5)
+
+
 class TestDoFrameDaBase(unittest.TestCase):
     def test_do_frame_da_base_inverte_alvo_no_frame_da_base(self):
         # S5a (revisão E11): do_frame_da_base(alvo_no_frame_da_base(p, odo), odo) = p, com rumo e posição não nulos.

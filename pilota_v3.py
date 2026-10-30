@@ -352,7 +352,7 @@ class Visao:
             self.p.capsulas(d)[:, braco], self.p.raios[braco], _KN.estimador)
         self.est.passo(d.time, torch.as_tensor(centro, dtype=torch.float32)[None],
                        torch.as_tensor(d.xquat[self.id_caixa], dtype=torch.float32)[None],
-                       self.a, vis, {})
+                       self.a, vis, {}, palmas_w=torch.as_tensor(d.site_xpos[self.palmas], dtype=torch.float32)[None])
         # ⚠ O ANDAR zera o bloco, como o treino (`observacoes.py:187`). O estimador roda mesmo assim.
         if tarefa == _ANDAR:
             return np.zeros(11)

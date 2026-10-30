@@ -184,8 +184,9 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     vis = visivel(cam_pos, cam_rot, _pontos_da_caixa(pos, quat, env.v3_meia), capsulas[:, braco], raios[braco],
                   K.estimador)
     mag = _magnitude(K.estimador, env.v3_cur.degrau_global(), K.balanceador.degraus)
+    ids_palmas, _ = robo.find_sites(("left_palm", "right_palm"))
     env.v3_estimador.passo(env.common_step_counter * env.step_dt, pos, quat, env.v3_meia, vis, mag,
-                           (pos - cam_pos).norm(dim=-1))
+                           (pos - cam_pos).norm(dim=-1), palmas_w=robo.data.site_pos_w[:, ids_palmas])
     odo, tarefa = env.v3_odo, env.v3_tarefa
     saida = env.v3_estimador.saida_b(odo, robo.data.root_link_quat_w)
     alvo = alvo_no_frame_da_base(env.v3_alvo_w, odo)
