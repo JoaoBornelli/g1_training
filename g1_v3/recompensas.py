@@ -483,10 +483,17 @@ def _phi_env(env, indice, sigma):
 
 
 def _qualidade(env):
-    """Fator de qualidade do rastreio no CARREGAR (E,): a caixa perto do transporte, inclinação e as duas mãos (E4)."""
-    caixa = env.scene["box"]
-    p4 = torch.full_like(env.v3_alvo_idx, _P4)
-    d = (caixa.data.root_link_pos_w - alvo_da_caixa_w(env, p4)).norm(dim=-1)
+    """Fator de qualidade do rastreio no CARREGAR (E,): a caixa perto do transporte, inclinação e as duas mãos (E4).
+    ⚠ G7 S3 (P2): na célula `terreno` o alvo é a pelve + `caixa_transporte_b` no frame da pelve (z incluso). O chão
+    sob a pelve pula 0,15 m na quina do degrau; no plano fica o alvo de hoje (chão + 0,90, E §4.4)."""
+    caixa, robo = env.scene["box"], env.scene["robot"]
+    pelve = robo.data.root_link_pos_w
+    tb = env.v3_ref.caixa_transporte_b(env.v3_meia)
+    pelve_tb = torch.cat([alvos.base_para_mundo(pelve[:, :2], estimador.yaw(robo.data.root_link_quat_w), tb[:, :2]),
+                          (pelve[:, 2] + tb[:, 2]).unsqueeze(-1)], -1)
+    terreno = env.v3_celula == env.v3_cur.id_celula("CARREGAR", "terreno")
+    alvo = torch.where(terreno[:, None], pelve_tb, alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, _P4)))
+    d = (caixa.data.root_link_pos_w - alvo).norm(dim=-1)
     incl = torch.rad2deg(alvos.inclinacao_da_caixa(caixa.data.root_link_quat_w))
     return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K)
 
