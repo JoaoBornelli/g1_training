@@ -71,6 +71,17 @@ def _zeros(env):
     return torch.zeros(env.num_envs, len(JUNTAS), device=env.device)
 
 
+def _segura_base(env, pose):
+    """Estado forçado: a base na `pose` (E,7) com velocidade zero, antes de cada passo.
+
+    ⚠ Com o `Contrato.pd` (tornozelo kp 40) a ação zero NÃO segura o G1 de pé: sem DR ele cai em ~1,1 s (tronco a
+    38° no passo 50, `queda` no 52; triagem da fase I). As seções que medem outra coisa com o robô parado seguram a base.
+    """
+    robo = env.scene["robot"]
+    robo.write_root_link_pose_to_sim(pose)
+    robo.write_root_link_velocity_to_sim(torch.zeros(env.num_envs, 6, device=env.device))
+
+
 def _poe_curriculo(env, degrau, travas=()):
     """Põe o degrau das 4 tarefas (um int, ou a tupla na ordem de `balanceador.TAREFAS`) e as travas do DR, pelo
     `estado()` do currículo (§6.8). Quem chama dá o `env.reset()`: o reset publica o degrau da tarefa
@@ -180,7 +191,7 @@ def s04_pd_e_acao_zero():
         achados, errados = 0, []
         for act in robo.actuators:
             for jn in act.target_names:
-                jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+                jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"robot/{jn}")  # o modelo prefixa a entidade
                 kp, kd = next((kp, kd) for rgx, kp, kd in ATIVO.contrato.pd if re.fullmatch(rgx, jn))
                 for aid in range(m.nu):
                     if m.actuator_trnid[aid, 0] != jid:
@@ -228,8 +239,10 @@ def s06_mapa_parado_e_com_passo():
         perto = (gx ** 2 + gy ** 2).sqrt() < 0.8
         frente = gx > 0.05  # 10 linhas com x ≥ 0,1: 210 células (I §2.4 mediu 205 de 210)
 
-        # parado: a ação zero deixa o robô parado (o `TwistV3._update_command` é `pass`, comando.py:440-441)
+        # parado: a base segura (S0); a ação zero sozinha não segura o G1 de pé
+        pose0 = robo.data.root_link_pose_w.clone()
         for _ in range(20):
+            _segura_base(env, pose0)
             env.step(_zeros(env))
         # ⚠ o mapa é 441 alturas e depois 441 confianças (percepcao_lidar.recorte, E,882); vista = confiança > limiar_visto
         mapa = env.v3_mapa_obs
@@ -246,7 +259,7 @@ def s06_mapa_parado_e_com_passo():
             psi = yaw(pose[:, 3:7])
             pose[:, 0] += 0.02 * torch.cos(psi)
             pose[:, 1] += 0.02 * torch.sin(psi)
-            robo.write_root_link_pose_to_sim(pose)
+            _segura_base(env, pose)  # ⚠ sem a velocidade zero o robô cai no passo 33–38 e o reset zera o mapa
             env.sim.forward()
             env.step(_zeros(env))
         mapa = env.v3_mapa_obs
@@ -255,8 +268,14 @@ def s06_mapa_parado_e_com_passo():
         frac = vista[:, frente].float().mean(dim=1)
         check("≥ 90% das células da metade da frente vistas (I §2.4: 205 de 210)",
               bool((frac[plano] >= 0.9).all()), f"mínimo {frac[plano].min().item():.3f}")
-        alt_ok = ((h[:, frente].abs() <= 0.02) | ~vista[:, frente]).all(dim=1)
-        check("alturas das células vistas a ±2 cm", bool(alt_ok[plano].all()))
+        # ⚠ o ruído do lidar está ligado (σ_alcance 2 cm; 0,5° a 2–3 m): ±2 cm por célula é 1σ. O σ de cada célula sai
+        # da confiança (PD-6: c = σ_ref²/(σ_ref² + P)); a média fica nos ±2 cm do plano. Fase I: média 0,9 cm, máx 1,5σ.
+        sig = (p.sigma_ref ** 2 * (1 / conf.clamp_min(1e-6) - 1)).sqrt()
+        hv, vv = h[:, frente], vista[:, frente]
+        dentro = ((hv.abs() <= 3 * sig[:, frente]) | ~vv).all(dim=1)
+        media = (hv.abs() * vv).sum(dim=1) / vv.sum(dim=1).clamp_min(1)
+        check("alturas das células vistas: |h| ≤ 3σ da célula e média ≤ 2 cm",
+              bool((dentro & (media <= 0.02))[plano].all()), f"média {media.tolist()}")
     finally:
         env.close()
 
@@ -319,7 +338,9 @@ def s09_recompensas_finitas_e_vivo():
         env.v3_tarefa.zero_()  # ANDAR (índice 0 de knobs.TAREFAS): ⚠ fixa a tarefa só para testar os termos
         env.v3_perdeu.zero_()
         ruins = []
-        for nome, termo in env.cfg.rewards.items():
+        # ⚠ o manager instancia os termos de classe (`sacudida`) numa CÓPIA do cfg; o `env.cfg.rewards` guarda a classe
+        for nome in env.reward_manager.active_terms:
+            termo = env.reward_manager.get_term_cfg(nome)
             valor = termo.func(env, **termo.params).float()
             if not bool(torch.isfinite(valor).all()):
                 ruins.append(nome)
@@ -542,8 +563,13 @@ def _assenta_fatia_b(env, passos: int = 10):
     """
     from g1_v3 import eventos
     from g1_v3.comando import FATIA_B
+    from g1_v3.knobs import ATIVO
     env.v3_fatia[:] = FATIA_B
-    eventos.posiciona_cena(env, torch.arange(env.num_envs, device=env.device))
+    ids = torch.arange(env.num_envs, device=env.device)
+    eventos.posiciona_cena(env, ids)
+    # ⚠ como o reset do treino: a base atrás da caixa (`_base_da_pega`, E11 S4). Sem isto ela fica onde o ANDAR a
+    # sorteou (±0,5 m, rumo ±π), às vezes contra a laje
+    eventos.reset_base_por_fatia(env, ids, dict(ATIVO.cena.reset_base_andar), dict(ATIVO.cena.reset_base_manipula))
     env.sim.forward()  # ⚠ a leitura das poses depois da escrita pede o forward (como em s06)
     zeros = _zeros(env)
     for _ in range(passos):
@@ -622,17 +648,25 @@ def s18_pegar_com_acao_zero_nada_paga_positivo():
         # afrouxar a tolerância.
         _assenta_fatia_b(env)
         _le_caixa_valida(env)
+        pose0 = env.scene["robot"].data.root_link_pose_w.clone()
         _abre_trecho_de(env, "PEGAR")  # ⚠ força o trecho de PEGAR; o `avanca_trecho` pode sair dele antes de 50 passos
         zeros = _zeros(env)
-        soma, fora = 0.0, 0
+        liquido, outros, fora = torch.zeros(env.num_envs, device=env.device), {}, 0
         for _ in range(50):
+            _segura_base(env, pose0)
             env.step(zeros)
             fora += int((env.v3_tarefa != TAREFAS.index("PEGAR")).sum())
-            for v in _por_termo(env).values():
-                soma += float(v.clamp(min=0.0).sum())  # o que paga positivo neste passo, somado em mundos e termos
+            for nome, v in _por_termo(env).items():
+                if nome == "progresso":
+                    liquido += v.to(liquido.device)
+                elif float(v.clamp(min=0.0).sum()) > 0:
+                    outros[nome] = outros.get(nome, 0.0) + float(v.clamp(min=0.0).sum())
         check("50 passos no PEGAR (a precondição da seção)", fora == 0, f"{fora} mundo-passo fora do PEGAR")
-        # ⚠ `progresso` e `rastreio` (c = 0: deslize ≤ 0, potencial.py:106) e `vivo`/`passo` (mascarados) não pagam
-        check("soma dos termos que pagam positivo = 0 (ação zero)", soma <= 1e-6, f"soma {soma:.3g}")
+        check("nenhum termo além do `progresso` paga positivo (ação zero)", not outros, str(outros))
+        # ⚠ Φ é potencial (Ng 1999): o PD passivo sobe e desce Φ, e cada subida paga. O que vale é a soma: com γ < 1,
+        # pairar soma ≤ 0 (`potencial.progresso`). Fase I: positivos 1,87, líquido −0,14 a −0,35 por mundo.
+        check("progresso líquido ≤ 0 em cada mundo (ação zero, base segura)", bool((liquido <= 1e-6).all()),
+              str(liquido.tolist()))
     finally:
         env.close()
 
@@ -681,9 +715,9 @@ def s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave():
     check("cfg tem o termo `caixa_perdida` (S §10: sem a chave, termina)", on["cfg_tem"] and off["cfg_tem"])
 
 
-def s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos():
+def s20_estimador_ve_caixa_a_frente_e_idade_cresce_fora_do_fov():
     from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse
-    from g1_v3.knobs import ATIVO, q_de_pe
+    from g1_v3.knobs import ATIVO
 
     env = _abre_env(4)
     try:
@@ -694,18 +728,21 @@ def s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos():
         # `d435_pos` = (0,058; 0,018; 0,430) m (torso ≈ pelve, ⚠ DÚVIDA), com pitch 47,6°: o eixo óptico passa por
         # (0,45; 0; 0,0), e a caixa cai no centro do FOV (vertical ±21°; `Estimador.fov_*`).
         ofs = torch.tensor([0.45, 0.0, 0.0], device=dev)
+        atras = torch.tensor([-0.45, 0.0, 0.0], device=dev)  # fora do FOV da D435i
 
-        def repoe_caixa():
+        def repoe_caixa(o):
             # ⚠ força: a caixa é reposta a cada passo, senão cairia (0,4 s de queda livre são 0,8 m) antes do estimador
             pose = torch.zeros(n, 7, device=dev)
-            pose[:, :3] = robo.data.root_link_pos_w + quat_apply(robo.data.root_link_quat_w, ofs.expand(n, 3))
+            pose[:, :3] = robo.data.root_link_pos_w + quat_apply(robo.data.root_link_quat_w, o.expand(n, 3))
             pose[:, 3] = 1.0
             caixa.write_root_link_pose_to_sim(pose)
             caixa.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=dev))
 
         zeros = _zeros(env)
+        pose0 = robo.data.root_link_pose_w.clone()
         for _ in range(20):
-            repoe_caixa()
+            _segura_base(env, pose0)
+            repoe_caixa(ofs)
             env.step(zeros)
         # a checagem de FOV usa o site `d435` (o eixo óptico é o +x), com os mesmos limites de `estimador.visivel`
         sit = robo.find_sites(("d435",))[0]
@@ -724,25 +761,22 @@ def s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos():
         check("estimador vê a caixa à frente: x na base ≈ 0,45 m", bool(((s[:, 0] - 0.45).abs() < 0.03).all()),
               f"x {s[:, 0].tolist()}")
         check("leitura nova: idade ≤ 0,1 s", bool((s[:, 7] <= 0.1).all()), f"idade {s[:, 7].tolist()}")
-        # braços na frente: q_com_caixa segurada pelo PD (ação = (q − q_de_pé)/escala); a caixa segue no mesmo lugar
-        q = env.v3_ref.q_com_caixa(env.v3_meia).to(dev, torch.float32)
-        qde = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=dev)
-        acao = (q - qde) / ATIVO.contrato.escala_acao
+        # ⚠ fase I: em `q_com_caixa` os braços NÃO tapam a câmera (palmas ao lado da caixa, 0–2 dos 9 pontos
+        # ocluídos). A idade se mede sem leitura: a caixa atrás da base por 0,6 s.
         idade0 = s[:, 7].clone()
-        for _ in range(30):  # 0,6 s com os braços à frente
-            repoe_caixa()
-            env.step(acao)
+        for _ in range(30):
+            _segura_base(env, pose0)
+            repoe_caixa(atras)
+            env.step(zeros)
         s2 = env.v3_estimador.saida_b(env.v3_odo, robo.data.root_link_quat_w)
-        # ⚠ DÚVIDA: a oclusão pelas cápsulas dos braços (`visivel`, estimador.py:107) decide se a idade cresce. Com a
-        # caixa no eixo óptico, os braços a tapam: a seção mede a oclusão; o dono mede a geometria na fase I.
-        check("braços à frente: a idade cresce ≥ 0,4 s em 0,6 s", bool(((s2[:, 7] - idade0) >= 0.4).all()),
+        check("caixa fora do FOV: a idade cresce ≥ 0,4 s em 0,6 s", bool(((s2[:, 7] - idade0) >= 0.4).all()),
               f"Δ {(s2[:, 7] - idade0).tolist()}")
     finally:
         env.close()
 
 
 def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
-    from g1_v3.knobs import ATIVO, TAREFAS, q_de_pe
+    from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, q_de_pe
 
     env = _abre_env(4)
     try:
@@ -767,9 +801,15 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         robo.write_root_link_pose_to_sim(pose)
         env.sim.forward()
         env.sim.sense()
-        acao = (q - qde) / ATIVO.contrato.escala_acao  # segura os braços: o PD segue q_com_caixa
+        # ⚠ o alvo do PD é q_de_pé + escala·a − viés (s04): a ação soma o viés para o alvo ser q_com_caixa
+        idx = [robo.joint_names.index(j) for j in JUNTAS]
+        acao = (q - qde + robo.data.encoder_bias[:, idx]) / ATIVO.contrato.escala_acao
         avisos = []
         for _ in range(60):
+            # ⚠ fase I: a ação zero não segura a base (S0), e a cintura (kp 40) não segura os braços à frente
+            # (tronco +8° em 0,36 s). A seção mede o relógio do detector: base e juntas reescritas a cada passo.
+            _segura_base(env, pose)
+            robo.write_joint_state_to_sim(q, torch.zeros_like(q))
             env.step(acao)
             avisos.append(env.v3_aviso.clone())
         m = torch.stack(avisos)  # (60, E)
@@ -891,7 +931,9 @@ def s25_fatia_c_forcada_laje_de_destino_a_frente():
 
 
 def s26_alvo_de_soltura_no_topo_mais_a():
+    from g1_v3 import balanceador
     from g1_v3.alvos import B1
+    from g1_v3.knobs import ATIVO
 
     env = _abre_env(4)
     try:
@@ -900,9 +942,12 @@ def s26_alvo_de_soltura_no_topo_mais_a():
         check("alvo corrente = B1", bool((env.v3_alvo_idx == B1).all()), str(env.v3_alvo_idx.tolist()))
         # ⚠ `_abre_botar` põe o centro da caixa a `a` acima do ponto de soltura, que está no topo da laje
         esperado = env.scene.env_origins[:, 2] + env.v3_topo_destino + env.v3_meia
-        check("alvo de soltura: z = origem + v3_topo_destino + v3_meia (± 1e-4)",
-              torch.allclose(env.v3_alvo_w[:, 2], esperado, atol=1e-4),
-              f"{(env.v3_alvo_w[:, 2] - esperado).abs().max().item():.2e}")
+        # ⚠ P22: o `_abre_botar` soma o viés do alvo U[±vz] (vz pelo degrau global; 5 mm no degrau 0)
+        vz = balanceador.no_degrau(*ATIVO.estimador.vies_alvo_botar_z, env.v3_cur.degrau_global(),
+                                   ATIVO.balanceador.degraus)
+        dz = (env.v3_alvo_w[:, 2] - esperado).abs()
+        check("alvo de soltura: z = origem + v3_topo_destino + v3_meia (± viés do alvo, P22)",
+              bool((dz <= vz + 1e-4).all()), f"{dz.max().item():.2e} > {vz:.3f}")
     finally:
         env.close()
 
@@ -919,8 +964,9 @@ def s27_caixa_solta_sobre_a_laje_5_cm_nao_termina_10_cm_termina():
             caixa = env.scene["box"]
             # ⚠ `v3_alvo_w` é o centro a `a` acima do topo: o fundo fica `altura` acima do topo se o centro sobe `altura`
             pose = torch.zeros(n, 7, device=dev)
-            pose[:, :3] = env.v3_alvo_w
-            pose[:, 2] += altura
+            # ⚠ P22: o `v3_alvo_w` traz o viés do alvo (até 5 mm em z no degrau 0): o z sai do topo verdadeiro
+            pose[:, :2] = env.v3_alvo_w[:, :2]
+            pose[:, 2] = env.scene.env_origins[:, 2] + env.v3_topo_destino + env.v3_meia + altura
             pose[:, 3] = 1.0
             _poe_caixa_parada(env, pose)
             env.sim.forward()
@@ -978,7 +1024,9 @@ def s28_one_hot_fica_em_botar_durante_o_atraso():
         troca = torch.full((n,), -1, dtype=torch.long, device=dev)  # passo em que o trecho sai do BOTAR, −1 = não saiu
         ok = torch.ones(n, dtype=torch.bool, device=dev)
         # ⚠ para quando todo mundo trocou, ou no tempo máximo (aviso em 1,5 s + atraso máximo + margem)
+        pose0 = env.scene["robot"].data.root_link_pose_w.clone()
         for p in range(math.ceil((1.5 + atraso_max + margem) / dt)):
+            _segura_base(env, pose0)  # S0: a ação zero cai em ~1,1 s, antes do aviso
             env.step(zeros)
             aviso0 = torch.where((aviso0 < 0) & env.v3_aviso, torch.full_like(aviso0, p), aviso0)
             # depois do primeiro aviso e antes da troca, o one-hot e a tarefa ficam em BOTAR; o passo da troca é o próprio
@@ -1017,7 +1065,9 @@ def s29_andar_parado_final_acaba_em_time_out():
         zeros = _zeros(env)
         fim = torch.full((n,), -1, dtype=torch.long, device=env.device)
         queda_no_fim = torch.zeros(n, dtype=torch.bool, device=env.device)
+        pose0 = env.scene["robot"].data.root_link_pose_w.clone()
         for p in range(math.ceil(2 * ATIVO.cadeia.andar_final_s / dt)):
+            _segura_base(env, pose0)  # S0: sem isto a `queda` (~1,1 s) chega antes do fim do ANDAR de 1,5 s
             env.step(zeros)
             # ⚠ `time_outs` é o valor do último `compute`; a `queda` lê-se no mesmo passo
             novo = env.termination_manager.time_outs & (fim < 0)
@@ -1247,12 +1297,12 @@ def s34_degrau_5_pesa_laje_chegada_e_pouso():
     env = _abre_env(4)
     try:
         env.reset()
-        env.v3_degrau[:] = 5
         # M2: o PEGAR aberto com a caixa presa (alvo em P3, máscara aberta); só o ANDAR zera a sacudida e o aperto
         _assenta_fatia_b(env)
         _le_caixa_valida(env)
         _abre_trecho_de(env, "PEGAR")
         env.v3_alvo_idx[:] = P3
+        env.v3_degrau[:] = 5  # ⚠ depois da abertura: o `_publica` escreve o degrau do currículo (0) no trecho novo
         for nome, par, esperado in (("laje_joelho_N", R.laje_joelho_N, 10.0), ("chegada", T.chegada, 0.25),
                                     ("sigma_pouso", R.sigma_pouso, 0.35)):
             v = recompensas.por_degrau(env, *par)
@@ -1317,11 +1367,13 @@ def _geoms_do_solref(env):
     (P17, mesmo conjunto que o evento usa); as do terreno, pelo regex do mjlab (`terrain$`)."""
     import mujoco
 
-    ev = env.cfg.events["solref"]  # P17: o nome do evento no cfg (env_cfg.py:170)
+    # ⚠ o manager resolve uma CÓPIA do cfg: no `env.cfg.events` o `geom_ids` fica slice(None) (as 72 geoms do robô)
+    ev = env.event_manager.get_term_cfg("solref")  # P17: o evento do manager (env_cfg.py:170)
     gid = torch.cat([env.scene[c.name].indexing.geom_ids[c.geom_ids]
                      for c in (ev.params["asset_cfg_robo"], ev.params["asset_cfg_laje"], ev.params["asset_cfg_caixa"])])
     m = env.sim.mj_model
-    tid = [i for i in range(m.ngeom) if re.search("terrain$", mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or "")]
+    # ⚠ as geoms do terreno se chamam terrain_0 … terrain_N; com `terrain$` o tid ficava vazio e o check, vazio
+    tid = [i for i in range(m.ngeom) if re.fullmatch(r"terrain_\d+", mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or "")]
     return gid, torch.tensor(tid, dtype=torch.long)
 
 
@@ -1370,6 +1422,7 @@ def s36_dr_do_refino_zero_no_degrau_0_e_faixa_no_5():
         # RFI: ruído de torque por junta (≤ 0,1·TAU_MAX) e nada na junta livre
         for _ in range(10):
             env.step(_zeros(env))
+        pose0 = robo.data.root_link_pose_w.clone()  # os pés no chão: o contato pé × terreno do fim se lê daqui
         qf = env.sim.data.qfrc_applied
         tau = qf[:, robo.indexing.joint_v_adr]
         teto = 0.1 * torch.tensor(TAU_MAX, dtype=tau.dtype, device=tau.device)
@@ -1382,6 +1435,9 @@ def s36_dr_do_refino_zero_no_degrau_0_e_faixa_no_5():
         caixa, carregar = env.scene["box"], TAREFAS.index("CARREGAR")
         forca_no_0, sem_forca = False, True
         for _ in range(450):  # o intervalo da força é de 3 a 8 s (até 400 passos)
+            # ⚠ S0: sem a base segura o robô cai a cada ~1,1 s, e o reset sorteia de novo o intervalo do impulso
+            # (`apply_body_impulse.reset`): a força nunca chega
+            _segura_base(env, pose0)
             env.v3_tarefa[0] = carregar
             env.v3_pegou[0] = True
             env.v3_perdeu[0] = False
@@ -1507,7 +1563,7 @@ SECOES = (
     ("18 PEGAR com ação zero: nada paga positivo", s18_pegar_com_acao_zero_nada_paga_positivo),
     ("19 caixa no chão: paga uma vez e vira ANDAR; sem a chave, termina",
      s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave),
-    ("20 estimador vê a caixa à frente; idade cresce com os braços", s20_estimador_ve_caixa_a_frente_e_idade_cresce_com_bracos),
+    ("20 estimador vê a caixa à frente; idade cresce fora do FOV", s20_estimador_ve_caixa_a_frente_e_idade_cresce_fora_do_fov),
     ("21 pose de pé com caixa: aviso depois de 0,5 s", s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo),
     ("22 laje sai com o CARREGAR que anda", s22_laje_sai_com_o_carregar_que_anda),
     ("23 tamanho do crítico confere com §6.5", s23_tamanho_do_critico_confere_com_6_5),
