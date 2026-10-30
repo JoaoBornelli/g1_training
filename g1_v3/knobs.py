@@ -377,10 +377,8 @@ class Estimador:  # I §2.3; S §13; PD-11, PD-18
     # rajadas de perda (DR §3.5; 30/10, P21e): duração U (s) e taxa de abertura (1/s), (início; refino)
     rajada_s: tuple = (0.3, 1.0)
     rajada_taxa: tuple = (0.0, 0.035)
-    ori_persistente: tuple = (True, True)  # S §13 (dono, 15/10): viés de orientação persiste
     pontos_visiveis_min: int = 3  # PD-11: pontos dos 9 necessários para ver a caixa
     sigma_pos: tuple = (0.005, 0.02)  # PD-18; S §13: σ da posição (m; refino: 2% da distância)
-    sigma_ori_graus: tuple = (1.0, 5.3)  # PD-18; S §13: σ da orientação (graus; refino: mediana 5,3°)
     perda: tuple = (0.005, 0.022)  # PD-18; S §13: probabilidade de perda da leitura (refino: 2,2%)
     deriva_odo: tuple = (0.002, 0.0075)  # PD-18; S §13: deriva da odometria (m/√m)
     deriva_rumo: tuple = (0.002, 0.005)  # PD-18: deriva do rumo (rad/√m)

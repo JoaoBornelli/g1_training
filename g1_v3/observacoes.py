@@ -28,7 +28,7 @@ from mjlab.utils.lab_api.math import (axis_angle_from_quat, matrix_from_quat, qu
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g1_v3 import alvos, knobs
-from g1_v3.balanceador import TAREFAS as CADEIA
+from g1_v3.balanceador import TAREFAS as CADEIA, no_degrau
 from g1_v3.estimador import alvo_no_frame_da_base, visivel, yaw
 from g1_v3.percepcao_lidar import filtra_corpo, pontos_no_frame_do_mapa
 
@@ -56,6 +56,7 @@ _ATRASO = ("giro_base", "gravidade", "juntas", "vel_juntas", "mapa")
 # Divisores do crítico (§6.5): degrau /5, massa /5 kg. Não há campo no `knobs` para eles.
 _ESC_DEGRAU = 5.0
 _ESC_MASSA_KG = 5.0
+_ESC_FORCA_N = 100.0  # força do crítico em N (§6.5, normalização de contrato; P7)
 
 # Sites dos pés (g1.xml do mjlab, linha 100): a sola sai do z do site menos `site_pe_de_pe` (D2).
 _PES_SITIOS = ("left_foot", "right_foot")
@@ -69,17 +70,21 @@ _CORPO_UNICOS = list(dict.fromkeys(_CORPO))  # `find_bodies` não aceita nome re
 _IDX_CORPO = torch.tensor([_CORPO_UNICOS.index(n) for n in _CORPO], dtype=torch.long)
 
 
-def _magnitude(k: knobs.Estimador, i: int) -> dict:
-    """Magnitude `i` do `knobs.Estimador` (0 início, 1 refino), no dict do `EstimadorCaixa.passo` (§6.3, nota de 29/10).
+def _magnitude(k: knobs.Estimador, g: int, degraus: int) -> dict:
+    """Magnitudes do `EstimadorCaixa.passo` no degrau global `g` de `degraus` (§6.3 "Fase H"; H5b; P7, P21).
 
-    ⚠ A posição é em metros no início e em fração da distância no refino: `sigma_pos[i]` vai para um ou outro campo.
+    Cada par (início, refino) de `knobs.Estimador` vai por `no_degrau`: g = 0 dá o início, g = `degraus` dá o refino.
+    ⚠ A posição é em metros no início e em fração da distância no refino: `sigma_pos` e `sigma_pos_rel` são o mesmo
+    par, cada um com o zero do outro lado.
     """
-    return {"sigma_pos": k.sigma_pos[0] if i == 0 else 0.0, "sigma_pos_rel": k.sigma_pos[1] if i == 1 else 0.0,
-            "sigma_ori_graus": k.sigma_ori_graus[i], "perda": k.perda[i], "vies_meia": k.vies_meia[i],
-            "ori_persistente": float(k.ori_persistente[i])}
-
-
-_MAGNITUDE_INICIO = _magnitude(K.estimador, 0)
+    (med_i, p90_i), (med_r, p90_r) = k.ori_graus  # ((mediana, p90) do início; (mediana, p90) do refino)
+    return {"sigma_pos": no_degrau(k.sigma_pos[0], 0.0, g, degraus),
+            "sigma_pos_rel": no_degrau(0.0, k.sigma_pos[1], g, degraus),
+            "ori_mediana_graus": no_degrau(med_i, med_r, g, degraus),
+            "ori_p90_graus": no_degrau(p90_i, p90_r, g, degraus),
+            "ori_leitura_graus": no_degrau(*k.ori_leitura_graus, g, degraus),
+            "perda": no_degrau(*k.perda, g, degraus), "vies_meia": no_degrau(*k.vies_meia, g, degraus),
+            "vies_pos": no_degrau(*k.vies_pos, g, degraus), "rajada_taxa": no_degrau(*k.rajada_taxa, g, degraus)}
 
 # Índices de ALVOS: P0–P3 e B1–B3 usam a pose de IK da pelve e do tronco; P4 usa a pose com caixa; B4, de pé.
 _IK = [knobs.ALVOS.index(n) for n in ("P0", "P1", "P2", "P3", "B1", "B2", "B3")]
@@ -177,7 +182,8 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     braco = _BRACO.to(raios.device)
     vis = visivel(cam_pos, cam_rot, _pontos_da_caixa(pos, quat, env.v3_meia), capsulas[:, braco], raios[braco],
                   K.estimador)
-    env.v3_estimador.passo(env.common_step_counter * env.step_dt, pos, quat, env.v3_meia, vis, _MAGNITUDE_INICIO,
+    mag = _magnitude(K.estimador, env.v3_cur.degrau_global(), K.balanceador.degraus)
+    env.v3_estimador.passo(env.common_step_counter * env.step_dt, pos, quat, env.v3_meia, vis, mag,
                            (pos - cam_pos).norm(dim=-1))
     odo, tarefa = env.v3_odo, env.v3_tarefa
     saida = env.v3_estimador.saida_b(odo, robo.data.root_link_quat_w)
@@ -303,12 +309,14 @@ def massa(env: ManagerBasedRlEnv) -> torch.Tensor:
 
 
 def forca_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Força externa na caixa (E,1), em N dividida por 100 (§6.5).
+    """Força total robô → caixa (E,1), em N dividida por 100 (§6.5; P7).
 
-    Nota de fase H: a §6.4 ainda não tem buffer para a força; o evento `forca_caixa` entra na fase H.
-    Até lá, zero: o canal existe com a forma certa e não tem o que ler.
+    É a soma dos MÓDULOS das fatias do `caixa_robo` (`metricas.forca_robo_caixa`, S §6.2): o `aperto` do crítico
+    depende da força por face, e a força total é o que o crítico precisa ver.
+    ⚠ Import dentro da função: o `metricas` importa o `recompensas`, e o `comando` importa este módulo.
     """
-    return torch.zeros(env.num_envs, 1, device=env.device)
+    from g1_v3 import metricas  # import dentro da função: evita o ciclo com `metricas`
+    return metricas.forca_robo_caixa(env)[:, None] / _ESC_FORCA_N
 
 
 # --- grupos ----------------------------------------------------------------------------------------------------

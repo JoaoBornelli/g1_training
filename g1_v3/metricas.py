@@ -1,8 +1,8 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
-⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3),
-`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` e `knobs.FATIAS` (os índices das tarefas e
-das fatias); e, só para a anotação, `knobs.Knobs`.
+⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` e `recompensas.sacudida` (§6.3,
+H5b), `potencial.curso` (a conta do curso, P13), `alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS`
+e `knobs.FATIAS` (os índices das tarefas e das fatias); e, só para a anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
 apaga a medição dela, em silêncio. Medir num manager separado desacopla as duas coisas: o peso
@@ -23,9 +23,10 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
-from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3.alvos import B1, B2, B3, B4, P0, P1, P2, P3, P4, inclinacao_da_caixa
 from g1_v3.knobs import FATIAS, TAREFAS
-from g1_v3.recompensas import comprimento_do_passo
+from g1_v3.potencial import curso
+from g1_v3.recompensas import comprimento_do_passo, sacudida
 
 if TYPE_CHECKING:
     from g1_v3.knobs import Knobs
@@ -50,6 +51,7 @@ __all__ = [
     "idade_das_leituras",
     "fracao_avisos",
     "fracao_fora_da_plataforma",
+    "aceleracao_da_caixa",
 ]
 
 # nomes da cena v3 (`cena.py`): o sensor de contato dos pés, o de altura e os sítios. Os
@@ -158,7 +160,7 @@ def fracao_do_curso(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     centro = lim.mean(dim=-1)
     meio = (lim[:, 1] - lim[:, 0]) / 2.0
     q = robo.data.joint_pos[:, asset_cfg.joint_ids]
-    return (((q - centro) / meio).abs()).amax(dim=-1)
+    return curso(q, centro, meio).amax(dim=-1)
 
 
 def forca_de_pouso(env, sensor_name: str = PES_CHAO) -> torch.Tensor:
@@ -420,6 +422,41 @@ class fracao_fora_da_plataforma:
         self.fora[env_ids] = 0.0
 
 
+class aceleracao_da_caixa:
+    """Custo da sacudida da caixa nos passos em que ela está presa (P3, P4, B1, B2), por episódio. Sem peso.
+
+    S §14 "aceleração da caixa", P23. É a conta do termo `sacudida` (H2) sem o fator d/5 do degrau: a métrica vale
+    desde o degrau 0, quando o termo ainda paga 0. O valor do episódio é a média do custo nos passos presos; com o p50
+    medido vale 2, e é a medida para recalibrar a `sacudida_norma` na fase I.
+
+    ⚠ A `sacudida` tem a `v_ant` própria: esta métrica tem a sua (`self.sac`); o estado não é compartilhado com o termo.
+    ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve passo preso"; o `reset` loga a média por episódio.
+    """
+
+    def __init__(self, cfg, env):
+        self.env = env
+        self.sac = sacudida(cfg, env)
+        self.soma = torch.zeros(env.num_envs, device=env.device)
+        self.passos = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env) -> torch.Tensor:
+        c = self.sac.custo(env)  # antes da máscara: a v_ant anda mesmo fora da presa
+        alvo = env.v3_alvo_idx
+        presa = (alvo == P3) | (alvo == P4) | (alvo == B1) | (alvo == B2)
+        self.soma = self.soma + torch.where(presa, c, torch.zeros_like(c))
+        self.passos = self.passos + presa.float()
+        return (self.passos > 0).float()
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        _loga_episodios(self.env, "aceleracao_da_caixa", self.soma / self.passos.clamp(min=1.0),
+                        self.passos > 0, env_ids)
+        self.soma[env_ids] = 0.0
+        self.passos[env_ids] = 0.0
+        self.sac.reset(env_ids)
+
+
 def idade_das_leituras(env) -> torch.Tensor:
     """Idade (s) média da leitura do estimador da caixa, por env. Sem peso.
 
@@ -494,4 +531,5 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["idade_leituras"] = MetricsTermCfg(func=idade_das_leituras)
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
     m["fracao_fora_da_plataforma"] = MetricsTermCfg(func=fracao_fora_da_plataforma, reduce="last")
+    m["aceleracao_da_caixa"] = MetricsTermCfg(func=aceleracao_da_caixa, reduce="last")
     return m

@@ -136,7 +136,8 @@ class ObservacoesTest(unittest.TestCase):
         env = types.SimpleNamespace(scene={"robot": robo, "box": caixa}, common_step_counter=3, step_dt=0.02,
                                     v3_meia=torch.tensor([0.1]), v3_odo=None, v3_estimador=estimador,
                                     v3_tarefa=torch.tensor([tarefa]), v3_alvo_idx=torch.tensor([alvo_idx]),
-                                    v3_alvo_w=torch.zeros(1, 3), v3_aviso=torch.tensor([aviso]))
+                                    v3_alvo_w=torch.zeros(1, 3), v3_aviso=torch.tensor([aviso]),
+                                    v3_cur=types.SimpleNamespace(degrau_global=lambda: 0))
         with mock.patch.object(observacoes, "_capsulas_w", return_value=(torch.zeros(1, 33, 2, 3), torch.zeros(33))), \
                 mock.patch.object(observacoes, "visivel", return_value=torch.ones(1, dtype=torch.bool)), \
                 mock.patch.object(observacoes, "alvo_no_frame_da_base", return_value=torch.ones(1, 3)):

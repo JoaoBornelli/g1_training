@@ -120,9 +120,9 @@ class TestKnobs(unittest.TestCase):
         self.assertEqual(e.vies_pos, (0.0, 0.02))  # P21c
         self.assertEqual(e.rajada_s, (0.3, 1.0))  # DR §3.5
         self.assertEqual(e.rajada_taxa, (0.0, 0.035))  # P21e
-        # Os campos que a H5b tira só na onda H-3 (observacoes._magnitude os lê) ficam nesta onda.
-        self.assertTrue(hasattr(e, "sigma_ori_graus"))
-        self.assertTrue(hasattr(e, "ori_persistente"))
+        # Os dois campos saíram na fase H (P21b): `_magnitude` não os lê mais.
+        self.assertFalse(hasattr(e, "sigma_ori_graus"))
+        self.assertFalse(hasattr(e, "ori_persistente"))
 
     def test_refino_sem_os_campos_mortos(self):
         # §12.4 H1 (P1): saem Refino.regras, fator_por_degrau e tarefas_fator; fica degrau_batente
