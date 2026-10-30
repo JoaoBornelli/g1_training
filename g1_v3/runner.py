@@ -22,7 +22,31 @@ __all__ = ["RunnerV3"]
 
 
 class RunnerV3(MjlabOnPolicyRunner):
-    """O runner do mjlab, mais o estado do `Curriculo` no checkpoint (chave `v3_curriculo`)."""
+    """O runner do mjlab, mais o estado do `Curriculo` no checkpoint (chave `v3_curriculo`) e o std por junta."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._embrulha_log()
+
+    def _embrulha_log(self) -> None:
+        """Embrulha `logger.log` e grava `Policy/std/<junta>` = média em 0 do `action_std` (S §14, H6).
+
+        ⚠ O rsl_rl grava só `Policy/mean_std` (logger.py:211): a média das 29 juntas esconde qual junta explora.
+        Os nomes são os da ação (`target_names`, a ordem do vetor de ação). O rsl_rl chama `log` só por nome.
+        """
+        original = self.logger.log
+
+        def log(**kw):
+            original(**kw)
+            if self.logger.writer is None:
+                return
+            std = kw["action_std"]
+            std = std.mean(dim=0) if std.dim() == 2 else std
+            nomes = self.env.unwrapped.action_manager.get_term("joint_pos").target_names
+            for nome, v in zip(nomes, std.tolist()):
+                self.logger.writer.add_scalar(f"Policy/std/{nome}", v, kw["it"])
+
+        self.logger.log = log
 
     def save(self, path: str, infos=None) -> None:
         infos = {**(infos or {}), "v3_curriculo": self.env.unwrapped.v3_cur.estado()}

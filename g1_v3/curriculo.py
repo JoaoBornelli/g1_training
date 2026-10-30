@@ -99,8 +99,8 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     1) Fecha a iteração do balanceador uma vez por iteração de `passos_por_iteracao` passos, e não por reset
        (a iteração é `common_step_counter // passos_por_iteracao`). A 1ª chamada só fixa a iteração corrente.
     2) Devolve as chaves `frac_*`, `s_<tarefa>_<tipo>`, `nivel_<tarefa>`, `nivel_terreno_<tarefa>` (ANDAR e
-       CARREGAR) e `degrau_<tarefa>`. O mjlab as
-       publica como `Curriculum/v3/<k>`.
+       CARREGAR), `degrau_<tarefa>`, `degrau_global` (P23) e, do `dr()`, `atraso_max` e `mu_min_pad` (H6, P23).
+       O mjlab as publica como `Curriculum/v3/<k>`.
 
     ⚠ `v3_freio` e `v3_degrau` NÃO são escritos aqui: são do `comando.cadeia` (§6.4).
     ⚠ `atraso_max` (DR, §6.8; PD-28) vai aos buffers só quando passa do teto inicial: o startup do env já
@@ -113,7 +113,8 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     if env.v3_iter >= 0 and it != env.v3_iter:
         cur.fecha_iteracao()
     env.v3_iter = it
-    teto = cur.dr()["atraso_max"]
+    dr = cur.dr()
+    teto = dr["atraso_max"]
     if teto != _K.dr.atraso_inicio[1]:
         eventos.atraso(env, env_ids, teto, _K.contrato.decimacao)
     frac = cur.fracoes_fatias()
@@ -125,4 +126,5 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
         log[f"degrau_{t}"] = cur.degrau(t)
     for t in balanceador.CADEIA:  # só as cadeias têm linha de terreno (PD-20)
         log[f"nivel_terreno_{t}"] = cur.nivel_terreno(t)
+    log.update(atraso_max=teto, mu_min_pad=dr["mu_min_pad"], degrau_global=cur.degrau_global())
     return log
