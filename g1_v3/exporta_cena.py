@@ -53,11 +53,10 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `mocap_quat_inicial` | f64 (nmocap, 4) | quaternion wxyz; zeros (0, 4) se não há mocap |
 | `origens_terreno` | f64 (linhas, colunas, 3) | m; `env.scene["terrain"].terrain_origins`: a origem de cada sub-terreno, [linha, coluna] |
 | `colunas_terreno` | str (9,) | nome de cada coluna do gerador, na ordem de `ATIVO.terreno.colunas` |
-| `origem_reset` | f64 (3,) | m; `env.scene.env_origins[0]` depois do `env.reset()`: a origem da cena exportada (o `--coluna` parte dela) |
+| `origem_reset` | f64 (3,) | m; `env.scene.env_origins[0]` depois do reset forçado da fatia B no plano: a origem da cena exportada (o `--coluna` parte dela) |
 
-- Chão do driver: o plano z = 0 (F9 M12). É a coluna `plano` do terreno (`knobs.colunas[0]`, `cena.py`); a fatia C é
-  plano. O `pilota_v3` põe o topo da laje de destino sobre z = 0. ⚠ DÚVIDA: a origem do reset é `origem_reset` (lida
-  do env); nada no exportador força a coluna `plano`. Confirmar na fase I.
+- Reset exportado: a fatia B no plano (coluna `plano`, `knobs.colunas[0]`), com a laje e a caixa à frente do robô
+  (E §4.4; S4). O chão do driver é o plano z = 0 (F9 M12). O `pilota_v3` põe o topo da laje de destino sobre z = 0.
 
 ### `contrato.json` (UTF-8, `indent=2`)
 
@@ -448,13 +447,30 @@ def exporta(pasta: Path) -> None:
     dados = coleta_cena(env)
 
     env.reset()
+    # S2 (G7): o reset exportado é a fatia B no plano, com a laje e a caixa à frente do robô (E §4.4; S4).
+    # ⚠ Mesmo caminho do treino (`sorteia_fatia` e os eventos `cena` e `base`), como o `_abre_b_na_escada` do smoke,
+    # sem a coluna de escada. A coluna 0 é o `plano` (`ATIVO.terreno.colunas[0]`): sem terreno, `posiciona_cena` dá rumo 0.
+    from g1_v3 import eventos
+    from g1_v3.comando import FATIA_B
+
+    ids = torch.arange(env.num_envs, device=env.device)
+    terreno = env.scene["terrain"]
+    terreno.terrain_types[ids] = 0
+    env.scene.env_origins[ids] = terreno.terrain_origins[terreno.terrain_levels[ids], 0]
+    env.v3_fatia[:] = FATIA_B
+    eventos.posiciona_cena(env, ids)
+    eventos.reset_base_por_fatia(env, ids, dict(ATIVO.cena.reset_base_andar), dict(ATIVO.cena.reset_base_manipula))
+    eventos.reinicia_filtros(env, ids)
+    env.sim.forward()  # ⚠ a leitura das poses depois da escrita pede o forward (como em s06)
+    # ⚠ DÚVIDA: o evento `carga` (massa e inércia da caixa) não roda aqui. Ele escreve `sim.model.body_mass`, e o
+    # `cena.mjb` sai de `sim.mj_model`. Se os dois não estiverem ligados, a massa do mjb não é `v3_massa`. Não mudei.
     d0 = espelha_estado(env, m)
     dados["qpos_inicial"] = d0.qpos.copy()
     dados["qvel_inicial"] = d0.qvel.copy()
     dados["mocap_pos_inicial"] = d0.mocap_pos.copy() if m.nmocap else np.zeros((0, 3))
     dados["mocap_quat_inicial"] = d0.mocap_quat.copy() if m.nmocap else np.zeros((0, 4))
-    # G6 (terreno): a grade do gerador, os nomes das colunas e a origem em que o reset pôs o env 0. A origem do reset
-    # é LIDA do env: nada aqui força a coluna `plano`. O `registra_juntas_v3 --coluna` parte dela.
+    # G6 (terreno): a grade do gerador, os nomes das colunas e a origem em que o reset pôs o env 0. O
+    # `registra_juntas_v3 --coluna` parte dela.
     dados["origens_terreno"] = _np(env.scene["terrain"].terrain_origins).astype(np.float64)
     dados["colunas_terreno"] = np.array(ATIVO.terreno.colunas)
     dados["origem_reset"] = _np(env.scene.env_origins)[0].astype(np.float64)
