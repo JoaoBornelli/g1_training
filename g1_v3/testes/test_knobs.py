@@ -116,6 +116,8 @@ class TestKnobs(unittest.TestCase):
         self.assertNotIn("irregular", nomes)
         # O balanceador usa só o máximo dos valores (9).
         self.assertEqual(max(v for _n, v in t.linha_max_carregar), 9)
+        # P3 (R1, 30/10): a escada aleatória para na linha 6 (degrau até 0,15 m com caixa; primitive_terrains.py:1061).
+        self.assertEqual(dict(t.linha_max_carregar)["escada_aleatoria"], 6)
 
     def test_fase_g_laje_do_centro_e_incl_max_do_terreno(self):
         # G1 e G3 (§6.2, fase G, 29/10): a laje do centro a 0,75 m da plataforma (S §12); a caixa a ≤ 15° no CARREGAR

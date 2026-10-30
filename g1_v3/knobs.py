@@ -341,9 +341,11 @@ class Terreno:  # S §11.2, §12; PD-20
     # D1; ordem das colunas do gerador (o eventos lê daqui, sem importar a cena)
     colunas: tuple = ("plano", "escada", "escada_inv", "rampa", "rampa_inv", "escada_aleatoria",
                       "irregular", "obstaculos", "caixas")
-    # (coluna, linha máxima de CARREGAR): PD-20; uma coluna tem plataforma de 2 m se e só se está aqui
+    # (coluna, linha máxima de CARREGAR): PD-20; uma coluna tem plataforma de 2 m se e só se está aqui.
+    # P3 (30/10): a escada aleatória sobe só até a linha 6 — o degrau dela é U(0; 0,20)·(0,5 + 0,5·t)
+    # (primitive_terrains.py:1061), e na linha 9 passava de 0,15 m (até 0,175 m); na 6, 0,15 m (E §2).
     linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
-                                 ("escada_aleatoria", 9), ("obstaculos", 8), ("caixas", 7))
+                                 ("escada_aleatoria", 6), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
     laje_do_centro: float = 0.75  # G1; S §12: o centro da laje a 0,75 m do centro da plataforma (m)
     # D1 (29/10: sai da cena.py): border_width do gerador de terreno (m)

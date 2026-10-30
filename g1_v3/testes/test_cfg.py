@@ -73,9 +73,14 @@ TAREFAS_D5 = {
 
 
 def _teto_do_gerador(coluna, topo, linha, R):
-    """t = linha/(R−1). O `random_spread_boxes` (caixas) escala a altura por 0,2 + 0,8·t (primitive_terrains.py:794)."""
+    """t = linha/(R−1). A altura escala com t: caixas 0,2 + 0,8·t (primitive_terrains.py:794); escada_aleatoria
+    0,5 + 0,5·t (primitive_terrains.py:1061); o resto, t."""
     t = linha / (R - 1)
-    return topo * (0.2 + 0.8 * t) if coluna == "caixas" else topo * t
+    if coluna == "caixas":
+        return topo * (0.2 + 0.8 * t)
+    if coluna == "escada_aleatoria":
+        return topo * (0.5 + 0.5 * t)
+    return topo * t
 
 
 def _na_ordem_da_spec(nomes_cfg, ordem_spec):
@@ -115,6 +120,11 @@ class TestCena(unittest.TestCase):
         sub = cena.terreno_cfg(ATIVO).terrain_generator.sub_terrains
         self.assertEqual(list(sub), list(ATIVO.terreno.colunas))
         self.assertTrue(sub["irregular"].scale_with_difficulty)
+
+    def test_caixas_sem_giro(self):
+        # P4 (R2, 30/10): caixas giradas invadiam a plataforma em 76% das células; yaw zero deixa a fuga exata.
+        sub = cena.terreno_cfg(ATIVO).terrain_generator.sub_terrains
+        self.assertEqual(tuple(sub["caixas"].box_yaw_range), (0.0, 0.0))
 
     def test_teto_de_carregar_pela_linha_maxima(self):
         colunas = {c["nome"]: c for c in cena.COLUNAS}

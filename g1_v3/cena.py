@@ -262,7 +262,9 @@ def terreno_cfg(k: Knobs = ATIVO) -> TerrainEntityCfg:
         "escada_aleatoria": random_stairs(step_height_range=degrau, platform_width=pl),
         "irregular": random_rough(scale_with_difficulty=True),
         "obstaculos": discrete_obstacles(obstacle_height_range=(0.0, teto["obstaculo"]), platform_width=pl),
-        "caixas": random_spread_boxes(box_height_range=(0.0, teto["obstaculo"]), platform_width=pl),
+        # P4 (30/10): sem giro (yaw 0). Caixas giradas invadiam a plataforma em 76% das células (G7 R2).
+        "caixas": random_spread_boxes(box_height_range=(0.0, teto["obstaculo"]), box_yaw_range=(0.0, 0.0),
+                                      platform_width=pl),
     }
     gerador = TerrainGeneratorCfg(size=t.tamanho, num_rows=t.linhas, curriculum=True,
                                   border_width=t.borda, sub_terrains=sub)
