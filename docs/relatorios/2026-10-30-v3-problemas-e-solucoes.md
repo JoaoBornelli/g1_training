@@ -101,3 +101,8 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Pesquisa:** não se aplica (regressão contra o contrato documentado); conferido no `git log -S "v3_odo.passo"`.
 - **Solução:** a chamada volta antes da fase H, depois da abertura do trecho e antes das escritas do fim do `compute`, com um teste de regressão que conta a chamada e a ordem (falhava com 0 chamadas; 400 testes, 1 pulado). A fase H (H5) troca só a deriva pela do degrau global.
 - **Fase I:** o smoke 39 (novo na fase H) confere a odometria andando.
+
+### 9. O `aperto` é um canal quase morto no ponto de operação (em pesquisa; achado pela revisão H8)
+
+- **Problema:** com 117,5 N por face, `F_ref` 49 N e peso −0,02, a derivada é 3,7e−5 por N por s no degrau 5; afrouxar até 49 N rende ≤ 0,0055/s, ~1/300 do rastreio. O texto do caso 7 ("a alavanca é o `F_ref`") está errado: nenhum `F_ref` sobe a derivada mais que 1,69×. Achado pela H8 (`docs/relatorios/2026-10-30-v3-revisao-parte4.md`, R1, P1). Ligado: a escada (2) não conta a sacudida evitada (R2, P2).
+- **Pesquisa:** em andamento.
