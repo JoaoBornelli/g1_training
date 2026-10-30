@@ -4,16 +4,14 @@ Propõe os pesos do `aperto` e da `sacudida`:
 1. Derivada de `custo_aperto` em 117,5 N e em F_ref (autograd; diferença central como conferência);
    critério: derivada em 117,5 N ≥ 20% da derivada em F_ref.
 2. Ganho acumulado de afrouxar de 117,5 N para 49 N em 20 s, com w = 1 (rampa linear, D8; pior caso como info).
-3. Peso máximo w ≤ 0,5 × perda sem o aperto evitado (retorno, item 3; D6) ÷ ganho da rampa (retorno, por w); w proposto.
-4. `sacudida` pela regra da PD-34: custo no p50 = 10% do ganho máximo do rastreio linear por s.
+3. Peso: o do knob (caso 9). D6 (w ≤ 0,5 × perda ÷ ganho) saiu como critério; o teto é da escada (2) do item 3.
+4. `sacudida` pela regra da PD-34: custo no p50 = 10% do ganho máximo do rastreio linear por s; norma = `sacudida_norma` do knob.
 
 Unidade: retorno do mjlab (`scale_by_dt`, × dt). Um termo de valor x e peso w soma w·x·dt por passo.
 "por passo" = retorno ÷ dt (o número que vai ao knobs para o valor do termo); para o peso, o próprio w.
 
 Rodar da raiz do worktree: `python -m g1_v3.parte0.item15_aperto`. Grava `saida/item15_aperto.txt`.
 """
-import math
-import re
 from pathlib import Path
 
 import numpy as np
@@ -28,12 +26,10 @@ DT = C.DT
 F_OPERACAO = 117.5  # N por face, S §8.2 (110–125 N no model_24800)
 F_SOLTA = 49.0  # N, S §8.2 (força que segura 5 kg com μ 0,5)
 JANELA = 20.0  # s, S §16 item 15
-FRAC_PERDA = 0.5  # S §16 item 15: w ≤ 0,5 × perda ÷ ganho
 FRAC_DERIVADA = 0.20  # S §8.2: derivada em 117,5 N ≥ 20% da de F_ref
 FRAC_SACUDIDA = 0.10  # PD-34: custo no p50 = 10% do ganho máximo do rastreio linear por s
-NORM_LIN, NORM_ANG = 2.9, 17.0  # m/s², rad/s²: p50 do CARREGAR do 23250 (S §11.5, PD-34)
+NORM_LIN, NORM_ANG = R.sacudida_norma  # m/s², rad/s²: p50 medido no CARREGAR do 23250 (knob; P8/P10)
 SAIDA = Path(__file__).resolve().parent / "saida" / "item15_aperto.txt"
-ITEM3 = SAIDA.with_name("item3_escada.txt")
 
 linhas_saida = []
 
@@ -81,20 +77,6 @@ def ganho_rampa_20s():
     F = F_OPERACAO + (F_SOLTA - F_OPERACAO) * t / JANELA
     ganho_s = custo(F_OPERACAO) - custo_vec(F)  # retorno por s, por w, em relação a segurar 117,5 N
     return float(np.sum((ganho_s[1:] + ganho_s[:-1]) / 2 * np.diff(t)))
-
-
-def perda_do_item3():
-    """Perda sem o aperto evitado (retorno), lida da linha estável do item 3 (não depende de w)."""
-    m = re.search(r"perda_caixa sem o aperto evitado[^\n]*?retorno ([0-9.]+)", ITEM3.read_text(encoding="utf-8"))
-    if m is None:
-        raise SystemExit(f"perda sem o aperto não achada em {ITEM3}")
-    return float(m.group(1))
-
-
-def floor_1_sig(x):
-    """Arredonda para baixo com 1 algarismo significativo (o peso proposto não passa do máximo)."""
-    e = 10.0 ** math.floor(math.log10(x))
-    return math.floor(x / e + 1e-9) * e
 
 
 def custo_sacudida(a_lin, alfa):
@@ -157,20 +139,14 @@ def main():
     linha("usado (D8): rampa linear 117,5 → 49 N em 20 s (w = 1)", None, ganho_rampa)
     emite()
 
-    # --- 3. peso máximo ---
-    perda_ret = perda_do_item3()  # sem o aperto evitado (D6): não depende de w
-    w_max = FRAC_PERDA * perda_ret / ganho_rampa
-    w = floor_1_sig(w_max)
-    ganho_w = w * ganho_rampa
-    emite("3. Peso máximo (D6, D8): w ≤ 0,5 × perda sem o aperto evitado (retorno) ÷ ganho de afrouxar numa rampa de 20 s")
-    emite(f"  {'':<56} {'por passo':>12} {'retorno':>12}")
-    linha("perda_caixa sem o aperto evitado (item 3; retorno)", perda_ret / DT, perda_ret)
-    linha("ganho de afrouxar, rampa 117,5 → 49 N em 20 s (w = 1)", None, ganho_rampa)
-    linha("w máximo = 0,5 × perda ÷ ganho da rampa (w na coluna por passo)", w_max, None, 5)
-    linha("w proposto (1 algarismo, para baixo): ganho da rampa", w, ganho_w)
+    # --- 3. peso (caso 9): o do knob; D6 saiu como critério, o teto é da escada (item 3, seção 4) ---
+    w = -R.aperto
     hold = w * c_op * JANELA
-    linha("info: custo de segurar 117,5 N por 20 s com w proposto", None, -hold)
-    criterio("(c) w proposto ≤ w máximo", w <= w_max, f"w = {w}, máximo = {w_max:.5f}")
+    emite("3. Peso do aperto: o do knob (caso 9). D6 (w ≤ 0,5 × perda ÷ ganho) saiu como critério; o teto é da escada (2)")
+    emite(f"  {'':<56} {'por passo':>12} {'retorno':>12}")
+    linha("w do knob (aperto, sinal trocado)", w, None, 4)
+    linha("ganho de afrouxar, rampa 117,5 → 49 N em 20 s (w = 1)", None, ganho_rampa)
+    linha("info: custo de segurar 117,5 N por 20 s com w do knob", None, -hold)
     emite()
 
     # --- 4. sacudida (PD-34) ---
@@ -181,39 +157,31 @@ def main():
     ratio = w_sac * c_p50 / gan_max_s
     emite("4. Sacudida (PD-34): custo no p50 com w = 10% do ganho máximo do rastreio linear por s")
     emite(f"  {'':<56} {'por passo':>12} {'retorno':>12}")
-    linha("custo no p50 por unidade de w: (2,9/2,9)² + (17/17)²", c_p50, c_p50 * DT, 3)
+    linha(f"custo no p50 por unidade de w: ({NORM_LIN}/{NORM_LIN})² + ({NORM_ANG}/{NORM_ANG})²", c_p50, c_p50 * DT, 3)
     linha("ganho máximo do rastreio linear por s (w = knob × 1)", gan_max_s, gan_max_s * DT, 3)
     linha("w sacudida (PD-34)", w_sac, w_sac * c_p50 * DT, 3)
     criterio("(d) custo no p50 com w = 10% do ganho máximo por s", abs(ratio - FRAC_SACUDIDA) < 1e-9,
              f"{ratio * 100:.1f}%")
     emite(f"  conferência (sem critério): p50 medido no CARREGAR do 23250_topo004: "
-          f"‖a_lin‖ = {a_med:.2f} m/s² (spec {NORM_LIN}), ‖α‖ = {alfa_med:.2f} rad/s² (spec {NORM_ANG})")
-    c_med = custo_sacudida(a_med, alfa_med)
-    w_alt = FRAC_SACUDIDA * gan_max_s / c_med
-    emite(f"  com o p50 medido: custo no p50 = {c_med:.3f} por w; w daria {w_alt:.4f} (não entra no critério)")
+          f"‖a_lin‖ = {a_med:.2f} m/s², ‖α‖ = {alfa_med:.2f} rad/s² (knob: {NORM_LIN}, {NORM_ANG})")
     emite()
 
-    emite("Propostas para o knobs (Recompensa; hoje None): aperto = "
-          f"{w}, sacudida = {w_sac:g}. O termo paga −w·custo; o H2 multiplica por d/5 (fator_por_degrau).")
+    emite(f"Knobs (Recompensa): aperto = {w:g} (caso 9; o teto da escada está no item 3), sacudida = {-R.sacudida:g} "
+          f"(PD-34 dá {w_sac:g}). O termo paga −w·custo; o d/5 do degrau mora no termo (P2).")
     emite()
     emite("Suposições")
     emite("  1. F_esq = F_dir = F no ponto de operação; a derivada é d/dF de custo_aperto(F, F, F_ref).")
-    emite("  2. Ganho de afrouxar = rampa linear de 117,5 N a 49 N em 20 s (D8). O pior caso (solta de uma vez) é "
-          f"info: {100 * ganho_rampa / ganho_20:.0f}% dele vira o teto.")
-    emite("  3. Perda do teto = 1,2 × (ΣB P0–P3 + w_p·Φ máx) do item 3, sem o aperto evitado (D6), lida da linha "
-          "'perda_caixa sem o aperto evitado' de saida/item3_escada.txt; retorno.")
-    emite("  4. Ganho máximo do rastreio linear por s = rastreio_linear (1,0) × 1 (rastreio_normalizado ≤ 1).")
-    emite("  5. A sacudida usa 2,9 e 17 (p50 da S §11.5) como normas no p50; o custo no p50 é 2 (teste da H2).")
-    emite("  6. w proposto arredondado para baixo com 1 algarismo; a sacudida fica no valor exato de PD-34.")
-    emite("  7. Os pesos são os do topo (degrau 5, d = 5); o degrau 0 multiplica por d/5 no H2, não aqui.")
+    emite("  2. Ganho de afrouxar = rampa linear de 117,5 N a 49 N em 20 s (D8; informação). O pior caso (solta de "
+          f"uma vez) é {ganho_20:.4f} retorno.")
+    emite("  3. Ganho máximo do rastreio linear por s = rastreio_linear (1,0) × 1 (rastreio_normalizado ≤ 1).")
+    emite("  4. A sacudida usa a norma do knob (sacudida_norma, p50 medido no 23250); o custo no p50 é 2.")
+    emite("  5. w do aperto = −aperto do knob; sacudida no valor exato de PD-34, sem arredondamento.")
+    emite("  6. Os pesos são os do topo (degrau 5, d = 5); o degrau 0 multiplica por d/5 no H2, não aqui.")
     emite()
     emite("Dúvidas")
-    emite(f"  a. Segurar 117,5 N por 20 s com w = {w} custa {hold:.4f} em retorno, acima da perda sem o aperto "
-          f"({perda_ret:.4f}). O critério (c) não olha esse custo; confirmar se é aceitável.")
+    emite(f"  a. Segurar 117,5 N por 20 s com w = {w:g} custa {hold:.4f} em retorno. Nenhum critério cobre esse custo "
+          "(D6 saiu); confirmar se é aceitável.")
     emite("  b. 'Ganho máximo do rastreio linear por s' = 1,0 (peso do knob × 1). Confirmar essa leitura.")
-    emite(f"  c. O p50 da spec (2,9 e 17) não reproduz no 23250_topo004 (medido: {a_med:.2f} e {alfa_med:.2f}, "
-          f"por diferença finita da posição e do quaternion). Com o medido, w = {w_alt:.4f}, não {w_sac:g}. "
-          "Confirmar qual p50 vale.")
     emite()
 
 

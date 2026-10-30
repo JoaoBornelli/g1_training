@@ -187,16 +187,16 @@ class ForcasPorFace(unittest.TestCase):
 
 class Aperto(unittest.TestCase):
     def test_117_5_nas_duas_faces_no_degrau_5_3_e_0(self):
-        # Teste (H2): 117,5 N nas duas faces → 0,909 no degrau 5; 0,545 no 3; 0 no 0 (S §8.2, F_ref = 49 N).
+        # Teste (H2, caso 9 linear): 117,5 N nas duas faces → 117,5/49 = 2,398 no degrau 5; 1,439 no 3; 0 no 0.
         contatos = [((0, 1, 0), (0, 117.5, 0)), ((0, -1, 0), (0, -117.5, 0))]
-        self.assertAlmostEqual(aperto_de(contatos, degrau=5).item(), 0.909, delta=1e-3)
-        self.assertAlmostEqual(aperto_de(contatos, degrau=3).item(), 0.545, delta=1e-3)
+        self.assertAlmostEqual(aperto_de(contatos, degrau=5).item(), 117.5 / 49, delta=1e-3)
+        self.assertAlmostEqual(aperto_de(contatos, degrau=3).item(), 0.6 * 117.5 / 49, delta=1e-3)
         self.assertEqual(aperto_de(contatos, degrau=0).item(), 0.0)
 
-    def test_49_nas_duas_faces_vale_0_632(self):
-        # Teste (H2): 49 N nas duas faces = F_ref → 1 − e⁻¹ = 0,632.
+    def test_49_nas_duas_faces_vale_1(self):
+        # Teste (H2, caso 9 linear): 49 N nas duas faces = F_ref → 1,0.
         contatos = [((0, 1, 0), (0, 49, 0)), ((0, -1, 0), (0, -49, 0))]
-        self.assertAlmostEqual(aperto_de(contatos, degrau=5).item(), 0.632, delta=1e-3)
+        self.assertAlmostEqual(aperto_de(contatos, degrau=5).item(), 1.0, delta=1e-3)
 
     def test_uma_face_so_vale_zero(self):
         # Teste (H2): aperto com uma palma só não aperta a caixa: o mínimo das duas é zero.

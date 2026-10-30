@@ -291,7 +291,8 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     gamma: float = 0.99  # S §9.1: desconto do potencial e do PPO
     # custos: negativos, o peso do cfg é este knob; o fator d/5 do degrau mora no termo (30/10, P2; §6.9)
     sacudida: float = -0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
-    aperto: float = -0.02  # S §8.2, §11.5; Parte 0, item 15 (report §6); D6, D8
+    # caso 9 (30/10, dono): forma linear. Teto da (2b) por s (item 3, seção 4): w < 0,53; a (1) dá 0,071.
+    aperto: float = -0.05
     # norma (m/s², rad/s) do Δv e Δω por passo que vale 2 no p50 medido no 23250_topo004 (item 15). Provisória:
     # recalibrar na fase I pelo `Episodio/aceleracao_da_caixa` (30/10, P8, P10; a spec dizia 2,9 e 17)
     sacudida_norma: tuple = (5.04, 31.56)

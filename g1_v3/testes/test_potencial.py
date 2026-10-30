@@ -51,19 +51,28 @@ class TestProgresso(unittest.TestCase):
 class TestCustoAperto(unittest.TestCase):
 
     def test_valor_em_F_ref(self):
-        # S §8.2: 1 − exp(−min(F)/F_ref); com F = F_ref, 1 − e⁻¹ = 0,632.
+        # Caso 9 (decisão do dono, 30/10): linear, min(F)/F_ref. Com F = F_ref vale 1,0.
         v = potencial.custo_aperto(t(49.0), t(49.0), R.F_ref)
-        self.assertAlmostEqual(v.item(), 0.632, delta=0.001)
+        self.assertAlmostEqual(v.item(), 1.0, delta=1e-6)
 
     def test_valor_e_derivada_em_117_5_N(self):
-        # S §8.2: 0,909 ± 0,002; derivada 0,0019 ± 0,0001 por N (diferença central de 1 N).
+        # Caso 9: 117,5/49 = 2,398; derivada constante 1/49 = 0,0204 por N, igual em 49 e em 117,5 N
+        # (a forma 1 − exp saturava: 0,0019 por N em 117,5 N, canal morto).
         v = potencial.custo_aperto(t(117.5), t(117.5), R.F_ref)
-        self.assertAlmostEqual(v.item(), 0.909, delta=0.002)
+        self.assertAlmostEqual(v.item(), 117.5 / 49.0, delta=1e-5)
         h = 0.5
-        mais = potencial.custo_aperto(t(117.5 + h), t(117.5 + h), R.F_ref)
-        menos = potencial.custo_aperto(t(117.5 - h), t(117.5 - h), R.F_ref)
-        deriv = ((mais - menos) / (2 * h)).item()
-        self.assertAlmostEqual(deriv, 0.0019, delta=0.0001)
+        for f0 in (49.0, 117.5):
+            mais = potencial.custo_aperto(t(f0 + h), t(f0 + h), R.F_ref)
+            menos = potencial.custo_aperto(t(f0 - h), t(f0 - h), R.F_ref)
+            deriv = ((mais - menos) / (2 * h)).item()
+            self.assertAlmostEqual(deriv, 1.0 / 49.0, delta=1e-5)
+
+    def test_usa_a_face_mais_fraca(self):
+        # Caso 9: o custo é pelo mínimo das duas faces, e a face mais forte não entra.
+        v = potencial.custo_aperto(t(60.0), t(100.0), 49.0)
+        self.assertAlmostEqual(v.item(), 60.0 / 49.0, delta=1e-6)
+        v = potencial.custo_aperto(t(100.0), t(60.0), 49.0)
+        self.assertAlmostEqual(v.item(), 60.0 / 49.0, delta=1e-6)
 
 
 class TestFatorPouso(unittest.TestCase):

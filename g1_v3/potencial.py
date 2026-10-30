@@ -62,12 +62,13 @@ def fator_pouso(v_vertical: torch.Tensor, fundo_sobre_laje: torch.Tensor, sigma,
 
 
 def custo_aperto(F_esq: torch.Tensor, F_dir: torch.Tensor, F_ref) -> torch.Tensor:
-    """1 − exp(−min(F_esq, F_dir)/F_ref). Custo do aperto, multiplicado por −w (S §8.2, B02).
+    """min(F_esq, F_dir)/F_ref. Custo do aperto, multiplicado por −w (S §8.2, B02).
 
-    Sem aperto custa 0; cresce com a derivada em todo ponto (era `exp(...)`, que premiava
-    demorar, ver a spec §8.2). Com F = F_ref vale 1 − e⁻¹ = 0,632.
+    Linear (caso 9, decisão do dono 30/10): sem aperto custa 0 e a derivada é 1/F_ref em todo
+    ponto. A forma 1 − exp(−F/F_ref) saturava: a 117,5 N a derivada era 3,7e−5 por N por s no
+    degrau 5, canal morto. Hinge linear, como o FORGE e o legged_gym (limiar 0). Com F = F_ref vale 1.
     """
-    return 1.0 - torch.exp(-torch.minimum(F_esq, F_dir) / F_ref)
+    return torch.minimum(F_esq, F_dir) / F_ref
 
 
 def dobradica(x: torch.Tensor, limite) -> torch.Tensor:

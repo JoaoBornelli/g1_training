@@ -18,8 +18,6 @@ from pathlib import Path
 
 import numpy as np
 
-import re
-
 from g1_v3.knobs import ATIVO, caminho
 from g1_v3.parte0 import comum as C
 from g1_v3.parte0 import item1_phi as I1
@@ -61,17 +59,6 @@ def emite(texto=""):
 
 def f3(x):
     return "nan" if x is None or not np.isfinite(x) else f"{x:+.4f}"
-
-
-ITEM15 = Path(__file__).resolve().parent / "saida" / "item15_aperto.txt"
-
-
-def w_aperto() -> float:
-    """w proposto do item 15 (primeira coluna da linha 'w proposto'). Sem a linha, para a rodada."""
-    m = re.search(r"^\s*w proposto \(1 algarismo[^\n]*?([0-9.]+)\s+[0-9.]+\s*$", ITEM15.read_text(encoding="utf-8"), re.M)
-    if m is None:
-        raise SystemExit(f"w proposto não achado em {ITEM15}")
-    return float(m.group(1))
 
 
 def _carrega(nome, fase):
@@ -213,23 +200,36 @@ def main():
     volta_r = w_p * PHI_MAX * DT
     mergulho_r = (B_pos["P0"] + w_p * PHI_MAX) * DT
     reguladores_r = c_b * EPISODIO
-    w_ap = w_aperto()  # lido da saída do item 15
-    r_ap_r = w_ap * I15.custo(I15.F_OPERACAO) * I15.JANELA  # r_aperto que a perda evita (retorno)
+    w_ap = -R.aperto  # peso proposto = o do knob (caso 9); o teto sai da escada, abaixo
+    K_ap = I15.custo(I15.F_OPERACAO) * I15.JANELA  # aperto evitado por unidade de w (retorno)
+    r_ap_r = w_ap * K_ap  # aperto linear evitado: segurar 117,5 N por 20 s (R2, P2)
+    r_sac_r = -R.sacudida * I15.custo_sacudida(*R.sacudida_norma) * EPISODIO  # sacudida evitada, p50, degrau 5
     lado1_dir = reguladores_r + soma_b * DT + r_ap_r
-    lado2_sem = (soma_p03 + w_p * PHI_MAX) * DT  # sem o aperto evitado: não depende de w (item 15 lê)
-    lado2_dir = lado2_sem + r_ap_r
-    perda_sem_r = MARGEM_PERDA * lado2_sem  # retorno
-    perda_r = MARGEM_PERDA * lado2_dir  # retorno
-    perda_passo = perda_r / DT  # knob perda_caixa (por passo)
+    perda_knob_r = R.perda_caixa * DT  # perda do knob (por passo × dt); o knob não muda aqui
+    # (2a) parte fixa: o que a perda deixa recolher de novo (ΣB P0–P3 + Φ máx·w_p); a perda vale 1,2 × isso
+    fixo_r = (soma_p03 + w_p * PHI_MAX) * DT
     ineq = [
-        ("queda > perda", QUEDA, perda_r),
-        ("perda > volta", perda_r, volta_r),
+        ("queda > perda do knob", QUEDA, perda_knob_r),
+        ("perda do knob > volta", perda_knob_r, volta_r),
         ("queda > mergulho", QUEDA, mergulho_r),
         ("(1) queda > reguladores até 20 s no BOTAR + B restantes + r_aperto", QUEDA, lado1_dir),
-        ("(2) perda > B P0–P3 + Φ máx·w_p + r_aperto (perda = 1,2 × lado direito)", perda_r, lado2_dir),
+        ("(2a) perda do knob > 1,2 × (ΣB P0–P3 + Φ máx·w_p): o que a perda deixa recolher", perda_knob_r,
+         MARGEM_PERDA * fixo_r),
     ]
     fecha_fixo = all(e > d for _, e, d in ineq[:4])
     devolve = not fecha_fixo
+    # (2b) por s de episódio restante: positivos que a perda zera > 1,2 × (sacudida evitada/s + aperto evitado/s).
+    # passo e altura_pe (paga=True) ficam de fora: lado conservador (o positivo do lado do que a perda custa é menor).
+    pos_s = R.vivo + R.rastreio_linear + R.rastreio_angular  # positivos que a perda zera, por s (valor 1)
+    sac_s = -R.sacudida * I15.custo_sacudida(*R.sacudida_norma)  # sacudida evitada por s, no p50, degrau 5
+    ap_s = w_ap * I15.custo(I15.F_OPERACAO)  # aperto evitado por s (117,5 N, F_ref 49 N)
+    ok_2b = pos_s > MARGEM_PERDA * (sac_s + ap_s)
+    teto_2b = (pos_s / MARGEM_PERDA - sac_s) / I15.custo(I15.F_OPERACAO)  # w < (pos_s/1,2 − sac_s)/(117,5/49)
+    # (1) inalterada: teto de w pela desigualdade (1), com o aperto no retorno de 20 s
+    teto_1 = (QUEDA - reguladores_r - soma_b * DT) / K_ap
+    # informação (não é critério; R2 da H8): a versão da S §10, sem os positivos, com o aperto antigo (−0,02) e o do knob
+    lado_s10_r = fixo_r + r_sac_r + r_ap_r
+    lado_s10_antigo_r = fixo_r + r_sac_r + 0.02 * K_ap
 
     # ================= saída =================
     emite("Item 3 da Parte 0: escada de custos, B_alvo, w_p e pesos das cercas (S §9.4, §10, §16 item 3)")
@@ -291,14 +291,22 @@ def main():
               f"{'OK' if esq > dir_ else 'FALHA'}")
     emite(f"  queda (knob terminacao, por passo) = {-R.terminacao:.1f}; reguladores BOTAR até 20 s = "
           f"{reguladores_r:+.4f} ret; ΣB P0–P3 = {soma_p03:.4f} passo; ΣB B1–B4 = {soma_b:.4f} passo; w_p = {w_p:.4f}")
-    emite(f"  r_aperto evitado = w_aperto {w_ap} × custo_aperto(117,5; 117,5; F_ref) {I15.custo(I15.F_OPERACAO):.4f} × "
-          f"{I15.JANELA:.0f} s = {r_ap_r:.4f} retorno ({r_ap_r / DT:.4f} por passo)")
-    emite(f"  perda_caixa = 1,2 × lado direito de (2): retorno {perda_r:.4f}; por passo (knob) = retorno/dt = "
-          f"{perda_passo:.4f}")
-    emite(f"  perda_caixa sem o aperto evitado (não depende de w; o item 15 lê): retorno {perda_sem_r:.4f}; "
-          f"por passo {perda_sem_r / DT:.4f}")
-    emite(f"  devolve_b_alvo = {devolve} (True só se a escada (queda > perda > volta, queda > mergulho, (1)) "
-          f"não fecha com a perda fixa)")
+    emite(f"  (2a) parte fixa: perda do knob {perda_knob_r:.4f} ret > 1,2 × (ΣB P0–P3 + Φ máx·w_p) = "
+          f"{MARGEM_PERDA * fixo_r:.4f} (sem a sacudida, o aperto nem os positivos)")
+    emite(f"  (2b) por s de episódio restante: positivos que a perda zera = {pos_s:.4f}/s "
+          f"((vivo {R.vivo:g} + rastreio linear {R.rastreio_linear:g} + angular {R.rastreio_angular:g}), valor 1)")
+    emite(f"       sacudida evitada = {sac_s:.4f}/s (−sacudida {R.sacudida:g} × custo p50 "
+          f"{I15.custo_sacudida(*R.sacudida_norma):.1f}); aperto evitado = {ap_s:.4f}/s (w {w_ap:g} × {I15.custo(I15.F_OPERACAO):.4f})")
+    emite(f"       {pos_s:.4f} > 1,2 × ({sac_s:.4f} + {ap_s:.4f}) = {MARGEM_PERDA * (sac_s + ap_s):.4f}: "
+          f"{'OK' if ok_2b else 'FALHA'}")
+    emite(f"  teto do peso do aperto pela (2b): w < (pos_s/1,2 − sac_s)/(117,5/49) = {teto_2b:.4f}; "
+          f"peso do knob {w_ap:g} {'cabe' if w_ap < teto_2b else 'passa'}")
+    emite(f"  teto pela desigualdade (1), inalterada: {teto_1:+.4f} (o peso do knob {'cabe' if w_ap < teto_1 else 'passa'})")
+    emite(f"  informação, S §10 sem os positivos (não é critério; falha com o aperto antigo, −0,02): "
+          f"sacudida sozinha {r_sac_r:.4f} já passa da perda do knob {perda_knob_r:.4f}; "
+          f"lado com o aperto antigo {lado_s10_antigo_r:.4f}; com o do knob {lado_s10_r:.4f}")
+    emite(f"  devolve_b_alvo: knob = {R.devolve_b_alvo}, calculado = {devolve} "
+          f"(True só se as quatro primeiras desigualdades da escada não fecham)")
     emite("")
 
     emite("5. Cercas de postura (PD-30, D4): média por passo só nos passos em que a cerca age (> 0), peso = −0,5·G ÷ média")
@@ -346,10 +354,11 @@ def main():
         "peso = −0,5·G ÷ média (sinal negativo, como custos_por_s).",
         "10. Escada (1): queda = |terminacao|·dt; reguladores até os 20 s do episódio no BOTAR = custo/s × 20 "
         "(limite superior: o plano não fixa quando o BOTAR começa); B_alvo restantes = B1–B4 (queda logo no início); "
-        "+ r_aperto.",
-        "11. Escada (2): perda = 1,2 × (ΣB P0–P3 + w_p·Φ máx + r_aperto), Φ máx = 1. r_aperto = w_aperto (linha "
-        "'proposto' da saída do item 15, primeira coluna) × custo_aperto(117,5; 117,5; F_ref) × 20 s, retorno. "
-        "Sem laço: o item 15 lê a linha 'perda_caixa sem o aperto evitado' (não depende de w) para o seu w máximo.",
+        "+ aperto evitado.",
+        "11. Escada (2), por coordenação (30/10): (2a) parte fixa = perda do knob > 1,2 × (ΣB P0–P3 + Φ máx·w_p), o que a "
+        "perda deixa recolher; (2b) por s = positivos que a perda zera (vivo + rastreio linear + angular, valor 1; passo "
+        "e altura_pe ficam de fora, lado conservador) > 1,2 × (sacudida evitada/s + aperto evitado/s). Os positivos são o "
+        "que a perda custa, não o que ela rende. A perda do knob é lida, não recalculada.",
         "12. Volta à pose de pé = w_p·Φ máx (paga uma vez, como potencial, sem bônus). Mergulho = B_P0 + w_p·Φ máx.",
         "13. perda_caixa (peso −1) paga perda·dt no passo da perda, como a terminação paga −200·dt.",
         "14. devolve_b_alvo = True só se (queda > perda), (perda > volta), (queda > mergulho) e (1) não fecham com a "

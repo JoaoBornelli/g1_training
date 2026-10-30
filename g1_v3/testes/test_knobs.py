@@ -110,7 +110,7 @@ class TestKnobs(unittest.TestCase):
         # §12.4 H1 e §6.2 (30/10): custos com o sinal do cfg; a DR da força da caixa; o viés de orientação.
         r = Recompensa()
         self.assertEqual(r.sacudida, -0.05)  # P2
-        self.assertEqual(r.aperto, -0.02)  # P2
+        self.assertEqual(r.aperto, -0.05)  # caso 9 (30/10): forma linear, peso pela escada
         self.assertEqual(r.sacudida_norma, (5.04, 31.56))  # P8, P10
         self.assertEqual(DR().forca_caixa_N, (-11.5, 11.5))  # P3: por eixo
         self.assertLessEqual(11.5 * 3 ** 0.5, 20.0)  # ‖F‖ do impulso por eixo, ≤ 19,9 N
