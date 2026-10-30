@@ -141,7 +141,8 @@ def atualiza_percepcao(env: ManagerBasedRlEnv) -> None:
     """
     if env.v3_percepcao_passo == env.common_step_counter:
         return
-    if K.percepcao.ligada:
+    # a cena sai do `k` do make_env_cfg: sem o lidar nela não há leitura, mesmo que o ATIVO do módulo diga ligada
+    if "lidar" in env.scene.sensors:
         env.v3_mapa_obs = _calcula_percepcao(env)
     env.v3_caixa_obs = _calcula_caixa(env)
     env.v3_percepcao_passo = env.common_step_counter

@@ -88,7 +88,8 @@ class ObservacoesTest(unittest.TestCase):
     def test_guarda_calcula_a_percepcao_uma_vez_por_passo(self):
         # `atualiza_percepcao` só chama `_calcula_percepcao` e `_calcula_caixa` uma vez por common_step_counter
         env = types.SimpleNamespace(common_step_counter=5, v3_percepcao_passo=-1,
-                                    v3_mapa_obs=None, v3_caixa_obs=None)
+                                    v3_mapa_obs=None, v3_caixa_obs=None,
+                                    scene=types.SimpleNamespace(sensors={"lidar": None}))  # com o lidar na cena
         with mock.patch.object(observacoes, "_calcula_percepcao",
                                return_value=torch.zeros(1, 882)) as calc, \
              mock.patch.object(observacoes, "_calcula_caixa",
@@ -101,6 +102,17 @@ class ObservacoesTest(unittest.TestCase):
             observacoes.atualiza_percepcao(env)  # passo seguinte
             self.assertEqual(calc.call_count, 2)
             self.assertEqual(caixa.call_count, 2)
+
+    def test_cena_sem_lidar_nao_calcula_percepcao_mesmo_com_ativo_ligado(self):
+        # a cena sai do `k` do make_env_cfg; com o lidar fora da cena, a guarda não lê o sensor, mesmo com ATIVO ligado
+        self.assertTrue(ATIVO.percepcao.ligada)  # pré-condição: o ATIVO do módulo diz "ligada"
+        env = types.SimpleNamespace(common_step_counter=5, v3_percepcao_passo=-1, v3_mapa_obs=None, v3_caixa_obs=None,
+                                    scene=types.SimpleNamespace(sensors={}))  # sem "lidar"
+        with mock.patch.object(observacoes, "_calcula_percepcao", return_value=torch.zeros(1, 882)) as calc, \
+             mock.patch.object(observacoes, "_calcula_caixa", return_value=torch.zeros(1, 11)):
+            observacoes.atualiza_percepcao(env)  # antes do conserto: _calcula_percepcao roda e lê sensors["lidar"]
+        self.assertEqual(calc.call_count, 0)
+        self.assertIsNone(env.v3_mapa_obs)
 
     def test_referencia_com_alvo_menos_um_e_zero(self):
         # §6.6: zero (não NaN) quando o alvo é −1; `v3_ref` é o Referencias carregado do npz (§6.4)

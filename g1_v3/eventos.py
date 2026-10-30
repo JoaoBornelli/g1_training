@@ -239,7 +239,8 @@ def empurrao(env, env_ids, velocity_range: dict):
     tem de ler a mesma unidade em `tempo_da_ancora`.
     """
     push_by_setting_velocity(env, env_ids, velocity_range=velocity_range)
-    env.v3_t_empurrao[env_ids] = env.episode_length_buf[env_ids].to(torch.float64) * env.step_dt
+    # o buffer é float32 (curriculo.py:75): converte a conta para o dtype dele, senão o index_put quebra
+    env.v3_t_empurrao[env_ids] = env.episode_length_buf[env_ids].to(env.v3_t_empurrao.dtype) * env.step_dt
 
 
 # ------------------------------------------------------------------ fase E: a cena da caixa (E1; §6.5)
