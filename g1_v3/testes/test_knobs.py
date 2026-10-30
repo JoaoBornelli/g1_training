@@ -15,7 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
-from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, Contrato, Knobs, Recompensa, dim_ator, q_de_pe
+from g1_v3.knobs import (ATIVO, DR, JUNTAS, TAREFAS, TAU_MAX, Contrato, Estimador, Knobs, Recompensa, Refino,
+                         dim_ator, q_de_pe)
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -90,17 +91,43 @@ class TestKnobs(unittest.TestCase):
         self.assertEqual(tuple(k.dr.atraso_refino), (0, 3))
         self.assertEqual(k.dr.degrau_atraso_refino, 3)  # PD-41
         self.assertEqual(k.refino.degrau_batente, 1)
-        # Cada regra resolve para o par (início, fim) da seção que ela aponta: o número mora num lugar só.
-        esperado = {"laje_joelho_N": (50.0, 10.0), "incl_lim": (30.0, 15.0),
-                    "chegada": (1.0, 0.25), "sigma_pouso": (1.0, 0.35)}
-        achado = {}
-        for regra, tarefas, secao, campo in k.refino.regras:
-            s = getattr(k, secao)
-            par = (tuple(getattr(s, c) for c in campo) if isinstance(campo, tuple)
-                   else tuple(getattr(s, campo)))
-            achado[regra] = par
-            self.assertTrue(set(tarefas) <= set(TAREFAS), regra)
-        self.assertEqual(achado, esperado)
+        # H1 (30/10, P1): as 4 regras do refino moram nas suas seções (o número mora num lugar só).
+        self.assertEqual(tuple(k.recompensa.laje_joelho_N), (50.0, 10.0))
+        self.assertEqual((k.alvos.incl_inicio_graus, k.alvos.incl_fim_graus), (30.0, 15.0))
+        self.assertEqual(tuple(k.terminacao.chegada), (1.0, 0.25))
+        self.assertEqual(tuple(k.recompensa.sigma_pouso), (1.0, 0.35))
+
+    def test_tau_max_por_junta_na_ordem_de_juntas(self):
+        # §12.4 H1 (P20): TAU_MAX tem 29 valores na ordem de JUNTAS, montados da tabela por regex no import.
+        # Joelho e hip_roll 139; hip_pitch, hip_yaw e waist_yaw 88; cintura e tornozelo 50; ombro, cotovelo e
+        # wrist_roll 25; wrist_pitch e wrist_yaw 5.
+        esperado = (88, 139, 88, 139, 50, 50, 88, 139, 88, 139, 50, 50, 88, 50, 50,
+                    25, 25, 25, 25, 25, 5, 5, 25, 25, 25, 25, 25, 5, 5)
+        self.assertEqual(len(TAU_MAX), 29)
+        self.assertEqual(tuple(TAU_MAX), tuple(float(v) for v in esperado))
+
+    def test_valores_novos_da_fase_h(self):
+        # §12.4 H1 e §6.2 (30/10): custos com o sinal do cfg; a DR da força da caixa; o viés de orientação.
+        r = Recompensa()
+        self.assertEqual(r.sacudida, -0.05)  # P2
+        self.assertEqual(r.aperto, -0.02)  # P2
+        self.assertEqual(r.sacudida_norma, (5.04, 31.56))  # P8, P10
+        self.assertEqual(DR().forca_caixa_N, (-11.5, 11.5))  # P3: por eixo
+        self.assertLessEqual(11.5 * 3 ** 0.5, 20.0)  # ‖F‖ do impulso por eixo, ≤ 19,9 N
+        e = Estimador()
+        self.assertEqual(e.ori_graus, ((1.5, 2.5), (5.3, 15.3)))  # P21a
+        self.assertEqual(e.ori_leitura_graus, (0.0, 1.0))  # P21b
+        self.assertEqual(e.vies_pos, (0.0, 0.02))  # P21c
+        self.assertEqual(e.rajada_s, (0.3, 1.0))  # DR §3.5
+        self.assertEqual(e.rajada_taxa, (0.0, 0.035))  # P21e
+        # Os campos que a H5b tira só na onda H-3 (observacoes._magnitude os lê) ficam nesta onda.
+        self.assertTrue(hasattr(e, "sigma_ori_graus"))
+        self.assertTrue(hasattr(e, "ori_persistente"))
+
+    def test_refino_sem_os_campos_mortos(self):
+        # §12.4 H1 (P1): saem Refino.regras, fator_por_degrau e tarefas_fator; fica degrau_batente
+        campos = {f.name for f in dataclasses.fields(Refino)}
+        self.assertEqual(campos, {"degrau_batente"})
 
     def test_colunas_do_terreno(self):
         # D1 (§6.2, 29/10): as 9 colunas na ordem do gerador; o eventos lê esta ordem.

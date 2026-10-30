@@ -75,6 +75,14 @@ def dobradica(x: torch.Tensor, limite) -> torch.Tensor:
     return torch.relu(x - limite)
 
 
+def curso(q: torch.Tensor, centro: torch.Tensor, meio: torch.Tensor) -> torch.Tensor:
+    """|q − c|/m (E, J): fração do curso de cada junta; 1 no batente do modelo (H1, P13).
+
+    O `batente` (H3) e a métrica `fracao_do_curso` (H5b) leem esta mesma conta, para o curso ser um número só.
+    """
+    return torch.abs(q - centro) / meio
+
+
 def excesso_de_junta(q: torch.Tensor, centro: torch.Tensor, meio: torch.Tensor, mole) -> torch.Tensor:
     """Σ_j relu(|q − c|/m − mole)/(1 − mole) (S §9.2): zero até o limite mole, 1 no batente.
 
@@ -82,8 +90,7 @@ def excesso_de_junta(q: torch.Tensor, centro: torch.Tensor, meio: torch.Tensor, 
     fica no último 5% do curso (a receita da Unitree cobra em radianos, e ela ficava rasa
     nas juntas de curso largo: ver a spec §9.2).
     """
-    frac = torch.abs(q - centro) / meio
-    return torch.relu(frac - mole).sum(dim=-1) / (1.0 - mole)
+    return torch.relu(curso(q, centro, meio) - mole).sum(dim=-1) / (1.0 - mole)
 
 
 def rastreio_normalizado(erro2: torch.Tensor, c: torch.Tensor, v2: torch.Tensor,

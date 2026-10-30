@@ -36,6 +36,12 @@ def deficit(s, portao):
     return torch.clamp(portao - s, min=0.0)
 
 
+def no_degrau(ini, fim, d, degraus):
+    # §6.9 (P1): o valor do degrau d de um refino que vai de `ini` (d = 0) a `fim` (d = degraus). Uma função só:
+    # o dr() a chama aqui, e o recompensas.por_degrau e os módulos do env a importam daqui. `d` é int ou tensor (E,).
+    return ini + (fim - ini) * d / degraus
+
+
 @dataclasses.dataclass
 class Celula:
     tarefa: str        # "ANDAR" | "PEGAR" | "CARREGAR" | "BOTAR"
@@ -245,6 +251,10 @@ class Curriculo:
     def degrau(self, tarefa: str) -> int:
         return self._degrau[tarefa]
 
+    def degrau_global(self) -> int:
+        # §6.9, PD-41 (P5): o refino do DR só sobe quando as 4 tarefas chegaram: o menor degrau entre elas
+        return min(self.degrau(t) for t in TAREFAS)
+
     def nivel_passou(self, tarefa: str) -> int:
         # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa
         i = self._de(tarefa)[0]
@@ -253,9 +263,16 @@ class Curriculo:
     def dr(self) -> dict:
         # §6.8: o estado de DR que o env aplica, só tipos do Python. Sobe no fecho e nunca desce (as travas).
         # ⚠ "com_caixa" só age com `DR.com_caixa` (PD-38): desligada, o vetor fica [0, 0].
+        # H1 (30/10): o refino (pd, forca_motor, forca_motor_bracos, solref, rfi, atraso_max) segue o degrau GLOBAL g
+        # (PD-41, P5) pela `no_degrau`; com g = 0 cada par vale o início. "forca_caixa" é a trava, sem escala (P15).
         if self.k_dr is None:
             return {}
         d, p0, sub = self.k_dr, self._dr["portao0"], self._dr["subida"]
+        g, n = self.degrau_global(), self.k.degraus
+
+        def pares(ini, fim):
+            return [no_degrau(ini, fim[0], g, n), no_degrau(ini, fim[1], g, n)]
+
         mu = d.atrito_pad[0]
         if p0:
             mu = max(d.mu_pad_min, d.atrito_pad[0] - d.passo_mu_pad * (self._nivel["PEGAR"] + self._nivel["CARREGAR"]))
@@ -266,9 +283,14 @@ class Curriculo:
             "atrito_laje": p0,
             "mu_min_pad": float(mu),
             "com_caixa": [float(x) for x in com] if d.com_caixa else [0.0, 0.0],
-            "atraso_max": d.atraso_portao[1] if p0 else d.atraso_inicio[1],
+            "atraso_max": (d.atraso_refino[1] if g >= d.degrau_atraso_refino
+                           else d.atraso_portao[1] if p0 else d.atraso_inicio[1]),
             "forca_caixa": sub,
-            "rfi": d.rfi[0] if sub else 0.0,
+            "rfi": no_degrau(d.rfi[0], d.rfi[1], g, n) if sub else 0.0,
+            "pd": pares(1, d.pd),
+            "forca_motor": pares(1, d.forca_motor),
+            "forca_motor_bracos": pares(1, d.forca_motor_bracos),
+            "solref": pares(d.solref_base, d.solref),
         }
 
     # --- estado do checkpoint -------------------------------------------------------------------

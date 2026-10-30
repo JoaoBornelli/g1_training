@@ -3,7 +3,7 @@
 Regra do pacote: nenhum número solto no meio do código. Um treino tem de ser
 reproduzível por `git diff` deste arquivo.
 
-⚠ MÓDULO PURO: importa só `dataclasses`, `math`, `pathlib` e `numpy`. Nunca torch, mjlab nem
+⚠ MÓDULO PURO: importa só `dataclasses`, `math`, `pathlib`, `re` e `numpy`. Nunca torch, mjlab nem
 mujoco (plano §1.5). O sim do real e o robô carregam este arquivo por caminho, sem o
 pacote (PD-43); por isso ele não importa outros módulos do g1_v3 nem do g1_limpo.
 
@@ -21,6 +21,7 @@ pares das outras seções pelo nome do campo do `Knobs` (em minúsculo).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -288,8 +289,12 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # um valor por alvo, na ordem de ALVOS; Parte 0, item 3 (report §6); PD-31
     b_alvo: tuple = (1.6721, 0.8360, 0.0334, 0.8360, 1.6721, 1.8144, 0.9072, 0.9072, 1.8144)  # S §9.4
     gamma: float = 0.99  # S §9.1: desconto do potencial e do PPO
-    sacudida: float = 0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
-    aperto: float = 0.02  # S §8.2, §11.5; Parte 0, item 15 (report §6); D6, D8
+    # custos: negativos, o peso do cfg é este knob; o fator d/5 do degrau mora no termo (30/10, P2; §6.9)
+    sacudida: float = -0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
+    aperto: float = -0.02  # S §8.2, §11.5; Parte 0, item 15 (report §6); D6, D8
+    # norma (m/s², rad/s) do Δv e Δω por passo que vale 2 no p50 medido no 23250_topo004 (item 15). Provisória:
+    # recalibrar na fase I pelo `Episodio/aceleracao_da_caixa` (30/10, P8, P10; a spec dizia 2,9 e 17)
+    sacudida_norma: tuple = (5.04, 31.56)
     F_ref: float = 49.0  # S §8.2, §11.5: força de referência do aperto (N)
     terminacao: float = -200.0  # S §10: peso da terminação
     perda_caixa: float = 28.0515  # S §10; Parte 0, item 3 (report §6); D6
@@ -361,9 +366,17 @@ class Estimador:  # I §2.3; S §13; PD-11, PD-18
     fov_v_graus: float = 42.0  # PD-11: campo de visão vertical da D435i (graus)
     alcance: tuple = (0.28, 3.0)  # PD-11: alcance útil do depth (m); mínimo 0,28
     # (início, refino). ⚠ sigma_pos: início em metros, refino em FRAÇÃO da distância (2%)
-    vies_meia: tuple = (0.005, 0.02)  # S §13 (dono, 15/10): viés da meia aresta (m)
-    vies_alvo_botar_xy: tuple = (0.01, 0.05)  # S §13 (dono, 15/10): viés do alvo do BOTAR no plano (m)
-    vies_alvo_botar_z: tuple = (0.005, 0.03)  # S §13 (dono, 15/10): viés do alvo do BOTAR em z (m)
+    vies_meia: tuple = (0.005, 0.02)  # S §13 (dono, 15/10): viés da meia aresta (m); U[±] por episódio (P21d)
+    vies_pos: tuple = (0.0, 0.02)  # 30/10, P21c: viés de posição da caixa (m), U[±] por episódio; 0 no início
+    vies_alvo_botar_xy: tuple = (0.01, 0.05)  # S §13 (dono, 15/10): viés do alvo do BOTAR no plano (m); U[±] (P21d)
+    vies_alvo_botar_z: tuple = (0.005, 0.03)  # S §13 (dono, 15/10): viés do alvo do BOTAR em z (m); U[±] (P21d)
+    # viés de orientação (30/10, P21a, b): (mediana; p90) em graus do ângulo do viés do episódio, lognormal; e o σ
+    # por eixo do rotvec do ruído de cada leitura (0 no início: o início fica igual ao de hoje)
+    ori_graus: tuple = ((1.5, 2.5), (5.3, 15.3))
+    ori_leitura_graus: tuple = (0.0, 1.0)
+    # rajadas de perda (DR §3.5; 30/10, P21e): duração U (s) e taxa de abertura (1/s), (início; refino)
+    rajada_s: tuple = (0.3, 1.0)
+    rajada_taxa: tuple = (0.0, 0.035)
     ori_persistente: tuple = (True, True)  # S §13 (dono, 15/10): viés de orientação persiste
     pontos_visiveis_min: int = 3  # PD-11: pontos dos 9 necessários para ver a caixa
     sigma_pos: tuple = (0.005, 0.02)  # PD-18; S §13: σ da posição (m; refino: 2% da distância)
@@ -424,28 +437,23 @@ class DR:  # S §12, DR §5; PD-24; §6.8 (quando: startup, reset, intervalo, po
     com_caixa: bool = False  # §6.8; PD-38: liga o dr.body_com_offset (nasce desligada)
     com_caixa_frac0: tuple = (0.2, 0.2)  # §6.8 PEGAR no portão: CoM da caixa (xy; z; × meia aresta)
     com_caixa_frac_max: tuple = (0.3, 0.2)  # §6.8 níveis seguintes: CoM da caixa (xy; z; × meia aresta)
-    forca_caixa_N: tuple = (5.0, 20.0)  # §6.8 CARREGAR: impulso na caixa (N)
+    # §6.8 CARREGAR: impulso na caixa (N), por eixo: o apply_body_impulse sorteia por componente, ‖F‖ ≤ 19,9 N (P3)
+    forca_caixa_N: tuple = (-11.5, 11.5)
     forca_caixa_dur_s: tuple = (0.1, 0.3)  # §6.8 CARREGAR: duração do impulso (s)
     forca_caixa_periodo_s: tuple = (3.0, 8.0)  # §6.8 CARREGAR: intervalo entre impulsos (s)
     rfi: tuple = (0.05, 0.1)  # §6.8: RFI × limite de torque (início; refino)
     pd: tuple = (0.9, 1.1)  # §6.8 refino: faixa do ganho do PD no degrau 5 (degrau 0 = 1,0)
     forca_motor: tuple = (0.9, 1.1)  # §6.8 refino: faixa da força do motor no degrau 5
     forca_motor_bracos: tuple = (0.8, 1.1)  # §6.8 refino: faixa da força do motor dos braços
-    solref: tuple = (0.015, 0.03)  # §6.8 refino: solref[0] do chão e da caixa (início; refino)
+    # §6.8 refino: solref[0] das geoms que mandam no contato: pés, pads, laje e caixa (P17)
+    solref: tuple = (0.015, 0.03)
     solref_base: float = 0.02  # §6.8 refino: solref[0] no degrau 0; PD-41
 
 
 @dataclass(frozen=True)
 class Refino:  # S §11.5; §6.9
-    # (regra, tarefas, seção do Knobs, campo): o campo é um par (início; refino) ou (início; fim)
-    regras: tuple = (
-        ("laje_joelho_N", ("PEGAR", "BOTAR"), "recompensa", "laje_joelho_N"),
-        ("incl_lim", ("PEGAR", "CARREGAR", "BOTAR"), "alvos", ("incl_inicio_graus", "incl_fim_graus")),
-        ("chegada", ("BOTAR",), "terminacao", "chegada"),
-        ("sigma_pouso", ("BOTAR",), "recompensa", "sigma_pouso"),
-    )
-    fator_por_degrau: tuple = ("aperto", "sacudida")  # §6.9: peso × d/5; campos de Recompensa
-    tarefas_fator: tuple = ("PEGAR", "CARREGAR", "BOTAR")  # §6.9: tarefas com o fator
+    # 30/10 (P1): saíram `regras`, `fator_por_degrau` e `tarefas_fator` (sem leitor no pacote). Os pares das regras
+    # moram nas suas seções (`Recompensa.laje_joelho_N`, `sigma_pouso`; `Alvos.incl_*`; `Terminacao.chegada`).
     degrau_batente: int = 1  # §6.9: batente e hip_yaw > 1 rad ligados a partir deste degrau
 
 
@@ -469,6 +477,9 @@ class Knobs:  # agregador; g1_limpo/knobs.py:1608-1628
 
 
 ATIVO = Knobs()
+# 30/10 (P20): o torque máximo por junta, na ordem de JUNTAS, montado da tabela por regex (`Recompensa.tau_max`) no
+# import. Uma junta casa uma regex só (test_knobs). A cerca do torque e o evento `rfi` vão importá-lo daqui (H2, H4).
+TAU_MAX = tuple(next(v for rx, v in ATIVO.recompensa.tau_max if re.fullmatch(rx, j)) for j in JUNTAS)
 
 
 def dim_ator(c: Contrato = Contrato()) -> int:  # I §2.1: 1 447 números por passo

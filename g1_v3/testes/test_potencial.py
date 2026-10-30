@@ -118,6 +118,31 @@ class TestExcessoDeJunta(unittest.TestCase):
         self.assertAlmostEqual(out[0].item(), 1.5, places=9)
 
 
+class TestCurso(unittest.TestCase):
+
+    def test_centro_0_meio_1_e_o_valor_absoluto(self):
+        # §12.4 H1 (P13): potencial.curso(q, 0, 1) = |q|
+        q = torch.tensor([[-0.5, 0.0, 0.5, 1.0]], dtype=T)
+        out = potencial.curso(q, t(0.0, 0.0, 0.0, 0.0), t(1.0, 1.0, 1.0, 1.0))
+        self.assertTrue(torch.allclose(out, q.abs(), atol=1e-9))
+
+    def test_um_e_um_virgula_zero_um_no_batente(self):
+        # §12.4 H1: centro + 1,01·meio → 1,01; o batente do modelo é 1 (|q − c| = meio)
+        centro, meio = t(0.3), t(0.5)
+        q = torch.tensor([[0.3 + 1.01 * 0.5], [0.3 + 0.5]], dtype=T)
+        out = potencial.curso(q, centro, meio).reshape(-1)
+        self.assertAlmostEqual(out[0].item(), 1.01, places=9)
+        self.assertAlmostEqual(out[1].item(), 1.0, places=9)
+
+    def test_excesso_de_junta_segue_igual_pela_funcao(self):
+        # §12.4 H1: `excesso_de_junta` passa a chamar `curso`; o resultado não muda (o teste do batente acima)
+        q = torch.tensor([[0.975, 1.0]], dtype=T)
+        a = potencial.excesso_de_junta(q, t(0.0, 0.0), t(1.0, 1.0), R.limite_mole)
+        b = (torch.relu(potencial.curso(q, t(0.0, 0.0), t(1.0, 1.0)) - R.limite_mole).sum(dim=-1)
+             / (1.0 - R.limite_mole))
+        self.assertTrue(torch.allclose(a, b, atol=1e-12))
+
+
 class TestRastreioNormalizado(unittest.TestCase):
     """S §19, conflito 5; PD-49. A função recebe erro² e v² (plano §6.3)."""
 
