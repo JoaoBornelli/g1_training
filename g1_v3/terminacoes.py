@@ -1,8 +1,8 @@
 """Terminações da v3 da fase D: o fim da cadeia (`time_out`) e a queda (plano §6.5, D6; PD-21).
 
 Cada termo é um núcleo puro sobre tensores (`n_*`) mais um invólucro fino que lê o env. O teste
-chama o núcleo com tensores sintéticos. `fim_da_cadeia`, `queda` (D), `caixa_perdida` (E) e `chegada` (F);
-`batente` é da fase H.
+chama o núcleo com tensores sintéticos. `fim_da_cadeia`, `queda` (D), `caixa_perdida` (E), `chegada` (F) e
+`batente` (H, sobre `potencial.curso`).
 
 ⚠ TERMINAR SÓ O QUE NÃO TEM COMO SER PAGO (princípio do g1_limpo/terminacoes.py). A queda é o
 caso que o robô não recupera. Nas tarefas de andar, a inclinação de marcha (0,8 rad) e a pelve
@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from g1_v3.knobs import ATIVO, TAREFAS, Terminacao
+from g1_v3 import potencial
+from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, Terminacao
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 # índices em TAREFAS (one-hot da I §2.2): o núcleo recebe o índice long, não o nome
 _MARCHA = (TAREFAS.index("ANDAR"), TAREFAS.index("CARREGAR"))  # S §10: inclinação e pelve
 _MANIP = (TAREFAS.index("PEGAR"), TAREFAS.index("BOTAR"))  # S §10: inclinação de 70° e joelho
+_YAW_E, _YAW_D = JUNTAS.index("left_hip_yaw_joint"), JUNTAS.index("right_hip_yaw_joint")  # H3, como recompensas
 
 
 def n_queda(tarefa, incl_rad, z_pelve_w, z_chao_pelve, z_joelho_w, z_chao_joelho,
@@ -135,3 +137,35 @@ def chegada(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
     limite = recompensas.por_degrau(env, *ATIVO.terminacao.chegada)
     cheg = n_chegada(primeiro, env.v3_vz_caixa_ant, limite)
     return torch.where(mascara(env, tarefas), cheg, torch.zeros_like(cheg))
+
+
+def n_batente(q, centro, meio, frac_max, q_hip_yaw, hip_yaw_max, degrau, degrau_min) -> torch.Tensor:
+    """(E,) bool. Termina se alguma das 29 juntas passa de `frac_max` do meio curso, ou se |hip_yaw| passa de
+    `hip_yaw_max`; só com o degrau da tarefa ≥ `degrau_min` (S §10; §6.9: liga do degrau 1).
+
+    ⚠ `>` estrito (P14): 1,0 exato no batente não termina; 1,01 termina. As 29 juntas, e não só as da
+    perna (P13: E §3 "nenhuma junta chega ao limite"). `centro` e `meio` são (29,) ou (E,29): os limites
+    duros do modelo. Os dois gatilhos são OU: a S §10 escreve "e", mas o robô falha se qualquer um passar.
+    """
+    fora = (potencial.curso(q, centro, meio) > frac_max).any(-1)
+    yaw = (q_hip_yaw.abs() > hip_yaw_max).any(-1)
+    return (fora | yaw) & (degrau >= degrau_min)
+
+
+def batente(env: ManagerBasedRlEnv, tarefas: tuple[str, ...]) -> torch.Tensor:
+    """Invólucro de `n_batente`. Lê os limites duros do modelo (centro = média, meio = metade da diferença,
+    como `recompensas.limite_junta`) e o degrau da tarefa. Liga do degrau 1 em diante (§6.9), nas 4 tarefas.
+
+    A S §15 pede ≤ 5 % de terminação nova: a contagem por junta sai no smoke 35.
+    ⚠ `curriculo.mascara` é importado aqui dentro, pelo mesmo motivo de `queda`.
+    """
+    from g1_v3.curriculo import mascara
+
+    robo = env.scene["robot"]
+    lim = robo.data.joint_pos_limits  # (E,29,2) do modelo
+    q = robo.data.joint_pos
+    bat = n_batente(q, (lim[..., 0] + lim[..., 1]) / 2, (lim[..., 1] - lim[..., 0]) / 2,
+                    ATIVO.terminacao.batente_frac, q[:, [_YAW_E, _YAW_D]], ATIVO.terminacao.hip_yaw_max,
+                    env.v3_degrau, ATIVO.refino.degrau_batente)
+    # ⚠ torch.where, e não multiplicação: o mesmo motivo de `queda`.
+    return torch.where(mascara(env, tarefas), bat, torch.zeros_like(bat))
