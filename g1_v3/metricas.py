@@ -1,8 +1,8 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
 ⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` (§6.3),
-`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` (os índices das tarefas), `knobs.ATIVO` (a
-plataforma) e `comando.FATIA_B`; e, só para a anotação, `knobs.Knobs`.
+`alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS` e `knobs.FATIAS` (os índices das tarefas e
+das fatias); e, só para a anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
 apaga a medição dela, em silêncio. Medir num manager separado desacopla as duas coisas: o peso
@@ -24,8 +24,7 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
 from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
-from g1_v3.comando import FATIA_B
-from g1_v3.knobs import ATIVO, TAREFAS
+from g1_v3.knobs import FATIAS, TAREFAS
 from g1_v3.recompensas import comprimento_do_passo
 
 if TYPE_CHECKING:
@@ -229,6 +228,7 @@ def fracao_mapa_visto(env, limiar: float) -> torch.Tensor:
 
 
 PEGAR, CARREGAR, BOTAR = (TAREFAS.index(n) for n in ("PEGAR", "CARREGAR", "BOTAR"))  # índices de `knobs.TAREFAS`
+FATIA_B = FATIAS.index("B")  # índice de `knobs.FATIAS` (o mesmo de `comando.FATIA_B`)
 
 
 def _com_caixa(env) -> torch.Tensor:
@@ -365,30 +365,37 @@ class deslocamento_depois_do_apoio:
 
 
 class fracao_fora_da_plataforma:
-    """Fração dos passos de CARREGAR em episódio de terreno da fatia B com a base fora da plataforma, por env. Sem peso.
+    """Fração dos passos de CARREGAR em episódio de terreno da fatia B com a pelve sobre terreno, por env. Sem peso.
 
-    Base fora = ‖xy da base − xy da origem‖∞ > `plataforma / 2` (viab. D10); a origem é `env_origins`, o centro
-    da plataforma. Episódio de terreno: coluna > 0 em `terrain_types`.
+    Sobre terreno = o chão sob a pelve (z da pelve − `altura_pelve`) a mais de 1 cm do z da origem (`env_origins`,
+    G7 P1). Episódio de terreno: coluna > 0 em `terrain_types`.
 
-    ⚠ Buffers PRÓPRIOS, como `tempo_no_alvo`, e `reduce="last"`: a fração é a corrente desde o reset.
-    ⚠ Média só dos envs com o evento (`_media_dos_com_evento`, F9 M5).
+    ⚠ O log é a média POR EPISÓDIO (G7 S1): o `reset(env_ids)` guarda a média das frações dos episódios que fecham
+    (só os com evento), e o `__call__` devolve essa constante para todo env. Sem evento no lote, zero.
+    ⚠ DÚVIDA (ordem do mjlab): o `compute()` do passo roda antes do `reset`, e o reset do manager lê o valor "last"
+    antes do `func.reset`. Logo o episódio que fecha no reset k aparece no log só no reset k+1 (o valor lido em k é
+    a constante de k−1). Não resolvido aqui; o S1 pede a constante.
     """
 
     def __init__(self, cfg, env):
         self.passos = torch.zeros(env.num_envs, device=env.device)
         self.fora = torch.zeros(env.num_envs, device=env.device)
+        self.media = torch.zeros((), device=env.device)
 
     def __call__(self, env) -> torch.Tensor:
         evento = (env.v3_tarefa == CARREGAR) & (env.v3_fatia == FATIA_B) & (env.scene["terrain"].terrain_types > 0)
-        base = env.scene["robot"].data.root_link_pos_w[:, :2]
-        fora = (base - env.scene.env_origins[:, :2]).abs().amax(dim=-1) > ATIVO.terreno.plataforma / 2.0
+        chao = env.scene["robot"].data.root_link_pos_w[:, 2] - env.scene["altura_pelve"].data.heights[:, 0]
+        fora = (chao - env.scene.env_origins[:, 2]).abs() > 0.01
         self.passos = self.passos + evento.float()
         self.fora = self.fora + (evento & fora).float()
-        return _media_dos_com_evento(self.fora / self.passos.clamp(min=1.0), self.passos > 0)
+        return torch.ones(env.num_envs, device=env.device) * self.media
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
+        com_evento = self.passos[env_ids] > 0
+        frac = self.fora[env_ids] / self.passos[env_ids].clamp(min=1.0)
+        self.media = _media_por_env(frac[None], com_evento[None])[0]
         self.passos[env_ids] = 0.0
         self.fora[env_ids] = 0.0
 
