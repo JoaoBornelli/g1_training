@@ -64,7 +64,7 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Solução:** (a), no commit seguinte a `d4f97cd`: `_perda` ganhou `& (env.episode_length_buf > 0)`. Teste: com `episode_length_buf` 0 e a altura stale da caixa no chão, o código de antes marcava a perda; o de agora não (399 testes, 1 pulado).
 - **Fase I:** no smoke, conferir no primeiro passo de um env reiniciado que `v3_perdeu` fica False; no log, a fração de episódios B e C que viram ANDAR no início deve cair a zero.
 
-### 7. O contrato da fase H tem 24 problemas antes de existir código (em pesquisa)
+### 7. O contrato da fase H tem 24 problemas antes de existir código (resolvido; fase H implementada)
 
 - **Problema:** o rascunho do contrato da fase H (`docs/relatorios/2026-10-30-v3-fase-h-rascunho-do-contrato.md`, feito por um agente Opus só de leitura) achou 24 problemas entre o plano, a spec, o código e o mjlab. Exemplos: o `aperto` e a `sacudida` com peso positivo pagariam por apertar e por sacudir (P2); o `apply_body_impulse` do mjlab sorteia a força por componente, sem máscara, e derrubaria a caixa estacionada (P3); o `solref` na geom de menor prioridade não chega ao contato (P17); nenhuma gaussiana por eixo dá a mediana 5,3° e o p90 15,3° da orientação medida (P21).
 - **Resolvidos sem pesquisa (organização):** P1, o `valor_do_degrau` da H1 é o `recompensas.por_degrau` que já existe: uma função só; P6, o `env_cfg.py` e o `observacoes.py` saem de lanes paralelas e ganham uma lane própria.
