@@ -73,8 +73,8 @@ def _zeros(env):
 
 def _poe_curriculo(env, degrau, travas=()):
     """Põe o degrau das 4 tarefas (um int, ou a tupla na ordem de `balanceador.TAREFAS`) e as travas do DR, pelo
-    `estado()` do currículo (§6.8). Quem chama dá o `env.reset()`: o reset sorteia o degrau de cada env
-    (comando.py:458) e os eventos de reset leem o `dr()` novo. Exige um reset antes (o `v3_cur` nasce nele)."""
+    `estado()` do currículo (§6.8). Quem chama dá o `env.reset()`: o reset publica o degrau da tarefa
+    (comando.py:450-461) e os eventos de reset leem o `dr()` novo. Exige um reset antes (o `v3_cur` nasce nele)."""
     from g1_v3.balanceador import TAREFAS
     cur = env.v3_cur
     estado = cur.estado()
@@ -1240,6 +1240,7 @@ def s33_altura_da_pelve_mede_contra_o_terreno_local():
 # Parte 4 (H): recompensas, terminações e DR do refino (H1 a H6). O degrau é forçado pelo `estado()` do currículo.
 def s34_degrau_5_pesa_laje_chegada_e_pouso():
     from g1_v3 import recompensas
+    from g1_v3.alvos import P3
     from g1_v3.knobs import ATIVO
 
     R, T = ATIVO.recompensa, ATIVO.terminacao
@@ -1247,6 +1248,11 @@ def s34_degrau_5_pesa_laje_chegada_e_pouso():
     try:
         env.reset()
         env.v3_degrau[:] = 5
+        # M2: o PEGAR aberto com a caixa presa (alvo em P3, máscara aberta); só o ANDAR zera a sacudida e o aperto
+        _assenta_fatia_b(env)
+        _le_caixa_valida(env)
+        _abre_trecho_de(env, "PEGAR")
+        env.v3_alvo_idx[:] = P3
         for nome, par, esperado in (("laje_joelho_N", R.laje_joelho_N, 10.0), ("chegada", T.chegada, 0.25),
                                     ("sigma_pouso", R.sigma_pouso, 0.35)):
             v = recompensas.por_degrau(env, *par)
@@ -1310,10 +1316,8 @@ def _geoms_do_solref(env):
     """(geoms que `eventos.solref` escreve, geoms do terreno). As primeiras vêm das três `asset_cfg` do evento do cfg
     (P17, mesmo conjunto que o evento usa); as do terreno, pelo regex do mjlab (`terrain$`)."""
     import mujoco
-    from g1_v3 import eventos
 
-    # ⚠ DÚVIDA: acha o evento pela função (`t.func is eventos.solref`), e não pelo nome; o nome vem da H4b (cfg).
-    ev = next(t for t in env.cfg.events.values() if t.func is eventos.solref)
+    ev = env.cfg.events["solref"]  # P17: o nome do evento no cfg (env_cfg.py:170)
     gid = torch.cat([env.scene[c.name].indexing.geom_ids[c.geom_ids]
                      for c in (ev.params["asset_cfg_robo"], ev.params["asset_cfg_laje"], ev.params["asset_cfg_caixa"])])
     m = env.sim.mj_model
@@ -1373,19 +1377,38 @@ def s36_dr_do_refino_zero_no_degrau_0_e_faixa_no_5():
         check("RFI: torque não todo zero", bool(tau.abs().max() > 0))
         check("junta livre sem força (6 colunas)", bool((qf[:, robo.indexing.free_joint_v_adr] == 0).all()))
 
-        # fatia ANDAR: a caixa fica estacionada e nenhuma força a toca. A tarefa é fixada em ANDAR a cada passo, para
-        # que um reset não sorteie CARREGAR (a única fatia em que o `forca_caixa` age).
-        caixa, andar = env.scene["box"], TAREFAS.index("ANDAR")
-        sem_forca = True
-        for _ in range(400):
-            env.v3_tarefa[:] = andar
+        # forca_caixa (M3): o env 0 em CARREGAR com `pegou` e sem `perdeu` é o único em que a força pode agir. Os outros
+        # envs ficam como estão (ANDAR, do currículo). A tarefa e as flags são reescritas a cada passo.
+        caixa, carregar = env.scene["box"], TAREFAS.index("CARREGAR")
+        forca_no_0, sem_forca = False, True
+        for _ in range(450):  # o intervalo da força é de 3 a 8 s (até 400 passos)
+            env.v3_tarefa[0] = carregar
+            env.v3_pegou[0] = True
+            env.v3_perdeu[0] = False
             env.step(_zeros(env))
-            sem_forca &= bool((caixa.data.body_external_wrench == 0).all())
-        check("ANDAR 400 passos: wrench da caixa zero em todo passo (máscara da forca_caixa)", sem_forca)
+            w = caixa.data.body_external_wrench.flatten(1)
+            forca_no_0 |= bool((w[0] != 0).any())
+            sem_forca &= bool((w[1:] == 0).all())
+        check("CARREGAR e pegou no env 0, 450 passos: wrench da caixa ≠ 0 em algum passo", forca_no_0)
+        check("outros envs: wrench da caixa zero em todo passo (máscara da forca_caixa)", sem_forca)
 
-        # ⚠ DÚVIDA: não confirmei a API do solref dos contatos (env.sim.data.contact); só imprime o shape, sem check.
-        sc = getattr(getattr(env.sim.data, "contact", None), "solref", None)
-        print("  solref dos contatos:", "não exposto" if sc is None else tuple(sc.shape))
+        # M4 (P17): contato pé × terreno (pé priority 1, terreno 0): o solref do contato é o da geom de pé. O contato
+        # com a laje (priority 3) ou a caixa não entra: a laje manda nele.
+        import mujoco
+        m = env.sim.mj_model
+        pe = torch.tensor([i for i in range(m.ngeom) if re.search("_foot[1-7]_collision$",
+                                                                   mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or "")],
+                          dtype=torch.long)
+        ct, n = env.sim.data.contact, int(env.sim.data.nacon[0])
+        g = ct.geom[:n]  # (n, 2): as duas geoms de cada contato ativo
+        e_pe, e_ter = torch.isin(g, pe), torch.isin(g, tid)
+        sel = (e_pe[:, 0] & e_ter[:, 1]) | (e_pe[:, 1] & e_ter[:, 0])
+        pe_geom = torch.where(e_pe[:, 0], g[:, 0], g[:, 1])[sel]
+        sr_contato = ct.solref[:n, 0][sel]
+        sr_geom = env.sim.model.geom_solref[ct.worldid[:n][sel], pe_geom, 0]
+        check("contatos pé × terreno existem", bool(sel.any()), f"{int(sel.sum())} contatos")
+        check("contato pé × terreno: solref do contato = solref da geom de pé",
+              bool(sel.any()) and bool(torch.allclose(sr_contato, sr_geom, atol=1e-6)))
     finally:
         env.close()
 
@@ -1398,6 +1421,7 @@ def s37_com_caixa_ligado_sem_erro_de_heap():
     env = _abre_env(16, k=k)
     try:
         env.reset()
+        env.v3_cur.k_dr = k.dr  # R4/M1: o `dr()` do currículo lê o `k_dr` (balanceador.py:60); sem isto o CoM fica zero
         _poe_curriculo(env, 0, ("subida",))
         env.reset()
         box = env.scene["box"]
