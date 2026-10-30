@@ -148,11 +148,11 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         env.v3_fim = torch.zeros(1, dtype=torch.bool)
         env.v3_vz_caixa_ant = torch.zeros(1)
         env.v3_odo = mock.Mock()
+        env.v3_cur = types.SimpleNamespace(degrau_global=lambda: 3)  # H5: a deriva sai do degrau global
         env.scene = {"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))}
         obj = _cadeia_sem_env(env)
         obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[1.0, 2.0, 0.5]]),
                                                                      root_link_quat_w=torch.tensor([[1.0, 0, 0, 0]])))
-        obj.deriva = {"odo": 0.1, "rumo": 0.2, "pos_giro": 0.3, "rumo_giro": 0.4}
         obj.tab = None  # a tabela só vai ao `avanca_trecho`, que está mockado
         obj.relogio = torch.zeros(1)
         obj.alvo_s = torch.zeros(1)
@@ -170,8 +170,9 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
                        torch.zeros(1, dtype=torch.bool))
         with mock.patch.object(comando, "avanca_trecho", return_value=nao_avancou):
             obj.compute(DT)
-        env.v3_odo.passo.assert_called_once_with(obj.robot.data.root_link_pos_w, obj.robot.data.root_link_quat_w,
-                                                 obj.deriva)
+        env.v3_odo.passo.assert_called_once_with(
+            obj.robot.data.root_link_pos_w, obj.robot.data.root_link_quat_w,
+            comando.deriva_do_degrau(obj.cfg.est, 3, ATIVO.balanceador.degraus))
         self.assertEqual(ordem, ["odo", "chegada"])  # a odometria anda antes das escritas do fim (grava_chegada)
 
 

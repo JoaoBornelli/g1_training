@@ -19,7 +19,7 @@ from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
 from mjlab.utils.lab_api.math import quat_apply_inverse, wrap_to_pi
 
-from g1_v3 import alvos, estimador, eventos, recompensas
+from g1_v3 import alvos, balanceador, estimador, eventos, recompensas
 from g1_v3.alvos import B1, B2, B3, B4, P0, P1, P2, P3, P4
 from g1_v3.curriculo import garante_v3
 from g1_v3.knobs import ATIVO, TAREFAS, Alvos, Cadeia, Comando, Estimador
@@ -212,6 +212,14 @@ def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho
     return registra, sucesso
 
 
+# --- odometria pelo degrau global (H5; PD-18, PD-41) -----------------------------------------------------
+
+def deriva_do_degrau(k: Estimador, g: int, degraus: int) -> dict:
+    # deriva da odometria no degrau global g (início em 0, refino em `degraus`); o par de cada chave é o de `Estimador`
+    pares = {"odo": k.deriva_odo, "rumo": k.deriva_rumo, "pos_giro": k.deriva_pos_giro, "rumo_giro": k.deriva_rumo_giro}
+    return {nome: balanceador.no_degrau(p[0], p[1], g, degraus) for nome, p in pares.items()}
+
+
 # --- forca_de_apoio (cópia de g1_limpo/comando.py:187-220) ---------------------------------------------
 
 def forca_de_apoio(env, nome_sensor: str, eixo: int = 2) -> torch.Tensor:
@@ -262,10 +270,6 @@ class CadeiaCmd(CommandTerm):
         self.bota = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)  # BOTAR aberto, até o fim da cadeia
         self.sit_palmas = self.robot.find_sites(("left_palm", "right_palm"))[0]  # ordem = `palmas_alvo_caixa`
         self.tempos = torch.tensor(_TEMPOS, dtype=torch.float32, device=self.device)
-        k = cfg.est
-        # magnitude "início" (PD-18): índice 0 de cada par; o refino entra com o degrau (fase G)
-        self.deriva = {"odo": k.deriva_odo[0], "rumo": k.deriva_rumo[0],
-                       "pos_giro": k.deriva_pos_giro[0], "rumo_giro": k.deriva_rumo_giro[0]}
 
     @property
     def command(self) -> torch.Tensor:  # one-hot (E,6) de v3_tarefa (§6.5)
@@ -483,6 +487,14 @@ class CadeiaCmd(CommandTerm):
         env = self._env
         soltura = eventos.posiciona_destino(env, ids).to(env.v3_alvo_w.dtype)
         soltura[:, 2] += env.v3_meia[ids]
+        if env.v3_gerador is not None:
+            # P22: o robô real só conhece o alvo estimado, então o viés do alvo entra no `v3_alvo_w` (vale para a
+            # observação, o Φ do B1 e do B2 e o raio da perda). ‖viés‖ ≤ 7,7 cm < 0,10 m do enunciado
+            g, d = env.v3_cur.degrau_global(), ATIVO.balanceador.degraus
+            k = self.cfg.est
+            vxy, vz = (balanceador.no_degrau(p[0], p[1], g, d) for p in (k.vies_alvo_botar_xy, k.vies_alvo_botar_z))
+            u = _u((len(ids), 3), env.v3_gerador).to(soltura.device)
+            soltura += (2 * u - 1) * torch.tensor([vxy, vxy, vz], dtype=soltura.dtype, device=soltura.device)
         env.v3_alvo_w[ids] = soltura
         env.v3_alvo_idx[ids] = B1
         env.v3_phi[ids] = -1.0
@@ -538,9 +550,12 @@ class CadeiaCmd(CommandTerm):
         ids = (avancou & ~fim).nonzero().flatten()  # no fim da cadeia o trecho não reabre (S §7)
         if ids.numel():
             self._abre_trecho(ids, novo[ids], m)
-        # PD-44: o `passo` da odometria uma vez por passo, antes das escritas do fim. Um commit (fce6a42) tirou esta
-        # chamada e a odometria do treino parou (registro de problemas, 30/10, caso 8)
-        env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w, self.deriva)
+        # PD-44: o `passo` da odometria uma vez por passo, antes das escritas do fim. Sem ela a odometria do treino não
+        # anda (`delta_b` zero, o mapa não é transportado, a caixa e o alvo do ator saem no frame do reset). O commit
+        # fce6a42 a tirou sem registro (achado de 30/10, caso 8); a H5 a devolve, com a deriva do degrau global
+        g, d = env.v3_cur.degrau_global(), ATIVO.balanceador.degraus
+        env.v3_odo.passo(self.robot.data.root_link_pos_w, self.robot.data.root_link_quat_w,
+                         deriva_do_degrau(self.cfg.est, g, d))
         self._grava_chegada()
         # vz da caixa para a `chegada` e a métrica do passo seguinte. A cadeia roda depois das terminações, das
         # recompensas, das métricas e do reset: quem lê no passo seguinte vê a vz do passo anterior (§6.4).

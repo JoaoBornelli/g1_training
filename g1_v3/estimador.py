@@ -6,8 +6,12 @@ PD-11, PD-18; S §13).
 from __future__ import annotations
 
 import math
+import statistics
 
 import torch
+
+
+_Z90 = statistics.NormalDist().inv_cdf(0.9)  # Φ⁻¹(0,9) ≈ 1,2816: constante da normal (P21a)
 
 
 def yaw(q):  # (E,4) wxyz → (E,) rad
@@ -205,6 +209,9 @@ class EstimadorCaixa:
     def __init__(self, n, device, k, gerador):
         self.n, self.device, self.k, self.gerador = n, device, k, gerador
         self.t = 0.0
+        # instante do passo anterior, para o dt da rajada. Sem a guarda do primeiro passo, o dt seria o tempo decorrido
+        # desde 0: o resume restaura o common_step_counter (mjlab/rl/runner.py:140), e taxa·dt > 1 abriria rajada em todo env
+        self._t_ant = None
         q = k.latencia_s * k.taxa_hz
         m = int(math.ceil(q)) + 3  # amostras em voo (≈ latência × taxa) e folga
         f = dict(device=device)
@@ -223,16 +230,25 @@ class EstimadorCaixa:
         self._r_quat = torch.zeros(n, 4, **f)
         self._r_quat[:, 0] = 1.0
         self._r_meia = torch.zeros(n, **f)
-        self._z_meia = torch.zeros(n, **f)  # vieses persistentes por env (N(0,1); a escala vem da magnitude)
-        self._z_ori = torch.zeros(n, 3, **f)
+        # vieses por episódio, no `reinicia` (gerador None: 0). P21d: posição e meia uniformes ("até ±2 cm"). P21a:
+        # orientação lognormal (a χ₃ gaussiana dava p90/mediana 1,63; a medida, 2,89). P21e: rajada, `_rajada_ate`
+        self._z_meia = torch.zeros(n, **f)  # U[−1; 1]; a escala vem de vies_meia
+        self._z_pos = torch.zeros(n, 3, **f)  # U[−1; 1]; a escala vem de vies_pos
+        self._eixo_ori = torch.zeros(n, 3, **f)  # eixo unitário, uniforme na esfera
+        self._z_ang = torch.zeros(n, **f)  # N(0, 1): θ = mediana·exp(σ_ln·z)
+        self._rajada_ate = torch.full((n,), float("-inf"), **f)  # fim da rajada de perda corrente (s)
         self.reinicia(torch.arange(n, device=device))
 
-    def _sorteia(self, shape, normal):  # gerador None: sem ruído (normal → 0) e sem perda (uniforme → 1)
+    def _sorteia(self, shape, normal, simetrica=False):  # gerador None: ruído 0 (normal e U[±1]) e sem perda (U[0;1) → 1)
         if self.gerador is None:
-            return torch.zeros(shape, device=self.device) if normal else torch.ones(shape, device=self.device)
+            return torch.full(shape, 0.0 if (normal or simetrica) else 1.0, device=self.device)
         g = self.gerador
-        x = (torch.randn(shape, generator=g, device=g.device) if normal
-             else torch.rand(shape, generator=g, device=g.device))
+        if normal:
+            x = torch.randn(shape, generator=g, device=g.device)
+        elif simetrica:
+            x = 2 * torch.rand(shape, generator=g, device=g.device) - 1
+        else:
+            x = torch.rand(shape, generator=g, device=g.device)
         return x.to(self.device)
 
     def reinicia(self, ids):
@@ -243,13 +259,19 @@ class EstimadorCaixa:
         self._r_pos[ids] = 0.0
         self._r_quat[ids] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self._r_meia[ids] = 0.0
-        self._z_meia[ids] = self._sorteia((len(ids),), True)
-        self._z_ori[ids] = self._sorteia((len(ids), 3), True)
+        self._z_meia[ids] = self._sorteia((len(ids),), False, True)
+        self._z_pos[ids] = self._sorteia((len(ids), 3), False, True)
+        eixo = self._sorteia((len(ids), 3), True)
+        self._eixo_ori[ids] = eixo / eixo.norm(dim=-1, keepdim=True).clamp_min(1e-12)  # piso: gerador None → 0
+        self._z_ang[ids] = self._sorteia((len(ids),), True)
+        self._rajada_ate[ids] = float("-inf")
 
     def passo(self, t, caixa_pos_w, caixa_quat_w, meia, visivel, magnitude: dict, dist=None):
-        """`magnitude`: escalares {sigma_pos, sigma_pos_rel, sigma_ori_graus, perda, vies_meia, ori_persistente};
-        chave ausente vale 0. σ da posição = sigma_pos + sigma_pos_rel·dist, por eixo (dist (E,) ou escalar)."""
-        self.t = t
+        """`magnitude`: escalares, chave ausente = 0: sigma_pos, sigma_pos_rel (σ da posição = sigma_pos +
+        sigma_pos_rel·dist, por eixo; dist (E,) ou escalar), vies_pos e vies_meia (m), ori_mediana_graus e
+        ori_p90_graus (o viés de orientação do episódio), ori_leitura_graus (1° por leitura), perda e rajada_taxa (1/s)."""
+        dt = 0.0 if self._t_ant is None else t - self.t  # a rajada usa o intervalo real; 0 no primeiro passo (P21e)
+        self._t_ant = self.t = t
         nova = torch.isnan(self._t0)  # primeiro passo depois do reinicia: início da grade e estado anterior = o atual
         self._t0[nova] = t
         self._tp[nova] = t
@@ -260,11 +282,25 @@ class EstimadorCaixa:
             raise ValueError("sigma_pos_rel exige `dist` (distância da câmera à caixa)")
         sp = torch.as_tensor(magnitude.get("sigma_pos", 0.0) + rel * (0.0 if dist is None else dist),
                              dtype=torch.float32, device=self.device).expand(self.n)[:, None]
-        so = math.radians(magnitude.get("sigma_ori_graus", 0.0))
-        z_ori = self._z_ori if magnitude.get("ori_persistente", 0.0) > 0 else self._sorteia((self.n, 3), True)
-        erro_ori = _quat_de_rotvec(z_ori * so)
+        vies_pos = magnitude.get("vies_pos", 0.0)
+        # P21a: θ = mediana·exp(σ_ln·z), σ_ln = ln(p90/mediana)/Φ⁻¹(0,9) (constante da normal, não número de treino);
+        # mediana 0 → θ = 0, sem NaN. O eixo é do episódio; o 1° por leitura (P21b) é sorteado a cada passo
+        med = math.radians(magnitude.get("ori_mediana_graus", 0.0))
+        p90 = math.radians(magnitude.get("ori_p90_graus", 0.0))
+        sig_ln = math.log(max(p90, med) / med) / _Z90 if med > 0 else 0.0
+        theta = med * torch.exp(sig_ln * self._z_ang)
+        q_vies = _quat_de_rotvec(self._eixo_ori * theta[:, None])
+        q_leit = _quat_de_rotvec(self._sorteia((self.n, 3), True) * math.radians(magnitude.get("ori_leitura_graus", 0.0)))
+        erro_ori = _qmul(q_vies, q_leit)
         meia_s = meia + self._z_meia * magnitude.get("vies_meia", 0.0)
         perda = magnitude.get("perda", 0.0)
+        # P21e (Gilbert-Elliott): sem gerador não há rajada; env fora de rajada abre uma com U < taxa·dt
+        taxa = magnitude.get("rajada_taxa", 0.0)
+        if taxa > 0 and self.gerador is not None:
+            abre = (self._rajada_ate <= t) & (self._sorteia((self.n,), False) < taxa * dt)
+            lo, hi = self.k.rajada_s
+            dur = lo + (hi - lo) * self._sorteia((self.n,), False)
+            self._rajada_ate = torch.where(abre, t + dur, self._rajada_ate)
         ar = torch.arange(self.n, device=self.device)
         # amostras da grade com instante ≤ t: interpolação linear entre o passo anterior e o atual
         while True:
@@ -273,11 +309,12 @@ class EstimadorCaixa:
             if not bool(due.any()):
                 break
             a = ((g - self._tp) / (t - self._tp).clamp_min(1e-9)).clamp(0, 1)[:, None]
-            pos = self._pos_p + a * (caixa_pos_w - self._pos_p) + sp * self._sorteia((self.n, 3), True)
+            pos = (self._pos_p + a * (caixa_pos_w - self._pos_p) + sp * self._sorteia((self.n, 3), True)
+                   + self._z_pos * vies_pos)
             q1 = caixa_quat_w * torch.where((self._quat_p * caixa_quat_w).sum(-1, keepdim=True) < 0, -1.0, 1.0)
             qi = self._quat_p * (1 - a) + q1 * a
             qs = _qmul(erro_ori, qi / qi.norm(dim=-1, keepdim=True))
-            valido = visivel & (self._sorteia((self.n,), False) >= perda)
+            valido = visivel & (self._sorteia((self.n,), False) >= perda) & (g >= self._rajada_ate)
             ins = due & valido
             slot = torch.isnan(self._q_t).float().argmax(dim=1)  # primeiro slot livre
             self._q_t[ar, slot] = torch.where(ins, g, self._q_t[ar, slot])
