@@ -163,6 +163,18 @@ class TestCena(unittest.TestCase):
                         self.assertEqual((atuador.stiffness, atuador.damping), esperado[junta])
         self.assertEqual(cobertas, set(JUNTAS))
 
+    def test_init_state_em_float_do_python(self):
+        # O mjlab cria o default_joint_pos com torch.tensor(...): um np.float64 vira float64 e o reset por
+        # offset quebra contra o qpos float32. Por isso todo valor do init_state tem que ser float do Python.
+        for nome, ent in [("robot", cena.robot_cfg())] + [(n, e) for n, e in cena.entidades().items() if n != "robot"]:
+            init = ent.init_state
+            for junta, valor in (init.joint_pos or {}).items():
+                with self.subTest(entidade=nome, junta=junta):
+                    self.assertIs(type(valor), float)
+            for i, valor in enumerate(init.pos):
+                with self.subTest(entidade=nome, pos=i):
+                    self.assertIs(type(valor), float)
+
 
 class TestEnvCfg(unittest.TestCase):
     def test_make_env_cfg_monta(self):

@@ -216,7 +216,8 @@ def robot_cfg(k: Knobs = ATIVO) -> EntityCfg:
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
             pos=(0.0, 0.0, _pelve_de_pe(k) + 0.01),
-            joint_pos=dict(zip(JUNTAS, q_de_pe(k.contrato))),
+            # .tolist(): float do Python. Um np.float64 vira float64 no default_joint_pos e quebra o reset (qpos é float32).
+            joint_pos=dict(zip(JUNTAS, q_de_pe(k.contrato).tolist())),
             joint_vel={".*": 0.0},
         ),
         collisions=(collisions,),
