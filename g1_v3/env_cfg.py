@@ -11,6 +11,7 @@ dos pés e o episódio de play (D10).
 from __future__ import annotations
 
 import dataclasses
+import re
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
@@ -46,6 +47,7 @@ _RECOMPENSAS = (
     ("cerca_giro", TODAS), ("cerca_tronco", TODAS), ("cerca_com", TODAS), ("cerca_torque", TODAS),
     ("cerca_pelve", TODAS), ("cerca_recuo", PEGAR_CARREGAR_BOTAR), ("contato_fora", TODAS),
     ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", ANDAR_PEGAR_BOTAR),
+    ("sacudida", PEGAR_CARREGAR_BOTAR), ("aperto", PEGAR_CARREGAR_BOTAR),
     ("perda_caixa", TODAS), ("terminacao", TODAS),
 )
 # Pesos que NÃO vêm do `knobs`: o `progresso` e o `perda_caixa` entram com ±1 no cfg, e a escala mora no núcleo
@@ -74,8 +76,8 @@ def _sem_none(obj, caminho: str = "knobs") -> None:
 
 
 def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
-    """O cfg da v3. `play=True`: ator sem corrupção, sem empurrão, sem o currículo `v3`, episódio de 10⁹ s (o `v3_fim`
-    acaba a cadeia).
+    """O cfg da v3. `play=True`: ator sem corrupção, sem empurrão nem as DR do refino (P24), sem o currículo `v3`,
+    episódio de 10⁹ s (o `v3_fim` acaba a cadeia).
 
     Do `k` só valem os pesos (`recompensa`), `comando`, `cadeia`, `estimador`, `terreno`, `cena`, `dr`, `contrato` e
     `percepcao.ligada`. O resto dos termos (σ, limites, ruído do lidar, terminação, balanceador, currículo) lê o `ATIVO`
@@ -133,11 +135,16 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "queda": TerminationTermCfg(func=terminacoes.queda, params={"tarefas": TODAS}),
         "caixa_perdida": TerminationTermCfg(func=terminacoes.caixa_perdida, params={
             "tarefas": PEGAR_CARREGAR_BOTAR, "vira_andar": k.cadeia.caixa_perdida_vira_andar}),
-        # F-2: a caixa tocou a laje descendo acima do limite do degrau (só no BOTAR; `batente` é da fase G).
+        # F-2: a caixa tocou a laje descendo acima do limite do degrau (só no BOTAR).
         "chegada": TerminationTermCfg(func=terminacoes.chegada, params={"tarefas": ("BOTAR",)}),
+        # H (P13/P14): junta fora do batente, nas 4 tarefas; liga a partir do degrau (§6.9), dentro da função.
+        "batente": TerminationTermCfg(func=terminacoes.batente, params={"tarefas": TODAS}),
     }
 
     # ------------------------------------------------------------ 7. eventos (§6.5 na ordem; §6.8 os da fase D)
+    # ⚠ P18: `actuator_ids` indexa os GRUPOS de atuador (um por linha de `Contrato.pd`): braços = shoulder, elbow, wrist.
+    bracos = [i for i, (regex, _, _) in enumerate(k.contrato.pd) if re.search("shoulder|elbow|wrist", regex)]
+    pernas = [i for i in range(len(k.contrato.pd)) if i not in bracos]
     eventos_ = {
         "fatia": EventTermCfg(func=eventos.sorteia_fatia, mode="reset", params={"k_ter": k.terreno}),
         # ⚠ E11 S4 (29/10): a `cena` roda ANTES da `base`: a base das fatias B e C se põe em relação à caixa.
@@ -152,6 +159,21 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "atrito_laje": EventTermCfg(func=eventos.atrito_laje, mode="reset", params={
             "asset_cfg": SceneEntityCfg("table", geom_names=(cena.TABLE_GEOM,))}),
         "vies_imu": EventTermCfg(func=eventos.vies_imu, mode="reset"),
+        # H (30/10): pd, forca_motor e solref saem do play (P24); o com_caixa só entra com a chave (PD-38, P19).
+        # O `**` põe cada grupo na posição da §6.5 nos dois casos (play e treino).
+        **({
+            "pd": EventTermCfg(func=eventos.pd, mode="reset", params={"asset_cfg": SceneEntityCfg("robot")}),
+            "forca_motor": EventTermCfg(func=eventos.forca_motor, mode="reset", params={
+                "asset_cfg_pernas": SceneEntityCfg("robot", actuator_ids=pernas),
+                "asset_cfg_bracos": SceneEntityCfg("robot", actuator_ids=bracos)}),
+            # P17: o solref das geoms que mandam no contato (pés, pads, laje e caixa); terreno fica de fora.
+            "solref": EventTermCfg(func=eventos.solref, mode="reset", params={
+                "asset_cfg_robo": SceneEntityCfg("robot", geom_names=_GEOMS_DOS_PES + cena.PALM_PAD_GEOMS + cena.BACK_PAD_GEOMS),
+                "asset_cfg_laje": SceneEntityCfg("table", geom_names=(cena.TABLE_GEOM,)),
+                "asset_cfg_caixa": SceneEntityCfg("box", geom_names=(cena.BOX_GEOM,))}),
+        } if not play else {}),
+        **({"com_caixa": EventTermCfg(func=eventos.com_caixa, mode="reset", params={
+            "asset_cfg": SceneEntityCfg("box", body_names=("box",))})} if k.dr.com_caixa else {}),
         "filtros": EventTermCfg(func=eventos.reinicia_filtros, mode="reset"),
         "atrito_pe": EventTermCfg(func=dr.geom_friction, mode="startup", params={
             "ranges": k.dr.atrito_pe, "operation": "abs", "shared_random": True,
@@ -168,12 +190,17 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "atraso": EventTermCfg(func=eventos.atraso, mode="startup", params={
             "passos_max": k.dr.atraso_inicio[1], "decimacao": k.contrato.decimacao}),
     }
-    if not play:  # ⚠ no play o robô não recebe empurrão: a corrida é a cadeia, não a perturbação
+    if not play:  # ⚠ no play saem o empurrão e as DR do refino: a corrida é a cadeia, o robô é nominal (P24)
         eventos_["empurrao"] = EventTermCfg(
             func=eventos.empurrao, mode="interval",
             interval_range_s=(k.dr.periodo_empurrao_s, k.dr.periodo_empurrao_s),
             params={"velocity_range": {"x": (-k.dr.empurrao, k.dr.empurrao),
                                        "y": (-k.dr.empurrao, k.dr.empurrao)}})
+        # H (P3, P4, P15): passo, depois do comando, nos 4 subpassos. A força é mascarada dentro da classe.
+        eventos_["forca_caixa"] = EventTermCfg(func=eventos.forca_caixa, mode="step", params={
+            "force_range": k.dr.forca_caixa_N, "torque_range": (0.0, 0.0), "duration_s": k.dr.forca_caixa_dur_s,
+            "cooldown_s": k.dr.forca_caixa_periodo_s, "asset_cfg": SceneEntityCfg("box", body_names=("box",))})
+        eventos_["rfi"] = EventTermCfg(func=eventos.rfi, mode="step")
     cfg.events = eventos_
 
     # ------------------------------------------------------------ 8. currículo (um termo só, `v3`) e métricas

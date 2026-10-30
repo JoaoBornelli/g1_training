@@ -46,7 +46,7 @@ TERMINACOES = ("time_out", "queda", "caixa_perdida", "chegada", "batente")
 EVENTOS = ("fatia", "cena", "base", "juntas", "carga", "atrito_pad", "atrito_laje", "vies_imu", "pd",
            "forca_motor", "solref", "com_caixa", "filtros",            # reset
            "atrito_pe", "massa_tronco", "vies_encoder", "tamanho_caixa", "atraso",  # startup
-           "empurrao", "forca_caixa", "rfi")                            # intervalo
+           "empurrao", "forca_caixa", "rfi")                            # intervalo e passo
 
 # Tarefas de cada recompensa da D5. "todas" = ANDAR, PEGAR, CARREGAR, BOTAR (§6.3).
 TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
@@ -97,6 +97,11 @@ class TestCena(unittest.TestCase):
     def test_lidar_so_com_percepcao_ligada(self):
         sem = dataclasses.replace(ATIVO, percepcao=dataclasses.replace(ATIVO.percepcao, ligada=False))
         self.assertNotIn("lidar", [s.name for s in cena.sensores(sem)])
+
+    def test_caixa_faces_guarda_as_doze_mais_fortes(self):
+        # P12 (30/10): "none" corta os contatos acima das 12 fatias sem critério; "maxforce" guarda as mais fortes.
+        sensor = next(s for s in cena.sensores(ATIVO) if s.name == "caixa_faces")
+        self.assertEqual(sensor.reduce, "maxforce")
 
     def test_todo_sensor_da_cena_faz_build(self):
         # B2: caixa_faces tem global_frame=True e exige "tangent" (contact_sensor.py:232-237); o build levantava ValueError.
@@ -212,6 +217,60 @@ class TestEnvCfg(unittest.TestCase):
 
     def test_ultimo_termo_do_critico_e_tarefa_critico(self):
         self.assertEqual(list(env_cfg.make_env_cfg().observations["critic"].terms)[-1], "tarefa_critico")
+
+    def test_sacudida_e_aperto_com_o_peso_do_knob_e_tarefas(self):
+        # H2: os dois são custos. O peso vem do knob, negativo, e a máscara é PEGAR, CARREGAR e BOTAR (P11).
+        cfg = env_cfg.make_env_cfg()
+        for nome in ("sacudida", "aperto"):
+            with self.subTest(termo=nome):
+                self.assertEqual(cfg.rewards[nome].weight, getattr(ATIVO.recompensa, nome))
+                self.assertLess(cfg.rewards[nome].weight, 0)
+                self.assertEqual(set(cfg.rewards[nome].params["tarefas"]), set(PEGAR_CARREGAR_BOTAR))
+
+    def test_batente_nas_quatro_tarefas_sem_time_out(self):
+        termo = env_cfg.make_env_cfg().terminations["batente"]
+        self.assertEqual(set(termo.params["tarefas"]), set(TODAS))
+        self.assertFalse(termo.time_out)
+
+    def test_modos_dos_eventos_da_fase_h(self):
+        # reset: pd, forca_motor, solref; passo (todo passo, depois do comando): forca_caixa, rfi (P4).
+        eventos_ = env_cfg.make_env_cfg().events
+        for nome in ("pd", "forca_motor", "solref"):
+            with self.subTest(evento=nome):
+                self.assertEqual(eventos_[nome].mode, "reset")
+        for nome in ("forca_caixa", "rfi"):
+            with self.subTest(evento=nome):
+                self.assertEqual(eventos_[nome].mode, "step")
+
+    def test_com_caixa_so_com_a_chave_e_antes_do_filtros(self):
+        # PD-38 / P19: o com_caixa só entra com DR.com_caixa; na ordem da §6.5 (depois do solref, antes do filtros).
+        self.assertNotIn("com_caixa", env_cfg.make_env_cfg().events)
+        com = dataclasses.replace(ATIVO, dr=dataclasses.replace(ATIVO.dr, com_caixa=True))
+        cfg = env_cfg.make_env_cfg(k=com)
+        self.assertEqual(cfg.events["com_caixa"].mode, "reset")
+        self.assertTrue(_na_ordem_da_spec(cfg.events, EVENTOS))
+
+    def test_actuator_ids_de_bracos_e_pernas(self):
+        # P18: os índices são dos grupos de atuador (um por linha de Contrato.pd): braços = shoulder/elbow/wrist.
+        params = env_cfg.make_env_cfg().events["forca_motor"].params
+        self.assertEqual(list(params["asset_cfg_bracos"].actuator_ids), [7, 8])
+        self.assertEqual(list(params["asset_cfg_pernas"].actuator_ids), list(range(7)))
+
+    def test_params_da_forca_caixa(self):
+        # Os quatro parâmetros do knob mais o torque nulo e a caixa como alvo (P3, P15).
+        params = env_cfg.make_env_cfg().events["forca_caixa"].params
+        self.assertEqual(tuple(params["force_range"]), (-11.5, 11.5))
+        self.assertEqual(tuple(params["torque_range"]), (0.0, 0.0))
+        self.assertEqual(tuple(params["duration_s"]), ATIVO.dr.forca_caixa_dur_s)
+        self.assertEqual(tuple(params["cooldown_s"]), ATIVO.dr.forca_caixa_periodo_s)
+        self.assertEqual(tuple(params["asset_cfg"].body_names), ("box",))
+
+    def test_play_sem_as_cinco_dr_do_refino_e_sem_empurrao(self):
+        # P24: o play mostra o robô nominal, como o exportador e o driver.
+        eventos_ = env_cfg.make_env_cfg(play=True).events
+        for nome in ("empurrao", "pd", "forca_motor", "solref", "forca_caixa", "rfi"):
+            with self.subTest(evento=nome):
+                self.assertNotIn(nome, eventos_)
 
 
 class TestRegistro(unittest.TestCase):

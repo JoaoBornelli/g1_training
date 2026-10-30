@@ -400,12 +400,12 @@ def sensores(k: Knobs = ATIVO) -> tuple:
         secondary=ContactMatch(mode="body", pattern="terrain"),
         fields=("found", "force"), reduce="netforce", num_slots=1,
     )
-    # Régua do aperto por face (S §8.2): quem toca cada face da caixa, com posição e normal no mundo.
+    # Régua do aperto por face (S §8.2): quem toca cada face, com posição e normal. "maxforce": as 12 mais fortes (P12).
     caixa_faces = ContactSensorCfg(
         name="caixa_faces",
         primary=ContactMatch(mode="geom", pattern=BOX_GEOM, entity="box"),
         secondary=ContactMatch(mode="subtree", pattern="pelvis", entity=robo),
-        fields=("found", "force", "pos", "normal", "tangent"), reduce="none", num_slots=12, global_frame=True,
+        fields=("found", "force", "pos", "normal", "tangent"), reduce="maxforce", num_slots=12, global_frame=True,
     )
 
     fixos = palmas + dorsos + mesa + (apoio, caixa_robo, auto, pes)
