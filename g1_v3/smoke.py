@@ -1157,6 +1157,8 @@ def s31_topo_da_laje_e_origem_de_escada_alta():
 
 
 def s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa():
+    from g1_v3.knobs import ATIVO
+
     env = _abre_env(4)
     try:
         env.reset()
@@ -1167,10 +1169,21 @@ def s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa():
         pose = _base_alem_da_borda(env, z)
         _caixa_no_peito(env, pose)
         print(f"  origem z {env.scene.env_origins[:, 2].tolist()}, base z {pose[:, 2].tolist()}, degrau {degrau:.3f} m")
-        env.step(_zeros(env))  # UM passo, ação zero (a caixa não está presa às mãos: só a regra da altura conta)
-        perdeu = env.termination_manager.get_term("caixa_perdida")
-        check("um degrau abaixo, caixa no peito: `caixa_perdida` False (D4)", not bool(perdeu.any()),
-              f"{perdeu.tolist()}")
+        # ⚠ `step` devolve (obs, rew, terminated, truncated, info), um bool por mundo. Se um mundo terminou ou truncou
+        # aqui, o reset dele já rodou antes da cadeia: `v3_perdeu_agora` vira o do episódio novo, não o do passo testado.
+        _o, _r, term, trunc, _i = env.step(_zeros(env))  # UM passo, ação zero (a caixa não está presa às mãos)
+        passo_limpo = not bool(term.any()) and not bool(trunc.any())
+        check("nenhum mundo terminou nem truncou no passo (senão os checks abaixo não valem)", passo_limpo,
+              f"terminou {term.tolist()}, truncou {trunc.tolist()}")
+        if not passo_limpo:
+            return
+        if ATIVO.cadeia.caixa_perdida_vira_andar:
+            # Com a chave ligada, `n_caixa_perdida` é sempre False: o termo não se aplica (nem ok, nem falha)
+            print("  `caixa_perdida` não se aplica: caixa_perdida_vira_andar ligada (a perda vira ANDAR, sem termo)")
+        else:
+            perdeu = env.termination_manager.get_term("caixa_perdida")
+            check("um degrau abaixo, caixa no peito: `caixa_perdida` False (D4)", not bool(perdeu.any()),
+                  f"{perdeu.tolist()}")
         # ⚠ o pulso do PASSO (a cadeia o escreve depois da terminação), não o `v3_perdeu` do reset (M1)
         check("um degrau abaixo, caixa no peito: v3_perdeu_agora False no passo", not bool(env.v3_perdeu_agora.any()),
               f"{env.v3_perdeu_agora.tolist()}")
