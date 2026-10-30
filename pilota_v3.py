@@ -128,6 +128,20 @@ def _wrap(a: float) -> float:
     return float(np.arctan2(np.sin(a), np.cos(a)))
 
 
+# ------------------------------------------------------------------ nomes do modelo
+
+def acha_id(m: mujoco.MjModel, tipo: mujoco.mjtObj, nome: str) -> int:
+    """Id de site/body/geom/junta pelo nome COMPLETO do modelo compilado (`robot/mid360`, `box/box_geom`).
+
+    ⚠ O mjlab prefixa a entidade. Sem o prefixo, `mj_name2id` devolve −1, e o Python indexa o último
+    elemento: o erro sai calado. Por isso o −1 levanta aqui, com o nome na mensagem.
+    """
+    i = mujoco.mj_name2id(m, tipo, nome)
+    if i < 0:
+        raise AssertionError(f"{str(tipo)} `{nome}` não existe no modelo (o robô vem prefixado: `robot/...`)")
+    return i
+
+
 # ------------------------------------------------------------------ o mapa (lidar)
 
 class Percepcao:
@@ -148,23 +162,17 @@ class Percepcao:
     def __init__(self, m: mujoco.MjModel, c: dict[str, np.ndarray]):
         self.k = _KN.percepcao
         self.base = int(c["id_base"])
-        self.sensor = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "mid360")
-        if self.sensor < 0:
-            raise AssertionError("site `mid360` não existe no modelo")
+        self.sensor = acha_id(m, mujoco.mjtObj.mjOBJ_SITE, "robot/mid360")
         # ⚠ `exclude_parent_body=True` do treino (cena.py): o lidar não vê o corpo onde o site está (o torso).
         self.excluido = int(m.site_bodyid[self.sensor])
-        self.pes = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, n) for n in ("left_foot", "right_foot")]
-        if min(self.pes) < 0:
-            raise AssertionError("sites `left_foot`/`right_foot` não existem no modelo")
+        self.pes = [acha_id(m, mujoco.mjtObj.mjOBJ_SITE, f"robot/{n}") for n in ("left_foot", "right_foot")]
         # ⚠ PD-9: o raio vê os grupos 0 (terreno), 1 (mobília) e 3 (pads). O mjtByte tem 6 posições.
         self.grupos = np.array([1, 1, 0, 1, 0, 0], dtype=np.uint8)
 
         caps = np.load(_K.caminho("g1_v3/dados/capsulas.npz"), allow_pickle=False)
         # ⚠ O `corpo` repete nomes (33 cápsulas, menos corpos): a pose sai por índice, como em `_capsulas_w`.
-        self.corpo_idx = np.array([mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, str(n))
+        self.corpo_idx = np.array([acha_id(m, mujoco.mjtObj.mjOBJ_BODY, f"robot/{n}")
                                    for n in caps["corpo"]], dtype=np.int64)
-        if (self.corpo_idx < 0).any():
-            raise AssertionError("alguma cápsula cita um corpo que não existe no modelo")
         self.p0 = np.asarray(caps["p0"], dtype=np.float64)
         self.p1 = np.asarray(caps["p1"], dtype=np.float64)
         self.raios = torch.as_tensor(caps["raio"], dtype=torch.float32)
@@ -276,11 +284,9 @@ class Visao:
         self.base = percepcao.base
         self.meia = float(c["meia_aresta"])
         self.a = torch.tensor([self.meia], dtype=torch.float32)
-        self.cam = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "d435")
-        self.torso = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
-        self.palmas = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, n) for n in ("left_palm", "right_palm")]
-        if self.cam < 0 or self.torso < 0 or min(self.palmas) < 0:
-            raise AssertionError("falta o site `d435`, o corpo `torso_link` ou os sites das palmas no modelo")
+        self.cam = acha_id(m, mujoco.mjtObj.mjOBJ_SITE, "robot/d435")
+        self.torso = acha_id(m, mujoco.mjtObj.mjOBJ_BODY, "robot/torso_link")
+        self.palmas = [acha_id(m, mujoco.mjtObj.mjOBJ_SITE, f"robot/{n}") for n in ("left_palm", "right_palm")]
         self.ids_v = np.asarray(c["ids_junta_qvel"], dtype=np.int64)
         # Os 8 cantos da caixa no frame dela, em ordem fixa. O centro é o ponto 0 (o que `visivel` exige).
         self.cantos = np.array([[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)])

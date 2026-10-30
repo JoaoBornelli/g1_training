@@ -78,8 +78,8 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `tarefas` | list[str] (6) | `knobs.TAREFAS`; a ordem é o índice do one-hot |
 | `alvos` | list[str] (9) | `knobs.ALVOS`; só para o log |
 | `mapa` | dict | `{"celula_m": 0.10, "n_recorte": 21, "n_interno": 51, "altura_clip": 1.0, "canais": 882, "ordem": "..."}` |
-| `T_BASE_SENSOR` | list[list[float]] (4, 4) | pose do site `mid360` no frame do body base, em q_de_pé; m |
-| `base`, `sensor_site` | str | nome do body base (pelve) e do site (`"mid360"`) |
+| `T_BASE_SENSOR` | list[list[float]] (4, 4) | pose do site `robot/mid360` no frame do body base, em q_de_pé; m |
+| `base`, `sensor_site` | str | nome completo do body base e do site, com o prefixo do robô (`"robot/pelvis"` e `"robot/mid360"`) |
 
 ### `monta_observacao` (em `pilota_v3.py`, chamada pela `paridade`)
 
@@ -370,9 +370,9 @@ def _t_base_sensor(m: mujoco.MjModel, d: mujoco.MjData, id_base: int, ids_q: np.
     d2.qpos[:] = d.qpos
     d2.qpos[ids_q] = q_de_pe()
     mujoco.mj_forward(m, d2)
-    sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "mid360")
+    sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "robot/mid360")  # o modelo prefixa a entidade
     if sid < 0:
-        raise AssertionError("site `mid360` não existe no modelo")
+        raise AssertionError("site `robot/mid360` não existe no modelo")
     rb = d2.xmat[id_base].reshape(3, 3)
     pb = d2.xpos[id_base]
     rs = d2.site_xmat[sid].reshape(3, 3)
@@ -433,7 +433,7 @@ def _contrato(m: mujoco.MjModel, dados: dict[str, np.ndarray], t_base: np.ndarra
                  "ordem": "441 alturas e depois 441 confianças; cada 441 em linha-major, x decrescente, y decrescente"},
         "T_BASE_SENSOR": t_base.tolist(),
         "base": mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, int(dados["id_base"])),
-        "sensor_site": "mid360",
+        "sensor_site": "robot/mid360",
     }
 
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import mujoco
 import numpy as np
 
 from g1_v3.knobs import ATIVO, TAREFAS, Contrato
@@ -102,6 +103,24 @@ def _quadro_esperado(d, c, e) -> dict[str, np.ndarray]:
         "caixa": e["caixa"],
     }
     return {nome: crus[nome] * escala for nome, _canais, escala, h in CONTRATO.blocos_ator if h > 0}
+
+
+class TestNomesPrefixados(unittest.TestCase):
+    """O modelo compilado prefixa as entidades do robô (`robot/...`). Busca sem prefixo dá −1 (defeito silencioso)."""
+
+    XML = ('<mujoco><worldbody><body name="robot/torso_link">'
+           '<site name="robot/mid360" pos="0 0 0.4"/></body></worldbody></mujoco>')
+
+    def test_acha_id_com_o_prefixo_do_robo(self):
+        m = mujoco.MjModel.from_xml_string(self.XML)
+        self.assertEqual(PILOTA.acha_id(m, mujoco.mjtObj.mjOBJ_SITE, "robot/mid360"), 0)
+        self.assertEqual(PILOTA.acha_id(m, mujoco.mjtObj.mjOBJ_BODY, "robot/torso_link"), 1)
+
+    def test_nome_sem_prefixo_levanta_erro_claro(self):
+        m = mujoco.MjModel.from_xml_string(self.XML)
+        self.assertEqual(mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "mid360"), -1)
+        with self.assertRaisesRegex(AssertionError, "robot/"):
+            PILOTA.acha_id(m, mujoco.mjtObj.mjOBJ_SITE, "mid360")
 
 
 class TestPilota(unittest.TestCase):
