@@ -110,3 +110,10 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Solução:** C, decidida pelo dono em 30/10, com D6/D8 substituído pela escada. Lane H9c: `potencial.custo_aperto` linear, `aperto` −0,05, o item 15 e o item 3 refeitos (o item 3 com a sacudida evitada e os termos positivos que a perda zera, R2).
 - **Escada:** refeita na H9c em duas partes (fixa e por segundo); teto do peso 0,071, pela desigualdade (1).
 - **Fase I:** registrar a força por face e a taxa de escorregamento; calibrar o peso (≤ 0,071) pelo ponto medido; conferir o p99 da força (a forma linear não tem teto).
+
+### 10. Primeiro smoke da fase I: 37 seções caem por dtype, depois 21 falhas (resolvido)
+
+- **Problema:** (1) `cena.py:219` passava np.float64 ao `init_state`, e o mjlab criava o `default_joint_pos` em float64: o `reset_joints_by_offset` quebrava em todo env. (2) Depois do conserto, 21 falhas: dois defeitos de código (`eventos.py:242`, float64 no `v3_t_empurrao`, quebra no primeiro empurrão de todo treino; `observacoes.py:144`, a guarda da percepção lia o `ATIVO` e não o `k` do cfg, e a task `Mjlab-G1-V3-SemPercepcao` não montava) e 19 de check do smoke.
+- **Pesquisa:** sem internet; triagem por agente Opus com cada conserto provado por monkeypatch (`docs/relatorios/2026-10-30-v3-fase-i-triagem-smoke.md`). Achado de fundo: com o PD real (`Contrato.pd`, tornozelo kp 40, o do `unitree_rl_gym`) a ação zero não fica de pé (cai em ~1,1 s); a memória "de pé é grátis no mjlab" não vale na v3. Sete seções supunham o contrário.
+- **Considerado:** subir o kp do tornozelo (muda o contrato com o robô real: rejeitado); segurar a base no smoke (o smoke testa a cadeia, não o equilíbrio).
+- **Solução:** `.tolist()` no `init_state`; `.to(dtype)` no empurrão; `"lidar" in env.scene.sensors`; o helper `_segura_base` e os checks corrigidos no smoke. O equilíbrio desde o passo 0 é trabalho da política (o currículo começa com 100 % de ANDAR).
