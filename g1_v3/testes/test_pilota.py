@@ -234,6 +234,18 @@ class TestRegistraTerreno(unittest.TestCase):
             self.R.limpa_a_cena(m, d, {"id_laje": np.int64(1)}, 20.0, laje=True, caixa=False)
         np.testing.assert_allclose(d.mocap_pos[0], [0.0, 0.0, 20.0])
 
+    def test_andar_sobe_a_caixa_em_z_junto_com_a_laje_como_o_estaciona_cena(self):
+        # D11: o `eventos.estaciona_cena` do treino põe a caixa APOIADA na laje, então ela sobe `afasta` em z,
+        # com o xy e a velocidade zero. O driver a jogava em +x (com o xy original sobra a caixa fora da laje).
+        m = SimpleNamespace(body_mocapid=np.array([-1, 0]), body_jntadr=np.array([-1, 0]),
+                            jnt_qposadr=np.array([0]), jnt_dofadr=np.array([0]))
+        d = SimpleNamespace(mocap_pos=np.zeros((1, 3)), qpos=np.array([0.5, -0.3, 0.8, 1.0, 0.0, 0.0, 0.0]),
+                            qvel=np.ones(6))
+        with mock.patch.object(self.R.mujoco, "mj_forward"):
+            self.R.limpa_a_cena(m, d, {"id_laje": np.int64(1), "id_caixa": np.int64(1)}, 20.0, laje=True, caixa=True)
+        np.testing.assert_allclose(d.qpos[:3], [0.5, -0.3, 20.8])
+        np.testing.assert_allclose(d.qvel, np.zeros(6))
+
     def test_driver_nao_tem_copia_da_conta_de_base_e_quaternio(self):
         # R4: o xy e o quatérnio vêm do `alvos` e do `estimador`, os mesmos que o `pilota_v3` carrega.
         # Antes do conserto: `_rz` e `_qmul` existem no driver.

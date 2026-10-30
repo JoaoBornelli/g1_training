@@ -206,9 +206,10 @@ def resolve_terreno(roteiro: str, coluna: str | None, linha: int | None, borda: 
 
 def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], afasta: float,
                  laje: bool, caixa: bool) -> None:
-    """Manda para longe o que a tarefa manda, como o treino faz.
+    """Manda para longe o que a tarefa manda, como o `eventos.estaciona_cena` (ANDAR) e o `eventos.laje_fora` (CARREGAR) do treino.
 
-    ⚠ NO `ANDAR` VÃO AS DUAS: tirar só a laje deixaria a caixa caindo no caminho.
+    ⚠ NO `ANDAR` VÃO AS DUAS, e a caixa SOBE `afasta` em z com a laje (apoiada nela, velocidade zero):
+    tirar só a laje a deixaria caindo no caminho, e andá-la em +x a tiraria da laje.
     ⚠ NO `CARREGAR` VAI SÓ A LAJE: a caixa está na mão, e andar com ela é a tarefa.
     ⚠ A LAJE SOBE EM z, como o `eventos.laje_fora` do treino (M3): em +x ela sairia de lado com `--borda` ≠ 0.
     """
@@ -220,7 +221,7 @@ def limpa_a_cena(m: mujoco.MjModel, d: mujoco.MjData, c: dict[str, np.ndarray], 
             print("⚠ a laje não é mocap; ela ficou onde estava")
     if caixa:
         adr_q, adr_v = enderecos_da_caixa(m, int(c["id_caixa"]))
-        d.qpos[adr_q] += afasta
+        d.qpos[adr_q + 2] += afasta  # z: a caixa acompanha a laje (D11)
         d.qvel[adr_v:adr_v + 6] = 0.0
     mujoco.mj_forward(m, d)
 
@@ -260,9 +261,10 @@ def main() -> None:
                     help=f"um nome pronto ({', '.join(ROTEIROS)}) ou "
                          "rotulo:TAREFA:segundos[:vx] separados por vírgula")
     ap.add_argument("--voltas", type=int, default=1, help="quantas vezes repetir o roteiro")
-    ap.add_argument("--afasta", type=float, default=10.0,
-                    help="metros para onde a cena vai na marcha: a laje sobe em z, e a caixa anda em +x "
-                         "(ANDAR: laje e caixa; CARREGAR: só a laje)")
+    ap.add_argument("--afasta", type=float, default=pv._KN.cena.estaciona_z,
+                    help="metros para onde a cena vai na marcha, em z: a laje sobe, e a caixa sobe junto "
+                         "(ANDAR: laje e caixa, como `eventos.estaciona_cena`; CARREGAR: só a laje, como "
+                         "`eventos.laje_fora`). Padrão: `cena.estaciona_z` do knobs")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
