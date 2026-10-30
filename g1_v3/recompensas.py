@@ -294,7 +294,7 @@ def aplica_qualidade(r, q) -> torch.Tensor:
 
 
 def n_perda_caixa(perdeu_agora, b_pagos, custo, devolve: bool) -> torch.Tensor:
-    """custo (+ b_pagos, se `devolve`) no passo da perda (S §10; E4). Positivo: o peso do cfg é −1."""
+    """custo (+ b_pagos, se `devolve`) no passo seguinte à detecção da perda (S §10; E4). Positivo: o peso do cfg é −1."""
     extra = b_pagos if devolve else torch.zeros_like(b_pagos)
     return perdeu_agora.float() * (custo + extra)
 
@@ -773,7 +773,7 @@ def freio(env, tarefas):
 
 
 def perda_caixa(env, tarefas):
-    """Perda da caixa no passo da perda: custo, e os B_alvo pagos se `devolve_b_alvo` (E4; S §10). Peso −1 no cfg."""
+    """Perda da caixa no passo seguinte à detecção (`v3_perdeu_agora` é escrito no `compute`, depois das recompensas): custo, e os B_alvo pagos se `devolve_b_alvo` (E4; S §10). Peso −1 no cfg."""
     return _fim(env, tarefas, n_perda_caixa(env.v3_perdeu_agora, env.v3_b_pagos, R.perda_caixa, R.devolve_b_alvo))
 
 

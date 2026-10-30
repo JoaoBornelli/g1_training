@@ -62,7 +62,9 @@ def n_caixa_perdida(perdeu_agora, vira_andar: bool) -> torch.Tensor:
     """(E,) bool. A caixa caiu neste passo e a chave `caixa_perdida_vira_andar` está desligada (PD-27).
 
     Ligada, a perda vira ANDAR (`v3_tarefa`, no `comando.cadeia`) e o episódio segue: nunca termina aqui.
-    ⚠ `perdeu_agora` é o instante da perda; o termo acaba no passo em que ela acontece, não depois.
+    ⚠ `perdeu_agora` é escrito pela cadeia no `compute`, que roda depois das terminações: o termo acaba no
+    passo seguinte ao da detecção (0,02 s depois). No ramo `caiu` da perda a cobrança sai dois passos depois
+    da física, porque `altura_caixa` só atualiza no `sense`.
     """
     return perdeu_agora & (not vira_andar)
 
