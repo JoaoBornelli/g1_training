@@ -186,9 +186,9 @@ def constroi_env():
     usa `biased=True`). Não existe no robô real, e o MuJoCo clássico não tem onde guardá-lo. Deixá-lo ligado
     faria a paridade falhar em 29 canais por um motivo que não é erro de convenção.
 
-    teto do atraso da observação — o evento `atraso` (D7) sorteia lag 0..1 nos cinco termos com atraso. O
-    pilota não tem atraso de observação; com o teto em 0, o lag sorteado é sempre 0. O atraso do atuador
-    (ação) não entra no ator e fica como está (ver o relatório).
+    atraso da observação E do atuador — o evento `atraso` (D7) põe tetos > 0. O pilota e o driver real não têm
+    atraso artificial, e a checagem `ctrl` compara o alvo sem atraso. Então os tetos vão a 0 e o lag já sorteado
+    no reset também é zerado (senão ele fica até o próximo sorteio e a paridade oscila entre execuções).
     """
     from mjlab.envs import ManagerBasedRlEnv
 
@@ -202,9 +202,12 @@ def constroi_env():
     env = ManagerBasedRlEnv(cfg, device="cpu")
 
     env.scene["robot"].data.encoder_bias.zero_()
-    # ⚠ Atraso da OBSERVAÇÃO, teto 0: o `compute` lê o quadro atual. Privado do mjlab 1.5.3, como o `eventos.atraso`.
-    for buf in env.observation_manager._group_obs_term_delay_buffer[GRUPO].values():
-        buf.max_lag = 0
+    # ⚠ Atraso de OBSERVAÇÃO e de ATUADOR, tudo em 0: `min`/`max` e o lag sorteado. Privado do mjlab 1.5.3.
+    buffers = [b for g in env.observation_manager._group_obs_term_delay_buffer.values() for b in g.values()]
+    buffers += [a._delay_buffer for a in env.scene["robot"].actuators if a._delay_buffer is not None]
+    for buf in {id(b): b for b in buffers}.values():  # grupos fundidos compartilham o buffer: um por id
+        buf.min_lag = buf.max_lag = 0
+        buf.current_lags.zero_()
     return env
 
 
