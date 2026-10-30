@@ -23,7 +23,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
-from g1_v3.alvos import B1, B2, B3, B4, P0, P1, P2, P3, P4, inclinacao_da_caixa
+from g1_v3 import recompensas
+from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
 from g1_v3.knobs import FATIAS, TAREFAS
 from g1_v3.potencial import curso
 from g1_v3.recompensas import comprimento_do_passo, sacudida
@@ -442,7 +443,7 @@ class aceleracao_da_caixa:
     def __call__(self, env) -> torch.Tensor:
         c = self.sac.custo(env)  # antes da máscara: a v_ant anda mesmo fora da presa
         alvo = env.v3_alvo_idx
-        presa = (alvo == P3) | (alvo == P4) | (alvo == B1) | (alvo == B2)
+        presa = recompensas._em(alvo, recompensas._CAIXA_ALVO)  # o mesmo grupo do termo (R3)
         self.soma = self.soma + torch.where(presa, c, torch.zeros_like(c))
         self.passos = self.passos + presa.float()
         return (self.passos > 0).float()

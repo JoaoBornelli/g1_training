@@ -10,7 +10,7 @@ from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, knobs, metricas, potencial
+from g1_v3 import alvos, knobs, metricas, potencial, recompensas
 
 DT = 0.02
 P4, P0 = alvos.P4, alvos.P0
@@ -48,6 +48,17 @@ class AceleracaoDaCaixaTest(unittest.TestCase):
             m(env)
         m.reset()
         self.assertNotIn(CHAVE, env.extras["log"])
+
+    def test_mascara_e_a_do_recompensas_caixa_alvo(self):
+        # R3: a máscara "caixa presa" é a do termo (`recompensas._CAIXA_ALVO`), e não um conjunto escrito de novo.
+        # Com o grupo trocado para só (P3,), o passo com o alvo em P4 não entra (falha antes do código: P4 é fixo).
+        env = env_falso([P4, alvos.P3])
+        with mock.patch.object(recompensas, "_CAIXA_ALVO", (alvos.P3,)):
+            m = metricas.aceleracao_da_caixa(None, env)
+            for k in (1, 2):
+                env.scene["box"].data.root_link_vel_w = k * DELTA.expand(2, 6)
+                flag = m(env)
+        self.assertEqual(flag.tolist(), [0.0, 1.0])
 
     def test_termo_registrado_com_reduce_last(self):
         cfg = metricas.termos(knobs.ATIVO)["aceleracao_da_caixa"]

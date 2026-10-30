@@ -405,7 +405,7 @@ def sensores(k: Knobs = ATIVO) -> tuple:
         name="caixa_faces",
         primary=ContactMatch(mode="geom", pattern=BOX_GEOM, entity="box"),
         secondary=ContactMatch(mode="subtree", pattern="pelvis", entity=robo),
-        fields=("found", "force", "pos", "normal", "tangent"), reduce="maxforce", num_slots=12, global_frame=True,
+        fields=("found", "force", "normal", "tangent"), reduce="maxforce", num_slots=12, global_frame=True,
     )
 
     fixos = palmas + dorsos + mesa + (apoio, caixa_robo, auto, pes)

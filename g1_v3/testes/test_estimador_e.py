@@ -42,7 +42,7 @@ def caixa_em(x):
 
 def magnitude(sigma_pos=0.0, perda=0.0):
     """Magnitude corrente do ruído da caixa (formato a confirmar: chaves = campos de `Estimador`)."""
-    return {"sigma_pos": sigma_pos, "sigma_ori_graus": 0.0, "perda": perda}
+    return {"sigma_pos": sigma_pos, "perda": perda}
 
 
 class TestReduzSimetriaCubo(unittest.TestCase):

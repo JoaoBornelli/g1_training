@@ -79,9 +79,10 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     """O cfg da v3. `play=True`: ator sem corrupção, sem empurrão nem as DR do refino (P24), sem o currículo `v3`,
     episódio de 10⁹ s (o `v3_fim` acaba a cadeia).
 
-    Do `k` só valem os pesos (`recompensa`), `comando`, `cadeia`, `estimador`, `terreno`, `cena`, `dr`, `contrato` e
-    `percepcao.ligada`. O resto dos termos (σ, limites, ruído do lidar, terminação, balanceador, currículo) lê o `ATIVO`
-    do módulo: um `k` diferente não o muda.
+    Do `k` só valem os pesos (`recompensa`), `comando`, `cadeia`, `estimador`, `terreno`, `cena`, `contrato` e
+    `percepcao.ligada`. O `dr` do `k` vale só para QUAIS eventos entram no cfg (o `com_caixa`, por exemplo); as faixas
+    dos eventos vêm do `Curriculo`, que lê o `ATIVO.dr` (`curriculo.py:47`). O resto dos termos (σ, limites, ruído do
+    lidar, terminação, balanceador, currículo) também lê o `ATIVO` do módulo: um `k` diferente não o muda.
     """
     _sem_none(k)
     c = k.cena
@@ -163,6 +164,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         # O `**` põe cada grupo na posição da §6.5 nos dois casos (play e treino).
         **({
             "pd": EventTermCfg(func=eventos.pd, mode="reset", params={"asset_cfg": SceneEntityCfg("robot")}),
+            # M10: com só `actuator_ids`, o resolve põe em `actuator_names` os nomes por junta (não por grupo); o
+            # `effort_limits` só lê os ids, então o nome não entra na conta.
             "forca_motor": EventTermCfg(func=eventos.forca_motor, mode="reset", params={
                 "asset_cfg_pernas": SceneEntityCfg("robot", actuator_ids=pernas),
                 "asset_cfg_bracos": SceneEntityCfg("robot", actuator_ids=bracos)}),
