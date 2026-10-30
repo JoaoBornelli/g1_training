@@ -40,14 +40,26 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Solução:** `a12bdf3` (a laje em z) e `7fe6bd7` (a caixa em z e o padrão de 20 m). O `--afasta` tem `Cena.estaciona_z` (20 m) como padrão, e no ANDAR a caixa sobe em z com a laje, apoiada nela, como o `eventos.estaciona_cena`. Teste: a caixa ia +20 m em x antes do conserto.
 - **Fase I:** nada.
 
-### 4. A perda da caixa é cobrada e termina um passo depois (aberto)
+### 4. A perda da caixa é cobrada e termina um passo depois (resolvido)
 
 - **Problema:** a terminação `caixa_perdida` e a recompensa `perda_caixa` leem o `v3_perdeu_agora`, que a cadeia escreve no `compute` do comando. O mjlab roda o comando depois das terminações e das recompensas: as duas veem a perda do passo anterior (0,02 s de atraso). A docstring de `terminacoes.py:65` diz o contrário. Achado pela lane da s32.
-- **Pesquisa:** agente de pesquisa (o padrão do Isaac Lab e do mjlab para termos que dependem do comando; o efeito de um passo de atraso no PPO).
-- **Considerado / solução / fase I:** a preencher.
+- **Pesquisa:** agente de pesquisa. Fontes: o `manager_based_rl_env.py` do Isaac Lab (a mesma ordem do mjlab: terminação, recompensa, reset, comando, observação; "done after reset to get the correct observations"), o FAQ e a visão de arquitetura do mjlab (atraso consistente, tradeoff deliberado), a issue #998 do mjlab (raycast atrasado). Nenhuma fonte oficial trata termo que depende de estado escrito pelo comando, nem recomenda evitar o atraso.
+- **Considerado:** (A1) aceitar e corrigir os textos; (A2) detectar a perda dentro da terminação e o comando ler o resultado (+10 linhas, efeito colateral num termo de terminação, zero ganho no ramo `caiu` por causa do raycast); (A3) evento de intervalo ou de passo (rodam depois do comando: pior). Contra o objetivo: a penalidade não depende da ação do passo do atraso; ela chega à ação causal pelo crítico com peso γ ≈ 0,99 (GAE, arXiv 1506.02438). A terminação está inerte no padrão (`caixa_perdida_vira_andar` = True).
+- **Solução:** A1. Textos corrigidos em `18952aa` (`terminacoes.py`, `recompensas.py`) e no commit do caso 6 (`comando.py`). O texto de saída do `parte0/item3_escada.py` fica como registro histórico da Parte 0.
+- **Fase I:** nada; a pesquisa achou o caso 6.
 
-### 5. O `cena.mjb` do exportador pode não levar a DR da caixa (aberto)
+### 5. O `cena.mjb` do exportador pode não levar a DR da caixa (resolvido)
 
 - **Problema:** `exporta_cena.py` grava `env.sim.mj_model` (CPU). Os eventos `tamanho_caixa` e `carga` escrevem no modelo do Warp. A caixa do driver pode sair com a massa e o tamanho nominais. Achado pela lane 2 da G7.
-- **Pesquisa:** o mesmo agente (o código do mjlab sobre `mj_model` × modelo do Warp).
-- **Considerado / solução / fase I:** a preencher.
+- **Pesquisa:** o mesmo agente, no código do mjlab: `sim.py:263-268` (o `mj_model` é o molde; `put_model` copia para o Warp), `sim.py:454-461` ("mj_model ... before any randomization"), `viewer/model_sync.py` (o mjlab copia campos do Warp para o `MjModel` só nos viewers), `rl/exporter_utils.py:61-62` (o exportador do mjlab lê o nominal). A doc de randomização confirma que a DR escreve só no `sim.model`.
+- **Considerado:** (B1/B3) gravar o nominal e pôr o reset exportado na caixa nominal (+1 linha); (B2) copiar o sorteado para o `mjb` (~10 linhas, `geom_size`, `geom_rbound`, `geom_aabb`, `body_mass`, `body_inertia` e `mj_setConst`; o `mjb` passa a depender da semente). O defeito real: o `qpos_inicial` punha a caixa em `topo + a_sorteado` num `mjb` com a caixa de 0,10: no driver ela nascia enterrada ou flutuando até 3 cm. Contra o objetivo: o driver mede a política; uma caixa coerente com o próprio `mjb` é o que importa, e 0,10 está dentro da faixa do treino.
+- **Solução:** B1/B3, `d4f97cd`: `env.v3_meia` = a meia nominal antes do reset exportado; o contrato do arquivo diz que o `mjb` é nominal, sem a DR do treino.
+- **Fase I:** se o driver precisar da caixa pesada (nível > 0), gravar só a massa no `mjb`.
+
+### 6. Perda falsa da caixa no primeiro passo do episódio (resolvido; achado pela pesquisa do caso 4)
+
+- **Problema:** o raycast `altura_caixa` só recalcula no `sim.sense()`, que roda depois do comando (`raycast_sensor.py:771-816`; antes do primeiro `sense()` os dados são zero, `:549-556`). No primeiro `compute` de um episódio novo, a cadeia lê a altura da caixa do fim do episódio anterior. O ramo `caiu` da perda (`comando.py:55-61`) não exige a caixa pega e vale em toda tarefa que não é ANDAR. Um episódio que nasce em PEGAR, CARREGAR ou BOTAR pode marcar perda no passo 0: com `caixa_perdida_vira_andar` ligada, ele vira ANDAR e paga a `perda_caixa` (0,56 de retorno). Isso corromperia o treino da manipulação.
+- **Pesquisa:** o código do mjlab (a ordem do `step` e o ciclo do raycast) e a issue #998 do mjlab, que trata o mesmo atraso do raycast.
+- **Considerado:** (a) a perda não vale no passo do reset (`episode_length_buf == 0`), uma linha; (b) medir a altura da caixa por conta, sem raycast (perde a altura contra o terreno local da viab. D4); (c) chamar o `sense()` antes do comando (muda a ordem do mjlab). Contra o objetivo: nada se perde de verdade no passo do reset (a cena acabou de ser posta); (a) é exata e mínima.
+- **Solução:** (a), no commit seguinte a `d4f97cd`: `_perda` ganhou `& (env.episode_length_buf > 0)`. Teste: com `episode_length_buf` 0 e a altura stale da caixa no chão, o código de antes marcava a perda; o de agora não (399 testes, 1 pulado).
+- **Fase I:** no smoke, conferir no primeiro passo de um env reiniciado que `v3_perdeu` fica False; no log, a fração de episódios B e C que viram ANDAR no início deve cair a zero.
