@@ -348,14 +348,22 @@ class CadeiaCmd(CommandTerm):
         env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, P0))[ids]
 
     def _perda(self, m) -> None:
-        # Caixa perdida (E3, item 4; S §10). `v3_perdeu_agora` é um pulso no passo da perda. Com a chave, a caixa perdida
-        # vira ANDAR parado até o fim (PD-27): o alvo passa a B4, com σ = a distância à pose de pé no instante da perda.
+        # Caixa perdida (E3, item 4; S §10). `v3_perdeu_agora` é um pulso no passo da perda, escrito aqui no `compute` da
+        # cadeia, DEPOIS das terminações e das recompensas do mesmo passo: a terminação `caixa_perdida` e a recompensa
+        # `perda_caixa` o leem só no passo SEGUINTE (0,02 s de atraso; o comando roda depois das terminações, como no
+        # mjlab e no Isaac Lab). No ramo `caiu`, a medida é o raycast `altura_caixa`, que só recalcula no `sim.sense()`
+        # (um passo atrás): a cobrança desse ramo sai dois passos depois da física.
+        # Caso 6: no primeiro passo do episódio (`episode_length_buf` == 0) o `h_caixa` é o do fim do episódio anterior
+        # (o `sense()` ainda não rodou sobre o estado novo). Por isso a perda não vale nesse passo: senão um PEGAR que
+        # nasce com a caixa no chão, pelo dado velho, marcaria perda falsa e, com a chave, viraria ANDAR.
+        # Com a chave, a caixa perdida vira ANDAR parado até o fim (PD-27): o alvo passa a B4, com σ = a distância à pose
+        # de pé no instante da perda.
         env = self._env
         tar = env.v3_tarefa
         longe = (m["caixa_p"] - env.v3_alvo_w).norm(dim=-1) > A.raio_b2
         fora = torch.where(tar == BOTAR, longe, torch.ones_like(longe))  # fora do alvo de soltura, só no BOTAR
         perda = caixa_perdida_agora(m["h_caixa"] - env.v3_meia, m["v_rel"], fora, env.v3_pegou, env.v3_alvo_idx,
-                                    m["sobre"], T) & (tar != ANDAR)
+                                    m["sobre"], T) & (tar != ANDAR) & (env.episode_length_buf > 0)
         env.v3_perdeu_agora[:] = perda
         if self.cfg.k.caixa_perdida_vira_andar and perda.any():
             ids = perda.nonzero().flatten()

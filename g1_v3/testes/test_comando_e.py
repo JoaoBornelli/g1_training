@@ -256,6 +256,43 @@ class TestCaixaPerdidaAgora(unittest.TestCase):
         self.assertFalse(perda(indice=-1, sobre_laje=False))
 
 
+class TestPerdaNoPrimeiroPasso(unittest.TestCase):
+
+    def _perda_no_passo(self, buf):
+        # `_perda` com a caixa "no chão" pelo `h_caixa` e a tarefa PEGAR, num env de E = 1 com `episode_length_buf` = buf.
+        # A chave `caixa_perdida_vira_andar` está ligada, para que a perda apareça também em `v3_perdeu`.
+        env = _env_falso(comando.P1)
+        env.episode_length_buf = torch.tensor([buf], dtype=torch.long)
+        env.v3_perdeu_agora = torch.zeros(1, dtype=torch.bool)
+        env.v3_perdeu = torch.zeros(1, dtype=torch.bool)
+        env.v3_phi = torch.zeros(1)
+        env.v3_relogio_alvo = torch.zeros(1)
+        env.v3_sigma = torch.ones(1)
+        obj = _cadeia_sem_env(env)
+        obj.cfg = types.SimpleNamespace(est=Estimador(), k=types.SimpleNamespace(caixa_perdida_vira_andar=True))
+        obj._publica = mock.Mock()
+        obj._sigma = lambda m, indice: torch.ones(1)
+        m = _medidas()
+        m["h_caixa"] = torch.zeros(1)  # fundo a −0,1 m, abaixo da folga: "caiu"
+        m["v_rel"] = torch.zeros(1)
+        m["sobre"] = torch.ones(1, dtype=torch.bool)
+        obj._perda(m)
+        return env
+
+    def test_primeiro_passo_do_episodio_nao_marca_perda_pelo_h_caixa_stale(self):
+        # Caso 6: no passo 0 o `h_caixa` é o do fim do episódio anterior (o `sense()` ainda não rodou sobre o estado novo).
+        # Sem o portão de `episode_length_buf` > 0, a caixa "no chão" marcaria perda falsa e um PEGAR viraria ANDAR
+        env = self._perda_no_passo(buf=0)
+        self.assertFalse(env.v3_perdeu_agora.item())
+        self.assertFalse(env.v3_perdeu.item())
+
+    def test_a_partir_do_passo_1_a_mesma_medida_e_perda(self):
+        # Caso 6, controle: no passo 1 o `sense()` já rodou sobre o episódio novo, e a mesma medida é perda de verdade
+        env = self._perda_no_passo(buf=1)
+        self.assertTrue(env.v3_perdeu_agora.item())
+        self.assertTrue(env.v3_perdeu.item())
+
+
 class TestSucessoDoPegar(unittest.TestCase):
 
     def test_queda_no_carregar_conta_como_falha(self):
