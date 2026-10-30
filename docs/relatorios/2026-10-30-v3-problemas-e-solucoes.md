@@ -11,7 +11,7 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 
 <!-- um bloco por caso, na ordem em que aparecem -->
 
-### 1. Métricas de evento logam a média do passo, e não a do episódio (aberto)
+### 1. Métricas de evento logam a média do passo, e não a do episódio (resolvido)
 
 - **Problema:** `g1_v3/metricas.py` (`tempo_no_alvo`, `phi_medio_do_alvo`, `velocidade_de_chegada`, `fracao_fora_da_plataforma`). O mjlab tira a média do valor no último passo sobre os envs que resetam; a correção da F9 devolve a média transversal dos envs com o evento NO PASSO. A revisão G7 mediu 0,054 logado contra 0,259 por episódio. As métricas da fase I (D10, pouso, tempo por alvo) sairiam erradas.
 - **Pesquisa:** agente de pesquisa, na internet e no código instalado. Leu o `MetricsManager` do mjlab 1.5.3 e o do `main` (que só acrescenta `reduce="sum"`), o logger do rsl_rl 5.4.0, o `CommandTerm.reset` e o `TerminationManager` do Isaac Lab (issue #2977, PR #3107), e o `reset_idx` do legged_gym e do unitree_rl_gym. Nenhum exemplo oficial loga métrica condicional por máscara: todos tiram a média sobre os envs que resetam. A lição do Isaac Lab (#2977) é reportar o valor do episódio no reset. Conferido por mim no código: o rsl_rl concatena os tensores de cada chave e tira a média dos elementos (`rsl_rl/utils/logger.py:185-196`); o mjlab lê o `last` antes do `reset` do termo (`metrics_manager.py:122`, `:132`).
@@ -21,7 +21,7 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
   - (c) NaN com reduce que ignora NaN: o `torch.mean` do mjlab e o do rsl_rl propagam o NaN.
   - (d) o `reset` do termo escreve um vetor 1-D com os episódios que fecham e tiveram o evento em `extras["log"]["Episodio/<nome>"]`: exata, sem estado novo, e a chave some sem evento. O próprio mjlab já escreve direto em `extras["log"]` em `tasks/velocity/mdp/rewards.py`.
   - Contra o objetivo do treino: as métricas não entram na recompensa nem no currículo (o currículo usa o registro de sucesso da cadeia). A mudança corrige só o que a fase I mede: a D10, o pouso (P3 da F9) e o tempo por alvo.
-- **Solução:** a opção (d), contrato no plano (`09688ff`). O código vem numa lane Haiku depois da lane 1 da G7.
+- **Solução:** a opção (d): contrato no plano (`09688ff`), código em `8f4409d`. O `_media_dos_com_evento` saiu; entrou `_loga_episodios`. As cinco métricas de evento devolvem a flag no `__call__` e logam o valor do episódio no `reset`. Sete testes falharam antes do conserto e passam depois (397 testes, 1 pulado).
 - **Fase I:** `Episode_Metrics/<nome>` passa a ser a fração de episódios com o evento; o valor condicional fica em `Episodio/<nome>`. Lacuna no TensorBoard numa iteração sem evento é o esperado. Risco medido só por estimativa: a máscara força uma sincronização GPU→CPU por termo e por reset (≤ 1–2 % do passo).
 
 ### 2. A s32 do smoke pode passar sem testar (resolvido)
@@ -37,7 +37,7 @@ julgamento contra o objetivo), a solução aplicada (commit) e o que fica para a
 - **Problema:** `registra_juntas_v3.py`, `limpa_a_cena` e `--afasta`. No ANDAR, o registro sobe a laje 10 m e anda a caixa 10 m em +x. O treino (`eventos.estaciona_cena`) sobe as duas `Cena.estaciona_z` = 20 m, com a caixa apoiada na laje. O mapa e a câmera do driver veem uma cena que o treino nunca mostrou à política.
 - **Pesquisa:** só código: o contrato do driver (D11) é espelhar o treino, e o treino está em `eventos.estaciona_cena`.
 - **Considerado:** manter os 10 m (sem efeito na marcha de 2 m, como a G7 M3 notou), ou espelhar o treino. Contra o objetivo: o driver mede a política no regime do treino; uma diferença de cena é uma variável a mais na fase I.
-- **Solução:** `a12bdf3` e o commit seguinte. O `--afasta` tem `Cena.estaciona_z` (20 m) como padrão, e no ANDAR a caixa sobe em z com a laje, apoiada nela, como o `eventos.estaciona_cena`. Teste: a caixa ia +20 m em x antes do conserto.
+- **Solução:** `a12bdf3` (a laje em z) e `7fe6bd7` (a caixa em z e o padrão de 20 m). O `--afasta` tem `Cena.estaciona_z` (20 m) como padrão, e no ANDAR a caixa sobe em z com a laje, apoiada nela, como o `eventos.estaciona_cena`. Teste: a caixa ia +20 m em x antes do conserto.
 - **Fase I:** nada.
 
 ### 4. A perda da caixa é cobrada e termina um passo depois (aberto)
