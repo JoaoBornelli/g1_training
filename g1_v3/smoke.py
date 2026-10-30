@@ -346,9 +346,7 @@ def s10_queda_por_inclinacao_e_altura():
                 pose[:, 5:7] = 0.0
             if altura is not None:
                 pose[:, 2] = env.scene.env_origins[:, 2] + altura
-            robo.write_root_link_pose_to_sim(pose)
-            env.sim.forward()
-            env.sim.sense()
+            _poe_base(env, pose)
             return terminacoes.queda(env, TODAS).clone()
         finally:
             env.close()
@@ -1051,24 +1049,48 @@ def _abre_b_na_escada(env) -> float:
     return dict(t.tetos_andar)["degrau"] * linha / (t.linhas - 1)
 
 
-def _base_alem_da_borda(env, z):
-    """Põe a base parada além da borda da plataforma, no rumo da cena, a `z` (E,); roda `forward` e `sense`.
+def _geometria_escada():
+    """(n degraus, step_width, meia plataforma do topo) da escada do cfg, pelo cálculo do `pyramid_stairs`.
 
-    ⚠ 1,15 m do centro = a borda (plataforma/2 = 1,0 m) + o meio do primeiro anel de degrau (`step_width` 0,30 m,
-       config.py:49). O anel fica um degrau abaixo da plataforma (primitive_terrains.py:133-135).
+    ⚠ primitive_terrains.py:88-100: n = int((lado − 2·border − plataforma)/(2·step_width)); o topo tem
+       `lado − 2·border − 2·n·step_width` de lado, e o primeiro anel, logo fora dele, tem `step_width` de largura.
+       Linha 9: n 6, meia plataforma 1,20 m (lado 8, border 1,0, plataforma 2,0).
     """
-    from g1_v3.knobs import ATIVO
+    from g1_v3.cena import terreno_cfg
 
+    g = terreno_cfg().terrain_generator
+    e = g.sub_terrains["escada"]
+    lado = g.size[0]
+    n = int((lado - 2 * e.border_width - e.platform_width) / (2 * e.step_width))
+    return n, e.step_width, (lado - 2 * e.border_width - 2 * n * e.step_width) / 2
+
+
+def _poe_base(env, pose):
+    """Põe a base na `pose` (n, 7) com velocidade zero, e roda `forward` e `sense` (M8: a escrita da s10 e a do _base_alem).
+
+    ⚠ o raycast das alturas só atualiza no `sense` (raycast_sensor.py:691).
+    """
+    robo = env.scene["robot"]
+    robo.write_root_link_pose_to_sim(pose)
+    robo.write_root_link_velocity_to_sim(torch.zeros(pose.shape[0], 6, device=pose.device))
+    env.sim.forward()
+    env.sim.sense()
+
+
+def _base_alem_da_borda(env, z):
+    """Põe a base parada além da borda da escada, no rumo da cena, a `z` (E,); roda `forward` e `sense`.
+
+    ⚠ 1,35 m do centro = a meia plataforma do topo (1,20 m) + meio degrau (`_geometria_escada`, do cfg). O primeiro
+       anel fica um degrau abaixo da plataforma (primitive_terrains.py:133-135).
+    """
+    _, sw, meia = _geometria_escada()
     robo = env.scene["robot"]
     rumo = env.v3_rumo_cena
-    alem = ATIVO.terreno.plataforma / 2 + 0.15
+    alem = meia + sw / 2
     pose = robo.data.root_link_pose_w.clone()
     pose[:, :2] = env.scene.env_origins[:, :2] + alem * torch.stack([torch.cos(rumo), torch.sin(rumo)], -1).float()
     pose[:, 2] = z
-    robo.write_root_link_pose_to_sim(pose)
-    robo.write_root_link_velocity_to_sim(torch.zeros(env.num_envs, 6, device=env.device))
-    env.sim.forward()
-    env.sim.sense()  # ⚠ o raycast das alturas só atualiza no `sense` (raycast_sensor.py:691)
+    _poe_base(env, pose)
     return pose
 
 
@@ -1118,12 +1140,13 @@ def s31_topo_da_laje_e_origem_de_escada_alta():
     env = _abre_env(4)
     try:
         env.reset()
-        _abre_b_na_escada(env)
+        degrau = _abre_b_na_escada(env)
+        n, _, _ = _geometria_escada()
         origem_z = env.scene.env_origins[:, 2]
         print(f"  origem z na linha mais alta da escada: {origem_z.tolist()}")
-        # ⚠ DÚVIDA: o plano diz ~1,4 m, mas o mjlab põe a origem em (num_steps + 1) × degrau (primitive_terrains.py:233-236):
-        # com 10 degraus de 0,15 m na linha 9 seriam ~1,65 m. O check fica em > 1,0 m; o valor sai impresso acima.
-        check("origem de escada alta: z > 1,0 m (o plano diz ~1,4 m)", bool((origem_z > 1.0).all()), f"{origem_z.tolist()}")
+        # primitive_terrains.py:233-236: a origem fica (n + 1) degraus acima do chão do sub-terreno
+        check(f"origem de escada alta: z = (n + 1)·degrau ± 1e-3 (n {n}, degrau {degrau:.3f} m)",
+              bool(((origem_z - (n + 1) * degrau).abs() <= 1e-3).all()), f"{origem_z.tolist()}")
         topo_w = origem_z + env.v3_topo
         laje_z = env.scene["table"].data.root_link_pos_w[:, 2]
         check("laje: topo = origem + v3_topo (± 1e-4)",
@@ -1148,7 +1171,9 @@ def s32_robo_um_degrau_abaixo_com_caixa_no_peito_nao_perde_a_caixa():
         perdeu = env.termination_manager.get_term("caixa_perdida")
         check("um degrau abaixo, caixa no peito: `caixa_perdida` False (D4)", not bool(perdeu.any()),
               f"{perdeu.tolist()}")
-        check("um degrau abaixo, caixa no peito: v3_perdeu False", not bool(env.v3_perdeu.any()))
+        # ⚠ o pulso do PASSO (a cadeia o escreve depois da terminação), não o `v3_perdeu` do reset (M1)
+        check("um degrau abaixo, caixa no peito: v3_perdeu_agora False no passo", not bool(env.v3_perdeu_agora.any()),
+              f"{env.v3_perdeu_agora.tolist()}")
     finally:
         env.close()
 
