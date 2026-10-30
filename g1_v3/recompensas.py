@@ -6,7 +6,8 @@ invólucro fino que lê o env. O teste chama o núcleo com tensores sintéticos.
 passo, o vivo, a altura do pé, o escorregão, as taxas e a energia, os limites e os desvios, o tronco, a
 altura da base, as seis cercas (sola, giro, tronco, CoM, torque, pelve, recuo) e o contato fora dos pés.
 Fase E (E4): o progresso (Φ do alvo corrente), a qualidade do rastreio no CARREGAR, o contato com a laje, o
-freio, a perda da caixa, e o contato com a caixa fora da janela da pega. A sacudida e o aperto são da fase H.
+freio, a perda da caixa, e o contato com a caixa fora da janela da pega. A sacudida e o aperto são da fase H (H2):
+custos, sem `paga`, com o fator d/5 do degrau da tarefa no próprio termo.
 ⚠ Todo termo recebe `tarefas` e vale zero fora delas com `torch.where` (§6.6). Nunca multiplicar pela
 máscara: NaN × 0 = NaN, e o NaN de um env fora da tarefa chega à recompensa e ao ator.
 ⚠ Os termos que pagam positivo (`vivo`, `altura_pe`, `passo`, rastreios) zeram depois da caixa perdida
@@ -21,10 +22,10 @@ import re
 import torch
 from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
 
-from g1_v3 import alvos, estimador, potencial
+from g1_v3 import alvos, balanceador, estimador, potencial
 from g1_v3.cena import MESA_POR_GRUPO
 from g1_v3.curriculo import mascara
-from g1_v3.knobs import ALVOS, ATIVO, JUNTAS, TAREFAS
+from g1_v3.knobs import ALVOS, ATIVO, JUNTAS, TAREFAS, TAU_MAX
 
 R = ATIVO.recompensa
 C = ATIVO.comando
@@ -37,7 +38,6 @@ _BRACOS = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"shoulder|elbow|wr
 _CINTURA = tuple(i for i, j in enumerate(JUNTAS) if "waist" in j)  # 3
 _QUADRIL = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"hip_(roll|yaw)", j))  # 4
 _YAW_E, _YAW_D = JUNTAS.index("left_hip_yaw_joint"), JUNTAS.index("right_hip_yaw_joint")
-_TAU_MAX = tuple(next(v for rx, v in R.tau_max if re.fullmatch(rx, j)) for j in JUNTAS)  # S §9.3
 _VMAX = tuple(  # E4: tetos de velocidade por junta, um tuplo por regime (standing, andando, correndo)
     tuple(next(v for rx, v in tab if re.fullmatch(rx, j)) for j in JUNTAS)
     for tab in (R.vel_max_parado, R.vel_max_andando, R.vel_max_correndo))
@@ -322,6 +322,26 @@ def margem_com(com_xy, cantos_xy) -> torch.Tensor:
     return torch.where(valida, margem, torch.full_like(margem, 1e3)).min(dim=-1).values
 
 
+def n_sacudida(dv_lin, dw, dt, norma_lin, norma_ang) -> torch.Tensor:
+    """(E,) sacudida adimensional (PD-34): Σ(Δv/(dt·norma_lin))² + Σ(Δω/(dt·norma_ang))², sem raiz. Δ = velocidade
+    da caixa no mundo menos a da chamada anterior (m/s, rad/s); dt = env.step_dt. Com o p50 medido, vale 2 (P8, P10)."""
+    return (dv_lin / (dt * norma_lin)).pow(2).sum(-1) + (dw / (dt * norma_ang)).pow(2).sum(-1)
+
+
+def forcas_por_face(normal_w, forca_w, achado, R_caixa) -> tuple[torch.Tensor, torch.Tensor]:
+    """(F_esq, F_dir) (E,) em N, das 12 fatias do `caixa_faces` (P12). A normal aponta da caixa (primário) para o robô.
+    n_c = R_caixaᵀ·normal_w no frame da caixa; a face é o eixo de maior |n_c|, com o sinal de n_c nele. F_n =
+    |⟨forca_w, normal_w⟩|. F_esq: fatias com achado na face +y (palma esquerda); F_dir: na −y. As faces ±x (frente e
+    fundo, onde o tronco apoia) e ±z não entram (S §8.2). `torch.where`: uma fatia sem achado vale 0, mesmo com NaN."""
+    n_c = torch.einsum("eij,esi->esj", R_caixa, normal_w)
+    mais_y = n_c.abs().argmax(-1) == 1
+    f_n = (forca_w * normal_w).sum(-1).abs()
+    zero = torch.zeros_like(f_n)
+    esq = torch.where(achado & mais_y & (n_c[..., 1] > 0), f_n, zero).sum(-1)
+    dir_ = torch.where(achado & mais_y & (n_c[..., 1] < 0), f_n, zero).sum(-1)
+    return esq, dir_
+
+
 # ---------------------------------------------------------------- invólucros (leem o env)
 
 def _fim(env, tarefas, valor, paga=False):
@@ -389,9 +409,9 @@ def _cantos_mundo(pose, cantos):
 
 
 def por_degrau(env, ini, fim):
-    """Valor do degrau da tarefa corrente: início + (fim − início)·d/5 (plano §6.9; E4). Pública: a `terminacoes.chegada`
-    e o σ do pouso a usam (F4)."""
-    return ini + (fim - ini) * env.v3_degrau.float() / ATIVO.balanceador.degraus
+    """Valor do degrau da tarefa corrente, `balanceador.no_degrau` (§6.9; P1). Chamam: `incl_lim`, o pouso do `_phi_env`,
+    o fator do B2 no `progresso`, `contato_laje`, `sacudida`, `aperto` e `terminacoes.chegada` (esta, de outro módulo)."""
+    return balanceador.no_degrau(ini, fim, env.v3_degrau.float(), ATIVO.balanceador.degraus)
 
 
 def incl_lim(env):
@@ -667,7 +687,7 @@ def cerca_com(env, tarefas):
 def cerca_torque(env, tarefas):
     """Torque de cada junta solta e de cada par acoplado, sobre o limite de `lim_torque` (PD-45; S §9.3)."""
     tau = env.scene["robot"].data.qfrc_actuator  # (E,29): o mjlab já tira a base livre
-    tau_max = torch.tensor(_TAU_MAX, dtype=tau.dtype, device=tau.device)
+    tau_max = torch.tensor(TAU_MAX, dtype=tau.dtype, device=tau.device)
     pares = _PARES.to(tau.device)
     return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque))
 
@@ -770,6 +790,44 @@ def freio(env, tarefas):
     vmax = (parado.float()[:, None] * vp + andando.float()[:, None] * va + correndo.float()[:, None] * vc)
     custo = torch.relu(v / vmax - 1.0).pow(2).sum(-1)
     return _fim(env, tarefas, custo * R.freio_fator ** env.v3_freio.to(v.dtype))
+
+
+class sacudida:
+    """Sacudida da caixa (H2; PD-34): termo-classe do mjlab, `__init__(cfg, env)` e `reset(env_ids)` (P9). Custo, sem
+    `paga`: o peso negativo vem do knob. ⚠ As recompensas rodam antes do `sim.forward()`: o cvel está um subpasso atrasado
+    em TODA chamada, e o Δ entre duas chamadas é de um step_dt exato. Um buffer escrito pela cadeia (pós-forward) errava o
+    Δt em 25 % (P9). Por isso a `v_ant` é da classe, e não buffer do env (§6.4)."""
+
+    def __init__(self, cfg, env):
+        self.v_ant = torch.zeros(env.num_envs, 6, device=env.device)  # [lin xyz, ang xyz] da caixa na chamada anterior
+
+    def reset(self, env_ids=None):
+        self.v_ant[slice(None) if env_ids is None else env_ids] = 0.0
+
+    def custo(self, env) -> torch.Tensor:
+        """(E,) sem fator e sem máscara; atualiza a `v_ant`. A métrica `aceleracao_da_caixa` (H5b) reusa esta conta."""
+        v = env.scene["box"].data.root_link_vel_w
+        d = v - self.v_ant
+        self.v_ant = v.clone()
+        return n_sacudida(d[:, :3], d[:, 3:], env.step_dt, *R.sacudida_norma)
+
+    def __call__(self, env, tarefas):
+        custo = self.custo(env)  # antes da máscara: a v_ant anda mesmo fora da tarefa
+        presa = _em(env.v3_alvo_idx, _CAIXA_ALVO)  # P3, P4, B1, B2 (P11: sem `~apoio`)
+        valor = custo * por_degrau(env, 0.0, 1.0)
+        return _fim(env, tarefas, torch.where(presa, valor, torch.zeros_like(valor)))
+
+
+def aperto(env, tarefas):
+    """Aperto das palmas na caixa (H2; S §8.2): `potencial.custo_aperto` sobre as forças das faces ±y (P12), com o fator
+    d/5 do degrau. Custo, sem `paga`; a mesma máscara da sacudida (P3, P4, B1, B2)."""
+    s = env.scene["caixa_faces"].data
+    R_caixa = alvos.frame_da_caixa(env.scene["box"].data.root_link_quat_w,
+                                   estimador.yaw(env.scene["robot"].data.root_link_quat_w))
+    valor = potencial.custo_aperto(*forcas_por_face(s.normal, s.force, s.found > 0, R_caixa), R.F_ref)
+    valor = valor * por_degrau(env, 0.0, 1.0)
+    presa = _em(env.v3_alvo_idx, _CAIXA_ALVO)
+    return _fim(env, tarefas, torch.where(presa, valor, torch.zeros_like(valor)))
 
 
 def perda_caixa(env, tarefas):
