@@ -1,6 +1,7 @@
 """Eventos da v3: reset por fatia, terreno por tarefa, DR de startup e empurrão (D7 do plano, §6.5, §6.8), e a cena
 da caixa da fase E (`posiciona_cena`, `carga`, atritos, `vies_imu`; o núcleo `sorteia_topo_e_massa`, §6.3), e a
-laje de destino do BOTAR (`posiciona_destino`, F2; PD-47).
+laje de destino do BOTAR (`posiciona_destino`, F2; PD-47), e a DR do refino (fase H, §6.8: `pd`, `forca_motor`,
+`solref`, `com_caixa`, `forca_caixa` e `rfi`, com a faixa do `v3_cur.dr()`).
 
 ⚠ Os termos de DR (`dr.geom_friction`, `dr.body_mass`, `dr.encoder_bias`) e `mdp.reset_joints_by_offset`
 entram direto no cfg (D10), sem invólucro: o fabricante já aceita `env_ids`. Aqui fica só o que é nosso.
@@ -19,15 +20,16 @@ import math
 import torch
 
 from mjlab.envs.mdp import dr
-from mjlab.envs.mdp.events import push_by_setting_velocity, reset_root_state_uniform
+from mjlab.envs.mdp.events import apply_body_impulse, push_by_setting_velocity, reset_root_state_uniform
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz, quat_mul
 
 from g1_v3 import alvos, estimador
-from g1_v3.knobs import ATIVO, Cena, Niveis, Terreno
+from g1_v3.knobs import ATIVO, TAREFAS, TAU_MAX, Cena, Niveis, Terreno
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
 ANDAR, B, C = 0, 1, 2
+CARREGAR = TAREFAS.index("CARREGAR")  # índice de TAREFAS (não de fatia): a força na caixa só vale nele (H4)
 
 
 def _fracao_terreno(cur, tarefa: str) -> float:
@@ -473,3 +475,109 @@ def vies_imu(env, env_ids):
         incl = torch.eye(3, device=dev).repeat(n, 1, 1)
     env.v3_vies_giro[env_ids] = giro.to(env.v3_vies_giro.dtype)
     env.v3_incl_imu[env_ids] = incl.to(env.v3_incl_imu.dtype)
+
+
+# ------------------------------------------------------------------ fase H: a DR do refino (H4; §6.8)
+# ⚠ Os `dr.*` novos sorteiam no `v3_gerador` (P16), por `_dist`. O `atrito_pad` e o `atrito_laje` seguem como estão.
+
+
+def _dist(env):
+    # U[lo; hi] pelo `v3_gerador` (P16), no dtype de `lo`: o `dr.*` chama `sample(lo, hi, forma, device)`
+    def amostra(lo, hi, forma, dev):
+        return lo + (hi - lo) * _uniforme(env.v3_gerador, forma, dev).to(lo.dtype)
+    return dr.Distribution("v3_gerador", amostra)
+
+
+@requires_model_fields("actuator_gainprm", "actuator_biasprm")
+def pd(env, env_ids, *, asset_cfg):
+    """Reset `pd` (§6.8 refino): kp e kd escalados por junta sobre o default do modelo, pela faixa `dr()["pd"]`.
+
+    ⚠ O mesmo `@requires_model_fields` do mjlab: sem ele o índice de mundo estoura (event_manager.py:383-386).
+    """
+    faixa = tuple(env.v3_cur.dr()["pd"])
+    dr.pd_gains(env, env_ids, kp_range=faixa, kd_range=faixa, asset_cfg=asset_cfg, distribution=_dist(env),
+                operation="scale")
+
+
+@requires_model_fields("actuator_forcerange", "jnt_actfrcrange", "tendon_actfrcrange")
+def forca_motor(env, env_ids, *, asset_cfg_pernas, asset_cfg_bracos):
+    """Reset `forca_motor` (§6.8 refino): o limite de esforço, escala sobre o default. Pernas e cintura com
+    `dr()["forca_motor"]`; braços com `dr()["forca_motor_bracos"]`.
+
+    ⚠ P18: o `actuator_ids` indexa os 9 GRUPOS de atuador (`cena._atuadores`, um por linha de `Contrato.pd`), e não os
+    29 nomes. O `env_cfg` (H4b) monta as duas listas: braços = as linhas que casam `shoulder|elbow|wrist` (7 e 8).
+    """
+    d = env.v3_cur.dr()
+    for asset_cfg, faixa in ((asset_cfg_pernas, d["forca_motor"]), (asset_cfg_bracos, d["forca_motor_bracos"])):
+        dr.effort_limits(env, env_ids, effort_limit_range=tuple(faixa), asset_cfg=asset_cfg,
+                         distribution=_dist(env), operation="scale")
+
+
+@requires_model_fields("geom_solref")
+def solref(env, env_ids, *, asset_cfg_robo, asset_cfg_laje, asset_cfg_caixa):
+    """Reset `solref` (§6.8 refino): `solref[0]` das geoms que mandam no contato, um u por env (`dr()["solref"]`).
+
+    ⚠ P17: no contato vale o solref da geom de MAIOR prioridade; com prioridade igual, a média pelo solmix. Por isso
+    entram os pés (priority 1, contra o terreno 0), os pads, a laje (priority 3) e a caixa, e não o terreno. A coluna 1
+    (amortecimento) não muda. Três `asset_cfg`, e não uma tupla: o manager só resolve `SceneEntityCfg` direto em `params`.
+    """
+    lo, hi = env.v3_cur.dr()["solref"]
+    dev = env.device
+    env_ids = env_ids.to(dev, dtype=torch.int)
+    n = len(env_ids)
+    u = lo + (hi - lo) * _uniforme(env.v3_gerador, (n,), dev)
+    gid = torch.cat([env.scene[c.name].indexing.geom_ids[c.geom_ids]
+                     for c in (asset_cfg_robo, asset_cfg_laje, asset_cfg_caixa)])
+    env_grid, geom_grid = torch.meshgrid(env_ids, gid, indexing="ij")
+    env.sim.model.geom_solref[env_grid, geom_grid, 0] = u[:, None].expand(n, len(gid)).to(
+        env.sim.model.geom_solref.dtype)
+
+
+@requires_model_fields("body_ipos", recompute=RecomputeLevel.set_const)
+def com_caixa(env, env_ids, *, asset_cfg):
+    """Reset `com_caixa` (§6.8; P19): o CoM da caixa em fração da meia aresta do mundo (`v3_meia`), por eixo.
+
+    ⚠ Só entra no cfg com `DR.com_caixa` (PD-38). A `Operation` multiplica o sorteio pela meia aresta de cada env
+    (base 0 e r = 1 dá a meia aresta), e não pela aresta do default.
+    """
+    fx, fz = env.v3_cur.dr()["com_caixa"]
+    a = env.v3_meia[env_ids.long()]
+    dr.body_com_offset(env, env_ids, ranges={0: (-fx, fx), 1: (-fx, fx), 2: (-fz, fz)}, asset_cfg=asset_cfg,
+                       distribution=_dist(env),
+                       operation=dr.Operation(name="meia", initialize=torch.zeros_like,
+                                              combine=lambda base, r: base + r * a[:, None, None],
+                                              uses_defaults=True))
+
+
+class forca_caixa(apply_body_impulse):
+    """Passo (`mode="step"`, §6.8 CARREGAR; P3, P4, P15): o impulso do mjlab na caixa, só com a caixa na mão.
+
+    ⚠ P3: o `apply_body_impulse` sorteia cada eixo em `force_range` (±11,5 N dá ‖F‖ ≤ 19,9 N), sem máscara, e pelo RNG
+    global (P16, a exceção). Sem a máscara, a força derrubaria a caixa estacionada da laje (ANDAR) e a do P0–P2. Por
+    isso o termo zera o wrench fora de (CARREGAR & pegou & ~perdeu), depois que o pai escreve.
+    ⚠ P4: o modo é `step`, e o `env_ids` chega None (o pai o ignora). ⚠ P15: a trava é a primeira subida de nível
+    (`dr()["forca_caixa"]`); a força não escala pelo degrau.
+    """
+
+    def __call__(self, env, env_ids, **kw):
+        if not env.v3_cur.dr().get("forca_caixa", False):
+            return
+        super().__call__(env, env_ids, **kw)
+        fora = ~((env.v3_tarefa == CARREGAR) & env.v3_pegou & ~env.v3_perdeu)
+        fora_ids = fora.nonzero(as_tuple=False).squeeze(-1)
+        if len(fora_ids):
+            zeros = torch.zeros(len(fora_ids), self._num_bodies, 3, device=self._device)
+            self._asset.write_external_wrench_to_sim(zeros, zeros, env_ids=fora_ids, body_ids=self._body_ids)
+
+
+def rfi(env, env_ids):
+    """Passo (`mode="step"`, §6.8 RFI; P4, P20): ruído de torque por junta e env, uniforme em ±s·`TAU_MAX`.
+
+    ⚠ P20: o `TAU_MAX` vem do `knobs` (sem importar o `recompensas`: o ciclo recompensas → curriculo → eventos). Escrito
+    uma vez por passo da política, vale nos 4 subpassos. Com s = 0 (fora do refino), escreve zero.
+    """
+    dev, robo = env.device, env.scene["robot"]
+    s = env.v3_cur.dr().get("rfi", 0.0)
+    u = _uniforme(env.v3_gerador, (env.num_envs, len(TAU_MAX)), dev)
+    tau = (2.0 * u - 1.0) * s * torch.tensor(TAU_MAX, dtype=torch.float64, device=dev)
+    env.sim.data.qfrc_applied[:, robo.indexing.joint_v_adr] = tau.to(env.sim.data.qfrc_applied.dtype)
