@@ -30,3 +30,9 @@ g1_limpo/registros/
 
 # saída gerada pelo record_rl.py
 rl_rollout.npz
+
+# telemetria de rollout na raiz, checkpoints de referência e estado local
+/*.csv
+/reference_checkpoints/
+/.claude/
+vault/.obsidian/graph.json
