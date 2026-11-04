@@ -1,0 +1,1180 @@
+repo,caminho,destino,confianca,motivo,classe,rastreado,idade_dias,bytes
+treino,play.py,treino,alta,documentação do projeto de treino,EM-USO,1,93,5543
+treino,excluir.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,13,2205352
+treino,README.md,treino,alta,documentação do projeto de treino,EM-USO,1,95,2531
+treino,5350_andar_parado.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,24800_mu10_m1.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,14,1418
+treino,5000_c.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,24800_topo004.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,13,1418
+treino,registra_juntas.py,treino,alta,documentação do projeto de treino,EM-USO,1,13,29556
+treino,freeze_analysis.png,treino,alta,documentação do projeto de treino,SUSPEITO-NAO-RASTREADO,0,87,126581
+treino,24800_botar_t015.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,14,1418
+treino,juntas.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,15,716079
+treino,24800_mu06_m3.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,14,1418
+treino,5800_andar_parado.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,smoke.py,treino,alta,documentação do projeto de treino,EM-USO,1,93,14995
+treino,23250_topo004.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),RECENTE-SEM-REFERENCIA,0,13,2194837
+treino,EXPERIMENTO.md,treino,alta,documentação do projeto de treino,EM-USO,1,72,30269
+treino,5800_botar.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,474801
+treino,5800_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,5000_andar_parado.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,312471
+treino,6050_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,24800_mu10_m1.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,14,2188565
+treino,5000_andar_parado.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,.gitignore,treino,alta,documentação do projeto de treino,EM-USO,1,26,604
+treino,ESPECIFICACAO-g1_poc.md,treino,alta,documentação do projeto de treino,EM-USO,1,59,76967
+treino,record_rl.py,treino,alta,documentação do projeto de treino,EM-USO,1,86,4645
+treino,5350_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,CLAUDE.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2526
+treino,21850_c.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,6050_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,5350_botar.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,719609
+treino,5350_andar_parado.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,311558
+treino,5000_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,21700_c.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,23250_k2.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,17,1418
+treino,excluir.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,13,1418
+treino,ver_play.py,treino,alta,documentação do projeto de treino,EM-USO,1,52,4118
+treino,MUJOCO_LOG.TXT,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,10,1787
+treino,23250_k2.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,733534
+treino,21850_c.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,537895
+treino,juntas.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,15,1418
+treino,24800_mu06_m3.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,14,2188645
+treino,23250_topo004.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,13,1418
+treino,24350_B_45_acao.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,14,1532297
+treino,pilota.py,treino,alta,documentação do projeto de treino,EM-USO,1,31,28403
+treino,5800_andar_parado.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,310599
+treino,rl_rollout.npz,treino,alta,documentação do projeto de treino,EM-USO,0,86,175014
+treino,24800_botar_t015.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),RECENTE-SEM-REFERENCIA,0,14,1604871
+treino,21700_c.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,438062
+treino,6050_botar.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,705485
+treino,24800_topo004.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),RECENTE-SEM-REFERENCIA,0,13,419784
+treino,6050_carregar.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,947206
+treino,24350_B_45_acao.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,14,1418
+treino,5000_c.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,472059
+treino,24800_mu10_m5.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,14,1418
+treino,5000_botar.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),EM-USO,0,17,721072
+treino,24800_mu10_m5.csv,treino,revisar,play medido que o plano da v3 usa como dado (§2.1),RECENTE-SEM-REFERENCIA,0,14,2188487
+treino,vault/.gitignore,treino,alta,documentação do projeto de treino,EM-USO,1,13,39
+treino,vault/G1.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1689
+treino,vault/_sistema/por-termo.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,58082
+treino,vault/_sistema/inbox.md,treino,alta,documentação do projeto de treino,EM-USO,1,3,30928
+treino,vault/_sistema/checa.py,treino,alta,documentação do projeto de treino,EM-USO,1,13,2781
+treino,vault/_sistema/CLAUDE.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,3845
+treino,vault/_sistema/test_checa.py,treino,alta,documentação do projeto de treino,EM-USO,1,13,1676
+treino,vault/_sistema/indice.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,69367
+treino,vault/_sistema/Home.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,5423
+treino,vault/_sistema/indexa.py,treino,alta,documentação do projeto de treino,EM-USO,1,13,9186
+treino,vault/_sistema/_templates/estudo.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,68
+treino,vault/_sistema/_templates/frente.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,68
+treino,vault/_sistema/_templates/abordagem.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,291
+treino,vault/_sistema/_templates/achado.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,68
+treino,vault/_sistema/_templates/decisao.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,69
+treino,vault/_sistema/_templates/pendencia.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,72
+treino,vault/.obsidian/app.json,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,9,2
+treino,vault/.obsidian/appearance.json,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,9,2
+treino,vault/.obsidian/templates.json,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,33
+treino,vault/.obsidian/workspace.json,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,0,9,7726
+treino,vault/.obsidian/graph.json,treino,alta,documentação do projeto de treino,EM-USO,1,9,2362
+treino,vault/.obsidian/core-plugins.json,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,9,666
+treino,vault/G1/Percepção/Percepção.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2081
+treino,vault/G1/Percepção/Lidar e SLAM.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2426
+treino,vault/G1/Percepção/Visão da caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3207
+treino,vault/G1/Percepção/g1-mjcf-vem-do-urdf-rev-1-0.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,893
+treino,vault/G1/Percepção/Câmera D435i.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1451
+treino,vault/G1/Percepção/g1-limpo-oraculo-da-caixa-no-real.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1368
+treino,vault/G1/Percepção/Visão da caixa/pupil-apriltags-del-corrompe-heap.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1045
+treino,vault/G1/Percepção/Visão da caixa/box-vision-desenho-face-da-tag.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1193
+treino,vault/G1/Percepção/Visão da caixa/box-vision-ransac-dispensa-a-rede.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1207
+treino,vault/G1/Percepção/Visão da caixa/g1-box-vision-redesenho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,997
+treino,vault/G1/Percepção/Visão da caixa/box-vision-memoria-das-faces.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1121
+treino,vault/G1/Percepção/Visão da caixa/g1-vision-cube-orientation.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,6766
+treino,vault/G1/Percepção/Visão da caixa/box-vision-continuidade-por-aparencia.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1178
+treino,vault/G1/Percepção/Visão da caixa/box-vision-skin-procedural.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1405
+treino,vault/G1/Percepção/Lidar e SLAM/g1-limpo-lidar-sim-desenho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1379
+treino,vault/G1/Percepção/Lidar e SLAM/g1-slam-percepcao-desenho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1796
+treino,vault/G1/Percepção/Lidar e SLAM/g1-lidar-sim-visualizacao-slam.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1125
+treino,vault/G1/Transversais/Transversais.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1607
+treino,vault/G1/Transversais/Princípios de recompensa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2373
+treino,vault/G1/Transversais/Enunciado do comportamento.md,treino,alta,documentação do projeto de treino,EM-USO,1,9,27302
+treino,vault/G1/Transversais/g1-limpo-caminho-para-o-robo-real.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1155
+treino,vault/G1/Transversais/Infra.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,4397
+treino,vault/G1/Transversais/g1-limpo-artifact-como-o-g1-aprende.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1188
+treino,vault/G1/Transversais/Infra/g1-colab-8192-kaggle-4096.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,912
+treino,vault/G1/Transversais/Infra/warmstart-lower-lr.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2028
+treino,vault/G1/Transversais/Infra/g1-auditoria-mjlab-bloco2.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,4102
+treino,vault/G1/Transversais/Infra/g1-leitura-log-e-kaggle.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,10240
+treino,vault/G1/Transversais/Infra/g1-mjlab-velocity-anatomia.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,6317
+treino,vault/G1/Transversais/Infra/g1-mjlab-api-armadilhas.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,6257
+treino,vault/G1/Transversais/Infra/mjlab-warp-contato-e-dr.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1575
+treino,vault/G1/Transversais/Infra/g1-mjlab-warmstart-obs-armadilhas.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1557
+treino,vault/G1/Transversais/Infra/g1-mjlab-mutacao-em-treino.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,4234
+treino,vault/G1/Transversais/Infra/g1-auditoria-mjlab-bloco3.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,4879
+treino,vault/G1/Transversais/Infra/mjlab-curriculo-de-comando-sobrescreve-a-faixa.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1226
+treino,vault/G1/Transversais/Infra/mjlab-pose-escrita-persiste.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1342
+treino,vault/G1/Transversais/Infra/g1-limpo-cone-eliptico-diverge-para-nan.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1427
+treino,vault/G1/Transversais/Infra/g1-mjlab-reset-buffers-obsoletos.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2057
+treino,vault/G1/Transversais/Princípios de recompensa/g1-air-time-o-incentivo-desligado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1331
+treino,vault/G1/Transversais/Princípios de recompensa/g1-sigma-e-a-distancia-inicial.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4359
+treino,vault/G1/Transversais/Princípios de recompensa/g1-principio-incentivo-nao-penalizacao.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4509
+treino,vault/G1/Transversais/Princípios de recompensa/g1-postura-penhasco-std-standing.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3924
+treino,vault/G1/Abordagens/Abordagens.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1889
+treino,vault/G1/Abordagens/PPO/PPO.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1691
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Tarefas isoladas.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1394
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Stand/Stand.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1330
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Stand/Stand de graça no mjlab.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,749
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Stand/Passo sem comando de twist.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,747
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Stand/Muleta na mesa.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,676
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Currículo de altura com PLR.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1299
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/O vale da cadeia.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,598
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Orientação da caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,964
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Peso variável.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,921
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Lift não mede erguer.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,931
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Caixa na borda.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,778
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Movimento suave.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1401
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Generalizar e rehearsal.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,893
+treino,vault/G1/Abordagens/PPO/Tarefas isoladas/Lift Box/Lift Box.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2894
+treino,vault/G1/Abordagens/PPO/Estudos/Literatura de aperto em humanoide.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2350
+treino,vault/G1/Abordagens/PPO/Estudos/ResMimic.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1151
+treino,vault/G1/Abordagens/PPO/Estudos/Estudos.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1201
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4744
+treino,vault/G1/Abordagens/PPO/Currículos/Currículos.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1509
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,6024
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5231
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,6796
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-botar-veredito-do-dono-21700.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4756
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-registro-de-checkpoints.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5384
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-bloco1-marcha-formou.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,6155
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Desenho do g1_limpo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,11617
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-limite-de-junta-curso-largo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2297
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-contrato-de-troca-de-tarefa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5818
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Estado do C3 em 05-10.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3912
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-desenho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,9077
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/2026-09-21-botar-alinhado-pune-endireitar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5406
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-ang-cego-ao-tombo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3106
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-piso-da-estatua.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2584
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-std-da-acao-por-junta.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1924
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-mesa-contato-zero.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4764
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/g1-limpo-cone-eliptico-nan.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4228
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/Refino v2.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2489
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/Resume 24350 com preço 3x e forma ponderada.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1622
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/model_23250.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3560
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/Resume 24350 com freio de aperto.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3613
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/Testes do model_24350.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1945
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Refino v2/Continuação 23250 a 24393.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1951
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/PEGAR tomba a caixa ao erguer.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,492
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Fecho do BOTAR sem de pé nem caixa nivelada.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,969
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Abertos não medidos.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1038
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/R4b sem prioridade para a laje difícil.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1043
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Punho esquerdo gira na pega.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1019
+treino,"vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/CARREGAR lento, girando e agachado.md",treino,alta,documentação do projeto de treino,EM-USO,0,13,475
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Forma postural longe da IK em laje baixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1015
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Perna virada no BOTAR.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,927
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Aperto no limite do motor.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,574
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Freio em catraca sem descida.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,461
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Agachado na espera e no ANDAR parado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,537
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Giro no lugar estranho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,513
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Pendências/Pendências do C3.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3230
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-botar-alinhado-pune-endireitar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1328
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-velocidade-de-junta-medida.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2181
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-inercia-real-da-caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1312
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-faixa-de-pose.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1207
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-escorar-compra-o-fecho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1146
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-pega-parada-na-mesa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1347
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-reducao-e-limiar-andam-juntos.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1261
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-botar-paga-nao-botar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1872
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-cauda-andando-herda-twist-zero.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1092
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-punho-vai-ao-batente.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1325
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-cauda-carregar-piso-sem-derivada.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1258
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-forma-postural.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1295
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-escala-da-acao-do-punho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1206
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-giro-no-lugar-empata-no-estagio-0.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1291
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-modo-entrega-viewer.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1229
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/Achados do g1_limpo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,15661
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-botar-deita-o-tronco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1411
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-tag-estavel-smoke-vermelho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1189
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-batente-e-restricao-mole.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1150
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-piso-da-estatua-travava-a-pega.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1164
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-giro-canal-e-envelope.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1134
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-cadeia-da-pega.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1503
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-janela-de-espera.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1318
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-one-hot-normalizado-amplifica-slot-raro.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1166
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-limite-de-junta-nao-morde-no-curso-largo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1291
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-std-cai-cedo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1106
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-espera-sem-agacha-o-andar-parado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1250
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-postura-com-caixa-medida.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1509
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-piso-segura-o-s-b.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1054
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-escoro-e-o-tronco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1327
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-auditoria-gradientes.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4087
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-rampa-estreita-nao-ensina.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1254
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-punho-esquerdo-empurrado-pela-caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1216
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-ik-referencia-botar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1196
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-nao-anda-com-a-caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1351
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-forma-postural-agacha-no-alvo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1292
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-aborto-por-perda-de-preensao.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1311
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-tabela-por-estado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1361
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-curriculo-de-cadeia.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1323
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-alvo-da-pega-era-circular.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1096
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-impacto-da-caixa-sem-preco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1189
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-fechar-o-pegar-mata-o-episodio.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1180
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-sigma-do-alvo-congelado-degenera.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1201
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-postura-de-pe.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1356
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-caixa-presa-pelo-pulso.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1259
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-anda-agachado-com-a-caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1168
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-botar-e-bang-bang-nao-pressa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1203
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-plano-tres-tarefas.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3134
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-freio-nao-taxa-a-marcha.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1300
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-renda-congelada-paga-10x-o-deficit.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1356
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-caixa-esmagada-squeeze-cego.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1192
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-aperto-fixo-nao-acompanha-massa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1186
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-portao-diluido-pela-fatia.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2123
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-rampa-queima-janelas.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1647
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-regime-vem-do-estado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1241
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-fechar-paga-menos-que-pairar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1257
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-botar-esquecido-na-fase-4.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1282
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-velocidade-por-regime-formula-obsoleta.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1365
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-registrador-cego-ao-giro.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1032
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-teleporte-da-laje-no-corpo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1192
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-checkpoints-que-completam-o-ciclo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1183
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-carregar-parado-e-estatua.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1194
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-pico-altura-diluido.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1424
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-yam-lento-por-desenho.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1187
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Achados do g1_limpo/g1-limpo-deriva-de-rumo-com-a-caixa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1287
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero10.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1606
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero05.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1470
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero07.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2192
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero04.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1639
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero13.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1145
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/Lacunas da linha zero.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4195
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/Linha zero.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,13178
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero09.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1382
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero12.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2702
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero15.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2379
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero06.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1108
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero08.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1413
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero17.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,9147
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/Achados soltos da linha zero.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,8112
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero11.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2394
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero01.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5460
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero02.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3765
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero18.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1261
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero03.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2098
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero16.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1374
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha zero/zero14.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1705
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Linha bloco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,9561
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 18.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2856
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 16.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1598
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 19 v3 colapso do amax.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1179
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 1.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4707
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 5.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,564
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 17.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1826
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 8.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3736
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 11.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2604
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 3.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2453
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 2.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2038
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 12.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1733
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Lacunas da linha bloco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3802
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 13.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2043
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 14.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2268
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 4.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1637
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Resume com terminação de corpo inteiro.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1085
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Blocos 20 a 22.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1189
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 6.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3727
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Achados soltos da linha bloco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,8009
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 20 v3 sonda.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1429
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 10.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1833
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Checkpoints da linha bloco.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2749
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 9.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4120
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 7.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3622
+treino,vault/G1/Abordagens/PPO/Currículos/C3 g1_limpo/Linha bloco/Bloco 15.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2518
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-locomocao-unitree.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1291
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-limpo-v3-alvos-macro.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1427
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-soltar-exige-afrouxar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1195
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-palma-de-plastico-5kg.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1317
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-prateleira.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1148
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-treino-vai-para-isaac-lab.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,736
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/Comportamento esperado da v3.md,treino,alta,documentação do projeto de treino,EM-USO,0,5,50192
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-ik-mao-gira-entre-pega-e-transporte.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1134
+treino,vault/G1/Abordagens/PPO/Currículos/C4 v3/g1-v3-decisoes.md,treino,alta,documentação do projeto de treino,EM-USO,0,5,39849
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-track-lin-parado-colhe-27pct.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4006
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-poc-orcamento-30k-iteracoes.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3716
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-poc-auditoria-travas.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,5670
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Desenho de uma tarefa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1933
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Bloco 2 colapso por giro.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1482
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Sonda do pegar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1221
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Portão do balanço.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1387
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Paridade com o fabricante.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1514
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Bloco 1 a pega.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1714
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-poc-recompensa-loco-prefere-parar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3777
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-poc-auditoria-incentivos.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4945
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/g1-locomocao-primeiro-fatia-100.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,6974
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Máquina de elo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1377
+treino,vault/G1/Abordagens/PPO/Currículos/C2 g1_poc/Resample zerava o sucesso.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,809
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Std foge.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,932
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Fase 1 com o residual.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1790
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/g1-curriculo-congelamento-escala.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3106
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Desenho do currículo.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1843
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Specs e auditoria.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1870
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Bloco 4 do pegar.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1729
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Gargalo é banda.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,651
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/g1-multitask-orcamento-igual-por-tarefa.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4912
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/g1-multitask-caixa-fora-de-alcance.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,4802
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/Locomoção por rastreio.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1877
+treino,vault/G1/Abordagens/PPO/Currículos/C1 multitask/g1-multitask-spec-validacao-2026-08.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3630
+treino,vault/G1/Abordagens/Controle determinístico/IK + PD do braço.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1655
+treino,vault/G1/Abordagens/Controle determinístico/g1-anda-e-pega-separado-controle-deterministico.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2513
+treino,vault/G1/Abordagens/Controle determinístico/Autônomo fase 1.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,2011
+treino,vault/G1/Abordagens/Controle determinístico/Controle determinístico.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1997
+treino,vault/G1/Abordagens/Controle determinístico/unitree-g1-sim-mujoco-not-isaac.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1434
+treino,vault/G1/Abordagens/Controle determinístico/Autônomo fase 1/g1-autonomo-fase1.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1421
+treino,vault/G1/Abordagens/Controle determinístico/IK + PD do braço/g1-arm-ik-pd-control.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,3877
+treino,vault/G1/Abordagens/BFM-Zero/BFM-Zero.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,3367
+treino,vault/G1/Abordagens/BFM-Zero/Residual PPO sobre o BFM/Montagem e portão.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1848
+treino,vault/G1/Abordagens/BFM-Zero/Residual PPO sobre o BFM/BFM só equilíbrio.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1903
+treino,vault/G1/Abordagens/BFM-Zero/Residual PPO sobre o BFM/Treino com busca de z.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2077
+treino,vault/G1/Abordagens/BFM-Zero/Residual PPO sobre o BFM/Residual PPO sobre o BFM.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1950
+treino,vault/G1/Abordagens/BFM-Zero/Few-shot/Few-shot.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1250
+treino,vault/G1/Abordagens/BFM-Zero/Tracking/Tracking.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1292
+treino,vault/G1/Abordagens/BFM-Zero/Tracking/Tracking do 24800.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1741
+treino,vault/G1/Abordagens/BFM-Zero/Reward Optimization/Reward Optimization.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1590
+treino,vault/G1/Abordagens/BFM-Zero/Reward Optimization/Buffer LaFAN.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,808
+treino,vault/G1/Abordagens/BFM-Zero/Híbrido BFM + IK/Híbrido BFM + IK.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1091
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Goal track.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1304
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Teste de goal.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,883
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Goal servo.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,934
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Mapa comandado-alcançado.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1276
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Viabilidade da pose.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,1420
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/Goal Reaching.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,2667
+treino,vault/G1/Abordagens/BFM-Zero/Goal Reaching/IK gera pose.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,879
+treino,vault/G1/Cena de depósito/g1-cena-deposito-sim.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1289
+treino,vault/G1/Cena de depósito/Cena de depósito.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1123
+treino,vault/G1/Cena de depósito/g1-cena-sensores-parte2.md,treino,alta,documentação do projeto de treino,EM-USO,0,13,1198
+treino,g1_multitask/play.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,11395
+treino,g1_multitask/train.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,2323
+treino,g1_multitask/push.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,2325
+treino,g1_multitask/smoke.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,15415
+treino,g1_multitask/observations.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,74,5892
+treino,g1_multitask/scene.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,1567
+treino,g1_multitask/terminations.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,7075
+treino,g1_multitask/curriculum.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,28161
+treino,g1_multitask/knobs.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,43589
+treino,g1_multitask/runner.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,20319
+treino,g1_multitask/smoke_resume.py,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,62,6335
+treino,g1_multitask/calibra.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,15371
+treino,g1_multitask/pregrasp.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,2933
+treino,g1_multitask/preflight_gpu.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,3313
+treino,g1_multitask/rewards.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,29992
+treino,g1_multitask/metrics.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,17000
+treino,g1_multitask/entre_blocos.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,18274
+treino,g1_multitask/variacao_pose.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,75,10556
+treino,g1_multitask/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,2697
+treino,g1_multitask/observability.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,68,7174
+treino,g1_multitask/tasks.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,11394
+treino,g1_multitask/env.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,62,46389
+treino,g1_multitask/events.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,72,17533
+treino,g1_multitask/commands.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,69,22932
+treino,g1_multitask/kaggle/empacota.sh,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,80,1435
+treino,g1_multitask/kaggle/g1_multitask_kaggle.ipynb,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,73,12981
+treino,g1_multitask/kaggle/requirements.txt,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,819
+treino,g1_multitask/configs/c2026_07_30_baseline.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,1562
+treino,g1_multitask/configs/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,344
+treino,reference_checkpoints/model_7300_0-55_0-45_height.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,93,5722869
+treino,reference_checkpoints/README.md,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,92,3356
+treino,reference_checkpoints/model_13200_lift_55-00.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,ORFAO-BINARIO,0,89,5722951
+treino,reference_checkpoints/model_lift_6550_altura_normal.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,61,5722869
+treino,reference_checkpoints/model_10000_smooth_impact.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,92,5722951
+treino,reference_checkpoints/model_6550_lift_altura_normal.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,ORFAO-BINARIO,0,94,5722869
+treino,reference_checkpoints/model_2000_stand_step.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,0,94,5722869
+treino,reference_checkpoints/model_stand_step_2000_ficar_de_pe.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,61,5722869
+treino,reference_checkpoints/model_8650_triple_height_payload.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,93,5722869
+treino,reference_checkpoints/model_8150_dual_height_stable.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,93,5722869
+treino,reference_checkpoints/model_4999.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,0,44,5598389
+treino,reference_checkpoints/model_14150_checkpoint_target.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,ORFAO-BINARIO,0,89,5722951
+treino,reference_checkpoints/model_11300_lift_to_0-15.pt,legado,revisar,checkpoint ou foto de referência; confirmar uso,EM-USO,1,92,5722951
+treino,g1_limpo/play.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,54,427
+treino,g1_limpo/eventos.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,33,24918
+treino,g1_limpo/train.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,54,463
+treino,g1_limpo/leitura.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,40,25062
+treino,g1_limpo/algoritmo.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,19,11484
+treino,g1_limpo/smoke.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,13,365868
+treino,g1_limpo/inspeciona.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,19,43595
+treino,g1_limpo/observacoes.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,45,6921
+treino,g1_limpo/knobs.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,13,96707
+treino,g1_limpo/ARQUITETURA.md,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,13,134410
+treino,g1_limpo/paridade.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,49,9624
+treino,g1_limpo/runner.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,19,7366
+treino,g1_limpo/env_cfg.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,13,58434
+treino,g1_limpo/recompensas.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,13,79631
+treino,g1_limpo/terminacoes.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,29,10812
+treino,g1_limpo/exporta_cena.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,31,23205
+treino,g1_limpo/__init__.py,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,46,6811
+treino,g1_limpo/cena.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,14,21912
+treino,g1_limpo/comando.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,14,145553
+treino,g1_limpo/metricas.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,14,31380
+treino,g1_limpo/curriculo.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,19,28744
+treino,g1_limpo/kaggle/g1_limpo_kaggle.ipynb,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,25,72891
+treino,g1_limpo/kaggle/model_10500.pt,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,27,5598601
+treino,g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,19,25782
+treino,g1_limpo/kaggle/model_550.pt,legado,revisar,g1_limpo fora do mapa de cópia da v3,ORFAO-BINARIO,0,25,5729760
+treino,g1_limpo/kaggle/g1_limpo_zero_colab.ipynb,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,1,14,20009
+treino,g1_limpo/kaggle/model_300.pt,legado,revisar,g1_limpo fora do mapa de cópia da v3,ORFAO-BINARIO,0,26,5663969
+treino,g1_limpo/registros/ref_botar_pernas4.npz,legado,revisar,g1_limpo fora do mapa de cópia da v3,ORFAO-BINARIO,0,33,9675
+treino,g1_limpo/registros/21800_botar_clipped_07.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,31,651512
+treino,g1_limpo/registros/20500_impratio_10_tempo_075_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,31,1418
+treino,g1_limpo/registros/19300_025_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/botar_15999_055.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/ref_botar.npz,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,33,9675
+treino,g1_limpo/registros/19300_025_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,884355
+treino,g1_limpo/registros/zero02_pega.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,28,899507
+treino,g1_limpo/registros/ckp9100_m2_t055_i2_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,27,892020
+treino,g1_limpo/registros/botar_15200_ckp.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/botar_massa_1.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,33,295034
+treino,g1_limpo/registros/juntas.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,26,147100
+treino,g1_limpo/registros/carregar_15200_005.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,33,583956
+treino,g1_limpo/registros/botar_15200_055.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,33,589340
+treino,g1_limpo/registros/carrega085.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,34,327283
+treino,g1_limpo/registros/ckp9100_m2_t035_i2.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,570889
+treino,g1_limpo/registros/botar_17999_005.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,656709
+treino,g1_limpo/registros/botar_massa_1.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/21800_perna.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,31,652930
+treino,g1_limpo/registros/20500_impratio_10_tempo_075_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,31,873450
+treino,g1_limpo/registros/m24999_1volta.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,28,570484
+treino,g1_limpo/registros/ckp9100_m2_t015_i2_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,891948
+treino,g1_limpo/registros/19300_025_botar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,653662
+treino,g1_limpo/registros/juntas14k.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,35,590792
+treino,g1_limpo/registros/ckp10500_m2_t015_i2_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/botar_15999_055.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,631364
+treino,g1_limpo/registros/log_smoke.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,29,2082396
+treino,g1_limpo/registros/21800_botar_clipped_07.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,31,1418
+treino,g1_limpo/registros/m24999_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,28,1418
+treino,g1_limpo/registros/botar_17999_005.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/botar_15999_025.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,629142
+treino,g1_limpo/registros/21800_perna.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,31,1418
+treino,g1_limpo/registros/ckp9100_m2_t035_i2_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,904815
+treino,g1_limpo/registros/ckp9100_m2_t055_i2_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/zero02_pega.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,28,1418
+treino,g1_limpo/registros/botar_17999_055.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/m24999_botar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,28,1671136
+treino,g1_limpo/registros/juntas15.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,37,470252
+treino,g1_limpo/registros/ckp9100_m2_t015_i2_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/botar_15999_025r.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,33,629254
+treino,g1_limpo/registros/carrega085.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,34,1418
+treino,g1_limpo/registros/juntas.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,26,1418
+treino,g1_limpo/registros/ckp9100_m2_t035_i2_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/botar_15200_025.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/botar_15999_025.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/botar_15999_005r.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/botar_15999_055r.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,33,588630
+treino,g1_limpo/registros/ckp9100_m2_t035_i2.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/botar_15999_055r.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/carregar_15200_055.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,33,589917
+treino,g1_limpo/registros/m24999_1volta.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,28,1418
+treino,g1_limpo/registros/20500_impratio_10_tempo_075_botar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,31,652147
+treino,g1_limpo/registros/20500_impratio_10_tempo_075_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,31,1418
+treino,g1_limpo/registros/botar_15999_005r.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,33,629385
+treino,g1_limpo/registros/juntas15.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,37,1418
+treino,g1_limpo/registros/botar_17999_025.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,652517
+treino,g1_limpo/registros/botar_15200_ckp.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,33,401882
+treino,g1_limpo/registros/botar_15999_005.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/botar_17999_055.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,652858
+treino,g1_limpo/registros/ckp9100_m2_t015_i2.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/m24999_botar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,28,1418
+treino,g1_limpo/registros/botar_15200_025.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,33,401944
+treino,g1_limpo/registros/botar_15999_025r.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/19300_025_carregar.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/ref_botar_pernas3.npz,legado,revisar,g1_limpo fora do mapa de cópia da v3,ORFAO-BINARIO,0,33,9675
+treino,g1_limpo/registros/juntas14k.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,35,1418
+treino,g1_limpo/registros/21700_botar_resume.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,31,608661
+treino,g1_limpo/registros/m24999_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,EM-USO,0,28,903177
+treino,g1_limpo/registros/ckp9100_m2_t055_i2.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,562909
+treino,g1_limpo/registros/carregar_15200_005.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/ckp10500_m2_t015_i2_carregar.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,292176
+treino,g1_limpo/registros/21700_botar_resume.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,31,1418
+treino,g1_limpo/registros/botar_15999_005.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,SUSPEITO-NAO-RASTREADO,0,32,630015
+treino,g1_limpo/registros/botar_15200_055.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/registros/botar_17999_025.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,32,1418
+treino,g1_limpo/registros/ckp9100_m2_t055_i2.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,27,1418
+treino,g1_limpo/registros/ckp9100_m2_t015_i2.csv,legado,revisar,g1_limpo fora do mapa de cópia da v3,RECENTE-SEM-REFERENCIA,0,27,554463
+treino,g1_limpo/registros/carregar_15200_055.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,33,1418
+treino,g1_limpo/ik/carregar.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,33,3655
+treino,g1_limpo/ik/ref_botar.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,18,10043
+treino,g1_limpo/ik/gera_de_pe.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,17,11938
+treino,g1_limpo/ik/gera_botar.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,32,23090
+treino,g1_limpo/ik/vale.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,33,2891
+treino,g1_limpo/ik/ref_v3_manipulacao.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,17,12759
+treino,g1_limpo/ik/ikc.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,33,3319
+treino,g1_limpo/ik/teste_queda.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,17,2610
+treino,g1_limpo/ik/tres_lajes.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,SUSPEITO-SEM-REFERENCIA,1,33,3303
+treino,g1_limpo/ik/alcance_braco.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,SUSPEITO-SEM-REFERENCIA,1,33,2482
+treino,g1_limpo/ik/pelve_andar.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,SUSPEITO-SEM-REFERENCIA,1,33,2365
+treino,g1_limpo/ik/segura_pose.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,6937
+treino,g1_limpo/ik/ik_mao_fixa.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,27789
+treino,g1_limpo/ik/ik_cintura25.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,17,7765
+treino,g1_limpo/ik/gera_de_pe_sem_caixa.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,3941
+treino,g1_limpo/ik/ref_botar_laje_s6.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,17,10043
+treino,g1_limpo/ik/ref_botar_cintura25.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,17,10043
+treino,g1_limpo/ik/ik_entre_pernas.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,16366
+treino,g1_limpo/ik/itens34.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,SUSPEITO-SEM-REFERENCIA,1,33,4247
+treino,g1_limpo/ik/monta_pose.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,5,18981
+treino,g1_limpo/ik/ik_agachado.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,19312
+treino,g1_limpo/ik/cercas_nos_plays.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,8250
+treino,g1_limpo/ik/ref_v3_de_pe.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,17,6877
+treino,g1_limpo/ik/ref_botar_chao.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,17,4847
+treino,g1_limpo/ik/ve_botar.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,31,6113
+treino,g1_limpo/ik/quem_estoura.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,SUSPEITO-SEM-REFERENCIA,1,33,1926
+treino,g1_limpo/ik/prateleira/prat_B_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,906311
+treino,g1_limpo/ik/prateleira/prat_C.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,16,14665
+treino,g1_limpo/ik/prateleira/prat_A_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,762431
+treino,g1_limpo/ik/prateleira/prat_B_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,760724
+treino,g1_limpo/ik/prateleira/prat_C_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,758369
+treino,g1_limpo/ik/prateleira/prat_A_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,897381
+treino,g1_limpo/ik/prateleira/prat_A_ombro.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,1156022
+treino,g1_limpo/ik/prateleira/ik_prateleira.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,11090
+treino,g1_limpo/ik/prateleira/prat_C_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,898798
+treino,g1_limpo/ik/prateleira/prat_C_ombro.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,16,1139970
+treino,g1_limpo/ik/prateleira/prat_A.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,16,14665
+treino,g1_limpo/ik/prateleira/foto_prateleira.py,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,16,2159
+treino,g1_limpo/ik/prateleira/prat_B.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,16,14665
+treino,g1_limpo/ik/sombra/sombra_caixa_14cm.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,4695
+treino,g1_limpo/ik/sombra/sombra_sem_caixa.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,13,4654
+treino,g1_limpo/ik/sombra/sombra_caixa.py,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,5623
+treino,g1_limpo/ik/sombra/sombra_caixa_26cm.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,4754
+treino,g1_limpo/ik/sombra/sombra_caixa_20cm.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,4724
+treino,g1_limpo/ik/fotos_v3/ik_poses_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1669214
+treino,g1_limpo/ik/fotos_v3/ik_poses_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1405063
+treino,g1_limpo/ik/fotos_v3/ik_folga_laje_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1518241
+treino,g1_limpo/ik/fotos_v3/ik_compara_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1508706
+treino,g1_limpo/ik/fotos_v3/ref_v3_lado.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,17,1268568
+treino,g1_limpo/ik/fotos_v3/ik_compara_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1839653
+treino,g1_limpo/ik/fotos_v3/ref_v3_frente.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,17,1556929
+treino,g1_limpo/ik/fotos_v3/ik_folga_laje_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,17,1855852
+treino,g1_limpo/ik/mao_fixa/cadeia_0.45_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,342286
+treino,g1_limpo/ik/mao_fixa/cadeia_0.30_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,338051
+treino,g1_limpo/ik/mao_fixa/angulos_0.04.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,1498
+treino,g1_limpo/ik/mao_fixa/tamanho_14cm_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,1267197
+treino,g1_limpo/ik/mao_fixa/tamanho_14cm_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,976107
+treino,g1_limpo/ik/mao_fixa/agacha_0.04_margem10.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,1114248
+treino,g1_limpo/ik/mao_fixa/ref_v3_de_pe_theta-30.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,13,2438
+treino,g1_limpo/ik/mao_fixa/tamanho_20cm_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,976687
+treino,g1_limpo/ik/mao_fixa/cadeia_mao35_0.15_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,335993
+treino,g1_limpo/ik/mao_fixa/agacha_0.04_margem10.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,1019
+treino,g1_limpo/ik/mao_fixa/cadeia_0.55_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,348471
+treino,g1_limpo/ik/mao_fixa/angulos_0.04_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,995478
+treino,g1_limpo/ik/mao_fixa/cadeia_0.04_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,257516
+treino,g1_limpo/ik/mao_fixa/cadeia_0.30_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,265992
+treino,g1_limpo/ik/mao_fixa/angulos_0.04_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,769892
+treino,g1_limpo/ik/mao_fixa/ref_v3_manipulacao_theta-30.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,13,10171
+treino,g1_limpo/ik/mao_fixa/tabela_theta-30_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,1263259
+treino,g1_limpo/ik/mao_fixa/cadeia_0.15_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,258584
+treino,g1_limpo/ik/mao_fixa/cadeia_0.04_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,338014
+treino,g1_limpo/ik/mao_fixa/cadeia_0.45_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,266933
+treino,g1_limpo/ik/mao_fixa/tamanho_26cm_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,1249568
+treino,g1_limpo/ik/mao_fixa/tamanhos_theta-30.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,2158
+treino,g1_limpo/ik/mao_fixa/agacha_0.04_margem05.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,442692
+treino,g1_limpo/ik/mao_fixa/tamanho_20cm_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,1263259
+treino,g1_limpo/ik/mao_fixa/ref_v3_de_pe_theta-30_tamanhos.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,13,2676
+treino,g1_limpo/ik/mao_fixa/cadeia_0.15_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,338907
+treino,g1_limpo/ik/mao_fixa/agacha_0.04_margem05.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,522
+treino,g1_limpo/ik/mao_fixa/tabela_theta-30_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,976687
+treino,g1_limpo/ik/mao_fixa/tamanho_26cm_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,980186
+treino,g1_limpo/ik/mao_fixa/cadeia_mao35_0.04_frente.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,338765
+treino,g1_limpo/ik/mao_fixa/tabela_theta-30.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,1759
+treino,g1_limpo/ik/mao_fixa/cadeia_limites.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,13,974
+treino,g1_limpo/ik/mao_fixa/cadeia_mao35_0.15_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,257549
+treino,g1_limpo/ik/mao_fixa/cadeia_mao35_0.04_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,255491
+treino,g1_limpo/ik/mao_fixa/cadeia_0.55_lado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,13,268422
+treino,g1_limpo/ik/poses_manuais/agachado 00.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,3954
+treino,g1_limpo/ik/poses_manuais/de pe caixa.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,10,3786
+treino,g1_limpo/ik/entre_pernas/4_reais_tabela_145/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,3119614
+treino,g1_limpo/ik/entre_pernas/4_reais_tabela_145/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,2451
+treino,g1_limpo/ik/entre_pernas/4_reais_tabela_145/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,7885
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.35/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,361802
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.35/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,592
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.35/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,3141
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.50/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,362807
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.50/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,570
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.50/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,3141
+treino,g1_limpo/ik/entre_pernas/2_agachamento_puro/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,1095044
+treino,g1_limpo/ik/entre_pernas/2_agachamento_puro/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,945
+treino,g1_limpo/ik/entre_pernas/2_agachamento_puro/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,4327
+treino,g1_limpo/ik/entre_pernas/6_joelho_2.6/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,2624385
+treino,g1_limpo/ik/entre_pernas/6_joelho_2.6/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,1926
+treino,g1_limpo/ik/entre_pernas/6_joelho_2.6/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,6106
+treino,g1_limpo/ik/entre_pernas/5_reais_pagina_154/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,3123446
+treino,g1_limpo/ik/entre_pernas/5_reais_pagina_154/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,2489
+treino,g1_limpo/ik/entre_pernas/5_reais_pagina_154/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,7885
+treino,g1_limpo/ik/entre_pernas/1_caixa_no_chao/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,3161104
+treino,g1_limpo/ik/entre_pernas/1_caixa_no_chao/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,2401
+treino,g1_limpo/ik/entre_pernas/1_caixa_no_chao/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,7885
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.20/entre_pernas.png,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,0,11,347219
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.20/entre_pernas.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,627
+treino,g1_limpo/ik/entre_pernas/3_caixa_z0.20/entre_pernas.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,11,3141
+treino,g1_limpo/ik/agachado/rotacao_interna.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,10,382673
+treino,g1_limpo/ik/agachado/agachado_sem_rot_interna.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,10,1951959
+treino,g1_limpo/ik/agachado/ref_agachado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,10,3131136
+treino,g1_limpo/ik/agachado/ref_agachado_sem_rot_interna.npz,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,ORFAO-BINARIO,1,10,9780
+treino,g1_limpo/ik/agachado/ref_agachado_com_no_meio.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,14090
+treino,g1_limpo/ik/agachado/ref_agachado.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,4477
+treino,g1_limpo/ik/agachado/ref_agachado.npz,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,14090
+treino,g1_limpo/ik/agachado/segura_pose.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,10882
+treino,g1_limpo/ik/agachado/cercas_nos_plays.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,31313
+treino,g1_limpo/ik/agachado/agachado.png,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,0,10,1962284
+treino,g1_limpo/ik/agachado/agachado.txt,fonte-v3,alta,peça que o plano da v3 copia (§2.2) ou tabela de IK,EM-USO,1,10,2568
+treino,g1_limpo/ik/agachado/agachado_sem_rot_interna.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,10,2522
+treino,g1_limpo/ik/agachado/ref_agachado_com_no_meio.txt,fonte-v3,revisar,peça que o plano da v3 copia (§2.2) ou tabela de IK,RECENTE-SEM-REFERENCIA,1,10,4093
+treino,g1_poc/play.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,58,15269
+treino,g1_poc/README.md,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,61,4393
+treino,g1_poc/eventos.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,58,12102
+treino,g1_poc/postura.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,59,5259
+treino,g1_poc/train.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,61,927
+treino,g1_poc/leitura.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,23245
+treino,g1_poc/smoke.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,43674
+treino,g1_poc/observacoes.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,59,6479
+treino,g1_poc/knobs.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,29498
+treino,g1_poc/fork-of-treino-curriculo-v2(1).ipynb,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,59,29941
+treino,g1_poc/env_cfg.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,27474
+treino,g1_poc/recompensas.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,58,22608
+treino,g1_poc/expande_checkpoint.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,59,9376
+treino,g1_poc/terminacoes.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,59,3369
+treino,g1_poc/0002-test-poc-o-smoke-cobre-o-balanco-a-janela-e-o-giro.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,58,7113
+treino,g1_poc/sonda.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,59,17135
+treino,g1_poc/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,61,1466
+treino,g1_poc/cena.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,61,7688
+treino,g1_poc/comando.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,43329
+treino,g1_poc/0003-feat-poc-a-leitura-do-TensorBoard-e-o-notebook-do-Co.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,58,69855
+treino,g1_poc/curriculo.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,55,21030
+treino,g1_poc/0001-fix-poc-o-bloco-2-colapsou-por-giro-os-quatro-conser.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,58,43857
+treino,g1_poc/patches3/0001-fix-poc-o-hinge-vira-POR-FORMA-e-POR-GRUPO-DE-JUNTA.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,59,10392
+treino,g1_poc/patches3/0003-fix-poc-a-entrega-do-navegador-era-global-e-virou-ev.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,59,5886
+treino,g1_poc/patches3/0002-fix-poc-os-dois-freios-de-movimento-saem-do-passo-gl.patch,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,59,10354
+treino,g1_poc/colab/g1_poc_colab.ipynb,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,58,24391
+treino,g1_poc/colab/requirements.txt,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,58,1006
+treino,g1_poc/colab/gera_notebook.py,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,58,19540
+treino,experimentos/bfm_tracking_24800/24800_botar_t015.npz,legado,alta,experimento BFM (frente rejeitada),ORFAO-BINARIO,1,13,416552
+treino,experimentos/bfm_tracking_24800/23250_topo004.npz,legado,alta,experimento BFM (frente rejeitada),ORFAO-BINARIO,1,13,575202
+treino,experimentos/bfm_tracking_24800/csv_para_npz.py,legado,alta,experimento BFM (frente rejeitada),EM-USO,1,13,2422
+treino,experimentos/bfm_tracking_24800/24800_mu10_m1.npz,legado,alta,experimento BFM (frente rejeitada),EM-USO,1,13,575202
+treino,g1_residual/play.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,61,5516
+treino,g1_residual/train.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,1915
+treino,g1_residual/dump_referencia.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,4516
+treino,g1_residual/.gitignore,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,6
+treino,g1_residual/referencia.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,10471
+treino,g1_residual/base_z.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,14998
+treino,g1_residual/env_residual.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,6226
+treino,g1_residual/extrai_ator.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,7720
+treino,g1_residual/fumaca.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,14751
+treino,g1_residual/poses.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,16733
+treino,g1_residual/acao.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,12864
+treino,g1_residual/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,1638
+treino,g1_residual/bfm.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,5833
+treino,g1_residual/autoridade.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,76,10408
+treino,g1_residual/obs_bfm.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,6458
+treino,g1_residual/kaggle/celulas.md,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,80,6695
+treino,g1_residual/peso/referencia.npz,legado,alta,pacote superado; a v3 não importa dele,EM-USO,0,80,82086
+treino,g1_residual/peso/bfm_ator.pt,legado,alta,pacote superado; a v3 não importa dele,EM-USO,0,76,128910617
+treino,g1_residual/bfm_code/nn_models.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,29078
+treino,g1_residual/bfm_code/base_model.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,3893
+treino,g1_residual/bfm_code/nn_filters.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,4503
+treino,g1_residual/bfm_code/base.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,1779
+treino,g1_residual/bfm_code/normalizers.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,3271
+treino,g1_residual/bfm_code/fb/model.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,6066
+treino,g1_residual/bfm_code/misc/gym_spaces.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,2288
+treino,g1_residual/bfm_code/fb_cpr_aux/model.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,80,3948
+treino,g1_training/rl_cfg.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,512
+treino,g1_training/base_env.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,92,10414
+treino,g1_training/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,1267
+treino,g1_training/skills/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,0
+treino,g1_training/skills/lift/knobs.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,86,9813
+treino,g1_training/skills/lift/rewards.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,86,13201
+treino,g1_training/skills/lift/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,0
+treino,g1_training/skills/lift/env.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,86,11738
+treino,g1_training/skills/lift/configs/c2026_07_15_gate_and_com.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,552
+treino,g1_training/skills/lift/configs/c2026_07_16_table_low1.py,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,94,1188
+treino,g1_training/skills/lift/configs/c2026_07_17_plr_h2_payload.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,93,2011
+treino,g1_training/skills/lift/configs/c2026_07_16_box_edge.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,1411
+treino,g1_training/skills/lift/configs/c2026_07_17_plr_h1_payload.py,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,93,1151
+treino,g1_training/skills/lift/configs/c2026_07_16_rehearsal.py,legado,alta,pacote superado; a v3 não importa dele,SUSPEITO-SEM-REFERENCIA,1,94,1395
+treino,g1_training/skills/lift/configs/c2026_07_18_smooth_impact.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,92,2232
+treino,g1_training/skills/lift/configs/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,92,724
+treino,g1_training/skills/lift/configs/c2026_07_16_generalize.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,1561
+treino,g1_training/skills/lift/configs/c2026_07_17_plr_height1.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,93,2199
+treino,g1_training/skills/place/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,140
+treino,g1_training/skills/stand/knobs.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,1206
+treino,g1_training/skills/stand/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,0
+treino,g1_training/skills/stand/env.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,2685
+treino,g1_training/skills/stand/configs/step_recovery.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,732
+treino,g1_training/skills/stand/configs/baseline.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,204
+treino,g1_training/skills/stand/configs/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,90
+treino,g1_training/common/observations.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,2368
+treino,g1_training/common/terminations.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,1481
+treino,g1_training/common/box.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,2953
+treino,g1_training/common/curriculums.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,6112
+treino,g1_training/common/rewards.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,2984
+treino,g1_training/common/__init__.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,0
+treino,g1_training/common/robot.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,95,4162
+treino,g1_training/common/events.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,93,10727
+treino,g1_training/common/commands.py,legado,alta,pacote superado; a v3 não importa dele,EM-USO,1,94,4271
+treino,specs/g1-limpo-giro-e-teclas.md,treino,alta,documentação do projeto de treino,EM-USO,1,39,12768
+treino,specs/g1-limpo-botar-profundidade.md,treino,alta,documentação do projeto de treino,EM-USO,1,17,7106
+treino,specs/g1-limpo-lento-e-estavel.md,treino,alta,documentação do projeto de treino,EM-USO,1,41,11644
+treino,specs/g1-poc-forma-adaptativa.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,59,9429
+treino,specs/g1-limpo-rastreio-carregar-parado.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,7937
+treino,specs/g1-limpo-envelope-de-giro.md,treino,alta,documentação do projeto de treino,EM-USO,1,38,5626
+treino,specs/g1-v3-comportamento.md,treino,alta,documentação do projeto de treino,EM-USO,1,5,50192
+treino,specs/g1-limpo-cauda-parada-de-pe.md,treino,alta,documentação do projeto de treino,EM-USO,1,39,18673
+treino,specs/2026-10-05-vault-g1-design.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,5264
+treino,specs/g1-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,4,84085
+treino,specs/g1-limpo-comportamento.md,treino,alta,documentação do projeto de treino,EM-USO,1,9,27302
+treino,specs/g1-limpo-soltar-termina.md,treino,alta,documentação do projeto de treino,EM-USO,1,40,8004
+treino,specs/g1-limpo-gradientes-v2.md,treino,alta,documentação do projeto de treino,EM-USO,1,44,14962
+treino,specs/g1-limpo-previa-freio-de-aperto.md,treino,alta,documentação do projeto de treino,EM-USO,1,14,6874
+treino,specs/g1-limpo-notebook-colab.md,treino,alta,documentação do projeto de treino,EM-USO,1,38,8098
+treino,specs/g1-v3-interface-real.md,treino,alta,documentação do projeto de treino,EM-USO,1,5,17397
+treino,specs/g1-limpo-giro-no-lugar.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,4227
+treino,specs/g1-limpo-lote-resume-01-10.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,4325
+treino,specs/g1-limpo-dois-bits.md,treino,alta,documentação do projeto de treino,EM-USO,1,19,25848
+treino,specs/g1-limpo-punho-e-formula-obsoleta.md,treino,alta,documentação do projeto de treino,EM-USO,1,38,6226
+treino,specs/g1-limpo-espera-sigma-e-pose.md,treino,alta,documentação do projeto de treino,EM-USO,1,41,10986
+treino,specs/g1-v3-reorganizacao-do-repo.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,0,0,4845
+treino,specs/g1-limpo-tabela-por-estado.md,treino,alta,documentação do projeto de treino,EM-USO,1,19,17151
+treino,specs/g1-limpo-curriculo-de-cadeia.md,treino,alta,documentação do projeto de treino,EM-USO,1,19,15881
+treino,specs/g1-limpo-pilota.md,treino,alta,documentação do projeto de treino,EM-USO,1,39,9816
+treino,specs/g1-limpo-teto-do-p-c.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,3127
+treino,specs/g1-limpo-postura-de-pe.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,13805
+treino,specs/g1-limpo-botar-raso.md,treino,alta,documentação do projeto de treino,EM-USO,1,17,8641
+treino,specs/g1-limpo.md,treino,alta,documentação do projeto de treino,EM-USO,1,53,43627
+treino,specs/g1-limpo-botar-fecha-e-para.md,treino,alta,documentação do projeto de treino,EM-USO,1,39,10655
+treino,specs/g1-limpo-rastreio-carregar-elo.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,6904
+treino,specs/g1-poc-macro1.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,59,47025
+treino,specs/g1-limpo-mao-no-alcancar.md,treino,alta,documentação do projeto de treino,EM-USO,1,40,10507
+treino,specs/g1-poc-macro2.md,treino,alta,documentação do projeto de treino,EM-USO,1,59,34084
+treino,docs/planos/2026-08-25-g1-limpo.md,treino,alta,documentação do projeto de treino,EM-USO,1,53,47481
+treino,docs/planos/2026-09-04-proposta-gradientes-g1-limpo.md,treino,alta,documentação do projeto de treino,EM-USO,1,44,17666
+treino,docs/planos/2026-09-21-aborto-por-perda-de-preensao.md,treino,alta,documentação do projeto de treino,EM-USO,1,27,7767
+treino,docs/planos/2026-08-20-curriculo-progressivo-e-andar.md,treino,alta,documentação do projeto de treino,EM-USO,1,59,31522
+treino,docs/planos/2026-09-04-auditoria-gradientes-g1-limpo.md,treino,alta,documentação do projeto de treino,EM-USO,1,44,12400
+treino,docs/planos/2026-10-02-percepcao-lidar-na-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,5,22628
+treino,docs/planos/2026-09-21-cuidado-com-a-caixa-impacto-e-aperto.md,treino,alta,documentação do projeto de treino,EM-USO,1,28,5315
+treino,docs/planos/2026-09-03-plano-contrato-de-troca-v2.md,treino,alta,documentação do projeto de treino,EM-USO,1,45,107402
+treino,docs/planos/2026-10-06-vault-g1.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,12243
+treino,docs/planos/2026-09-24-grade-de-ocupacao-lidar.md,treino,alta,documentação do projeto de treino,EM-USO,1,16,12248
+treino,docs/planos/2026-09-30-lote-zero18.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,6872
+treino,docs/planos/2026-10-14-implementacao-g1-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,4,141345
+treino,docs/planos/2026-09-23-freio-em-curriculo-pelo-nivel.md,treino,alta,documentação do projeto de treino,EM-USO,1,25,20790
+treino,docs/planos/2026-09-29-renda-pos-fecho-e-janela-de-orientacao.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,20,8547
+treino,docs/planos/2026-09-17-limiar-do-hip-yaw-em-40-graus.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,13,3193
+treino,docs/planos/F4-contrato.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,54,3716
+treino,docs/planos/2026-09-30-plano-zero18.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,6440
+treino,docs/planos/2026-09-21-botar-referencia-de-pe.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,7062
+treino,docs/planos/2026-09-02-contrato-de-troca-de-tarefa.md,treino,alta,documentação do projeto de treino,EM-USO,1,45,107646
+treino,docs/planos/2026-09-15-limite-de-pelve-no-carregar.md,treino,alta,documentação do projeto de treino,EM-USO,1,33,14220
+treino,docs/adrs/0001-curriculo-do-pegar-rampa-ponte-e-bonus.md,treino,alta,documentação do projeto de treino,EM-USO,1,62,21512
+treino,docs/relatorios/2026-09-29-pega-parada-na-mesa-cinematica-do-tombo.md,treino,alta,documentação do projeto de treino,EM-USO,1,19,5193
+treino,docs/relatorios/2026-10-01-inventario-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,33578
+treino,docs/relatorios/2026-10-01-monotonia-do-curriculo.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,19494
+treino,docs/relatorios/2026-09-29-auditoria-de-recompensa.md,treino,alta,documentação do projeto de treino,EM-USO,1,19,69048
+treino,docs/relatorios/2026-10-02-avaliacao-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,8898
+treino,docs/relatorios/2026-10-01-aprendizados-zero17-para-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,31308
+treino,docs/relatorios/2026-10-05-dr-de-atrito-pega-e-transferencia.md,treino,alta,documentação do projeto de treino,EM-USO,1,14,19799
+treino,docs/relatorios/2026-09-29-tombo-da-caixa-achados-e-correcoes.md,treino,alta,documentação do projeto de treino,EM-USO,1,20,13509
+treino,docs/relatorios/2026-10-05-dr-para-a-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,5,18276
+treino,docs/relatorios/2026-10-14-plano-v3-achados.md,treino,alta,documentação do projeto de treino,EM-USO,1,4,10898
+treino,docs/relatorios/2026-10-08-revisao-spec-v3-para-implementacao.md,treino,alta,documentação do projeto de treino,EM-USO,1,9,12581
+treino,docs/relatorios/2026-09-30-plato-do-botar.md,treino,alta,documentação do projeto de treino,EM-USO,1,18,9831
+treino,docs/relatorios/2026-10-05-revisao-spec-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,13,12293
+treino,docs/relatorios/2026-10-15-viabilidade-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,4,56507
+treino,docs/relatorios/2026-10-06-v3-sanidade-e-plano-de-treino.md,treino,alta,documentação do projeto de treino,RECENTE-SEM-REFERENCIA,1,12,54376
+treino,docs/relatorios/2026-10-09-viabilidade-v3.md,treino,alta,documentação do projeto de treino,EM-USO,1,9,24828
+treino,docs/handoff/2026-09-02-resumo.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,46,7564
+treino,docs/handoff/2026-08-18-multitask-inventario.md,treino,alta,documentação do projeto de treino,EM-USO,1,62,27149
+treino,docs/handoff/2026-09-14_17-10-00_alvo-e-inercia.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,33,4902
+treino,docs/handoff/2026-09-14_14-20-06_zero01-colapso-amax.md,treino,alta,documentação do projeto de treino,SUSPEITO-SEM-REFERENCIA,1,34,12099
+treino,fotos_ik/pose_01_alvo_0.14.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,275032
+treino,fotos_ik/pose_09_alvo_0.52.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,282162
+treino,fotos_ik/pose_14_alvo_0.68.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,285311
+treino,fotos_ik/pose_13_alvo_0.65.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,287945
+treino,fotos_ik/pose_10_alvo_0.55.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,279537
+treino,fotos_ik/pose_11_alvo_0.58.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,274313
+treino,fotos_ik/pose_07_alvo_0.40.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,279613
+treino,fotos_ik/pose_04_alvo_0.25.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,276087
+treino,fotos_ik/pose_12_alvo_0.62.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,284734
+treino,fotos_ik/pose_05_alvo_0.28.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,274929
+treino,fotos_ik/pose_03_alvo_0.22.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,276191
+treino,fotos_ik/pose_00_alvo_0.11.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,275769
+treino,fotos_ik/pose_08_alvo_0.43.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,275582
+treino,fotos_ik/pose_02_alvo_0.17.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,271689
+treino,fotos_ik/pose_06_alvo_0.37.png,legado,revisar,checkpoint ou foto de referência; confirmar uso,SUSPEITO-NAO-RASTREADO,0,31,279457
+lidar,play.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,1,26,5543
+lidar,volta.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,18,26068
+lidar,README.md,lidar,alta,documentação do lidar_sim,EM-USO,1,26,2531
+lidar,smoke.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,1,26,14995
+lidar,.gitignore,revisar,revisar,sem regra,EM-USO,1,24,605
+lidar,MUJOCO_LOG.TXT,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,13,672
+lidar,pilota.py,fonte-v3,alta,driver antigo que a v3 copia (§2.1),EM-USO,0,25,28403
+lidar,autonomo.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,9861
+lidar,.git,revisar,revisar,sem regra,EM-USO,0,26,74
+lidar,tests/test_volta.py,testes,alta,testes do lidar_sim,EM-USO,0,17,3512
+lidar,tests/__init__.py,testes,alta,testes do lidar_sim,EM-USO,0,18,0
+lidar,tests/test_deposito_tags.py,testes,alta,testes do lidar_sim,EM-USO,0,18,1177
+lidar,tests/percepcao/test_eskf.py,testes,alta,testes do lidar_sim,EM-USO,0,18,8581
+lidar,tests/percepcao/test_mapa.py,testes,alta,testes do lidar_sim,EM-USO,0,18,642
+lidar,tests/percepcao/test_fase.py,testes,alta,testes do lidar_sim,EM-USO,0,18,3243
+lidar,tests/percepcao/test_avalia.py,testes,alta,testes do lidar_sim,EM-USO,0,18,3281
+lidar,tests/percepcao/sintetico.py,testes,alta,testes do lidar_sim,EM-USO,0,18,5140
+lidar,tests/percepcao/test_so3_classes.py,testes,alta,testes do lidar_sim,EM-USO,0,18,1745
+lidar,tests/percepcao/__init__.py,testes,alta,testes do lidar_sim,EM-USO,0,18,0
+lidar,tests/percepcao/test_odometria_lidar.py,testes,alta,testes do lidar_sim,EM-USO,0,18,2298
+lidar,tests/percepcao/test_tags.py,testes,alta,testes do lidar_sim,EM-USO,0,18,1860
+lidar,tests/autonomo/mundo_falso.py,testes,alta,testes do lidar_sim,EM-USO,0,13,5107
+lidar,tests/autonomo/test_navegador.py,testes,alta,testes do lidar_sim,EM-USO,0,13,9724
+lidar,tests/autonomo/test_transito.py,testes,alta,testes do lidar_sim,RECENTE-SEM-REFERENCIA,0,13,6176
+lidar,tests/autonomo/test_mapa.py,testes,alta,testes do lidar_sim,EM-USO,0,14,4735
+lidar,tests/autonomo/test_registro.py,testes,alta,testes do lidar_sim,EM-USO,0,13,10059
+lidar,tests/autonomo/test_estacao.py,testes,alta,testes do lidar_sim,EM-USO,0,13,5657
+lidar,tests/autonomo/conftest.py,testes,alta,testes do lidar_sim,EM-USO,0,14,167
+lidar,tests/autonomo/test_tipos.py,testes,alta,testes do lidar_sim,RECENTE-SEM-REFERENCIA,0,13,1472
+lidar,tests/autonomo/test_fecho.py,testes,alta,testes do lidar_sim,EM-USO,0,13,9552
+lidar,tests/autonomo/__init__.py,testes,alta,testes do lidar_sim,EM-USO,0,14,0
+lidar,tests/autonomo/test_missao.py,testes,alta,testes do lidar_sim,EM-USO,0,13,14735
+lidar,tests/autonomo/test_politica.py,testes,alta,testes do lidar_sim,EM-USO,0,13,7698
+lidar,tests/autonomo/test_rastreio.py,testes,alta,testes do lidar_sim,RECENTE-SEM-REFERENCIA,0,13,5470
+lidar,tests/autonomo/test_contrato.py,testes,alta,testes do lidar_sim,EM-USO,0,14,2271
+lidar,tests/autonomo/test_cinematica.py,testes,alta,testes do lidar_sim,EM-USO,0,14,7621
+lidar,tests/autonomo/test_laco.py,testes,alta,testes do lidar_sim,RECENTE-SEM-REFERENCIA,0,13,7533
+lidar,tests/autonomo/test_fronteira.py,testes,alta,testes do lidar_sim,EM-USO,0,13,2772
+lidar,tests/autonomo/test_falhas.py,testes,alta,testes do lidar_sim,EM-USO,0,13,2506
+lidar,tests/autonomo/test_cenario.py,testes,alta,testes do lidar_sim,EM-USO,0,13,8495
+lidar,tests/autonomo/test_sim.py,testes,alta,testes do lidar_sim,EM-USO,0,13,9942
+lidar,runs/,arquivo,alta,"saída de execução (3 GB), fora do Git",SAIDA-PESADA,0,13,3347608481
+lidar,g1_multitask/train.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,2334
+lidar,g1_multitask/smoke.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,42024
+lidar,g1_multitask/observations.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,3307
+lidar,g1_multitask/scene.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1567
+lidar,g1_multitask/terminations.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,5478
+lidar,g1_multitask/sim_curriculo.py,revisar,revisar,só existe no lidar_sim; pode precisar de port,EM-USO,1,26,8092
+lidar,g1_multitask/curriculum.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,22265
+lidar,g1_multitask/knobs.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,21191
+lidar,g1_multitask/runner.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,6945
+lidar,g1_multitask/smoke_resume.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,4699
+lidar,g1_multitask/calibra.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,15381
+lidar,g1_multitask/pregrasp.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2933
+lidar,g1_multitask/preflight_gpu.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,3313
+lidar,g1_multitask/rewards.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,10811
+lidar,g1_multitask/metrics.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,8268
+lidar,g1_multitask/entre_blocos.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,8995
+lidar,g1_multitask/__init__.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,2697
+lidar,g1_multitask/observability.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,4272
+lidar,g1_multitask/tasks.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,6968
+lidar,g1_multitask/env.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,22624
+lidar,g1_multitask/events.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,3889
+lidar,g1_multitask/commands.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,1,26,22368
+lidar,g1_multitask/kaggle/empacota.sh,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,1,26,1435
+lidar,g1_multitask/kaggle/g1_multitask_kaggle.ipynb,descartar,alta,cópia antiga; o treino v3 vence,RECENTE-SEM-REFERENCIA,1,26,12645
+lidar,g1_multitask/kaggle/requirements.txt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,819
+lidar,g1_multitask/configs/c2026_07_30_baseline.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1562
+lidar,g1_multitask/configs/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,344
+lidar,cenarios/b_semente16.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,245
+lidar,cenarios/g_semente24.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,311
+lidar,cenarios/a_semente98.json,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,309
+lidar,cenarios/f_semente24.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,311
+lidar,cenarios/curva_model_24350.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,779
+lidar,cenarios/c_semente27.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,245
+lidar,cenarios/e_semente1.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,244
+lidar,cenarios/d_semente24.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,245
+lidar,cenarios/curva_model_24800.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,1173
+lidar,cenarios/h_semente1.json,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,1071
+lidar,percepcao/eskf.py,lidar,alta,percepção e SLAM,EM-USO,0,18,10166
+lidar,percepcao/fase.py,lidar,alta,percepção e SLAM,EM-USO,0,18,6503
+lidar,percepcao/tags.py,lidar,alta,percepção e SLAM,EM-USO,0,18,2264
+lidar,percepcao/odometria_lidar.py,lidar,alta,percepção e SLAM,EM-USO,0,18,1784
+lidar,percepcao/mapa.py,lidar,alta,percepção e SLAM,EM-USO,0,18,3279
+lidar,percepcao/avalia.py,lidar,alta,percepção e SLAM,EM-USO,0,18,8365
+lidar,percepcao/__init__.py,lidar,alta,percepção e SLAM,EM-USO,0,18,228
+lidar,percepcao/so3.py,lidar,alta,percepção e SLAM,EM-USO,0,18,1345
+lidar,percepcao/classes_tag.py,lidar,alta,percepção e SLAM,EM-USO,0,18,1004
+lidar,reference_checkpoints/model_7300_0-55_0-45_height.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722869
+lidar,reference_checkpoints/README.md,descartar,alta,cópia idêntica do treino,EM-USO,1,26,3356
+lidar,reference_checkpoints/model_lift_6550_altura_normal.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722869
+lidar,reference_checkpoints/model_10000_smooth_impact.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722951
+lidar,reference_checkpoints/model_stand_step_2000_ficar_de_pe.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722869
+lidar,reference_checkpoints/model_8650_triple_height_payload.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722869
+lidar,reference_checkpoints/model_8150_dual_height_stable.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722869
+lidar,reference_checkpoints/model_11300_lift_to_0-15.pt,descartar,alta,cópia idêntica do treino,EM-USO,1,26,5722951
+lidar,g1_limpo/play.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,427
+lidar,g1_limpo/eventos.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,24918
+lidar,g1_limpo/train.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,463
+lidar,g1_limpo/leitura.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,25062
+lidar,g1_limpo/algoritmo.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,6988
+lidar,g1_limpo/smoke.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,331185
+lidar,g1_limpo/inspeciona.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,43055
+lidar,g1_limpo/observacoes.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,6921
+lidar,g1_limpo/knobs.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,89952
+lidar,g1_limpo/ARQUITETURA.md,descartar,alta,cópia antiga; o treino v3 vence,RECENTE-SEM-REFERENCIA,0,25,134375
+lidar,g1_limpo/paridade.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,9624
+lidar,g1_limpo/runner.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,6753
+lidar,g1_limpo/env_cfg.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,55504
+lidar,g1_limpo/recompensas.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,71246
+lidar,g1_limpo/terminacoes.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,10812
+lidar,g1_limpo/exporta_cena.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,23205
+lidar,g1_limpo/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,6811
+lidar,g1_limpo/cena.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,20896
+lidar,g1_limpo/comando.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,131456
+lidar,g1_limpo/metricas.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,30320
+lidar,g1_limpo/curriculo.py,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,28311
+lidar,g1_limpo/kaggle/g1_limpo_kaggle.ipynb,descartar,alta,cópia idêntica do treino,EM-USO,0,25,72891
+lidar,g1_limpo/kaggle/g1_limpo_zero_kaggle.ipynb,descartar,alta,cópia antiga; o treino v3 vence,EM-USO,0,25,23881
+lidar,g1_limpo/kaggle/g1_limpo_zero_colab.ipynb,descartar,alta,cópia antiga; o treino v3 vence,RECENTE-SEM-REFERENCIA,0,25,18164
+lidar,g1_limpo/ik/carregar.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,3655
+lidar,g1_limpo/ik/ref_botar.npz,descartar,alta,cópia idêntica do treino,EM-USO,0,25,10043
+lidar,g1_limpo/ik/gera_botar.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,23090
+lidar,g1_limpo/ik/vale.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,2891
+lidar,g1_limpo/ik/ikc.py,descartar,alta,cópia idêntica do treino,EM-USO,0,25,3319
+lidar,g1_limpo/ik/tres_lajes.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,3303
+lidar,g1_limpo/ik/alcance_braco.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,2482
+lidar,g1_limpo/ik/pelve_andar.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,2365
+lidar,g1_limpo/ik/itens34.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,4247
+lidar,g1_limpo/ik/ve_botar.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,6113
+lidar,g1_limpo/ik/quem_estoura.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,0,25,1926
+lidar,sensores/ver.py,nucleo,alta,camada de sensores,EM-USO,0,24,6494
+lidar,sensores/lidar.py,fonte-v3,alta,padrão e montagem do lidar que o plano da v3 usa (§2.1),EM-USO,0,24,3911
+lidar,sensores/montagem.py,fonte-v3,alta,padrão e montagem do lidar que o plano da v3 usa (§2.1),EM-USO,0,24,3078
+lidar,sensores/ponte.py,nucleo,alta,camada de sensores,EM-USO,0,24,2815
+lidar,sensores/imu.py,nucleo,alta,camada de sensores,EM-USO,0,24,1430
+lidar,sensores/simulacao.py,nucleo,alta,camada de sensores,EM-USO,0,24,2899
+lidar,sensores/camera.py,nucleo,alta,camada de sensores,EM-USO,0,24,2655
+lidar,sensores/__init__.py,nucleo,alta,camada de sensores,EM-USO,0,24,1754
+lidar,sensores/mid360.csv,fonte-v3,alta,padrão e montagem do lidar que o plano da v3 usa (§2.1),EM-USO,0,24,16809997
+lidar,sensores/confere.py,nucleo,alta,camada de sensores,EM-USO,0,24,8778
+lidar,sensores/tipos.py,fonte-v3,alta,padrão e montagem do lidar que o plano da v3 usa (§2.1),EM-USO,0,24,2340
+lidar,autonomo/missao.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,13887
+lidar,autonomo/fecho.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,5093
+lidar,autonomo/juiz.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,7190
+lidar,autonomo/contrato.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,14,1771
+lidar,autonomo/falhas.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,1555
+lidar,autonomo/rastreio.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,8747
+lidar,autonomo/cenario.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,7626
+lidar,autonomo/escolhe_cenario.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,9125
+lidar,autonomo/calibra.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,5244
+lidar,autonomo/estacao.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,3644
+lidar,autonomo/interfaces.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,1459
+lidar,autonomo/navegador.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,8815
+lidar,autonomo/mapa.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,6865
+lidar,autonomo/politica.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,5675
+lidar,autonomo/__init__.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,14,57
+lidar,autonomo/laco.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,2850
+lidar,autonomo/cinematica.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,14,6638
+lidar,autonomo/parametros.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,7641
+lidar,autonomo/tipos.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,3153
+lidar,autonomo/analise_run.py,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,13,7512
+lidar,autonomo/transito.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,4194
+lidar,autonomo/registro.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,9930
+lidar,autonomo/mundo/sim.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,3191
+lidar,autonomo/mundo/__init__.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,14,86
+lidar,autonomo/mundo/cena.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,1656
+lidar,autonomo/estimativa/__init__.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,14,65
+lidar,autonomo/estimativa/oraculo.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,13,1647
+lidar,g1_training/rl_cfg.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,512
+lidar,g1_training/base_env.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,10414
+lidar,g1_training/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1267
+lidar,g1_training/skills/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,0
+lidar,g1_training/skills/lift/knobs.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,9813
+lidar,g1_training/skills/lift/rewards.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,13201
+lidar,g1_training/skills/lift/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,0
+lidar,g1_training/skills/lift/env.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,11738
+lidar,g1_training/skills/lift/configs/c2026_07_15_gate_and_com.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,552
+lidar,g1_training/skills/lift/configs/c2026_07_16_table_low1.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,1,26,1188
+lidar,g1_training/skills/lift/configs/c2026_07_17_plr_h2_payload.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2011
+lidar,g1_training/skills/lift/configs/c2026_07_16_box_edge.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1411
+lidar,g1_training/skills/lift/configs/c2026_07_17_plr_h1_payload.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,1,26,1151
+lidar,g1_training/skills/lift/configs/c2026_07_16_rehearsal.py,descartar,alta,cópia idêntica do treino,RECENTE-SEM-REFERENCIA,1,26,1395
+lidar,g1_training/skills/lift/configs/c2026_07_18_smooth_impact.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2232
+lidar,g1_training/skills/lift/configs/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,724
+lidar,g1_training/skills/lift/configs/c2026_07_16_generalize.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1561
+lidar,g1_training/skills/lift/configs/c2026_07_17_plr_height1.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2199
+lidar,g1_training/skills/place/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,140
+lidar,g1_training/skills/stand/knobs.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1206
+lidar,g1_training/skills/stand/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,0
+lidar,g1_training/skills/stand/env.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2685
+lidar,g1_training/skills/stand/configs/step_recovery.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,732
+lidar,g1_training/skills/stand/configs/baseline.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,204
+lidar,g1_training/skills/stand/configs/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,90
+lidar,g1_training/common/observations.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2368
+lidar,g1_training/common/terminations.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,1481
+lidar,g1_training/common/box.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2953
+lidar,g1_training/common/curriculums.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,6112
+lidar,g1_training/common/rewards.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,2984
+lidar,g1_training/common/__init__.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,0
+lidar,g1_training/common/robot.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,4162
+lidar,g1_training/common/events.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,10727
+lidar,g1_training/common/commands.py,descartar,alta,cópia idêntica do treino,EM-USO,1,26,4271
+lidar,specs/2026-10-05-autonomo-fase1.md,lidar,alta,documentação do lidar_sim,EM-USO,0,13,18051
+lidar,specs/2026-09-24-deposito-cena.md,lidar,alta,documentação do lidar_sim,EM-USO,0,25,7883
+lidar,specs/2026-09-30-slam-percepcao.md,lidar,alta,documentação do lidar_sim,EM-USO,0,18,17679
+lidar,specs/2026-09-24-sensores.md,lidar,alta,documentação do lidar_sim,EM-USO,0,24,10625
+lidar,deposito/exporta_robo.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,25,4282
+lidar,deposito/tags.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,25,1707
+lidar,deposito/monta.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,18,8600
+lidar,deposito/planta.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,18,12765
+lidar,deposito/__init__.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,25,108
+lidar,deposito/gera.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,25,1462
+lidar,deposito/confere.py,simulacao,alta,"autônomo, cenário e scripts de execução",EM-USO,0,18,7939
+lidar,deposito/cache_tags/tag36_11_00029.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00008.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,110
+lidar,deposito/cache_tags/tag36_11_00004.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00041.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00012.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00039.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00108.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00032.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,111
+lidar,deposito/cache_tags/tag36_11_00115.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00022.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00013.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00113.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,116
+lidar,deposito/cache_tags/tag36_11_00107.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00021.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00043.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00111.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,111
+lidar,deposito/cache_tags/tag36_11_00104.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00000.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00025.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00011.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00019.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00033.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00005.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00007.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00036.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00100.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00106.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00300.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,24,111
+lidar,deposito/cache_tags/tag36_11_00016.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00114.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,118
+lidar,deposito/cache_tags/tag36_11_00027.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00015.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00047.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00003.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00101.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00038.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00200.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,18,115
+lidar,deposito/cache_tags/tag36_11_00103.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,110
+lidar,deposito/cache_tags/tag36_11_00046.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,110
+lidar,deposito/cache_tags/tag36_11_00102.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00009.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00018.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00034.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,111
+lidar,deposito/cache_tags/tag36_11_00028.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00002.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00030.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00026.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00110.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00045.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00006.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00037.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00035.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00040.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00020.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00017.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,116
+lidar,deposito/cache_tags/tag36_11_00024.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,110
+lidar,deposito/cache_tags/tag36_11_00010.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,112
+lidar,deposito/cache_tags/tag36_11_00105.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,110
+lidar,deposito/cache_tags/tag36_11_00001.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,116
+lidar,deposito/cache_tags/tag36_11_00023.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,116
+lidar,deposito/cache_tags/tag36_11_00031.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,117
+lidar,deposito/cache_tags/tag36_11_00014.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,114
+lidar,deposito/cache_tags/tag36_11_00201.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,18,112
+lidar,deposito/cache_tags/tag36_11_00044.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,113
+lidar,deposito/cache_tags/tag36_11_00042.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,115
+lidar,deposito/cache_tags/tag36_11_00109.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,111
+lidar,deposito/cache_tags/tag36_11_00112.png,simulacao,revisar,"autônomo, cenário e scripts de execução",RECENTE-SEM-REFERENCIA,0,25,109
+lidar,estudo_lidar/nuvem.npz,lidar,alta,percepção e SLAM,EM-USO,0,24,961136
+lidar,estudo_lidar/lidar_parado.py,lidar,alta,percepção e SLAM,EM-USO,0,26,5755
+lidar,estudo_lidar/mid360.csv,lidar,alta,percepção e SLAM,EM-USO,0,26,16809997
+lidar,docs/planos/2026-10-05-autonomo-fase1.md,lidar,alta,documentação do lidar_sim,EM-USO,0,14,30813
+lidar,docs/planos/2026-09-24-deposito-cena.md,lidar,alta,documentação do lidar_sim,EM-USO,0,25,45520
+lidar,docs/planos/2026-10-05-autonomo-do-sim-ao-real.md,lidar,alta,documentação do lidar_sim,EM-USO,0,13,6777
+lidar,docs/planos/2026-09-24-sensores.md,lidar,alta,documentação do lidar_sim,EM-USO,0,24,40380
+lidar,docs/planos/2026-10-01-slam-percepcao.md,lidar,revisar,documentação do lidar_sim,RECENTE-SEM-REFERENCIA,0,18,105498
+visao,ao_vivo.py,simulacao,alta,execução ao vivo com o robô,EM-USO,1,3,21678
+visao,nohup.out,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,23,0
+visao,24800_topo004.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,0,1418
+visao,detector_v2.pt,visao,alta,código e modelos da visão,EM-USO,0,3,4825551
+visao,gizmo.png,visao,alta,código e modelos da visão,EM-USO,0,29,133497
+visao,juntas.csv,arquivo,alta,saída copiada do treino,RECENTE-SEM-REFERENCIA,0,0,748466
+visao,detector v3.pt,visao,alta,código e modelos da visão,EM-USO,0,0,13123275
+visao,skin.py,visao,alta,código e modelos da visão,EM-USO,1,21,22568
+visao,depth.npy,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,31,1628288
+visao,treino_detector.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,23,49762
+visao,ao_vivo_v2.py,simulacao,revisar,execução ao vivo com o robô,RECENTE-SEM-REFERENCIA,0,3,22612
+visao,treino_orientador.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,23,65176
+visao,confere_gizmo.py,testes,alta,script de conferência,EM-USO,1,30,3665
+visao,dados.zip,arquivo,alta,repete dados/ (908 MB),ORFAO-BINARIO,0,3,907822183
+visao,detector_lisa.pt,visao,alta,código e modelos da visão,EM-USO,0,23,6214417
+visao,main.py,visao,alta,código e modelos da visão,EM-USO,1,21,8759
+visao,det_atual.pt,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,27,6214417
+visao,orientacao.py,visao,alta,código e modelos da visão,EM-USO,1,27,6774
+visao,robo_ao_vivo.py,simulacao,revisar,execução ao vivo com o robô,RECENTE-SEM-REFERENCIA,0,0,7632
+visao,DESENVOLVIMENTO.md,visao,alta,documentação da visão,EM-USO,1,3,44019
+visao,.gitignore,visao,alta,código e modelos da visão,EM-USO,1,5,61
+visao,edges.png,visao,revisar,código e modelos da visão,SUSPEITO-NAO-RASTREADO,0,31,2352
+visao,ori_atual.pt,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,27,6227205
+visao,confere_detector.py,testes,alta,script de conferência,EM-USO,1,31,2461
+visao,CLAUDE.md,visao,alta,documentação da visão,EM-USO,1,3,39194
+visao,det_956.pt,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,30,6214417
+visao,CNN.py,visao,alta,código e modelos da visão,EM-USO,1,23,4132
+visao,treino_orientador copy.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,3,20231
+visao,treino.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,30,105729
+visao,MUJOCO_LOG.TXT,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,0,196
+visao,juntas.limites.csv,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,0,1418
+visao,rgb.png,visao,alta,código e modelos da visão,EM-USO,0,31,31919
+visao,detector.pt,visao,alta,código e modelos da visão,EM-USO,0,23,6214417
+visao,DUVIDAS.md,visao,alta,documentação da visão,EM-USO,1,32,862
+visao,orientador.pt,visao,alta,código e modelos da visão,EM-USO,0,23,6239493
+visao,detector_896.pt,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,30,6214417
+visao,orientador v3.pt,visao,alta,código e modelos da visão,EM-USO,0,0,17045065
+visao,ao_vivo_v3.py,simulacao,alta,execução ao vivo com o robô,EM-USO,0,0,22707
+visao,ESTUDO-MAIN.md,visao,alta,documentação da visão,RECENTE-SEM-REFERENCIA,1,27,5803
+visao,ESTUDO-MEMORIA-DAS-FACES.md,visao,alta,documentação da visão,EM-USO,1,28,13565
+visao,ESTUDO-CNN.md,visao,alta,documentação da visão,RECENTE-SEM-REFERENCIA,1,27,3169
+visao,ESTUDO-ORIENTACAO.md,visao,alta,documentação da visão,RECENTE-SEM-REFERENCIA,1,27,6122
+visao,depth_vis.png,visao,revisar,código e modelos da visão,SUSPEITO-NAO-RASTREADO,0,31,9522
+visao,orientador_lisa.pt,visao,alta,código e modelos da visão,EM-USO,0,23,6239493
+visao,24800_topo004.csv,arquivo,alta,saída copiada do treino,RECENTE-SEM-REFERENCIA,0,0,468167
+visao,ori_54.pt,visao,revisar,código e modelos da visão,ORFAO-BINARIO,0,30,6227205
+visao,orientador_v2.pt,visao,alta,código e modelos da visão,EM-USO,0,3,6230277
+visao,.git,visao,alta,código e modelos da visão,EM-USO,0,46,85
+visao,treino_detector copy.log,arquivo,alta,"log, cópia ou saída de ferramenta",LIXO,0,3,14292
+visao,scene.xml,revisar,revisar,cena própria; comparar com a do núcleo,EM-USO,1,21,2529
+visao,dados/,visao,alta,"dataset de treino da visão, fora do Git",SAIDA-PESADA,0,30,906541855
+visao,specs/skin-procedural-e-tag-na-textura.md,visao,alta,documentação da visão,EM-USO,1,23,9038
+visao,specs/skin-realista-da-caixa.md,visao,alta,documentação da visão,EM-USO,1,23,6826
+visao,specs/achar-a-face-da-tag.md,visao,alta,documentação da visão,EM-USO,1,38,5224
+visao,docs/relatorios/2026-09-28-continuidade-por-aparencia.md,visao,alta,documentação da visão,EM-USO,1,20,11052
+unitree-g1-sim,.gitignore,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,CLAUDE.md,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,MJDATA.TXT,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,MJMODEL.TXT,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,MUJOCO_LOG.TXT,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,Vision_training/,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,arm_render.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,arm_render_down.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,arm_render_tpose.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,calculus.py,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,docs/,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,frames_ref.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,frames_ref_down.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,frames_ref_tpose.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,ik_example.py,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,ik_jacobian.py,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,joint_axes_3d.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,mjmodel.mjb,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,mjmodel.xml,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,pose_T3neg.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,pose_T3pos.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,ppo_g1_reach.zip,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,punho_3eixos.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,requirements.txt,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,screenshot.png,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,src/,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,tb_reach/,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,unitree_rl_gym/,pendente,revisar,destino do repo ainda não decidido,,,,
+unitree-g1-sim,wireframe.png,pendente,revisar,destino do repo ainda não decidido,,,,
+camera_Test,teste_camera.py,pendente,revisar,destino do repo ainda não decidido,,,,

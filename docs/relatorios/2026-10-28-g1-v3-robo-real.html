@@ -1,0 +1,656 @@
+<title>G1 v3 no robô real</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: folha de integração — índice fixo à esquerda em tela larga, coluna única de leitura; tabelas roláveis no próprio contêiner. */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --ink: #131a22;
+  --muted: #566170;
+  --line: #d8dde4;
+  --accent: #1d58b8;
+  --ok: #1d7347;
+  --warn: #9a5a00;
+  --crit: #b0281f;
+  --ok-bg: #e5f3eb;
+  --warn-bg: #fbf0dc;
+  --crit-bg: #fbe6e4;
+  --g-corpo: #4f6d8f;
+  --g-mem: #8a7fa6;
+  --g-ctl: #1d58b8;
+  --g-cam: #c98a1a;
+  --g-lidar: #1f8a83;
+  --code-bg: #eef1f5;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1318; --surface: #161b22; --ink: #e5e9ef; --muted: #9aa5b3; --line: #2a323c;
+    --accent: #6e9fff; --ok: #52c08a; --warn: #e3a23c; --crit: #f0756c;
+    --ok-bg: #15281e; --warn-bg: #2b2213; --crit-bg: #2d1817;
+    --g-corpo: #7f9cc0; --g-mem: #a99fc6; --g-ctl: #6e9fff; --g-cam: #e0a83f; --g-lidar: #3fb7ae;
+    --code-bg: #1d242d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1318; --surface: #161b22; --ink: #e5e9ef; --muted: #9aa5b3; --line: #2a323c;
+  --accent: #6e9fff; --ok: #52c08a; --warn: #e3a23c; --crit: #f0756c;
+  --ok-bg: #15281e; --warn-bg: #2b2213; --crit-bg: #2d1817;
+  --g-corpo: #7f9cc0; --g-mem: #a99fc6; --g-ctl: #6e9fff; --g-cam: #e0a83f; --g-lidar: #3fb7ae;
+  --code-bg: #1d242d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 15.5px;
+  line-height: 1.6;
+}
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+}
+@media (min-width: 1080px) {
+  .page { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
+  .toc { position: sticky; top: calc(24px + env(safe-area-inset-top, 0px)); align-self: start; }
+}
+main { min-width: 0; display: flex; flex-direction: column; gap: 56px; }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; scroll-margin-top: 24px; }
+
+/* índice */
+.toc { font-size: 13.5px; }
+.toc p { margin: 0 0 8px; font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.toc a { display: block; padding: 4px 8px; border-radius: 4px; color: var(--ink); text-decoration: none; border-left: 2px solid transparent; }
+.toc a:hover, .toc a:focus-visible { border-left-color: var(--accent); background: var(--surface); outline: none; }
+@media (max-width: 1079px) {
+  .toc ol { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .toc a { border: 1px solid var(--line); background: var(--surface); }
+}
+
+/* tipografia */
+h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(30px, 4.4vw, 44px); letter-spacing: -0.01em; }
+h2 { font-size: 26px; }
+h3 { font-size: 18.5px; margin-top: 8px; }
+p { margin: 0; max-width: 70ch; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 17.5px; max-width: 64ch; }
+.sec-head { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; border-top: 1px solid var(--line); padding-block-start: 20px; }
+.sec-head .eyebrow { color: var(--accent); }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+ol.steps, ul.plain { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 8px; max-width: 74ch; }
+ol.steps li::marker { font-family: var(--f-mono); color: var(--muted); font-size: .9em; }
+.note { font-size: 14px; color: var(--muted); max-width: 74ch; }
+
+/* status */
+.pill { display: inline-block; font-family: var(--f-mono); font-size: 11px; font-weight: 500; letter-spacing: .05em; padding: 1px 7px; border-radius: 999px; white-space: nowrap; vertical-align: 1px; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.warn { color: var(--warn); background: var(--warn-bg); }
+.pill.crit { color: var(--crit); background: var(--crit-bg); }
+
+/* resumo */
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.sum { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sum h3 { margin: 0; font-size: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sum ul { margin: 0; padding-left: 1.1em; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+
+/* tabelas */
+.tw { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--f-mono); font-weight: 500; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--bg); white-space: nowrap; }
+td.num, th.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); font-size: 13px; white-space: nowrap; }
+td .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+/* faixa do vetor */
+.strip-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.strip { display: flex; height: 38px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--line); }
+.strip > span { min-width: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--f-mono); font-size: 11px; overflow: hidden; white-space: nowrap; }
+.axis { position: relative; height: 18px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.axis span:first-child { transform: none; }
+.axis span:last-child { transform: translateX(-100%); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+/* diagrama */
+.fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+.fig svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.fig .bx { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.fig .bx-drv { fill: var(--bg); stroke: var(--accent); stroke-width: 1.6; }
+.fig .bx-ctl { fill: var(--bg); stroke: var(--g-ctl); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.fig .s-corpo { stroke: var(--g-corpo); } .fig .s-lidar { stroke: var(--g-lidar); } .fig .s-cam { stroke: var(--g-cam); }
+.fig .t { fill: var(--ink); font-family: var(--f-display); font-size: 14px; font-weight: 600; }
+.fig .ts { fill: var(--muted); font-family: var(--f-body); font-size: 11.5px; }
+.fig .tm { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.fig .ar { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+.fig .ah { fill: var(--muted); }
+.fig .col { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; }
+
+/* blocos de decisão */
+.dec { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--crit); border-radius: 6px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dec h3 { margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.dec dl { margin: 0; display: grid; grid-template-columns: 1fr; gap: 6px; font-size: 14.5px; }
+@media (min-width: 640px) { .dec dl { grid-template-columns: 128px minmax(0, 1fr); gap: 6px 16px; } }
+.dec dt { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.dec dd { margin: 0; min-width: 0; }
+.dec.minor { border-left-color: var(--warn); }
+
+.formula { font-family: var(--f-mono); font-size: 14px; background: var(--code-bg); border-radius: 4px; padding: 10px 14px; overflow-x: auto; white-space: pre; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+footer p { max-width: none; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Seções">
+    <p>Seções</p>
+    <ol>
+      <li><a href="#vetor">O vetor de 1 447</a></li>
+      <li><a href="#decidir">Decidir antes do treino</a></li>
+      <li><a href="#modulos">Módulos no robô</a></li>
+      <li><a href="#controle">Controle, 50 Hz</a></li>
+      <li><a href="#mapa">Mapa de elevação</a></li>
+      <li><a href="#odometria">Odometria</a></li>
+      <li><a href="#caixa">Bloco da caixa</a></li>
+      <li><a href="#controlador">Controlador de alto nível</a></li>
+      <li><a href="#medir">Medir no G1</a></li>
+      <li><a href="#provar">Provar com dados gravados</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header style="display:flex;flex-direction:column;gap:14px">
+      <span class="eyebrow">g1_training · v3 · interface com o robô real · 28/10/2026</span>
+      <h1>G1 v3 no robô real</h1>
+      <p class="lede">A política lê 1 447 números a cada 20 ms e devolve 29 alvos de junta. O robô real produz os 1 447 com quatro módulos: o driver de 50 Hz, a odometria por lidar e IMU, o filtro de elevação e o estimador da caixa. O filtro de elevação, a redução de simetria da caixa e o detector de fim rodam com o MESMO código do treino. O bloco da caixa ainda tem três pontos em que o robô real entrega outra coisa que o treino.</p>
+      <div class="summary">
+        <div class="sum">
+          <h3><span class="pill ok">DEFINIDO</span> Igual no treino e no real</h3>
+          <ul>
+            <li>Ordem, escala e histórico dos 9 blocos</li>
+            <li>Ação, kp e kd por junta, 50 Hz</li>
+            <li>Mapa: deskew, corte de 0,85 m, piso da variância</li>
+            <li>Contrato do detector: sem certeza, sem leitura</li>
+          </ul>
+        </div>
+        <div class="sum">
+          <h3><span class="pill crit">DIVERGE</span> Bloco da caixa</h3>
+          <ul>
+            <li>D1, resolvido 30/10: caixa sem leitura presa às palmas, igual no treino e no real</li>
+            <li>D2, antes do treino: critério de visibilidade da PD-11</li>
+            <li>D3, antes do treino: latência e taxa do detector</li>
+          </ul>
+        </div>
+        <div class="sum">
+          <h3><span class="pill warn">MEDIR</span> Quando o G1 chegar</h3>
+          <ul>
+            <li>Atraso do driver e do caminho do lidar</li>
+            <li>Deriva da odometria, andando e girando</li>
+            <li>Extrínseca do MID-360 e da D435i</li>
+            <li>Erro do estimador na D435i real</li>
+          </ul>
+        </div>
+      </div>
+    </header>
+
+    <!-- 1 -->
+    <section id="vetor">
+      <div class="sec-head">
+        <span class="eyebrow">1 · entrada do ator</span>
+        <h2>O vetor de 1 447 números</h2>
+      </div>
+      <p>Cada bloco de 1 a 8 guarda os 5 últimos passos, do mais velho ao mais novo, e os blocos ficam um depois do outro (layout do <code>ObservationManager</code> do mjlab com <code>history_length</code> 5). O mapa não tem histórico. A faixa abaixo está em escala: o mapa ocupa 61% do vetor.</p>
+      <div class="strip-wrap">
+        <div class="strip" role="img" aria-label="Faixa proporcional dos 1 447 canais: giro 15, gravidade 15, comando 15, juntas 145, velocidades 145, ação 145, one-hot 30, caixa 55, mapa 882">
+          <span style="flex:15 1 0;background:var(--g-corpo)" title="giro 0–14"></span>
+          <span style="flex:15 1 0;background:var(--g-corpo)" title="gravidade 15–29"></span>
+          <span style="flex:15 1 0;background:var(--g-ctl)" title="comando 30–44"></span>
+          <span style="flex:145 1 0;background:var(--g-corpo)" title="juntas 45–189">juntas</span>
+          <span style="flex:145 1 0;background:var(--g-corpo)" title="velocidades 190–334">vel.</span>
+          <span style="flex:145 1 0;background:var(--g-mem)" title="última ação 335–479">ação</span>
+          <span style="flex:30 1 0;background:var(--g-ctl)" title="one-hot 480–509"></span>
+          <span style="flex:55 1 0;background:var(--g-cam)" title="caixa e alvo 510–564"></span>
+          <span style="flex:882 1 0;background:var(--g-lidar)" title="mapa 565–1446">mapa de elevação · 441 alturas + 441 confianças</span>
+        </div>
+        <div class="axis" aria-hidden="true">
+          <span style="left:0">0</span>
+          <span style="left:39.05%">565</span>
+          <span style="left:100%">1 446</span>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--g-corpo)"></i>corpo (LowState)</span>
+          <span><i style="background:var(--g-mem)"></i>memória do driver</span>
+          <span><i style="background:var(--g-ctl)"></i>controlador de alto nível</span>
+          <span><i style="background:var(--g-cam)"></i>câmera D435i + odometria</span>
+          <span><i style="background:var(--g-lidar)"></i>lidar MID-360 + odometria</span>
+        </div>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>#</th><th>bloco</th><th class="num">índices</th><th class="num">× 5</th><th class="num">escala</th><th>fonte no robô</th><th>cálculo no driver</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td><span class="sw" style="background:var(--g-corpo)"></span>velocidade angular da base</td><td class="num">0–14</td><td class="num">3</td><td class="num">× 0,2</td><td><code>LowState.imu_state.gyroscope</code></td><td>rad/s crus, vezes 0,2</td></tr>
+            <tr><td class="num">2</td><td><span class="sw" style="background:var(--g-corpo)"></span>gravidade projetada</td><td class="num">15–29</td><td class="num">3</td><td class="num">× 1</td><td><code>imu_state.quaternion</code></td><td><code>Rᵀ · (0, 0, −1)</code>, R do quaternion</td></tr>
+            <tr><td class="num">3</td><td><span class="sw" style="background:var(--g-ctl)"></span>comando (vx, vy, wz)</td><td class="num">30–44</td><td class="num">3</td><td class="num">× 1</td><td>controlador</td><td>referencial da base; zero exato no PEGAR e no BOTAR</td></tr>
+            <tr><td class="num">4</td><td><span class="sw" style="background:var(--g-corpo)"></span>posição das juntas</td><td class="num">45–189</td><td class="num">29</td><td class="num">× 1</td><td><code>motor_state[i].q</code></td><td><code>q − q_de_pé</code>, ordem dos motores do SDK</td></tr>
+            <tr><td class="num">5</td><td><span class="sw" style="background:var(--g-corpo)"></span>velocidade das juntas</td><td class="num">190–334</td><td class="num">29</td><td class="num">× 0,05</td><td><code>motor_state[i].dq</code></td><td><code>dq</code> vezes 0,05</td></tr>
+            <tr><td class="num">6</td><td><span class="sw" style="background:var(--g-mem)"></span>última ação</td><td class="num">335–479</td><td class="num">29</td><td class="num">× 1</td><td>memória do driver</td><td>saída crua da rede, antes do × 0,25; zero no primeiro passo</td></tr>
+            <tr><td class="num">7</td><td><span class="sw" style="background:var(--g-ctl)"></span>one-hot da tarefa</td><td class="num">480–509</td><td class="num">6</td><td class="num">× 1</td><td>controlador</td><td>ANDAR, PEGAR, CARREGAR, BOTAR, REORIENTAR, LEVANTAR; os dois últimos sempre 0</td></tr>
+            <tr><td class="num">8</td><td><span class="sw" style="background:var(--g-cam)"></span>caixa e alvo</td><td class="num">510–564</td><td class="num">11</td><td class="num">× 1</td><td>estimador + controlador</td><td><a href="#caixa">seção 7</a></td></tr>
+            <tr><td class="num">9</td><td><span class="sw" style="background:var(--g-lidar)"></span>mapa de elevação</td><td class="num">565–1446</td><td class="num">—</td><td class="num">× 1</td><td>filtro de elevação</td><td><a href="#mapa">seção 5</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="plain note">
+        <li>No primeiro passo, os 5 lugares do histórico recebem a mesma leitura. A última ação começa em zero.</li>
+        <li>O ruído da tabela da spec §19.1 existe só no treino. No robô, os valores entram crus, sem normalizador.</li>
+        <li>O <code>imu_state</code> do G1 é o IMU da pelve. O treino lê o giroscópio no site <code>imu_in_pelvis</code> (<code>mjlab/.../g1.xml:302</code>). O IMU do tronco não serve.</li>
+        <li>A ordem das juntas, o <code>q_de_pé</code> e a ordem dos blocos vêm do <code>contrato.json</code> que o exportador grava junto do modelo (plano D11). Nenhuma tabela escrita à mão.</li>
+      </ul>
+    </section>
+
+    <!-- 2 -->
+    <section id="decidir">
+      <div class="sec-head">
+        <span class="eyebrow">2 · antes do treino</span>
+        <h2>Três divergências no bloco da caixa</h2>
+        <p class="note">D1 está resolvido no código. D2 e D3 mudam números do treino e precisam fechar antes do treino no RunPod.</p>
+      </div>
+      <p>O treino grava no modelo a distribuição do bloco da caixa. Se o robô real entrega outra distribuição, a política age sobre leitura que nunca viu. Os três pontos abaixo comparam o treino (<code>specs/g1-v3-interface-real.md</code> §2.3, spec §13, plano PD-11 e PD-18) com o rastreador real de hoje (<code>box_vision_g1/estudo_orientador/rastreador.py</code>, <code>DESENVOLVIMENTO.md</code> §9.13). Atendem a interface §2.3 e o enunciado §1 (o controlador externo escolhe a caixa e a política pega pela câmera).</p>
+
+      <div class="dec">
+        <h3><span class="pill crit">D1</span> Sem leitura, a caixa do rastreador anda com as palmas</h3>
+        <dl>
+          <dt>resolvido</dt><dd>Dono, 30/10; commit <code>445c3fe</code> no worktree <code>g1_v3_impl</code>. O treino recebe a versão simplificada do rastreador: sem leitura, se a caixa estava a menos de meia aresta + 5 cm do meio das palmas, ela anda com o meio das palmas e gira com o rumo do eixo delas; se não, fica parada no mundo. O driver real roda o MESMO <code>EstimadorCaixa.passo</code>, com as palmas pela FK e as medidas do rastreador. O estado do Kalman não vai à política.</dd>
+          <dt>treino</dt><dd>Sem leitura, a última leitura fica parada no mundo e a idade cresce até 2 s.</dd>
+          <dt>real hoje</dt><dd>O Kalman do rastreador escolhe entre três previsões: solta (parada no mundo), presa (anda com as palmas) e, perdida há mais de 0,3 s, no meio das palmas. Ele também suaviza a orientação: a estimativa anda metade do caminho até a medida.</dd>
+          <dt>efeito</dt><dd>Com a caixa nas mãos e sem medida, o real entrega uma posição que anda com as palmas enquanto a idade cresce. O treino nunca mostra essa combinação.</dd>
+          <dt>no driver real</dt><dd>O rastreador continua com as três previsões para manter o rastro e escolher os pontos do depth. Ele entrega ao <code>EstimadorCaixa</code> só as medidas aceitas (a saída do RANSAC no quadro), com o carimbo de captura. O estimador aplica a regra das palmas e conta a idade.</dd>
+        </dl>
+      </div>
+
+      <div class="dec">
+        <h3><span class="pill crit">D2</span> A PD-11 corta leituras que o detector real faz</h3>
+        <dl>
+          <dt>treino</dt><dd>Leitura só com o centro no FOV do RGB (69° × 42°), a 0,28–3,0 m, e com ≥ 3 de 9 pontos da caixa sem oclusão pelos braços.</dd>
+          <dt>real hoje</dt><dd>A D435i mede desde o Min-Z, 0,195 m a 848 × 480. No sim do <code>box_vision_g1</code>, o rastreador mede a caixa cortada e perto em 94–100% dos quadros da pega e do carregar.</dd>
+          <dt>efeito</dt><dd>Onde o treino entrega leitura velha, o real entrega leitura nova. A pose do robô e a idade baixa aparecem juntas numa combinação fora do treino.</dd>
+          <dt>recomendação</dt><dd>Meça no sim do <code>box_vision_g1</code>, com a câmera presa ao <code>torso_link</code>, em que poses o rastreador entrega leitura aceita. Troque o critério da PD-11 por esse antes do treino, como o contrato de 28/10 prevê. Não aplique a PD-11 no driver para jogar fora leitura real (regra de 28/10: não imitar no real uma limitação do treino).</dd>
+        </dl>
+      </div>
+
+      <div class="dec">
+        <h3><span class="pill crit">D3</span> Latência e taxa do detector não foram medidas</h3>
+        <dl>
+          <dt>treino</dt><dd>30 Hz e 33 ms, fixos do início ao refino (dono, 15/10). A idade normal fica entre 0,03 e 0,07 s.</dd>
+          <dt>real hoje</dt><dd>YOLO para achar, depth + RANSAC para medir e Kalman, num computador igual ao do robô: sem medida. A idade real soma a latência e a espera até o próximo quadro.</dd>
+          <dt>recomendação</dt><dd>Meça a latência p95 do rastreador num computador igual ao do G1, da captura à saída. Ponha o valor em <code>Estimador.latencia_s</code> e <code>taxa_hz</code> antes do treino. A spec §13 já previa "a latência medida da detecção" no refino.</dd>
+        </dl>
+      </div>
+
+      <div class="dec minor">
+        <h3><span class="pill warn">plano</span> Um knob sem consumidor</h3>
+        <p><code>Percepcao.raio_caixa_na_mao</code> = 0,45 continua no plano §6.2, mas a PD-10 (22/10) tirou a caixa estimada do filtro do corpo. Nenhuma função usa o knob. Ele sai do <code>knobs.py</code> na tarefa A2.</p>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section id="modulos">
+      <div class="sec-head">
+        <span class="eyebrow">3 · arquitetura</span>
+        <h2>Os módulos no robô</h2>
+      </div>
+      <p>O driver, a odometria, o filtro de elevação e o estimador rodam no computador do robô. O controlador de alto nível só manda ordens e lê o status. O driver carrega <code>knobs.py</code>, <code>alvos.py</code>, <code>estimador.py</code> e <code>percepcao_lidar.py</code> por caminho, os mesmos arquivos do treino, sem mjlab e sem mujoco (PD-1, PD-43).</p>
+      <div class="fig">
+        <svg viewBox="0 0 960 460" role="img" aria-label="Diagrama: sensores alimentam odometria, filtro de elevação e estimador; os três e o LowState alimentam o driver de 50 Hz, que manda o LowCmd aos motores; o controlador de alto nível manda tarefa, comando e alvo e recebe o status.">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="ah" d="M0,0 L10,5 L0,10 z"/>
+            </marker>
+          </defs>
+          <text class="col" x="16" y="86">SENSORES</text>
+          <text class="col" x="290" y="86">PERCEPÇÃO NO ROBÔ</text>
+          <text class="col" x="566" y="86">DRIVER</text>
+          <text class="col" x="806" y="86">ATUAÇÃO</text>
+
+          <!-- controlador -->
+          <rect class="bx-ctl" x="566" y="8" width="196" height="50" rx="5"/>
+          <text class="t" x="580" y="30">Controlador de alto nível</text>
+          <text class="ts" x="580" y="47">eventos; escolhe a tarefa</text>
+          <path class="ar" d="M630 58 L630 104" marker-end="url(#ah)"/>
+          <path class="ar" d="M700 104 L700 58" marker-end="url(#ah)"/>
+          <text class="tm" x="620" y="80" text-anchor="end">tarefa · comando · alvo</text>
+          <text class="tm" x="710" y="80">status: aviso, queda, caixa perdida</text>
+
+          <!-- sensores -->
+          <rect class="bx s-corpo" x="16" y="100" width="200" height="64" rx="5"/>
+          <text class="t" x="30" y="124">LowState · 500 Hz</text>
+          <text class="ts" x="30" y="143">29 juntas (q, dq) + IMU da pelve</text>
+          <rect class="bx s-lidar" x="16" y="236" width="200" height="64" rx="5"/>
+          <text class="t" x="30" y="260">Lidar MID-360</text>
+          <text class="ts" x="30" y="279">~4 mil pontos por 20 ms, carimbo por ponto</text>
+          <rect class="bx s-cam" x="16" y="370" width="200" height="64" rx="5"/>
+          <text class="t" x="30" y="394">Câmera D435i</text>
+          <text class="ts" x="30" y="413">RGB + depth, carimbo de captura</text>
+
+          <!-- percepção -->
+          <rect class="bx s-lidar" x="290" y="190" width="214" height="64" rx="5"/>
+          <text class="t" x="304" y="214">Odometria (LIO)</text>
+          <text class="ts" x="304" y="233">KISS-ICP + ESKF; nuvem sem o corpo</text>
+          <rect class="bx s-lidar" x="290" y="280" width="214" height="64" rx="5"/>
+          <text class="t" x="304" y="304">Filtro de elevação</text>
+          <text class="ts" x="304" y="323">percepcao_lidar.py; IMU + FK</text>
+          <rect class="bx s-cam" x="290" y="370" width="214" height="64" rx="5"/>
+          <text class="t" x="304" y="394">Estimador da caixa</text>
+          <text class="ts" x="304" y="413">YOLO acha; depth + RANSAC mede</text>
+
+          <!-- driver -->
+          <rect class="bx-drv" x="566" y="104" width="196" height="330" rx="6"/>
+          <text class="t" x="580" y="130">Driver · 50 Hz</text>
+          <text class="ts" x="580" y="152">monta os 1 447</text>
+          <text class="ts" x="580" y="170">histórico de 5 por bloco</text>
+          <text class="ts" x="580" y="188">alvo e caixa: mundo → base</text>
+          <text class="ts" x="580" y="206">ator 512-256-128, ELU</text>
+          <text class="tm" x="580" y="230">q* = q_de_pé + 0,25·a</text>
+          <text class="ts" x="580" y="256">detector de fim</text>
+          <text class="ts" x="580" y="274">(alvos.detecta_fim)</text>
+          <text class="ts" x="580" y="300">laço de rumo k = 2</text>
+          <text class="ts" x="580" y="318">(só ANDAR e CARREGAR)</text>
+          <text class="tm" x="580" y="414">&lt; 20 ms LowState → LowCmd</text>
+
+          <!-- motores -->
+          <rect class="bx s-corpo" x="806" y="236" width="140" height="80" rx="5"/>
+          <text class="t" x="820" y="262">29 motores</text>
+          <text class="ts" x="820" y="281">PD dentro do motor</text>
+          <text class="ts" x="820" y="299">kp, kd do contrato</text>
+
+          <!-- setas -->
+          <path class="ar" d="M216 132 L566 132" marker-end="url(#ah)"/>
+          <text class="tm" x="300" y="124">blocos 1, 2, 4, 5 · FK · IMU</text>
+          <path class="ar" d="M216 268 L252 268 L252 222 L290 222" marker-end="url(#ah)"/>
+          <path class="ar" d="M252 268 L252 312 L290 312" marker-end="url(#ah)"/>
+          <path class="ar" d="M216 402 L290 402" marker-end="url(#ah)"/>
+          <path class="ar" d="M397 254 L397 280" marker-end="url(#ah)"/>
+          <text class="tm" x="405" y="272">Δxy, Δψ</text>
+          <path class="ar" d="M504 222 L566 222" marker-end="url(#ah)"/>
+          <text class="tm" x="510" y="214">pose</text>
+          <path class="ar" d="M504 312 L566 312" marker-end="url(#ah)"/>
+          <text class="tm" x="512" y="304">882</text>
+          <path class="ar" d="M504 402 L566 402" marker-end="url(#ah)"/>
+          <text class="tm" x="510" y="394">caixa</text>
+          <path class="ar" d="M762 276 L806 276" marker-end="url(#ah)"/>
+          <text class="tm" x="766" y="268">LowCmd</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section id="controle">
+      <div class="sec-head">
+        <span class="eyebrow">4 · controle</span>
+        <h2>O laço de 50 Hz</h2>
+      </div>
+      <h3>Antes de ligar a política</h3>
+      <ol class="steps">
+        <li>Carregue o modelo exportado e o <code>contrato.json</code>: ordem das juntas, <code>q_de_pé</code>, kp, kd, escala, dt, blocos, one-hot, mapa, <code>T_BASE_SENSOR</code> e a versão do pacote (plano D11).</li>
+        <li>Confira o robô: G1 EDU de 29 graus com a cintura livre. Tornozelo e cintura no modo PR (<code>mode_pr</code> = 0), que é o modo do URDF e da tabela de limites (spec §6.5).</li>
+        <li>Com o robô no pórtico, libere o controlador de fábrica pelo cliente de troca de modo do SDK (<code>MotionSwitcherClient</code>) e assuma o <code>LowCmd</code>.</li>
+        <li>Leve as juntas de onde estão até <code>q_de_pé</code> em 2–3 s, por interpolação, com os kp e kd do contrato. Segure 1–2 s parado.</li>
+        <li>Zere a memória: última ação = 0; histórico vazio (o primeiro passo enche os 5 lugares); filtro de elevação reiniciado (altura 0, variância infinita); estimador sem leitura.</li>
+        <li>Comece no ANDAR com comando zero. No ANDAR, os 11 números da caixa são zero.</li>
+      </ol>
+
+      <h3>A cada 20 ms</h3>
+      <ol class="steps">
+        <li>Leia o <code>LowState</code> mais novo. Ele chega a 500 Hz.</li>
+        <li>Monte os blocos 1 a 7 pela tabela da seção 1.</li>
+        <li>Leia a saída do estimador da caixa e do filtro de elevação para este passo. Converta a caixa e o alvo do mundo para a base com a pose da odometria deste passo.</li>
+        <li>Empilhe o histórico de 5 por bloco e concatene os 1 447 na ordem do <code>Contrato.blocos_ator</code>.</li>
+        <li>Rode o ator. Sem normalizador empírico.</li>
+        <li>Calcule <code>q* = q_de_pé + 0,25 · a</code>. Sem clip.</li>
+        <li>Escreva o <code>LowCmd</code> por motor: <code>q = q*</code>, <code>dq = 0</code>, <code>tau = 0</code>, <code>kp</code> e <code>kd</code> da junta. Mantenha o <code>mode_pr</code> e calcule o CRC da mensagem.</li>
+        <li>Guarde <code>a</code> como a última ação.</li>
+      </ol>
+      <p class="note">Do <code>LowState</code> lido ao <code>LowCmd</code> escrito: menos de 20 ms. O treino sorteia 0–1 passo de atraso na ação e na propriocepção desde o início, 0–2 a partir do portão do PEGAR e 0–3 (60 ms) só no refino. O alvo fica constante até o próximo passo, como no treino (física de 5 ms, decimação 4).</p>
+
+      <h3>Ganhos por junta</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>juntas</th><th class="num">kp</th><th class="num">kd</th><th>motor</th></tr></thead>
+          <tbody>
+            <tr><td><code>hip_pitch</code>, <code>hip_yaw</code>, <code>hip_roll</code></td><td class="num">100</td><td class="num">2</td><td>7520-14.3 / 7520-22.5</td></tr>
+            <tr><td><code>knee</code></td><td class="num">150</td><td class="num">4</td><td>7520-22.5</td></tr>
+            <tr><td><code>ankle_pitch</code>, <code>ankle_roll</code></td><td class="num">40</td><td class="num">2</td><td>5020-16</td></tr>
+            <tr><td><code>waist_yaw</code></td><td class="num">200</td><td class="num">5</td><td>7520-14.3</td></tr>
+            <tr><td><code>waist_roll</code>, <code>waist_pitch</code></td><td class="num">40</td><td class="num">5</td><td>5020-16</td></tr>
+            <tr><td><code>shoulder_*</code>, <code>elbow</code>, <code>wrist_roll</code></td><td class="num">40</td><td class="num">1</td><td>5020-16</td></tr>
+            <tr><td><code>wrist_pitch</code>, <code>wrist_yaw</code></td><td class="num">40</td><td class="num">1</td><td>4010</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Fonte: <code>UNITREE_G1_29DOF_CFG</code> do <code>unitree_rl_lab</code>, commit <code>4960b84</code> (interface §3). O <code>deploy.yaml</code> da política v0 da Unitree traz cintura com kp 200 nos três eixos e braços com kd 10. Ele não vale para a v3.</p>
+
+      <h3>Segurança, fora da política</h3>
+      <ul class="plain">
+        <li>O amortecimento de emergência do G1 derruba o robô (~35 kg, mais a caixa de até 5 kg). Os primeiros testes vão no pórtico, com zona de exclusão.</li>
+        <li>Inclinação do IMU acima de 46° no ANDAR e no CARREGAR, ou acima de 70° no PEGAR e no BOTAR: o driver avisa queda. Os limites são os das terminações do treino.</li>
+      </ul>
+    </section>
+
+    <!-- 5 -->
+    <section id="mapa">
+      <div class="sec-head">
+        <span class="eyebrow">5 · percepção · lidar</span>
+        <h2>Mapa de elevação: 882 números</h2>
+      </div>
+      <p>O mapa usa o mesmo <code>percepcao_lidar.py</code> do treino. O driver real troca só a fonte dos pontos e da pose. Atende o enunciado §2 "Terreno".</p>
+      <ol class="steps">
+        <li><strong>Pontos.</strong> A cada 20 ms, entregue ao filtro os pontos que o SDK da Livox entregou desde o passo anterior (cerca de 4 mil; o treino usa 205). Não decime. Com a PD-42, a confiança não depende da densidade.</li>
+        <li><strong>Deskew.</strong> Leve cada ponto ao mundo pela pose do sensor no carimbo de tempo DELE: orientação pelo IMU, posição pela odometria, montagem pela FK das juntas daquele instante. O lidar fica no tronco e gira com a cintura.</li>
+        <li><strong>Montagem.</strong> MID-360 no <code>torso_link</code> em <code>(0,0002835; 0,00003; 0,428434)</code>, quaternion <code>(0; 0,99967; 0; −0,02556)</code>: o sensor fica invertido. Use o <code>T_BASE_SENSOR</code> do contrato, depois de calibrar a extrínseca no robô.</li>
+        <li><strong>Inclinação.</strong> Roll e pitch vêm do MESMO IMU da observação da gravidade. O rumo vem da odometria. Eixos do mapa: x para a frente, y para a esquerda, no rumo da base.</li>
+        <li><strong>Corpo.</strong> <code>filtra_corpo</code>: sai todo ponto a menos de 0,85 m do lidar e todo ponto a menos de 3 cm das cápsulas do corpo (<code>capsulas.npz</code>, postas pela FK das juntas medidas). A caixa estimada não entra.</li>
+        <li><strong>Zero.</strong> Altura = z do ponto − z do pé mais baixo. O pé mais baixo sai da FK: o menor z dos sites <code>left_foot</code> e <code>right_foot</code>, menos <code>site_pe_de_pe</code>. Os dois z ficam no referencial alinhado à gravidade; o z absoluto da odometria não entra.</li>
+        <li><strong>Filtro.</strong> <code>prediz(Δxy no rumo, Δψ, dt)</code> com o deslocamento da odometria desde o passo anterior; depois <code>atualiza(pontos, válidos, posição do sensor)</code>; depois <code>recorte()</code>.</li>
+      </ol>
+      <div class="formula">confiança = σ_ref² / (σ_ref² + P)      σ_ref = 0,05 m;  P ≥ (0,02 m)²
+R da leitura = (σ_incl · d̄)² + σ_m² / n
+transporte:  P += 4e−4·|Δxy| + 4e−4·|Δψ| + 2,5e−5·Δt</div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>item</th><th>valor</th></tr></thead>
+          <tbody>
+            <tr><td>recorte</td><td>21 × 21 células de 10 cm, centradas na base (mapa interno 51 × 51)</td></tr>
+            <tr><td>ordem no vetor</td><td>441 alturas, depois 441 confianças; cada uma por linha, de x = +1,0 a −1,0 m; na linha, de y = +1,0 a −1,0 m</td></tr>
+            <tr><td>altura</td><td>m, cortada em ±1</td></tr>
+            <tr><td>célula nunca vista</td><td>altura 0, confiança 0</td></tr>
+            <tr><td>célula vista</td><td>satura em 0,862; cai para 0,758 depois de 1 m sem nova leitura</td></tr>
+            <tr><td>atraso</td><td>o caminho do lidar (pacote, deskew, filtro) entra no atraso do mapa; o treino sorteia 0–1 passo desde o início</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">O que o sim mostra (interface §2.4): o lidar da cabeça não vê o chão a menos de ~0,9 m. Sem caixa, depois de andar 1 m, 314 de 441 células ficam vistas; embaixo e atrás do robô fica sem leitura. Com a caixa de 26 cm nas mãos, só 82 de 210 células da frente têm leitura depois de 1 m. O real deve mostrar a mesma cobertura.</p>
+    </section>
+
+    <!-- 6 -->
+    <section id="odometria">
+      <div class="sec-head">
+        <span class="eyebrow">6 · percepção · pose</span>
+        <h2>Odometria</h2>
+      </div>
+      <p>A odometria alimenta três coisas: o transporte do mapa, a caixa no referencial da base e o alvo no referencial da base. O desenho escolhido é KISS-ICP com ESKF e IMU (<code>lidar_sim</code>). O treino modela a odometria como passeio aleatório que cresce com a distância e com o ângulo girado (PD-18, D2b).</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>requisito</th><th>valor</th><th>motivo</th></tr></thead>
+          <tbody>
+            <tr><td>saída</td><td>pose da base (x, y, z, rumo) a 50 Hz ou mais, propagada pelo IMU entre nuvens</td><td>o driver converte caixa e alvo a cada passo</td></tr>
+            <tr><td>sem salto</td><td>nenhum fechamento de laço e nenhuma relocalização no referencial do driver</td><td>o treino só tem deriva contínua; um salto vira degrau falso no mapa (relatório 22/10, L4)</td></tr>
+            <tr><td>entrada</td><td>a nuvem do casamento passa pelo mesmo <code>filtra_corpo</code> (0,85 m + cápsulas)</td><td>ponto que anda com o robô não entra no ICP (PD-10)</td></tr>
+            <tr><td>deriva andando</td><td>≤ 1,5 cm em 4 m (0,0075 m/√m); rumo 0,005 rad/√m</td><td>magnitude do refino; o início do treino usa 0,4 cm em 4 m</td></tr>
+            <tr><td>deriva no giro</td><td>≤ 2° e 2 cm por volta no lugar</td><td>refino; hipótese até medir no G1 (dono, 28/10)</td></tr>
+            <tr><td>referencial</td><td>o "mundo" do driver é o referencial da odometria</td><td>o controlador manda o alvo nele; um SLAM global pode existir para navegar, em outro referencial</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">O referencial da base no robô: posição e rumo da odometria, roll e pitch do IMU da pelve. O mapa e o bloco da caixa usam o mesmo.</p>
+    </section>
+
+    <!-- 7 -->
+    <section id="caixa">
+      <div class="sec-head">
+        <span class="eyebrow">7 · percepção · câmera</span>
+        <h2>Bloco da caixa e do alvo: 11 números</h2>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th class="num">pos.</th><th>dado</th><th>unidade</th><th>cálculo no robô</th></tr></thead>
+          <tbody>
+            <tr><td class="num">0–2</td><td>centro da caixa</td><td>m, base</td><td>do estimador, guardado no mundo; o driver converte para a base a cada passo</td></tr>
+            <tr><td class="num">3–5</td><td>orientação</td><td>vetor de rotação, rad</td><td>caixa contra a base, reduzida pelas 24 simetrias do cubo, a de menor ângulo: <code>estimador.reduz_simetria_cubo</code>, a função do treino</td></tr>
+            <tr><td class="num">6</td><td>meia aresta</td><td>m, 0,07–0,13</td><td>mediana das faces vistas inteiras no depth</td></tr>
+            <tr><td class="num">7</td><td>idade</td><td>s, cortada em 2</td><td>agora − carimbo de CAPTURA da imagem da última leitura aceita; a latência entra na idade</td></tr>
+            <tr><td class="num">8–10</td><td>alvo</td><td>m, base</td><td>o controlador manda o ponto no mundo; o driver converte a cada passo</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>tarefa</th><th>os 11 números</th></tr></thead>
+          <tbody>
+            <tr><td>ANDAR</td><td>todos zero, mesmo com a caixa à vista</td></tr>
+            <tr><td>PEGAR</td><td>caixa + alvo = o centro estimado da caixa escolhida, fixado no mundo no instante do comando</td></tr>
+            <tr><td>CARREGAR</td><td>caixa + alvo zero</td></tr>
+            <tr><td>BOTAR</td><td>caixa + alvo de soltura (seção 8)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>O contrato do detector (dono, 28/10)</h3>
+      <ul class="plain">
+        <li>Sem certeza, o detector entrega "sem leitura". Ele nunca entrega um centro deslocado.</li>
+        <li>Sem leitura, a idade cresce. A última leitura aceita anda com o meio das palmas se estava a menos de meia aresta + 5 cm dele; se não, fica parada no mundo (D1). O driver a converte para a base a cada passo.</li>
+        <li>A caixa vem sempre da câmera e do depth, também nas mãos. A cinemática das palmas só ajuda o rastreador a prever; ela não vai à política.</li>
+        <li>Câmera no <code>torso_link</code> em <code>(0,0576; 0,0175; 0,4299)</code>, 47,6° para baixo (<code>d435_pitch</code> 0,8308 rad). A cabeça gira com a cintura: a pose da câmera no instante da foto sai da FK das juntas daquele instante.</li>
+        <li>Critério de certeza: o da PD-11 até a troca da D2.</li>
+      </ul>
+      <p class="note">Caminho simplificado para o primeiro teste (viabilidade de 15/10, §3): AprilTag numa face da caixa de tamanho conhecido. A tag entrega centro, orientação e meia aresta com o mesmo contrato, sem YOLO e sem RANSAC. O rastreador entra depois, sem mudar o driver.</p>
+    </section>
+
+    <!-- 8 -->
+    <section id="controlador">
+      <div class="sec-head">
+        <span class="eyebrow">8 · ordens</span>
+        <h2>Controlador de alto nível</h2>
+      </div>
+      <p>O controlador manda tarefa, comando e alvo. Ele não calcula ritmo de passo, postura, posição de mão nem etapa da pega (dono, 14/10). Ele precisa pôr o robô na mesma situação em que o treino abre cada tarefa.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>ponto</th><th>o que o controlador garante</th></tr></thead>
+          <tbody>
+            <tr><td>comando</td><td>vx de −1,0 a +1,5 m/s, vy ±1,0 m/s, wz ±1,0 rad/s, no referencial da base; nunca o máximo</td></tr>
+            <tr><td>laço de rumo</td><td>no comando reto, <code>wz = 2 · wrap(ψ_ref − ψ_odo)</code>, cortado na faixa; só no ANDAR e no CARREGAR. No PEGAR e no BOTAR o comando é zero exato</td></tr>
+            <tr><td>chegada ao PEGAR</td><td>robô parado (ANDAR, comando zero) por 0,5–1,0 s; caixa de meia aresta 0,07–0,13 m numa superfície de 0 a 0,55 m; centro da caixa a ~0,3–0,6 m à frente da pelve, até ±0,18 m de lado, giro até ±15° (faixa copiada do <code>g1_limpo/knobs.py:55-57</code> pelo plano §6.2; a distância cresce por nível)</td></tr>
+            <tr><td>alvo do PEGAR</td><td>o centro estimado da caixa escolhida, no referencial da odometria, no instante do comando</td></tr>
+            <tr><td>troca PEGAR → CARREGAR</td><td>no aviso do detector de fim, ou até 1 s depois; nunca antes</td></tr>
+            <tr><td>chegada ao BOTAR</td><td>robô parado com a caixa (CARREGAR, comando zero) por 0,5–1,0 s; destino com topo de 0,30 a 0,55 m, girado até ±10°</td></tr>
+            <tr><td>alvo do BOTAR</td><td>ponto a 0,15 m para dentro da borda perto do destino, até ±0,10 m de lado; z = topo + meia aresta estimada; distância da base = <code>Referencias.recuo(h, a)</code> da tabela da IK (PD-47)</td></tr>
+            <tr><td>fim do BOTAR</td><td>no aviso do detector de fim, ou até 1,5 s depois, troca para ANDAR com comando zero</td></tr>
+            <tr><td>caixa perdida</td><td>a câmera vê a caixa no chão ou longe das mãos → ANDAR (<code>caixa_perdida_vira_andar</code> = True)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Detector de fim</h3>
+      <p><code>alvos.detecta_fim</code>, a mesma função do treino, com a cinemática das juntas medidas e o IMU:</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>aviso</th><th>pose de referência</th><th>tolerâncias, estáveis por 0,5 s</th></tr></thead>
+          <tbody>
+            <tr><td>PEGAR concluído</td><td>de pé com caixa, para o tamanho da caixa</td><td>pelve sobre o pé mais baixo ±3 cm; tronco ±5°; cada palma a até 5 cm da referência; média de |q̇| das 29 juntas &lt; 0,2 rad/s</td></tr>
+            <tr><td>BOTAR concluído</td><td>de pé sem caixa (<code>ref_v3_de_pe.npz</code>, pose 0)</td><td>as mesmas, com as palmas da pose de pé</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Não treinado, risco aceito (dono, 02/10): CARREGAR andando direto para o BOTAR, e a troca de comando dentro do CARREGAR. O controlador para o robô antes do BOTAR.</p>
+    </section>
+
+    <!-- 9 -->
+    <section id="medir">
+      <div class="sec-head">
+        <span class="eyebrow">9 · quando o G1 chegar</span>
+        <h2>O que medir no robô</h2>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>medida</th><th>valor no treino</th><th>se o real passa</th></tr></thead>
+          <tbody>
+            <tr><td>atraso <code>LowState</code> → <code>LowCmd</code></td><td>0–1 passo (20 ms)</td><td>otimizar o driver; o treino só cobre mais no refino</td></tr>
+            <tr><td>latência do lidar até o mapa</td><td>0–1 passo</td><td>subir o atraso do mapa na DR</td></tr>
+            <tr><td>deriva da odometria: 4 m ida e volta; uma volta no lugar</td><td>1,5 cm em 4 m; 2° e 2 cm por volta (refino)</td><td><code>Estimador.deriva_*</code></td></tr>
+            <tr><td>extrínseca do MID-360 e da D435i</td><td>pose exata do MJCF</td><td>calibrar; o erro restante vira viés fixo (relatório 22/10, L6 e C6)</td></tr>
+            <tr><td>viés de inclinação do IMU</td><td>±1° por episódio</td><td>evento <code>vies_imu</code></td></tr>
+            <tr><td>erro do estimador na D435i real: posição, orientação, perda</td><td>refino: 2% da distância; mediana 5,3°, p90 15,3°; 2,2%</td><td><code>Estimador</code> do refino (relatório 22/10, C1)</td></tr>
+            <tr><td>flexão máxima do <code>hip_pitch</code></td><td>−145° (tabela do SDK)</td><td>spec §6.5; a página do produto diz ±154°</td></tr>
+            <tr><td>limiar "juntas quase paradas"</td><td>0,2 rad/s (PD-26)</td><td>o detector roda fora do modelo e muda sem treino, desde que nunca avise antes do treino</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section id="provar">
+      <div class="sec-head">
+        <span class="eyebrow">10 · paridade</span>
+        <h2>Provar as entradas com dados gravados</h2>
+      </div>
+      <p>A política só liga depois que o vetor do robô cai na faixa do treino. A sequência abaixo prova isso sem mandar nenhum <code>LowCmd</code> da política.</p>
+      <ol class="steps">
+        <li>Grave os sensores com o robô no controlador de fábrica, parado e andando diante de caixas, lajes e um degrau: <code>LowState</code> a 500 Hz, nuvem da Livox com carimbo por ponto, RGB-D da D435i com carimbo de captura.</li>
+        <li>Rode o driver sobre a gravação, sem <code>LowCmd</code>, com o one-hot e o alvo que o controlador mandaria. Grave o vetor de 1 447 a cada passo.</li>
+        <li>Confira bloco a bloco pelos critérios abaixo.</li>
+        <li>Compare as faixas com as do treino nas mesmas situações: o <code>registra_juntas_v3.py</code> grava o mesmo vetor no sim, e o <code>exporta_cena.paridade</code> confere o driver contra o env com tolerância 1e−5 (plano D11).</li>
+        <li>Sim2sim: <code>pilota_v3.py</code> no MuJoCo clássico, com o mesmo driver e o mesmo código de percepção.</li>
+        <li>Robô no pórtico; depois no chão. Primeiro deploy limitado: plano, até 0,5 m/s, até 3 kg, lajes de 0,30 a 0,55 m (viabilidade §3).</li>
+      </ol>
+      <div class="tw">
+        <table>
+          <thead><tr><th>bloco</th><th>situação</th><th>critério</th><th>origem</th></tr></thead>
+          <tbody>
+            <tr><td>gravidade</td><td>de pé, parado</td><td>norma 1; vetor (0, 0, −1) ± 0,02</td><td>proposta</td></tr>
+            <tr><td>giro × 0,2</td><td>de pé, parado</td><td>|valor| &lt; 0,01</td><td>proposta</td></tr>
+            <tr><td>juntas</td><td>pose de pé</td><td>|q − q_de_pé| perto de 0, como no exemplo da interface §2.5</td><td>interface §2.5</td></tr>
+            <tr><td>mapa</td><td>chão plano</td><td>altura 0 ± 2 cm; confiança 0,862 nas células vistas</td><td>teste C0</td></tr>
+            <tr><td>mapa</td><td>degrau de 15 cm à frente</td><td>salto de 0,15 ± 0,02 m entre as células da borda</td><td>teste C0</td></tr>
+            <tr><td>mapa</td><td>início, robô parado</td><td>embaixo e atrás do robô: altura 0, confiança 0</td><td>interface §2.4</td></tr>
+            <tr><td>caixa</td><td>caixa parada, robô andando em volta</td><td>centro levado ao mundo parado em ± 2 cm; idade entre 0,03 e 0,07 s com a caixa à vista; ângulo da orientação ≤ 45°</td><td>proposta; S §13</td></tr>
+            <tr><td>alvo</td><td>PEGAR, robô parado</td><td>alvo na base parado; anda só quando o robô anda</td><td>interface §2.3</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <p>Fontes: <code>specs/g1-v3-interface-real.md</code>; <code>specs/g1-v3.md</code> §6, §12, §13, §19; <code>docs/planos/2026-10-14-implementacao-g1-v3.md</code> §5, §6, C1, D2, D2b, D11; <code>docs/relatorios/2026-10-22-percepcao-sim-real.md</code>; <code>docs/relatorios/2026-10-15-viabilidade-v3.md</code> §3; <code>box_vision_g1/DESENVOLVIMENTO.md</code> §9.13.</p>
+      <p>Análise de 28/10/2026. Nenhum código da v3 existe ainda; os nomes de função são os do contrato do plano §6.3.</p>
+    </footer>
+  </main>
+</div>
