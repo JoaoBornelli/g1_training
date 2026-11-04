@@ -2,7 +2,8 @@
 # Ponto de entrada do pod RunPod (D13 do plano; contrato da imagem em PD-22).
 # A imagem clona o repo e chama este script. Só roda o treino: não instala pacote nem faz push.
 set -euo pipefail
-export MUJOCO_GL=egl
+# O treino não renderiza. O template PyTorch do RunPod não tem libEGL: com "egl" o import do mujoco quebra.
+export MUJOCO_GL=disable
 
 # Raiz do repo, a partir do próprio script (este arquivo fica em g1_v3/container/).
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

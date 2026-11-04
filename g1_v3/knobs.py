@@ -105,6 +105,7 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
     # ⚠ cicatriz de 15/07 no g1_limpo: `elliptic` com `impratio=10` divergiu para NaN no reset
     njmax: int = 800  # g1_limpo/knobs.py:103; S §12 (L2)
     nconmax: int = 300  # g1_limpo/knobs.py:104; S §12 (L2)
+    ccd_iterations: int = 50  # a base rough do mjlab usa 500; com nconmax=300 os buffers EPA do mujoco_warp passam de 32 GB de GPU. g1_limpo (base flat) usava 50.
     impratio: float = 1.0  # g1_limpo/knobs.py:105; S §12 (L2)
     cone: str = "pyramidal"  # g1_limpo/knobs.py:106; S §12 (L2)
     extent: float = 2.5  # g1_limpo/knobs.py:86

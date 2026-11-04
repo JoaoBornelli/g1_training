@@ -95,6 +95,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     cfg.scene.extent = c.extent
     cfg.sim.njmax = c.njmax
     cfg.sim.nconmax = c.nconmax
+    cfg.sim.mujoco.ccd_iterations = c.ccd_iterations
     cfg.sim.mujoco.impratio = c.impratio
     cfg.sim.mujoco.cone = c.cone
     cfg.sim.mujoco.timestep = k.contrato.dt_fisica
