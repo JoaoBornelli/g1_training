@@ -212,8 +212,8 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     vz: float = -2.0  # S §9.2: peso da velocidade vertical da base
     giro_xy: float = -0.05  # S §9.2: peso do giro em x e y
     vel_junta: float = -0.001  # S §9.2: peso da velocidade de junta
-    acel_junta: float = -2.5e-7  # S §9.2: peso da aceleração de junta
-    taxa_acao: float = -0.05  # S §9.2: peso do action_rate (receita da Unitree)
+    acel_junta: float = -5e-8  # S §9.2 ÷5 (poc1, 05/11): −2,5e-7 dava 28% do negativo; o passo custava −0,036 ≈ a queda (−4) descontada
+    taxa_acao: float = -0.01  # S §9.2 ÷5 (poc1, 05/11): 88% do Δa² era o ruído de std 0,51; −0,05 dava 26% do negativo
     energia: float = -2e-5  # S §9.2: peso da energia
     # ⚠ limite mole 95% pelo dono (08/10); a receita da Unitree usa 90%; a IK fica a 90%
     limite_junta: float = -5.0  # S §9.2: peso do limite de junta
