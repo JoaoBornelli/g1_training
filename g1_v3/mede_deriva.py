@@ -58,8 +58,8 @@ linhas = []  # um dict de tensores (em CPU) por chamada de `_fecha`
 def fecha_medindo(ids, falha):
     # Lê o estado ANTES do original: ele zera seg_proj/seg_int.
     env_, ancora = env.unwrapped, env.unwrapped.v3_ancora[ids]
-    dpos = (twist.robot.data.root_link_pos_w[ids, :2] - ancora[:, :2]).norm(dim=1)
-    rumo = wrap_to_pi(twist.robot.data.heading_w[ids] - ancora[:, 2])
+    dpos = (twist.pose_ult[ids, :2] - ancora[:, :2]).norm(dim=1)
+    rumo = wrap_to_pi(twist.pose_ult[ids, 2] - ancora[:, 2])
     cel = twist.seg_cel[ids]
     terreno = cel == cur.id_celula("CARREGAR", "terreno")
     # mesmos argumentos do `_fecha`

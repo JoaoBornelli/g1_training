@@ -107,8 +107,7 @@ class FechoDoSegmentoNoTerreno(unittest.TestCase):
                 registra=mock.Mock()))
         obj = _twist_falso(env)
         obj._env, obj.k = env, K
-        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
-                                                                     heading_w=torch.zeros(1)))
+        obj.pose_ult = torch.zeros(1, 3)
         obj._agora = torch.tensor([5.0])
         obj.seg_cmd = torch.tensor([[0.5, 0.0, 0.0]])
         obj.seg_cel = torch.tensor([cel])

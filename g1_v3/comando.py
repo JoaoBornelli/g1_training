@@ -646,6 +646,9 @@ class TwistV3(UniformVelocityCommand):
         self.t_ab = torch.zeros(n, device=dev)  # instante da abertura do segmento (base da âncora)
         self.ancora_feita = torch.zeros(n, dtype=torch.bool, device=dev)
         self.seg_visto = self.command_counter.clone()
+        # pose (x, y, rumo no mundo) do fim do último passo: o `_reset_idx` do mjlab (manager_based_rl_env.py:553)
+        # teletransporta o robô ANTES do `command_manager.reset`, então `robot.data` no `_fecha` do reset é o respawn
+        self.pose_ult = torch.zeros(n, 3, device=dev)
         self._abre(torch.arange(n, device=dev))
 
     def _abre(self, ids) -> None:
@@ -671,9 +674,9 @@ class TwistV3(UniformVelocityCommand):
         # time_out) zera o sucesso e registra mesmo antes da âncora (D3 item 4; S §11.3 "sem queda").
         env, k = self._env, self.k
         ancora = env.v3_ancora[ids]
-        pos = self.robot.data.root_link_pos_w[ids, :2]
+        pos = self.pose_ult[ids, :2]
         dpos = (pos - ancora[:, :2]).norm(dim=1)
-        drum = wrap_to_pi(self.robot.data.heading_w[ids] - ancora[:, 2]).abs()
+        drum = wrap_to_pi(self.pose_ult[ids, 2] - ancora[:, 2]).abs()
         # G3: o terreno do segmento é a célula `terreno` do CARREGAR (só ele tem célula de terreno)
         terreno = self.seg_cel[ids] == env.v3_cur.id_celula("CARREGAR", "terreno")
         reg, suc = sucesso_do_segmento(
@@ -703,6 +706,8 @@ class TwistV3(UniformVelocityCommand):
         env, k = self._env, self.k
         dt = env.step_dt
         self._agora += dt
+        self.pose_ult[:, :2] = self.robot.data.root_link_pos_w[:, :2]
+        self.pose_ult[:, 2] = self.robot.data.heading_w
         # 1. fronteira de segmento: o contador mudou desde o último passo (o cadeia reamostrou). A perda da caixa no
         # segmento com caixa (PEGAR, CARREGAR, BOTAR) fecha como falha, mesmo antes da âncora (E11 S11)
         mudou = (self.command_counter != self.seg_visto).nonzero().flatten()
