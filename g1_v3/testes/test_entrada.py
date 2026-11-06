@@ -74,7 +74,7 @@ class TestEntrada(unittest.TestCase):
         self.pasta(NOVA)
         r = self.roda(RUN="x", RETOMA="1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("--agent.resume", r.stdout)
+        self.assertIn("--agent.resume True ", r.stdout)
         self.assertIn("^" + VELHA + "$", r.stdout)
         self.assertNotIn("^" + NOVA + "$", r.stdout)
 
@@ -90,6 +90,19 @@ class TestEntrada(unittest.TestCase):
         r = self.roda(RUN="x", RETOMA="0", PERCEPCAO="0")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Mjlab-G1-V3-SemPercepcao", r.stdout)
+
+    def test_video1_poe_as_flags_de_video(self):
+        r = self.roda(RUN="x", RETOMA="0", VIDEO="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--video True --video-interval 12000 --video-length 1000", r.stdout)
+
+    def test_sem_video_o_comando_nao_tem_video(self):
+        r = self.roda(RUN="x", RETOMA="0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("--video", r.stdout)
+
+    def test_video_fora_de_0_e_1_falha(self):
+        self.assertNotEqual(self.roda(RUN="x", RETOMA="0", VIDEO="2").returncode, 0)
 
     def test_texto_do_script_sem_push_gh_nem_pip(self):
         # o pod não empurra nada, não usa `gh` e não instala pacote (contrato da imagem, PD-22).

@@ -2,9 +2,6 @@
 # Ponto de entrada do pod RunPod (D13 do plano; contrato da imagem em PD-22).
 # A imagem clona o repo e chama este script. Só roda o treino: não instala pacote nem faz push.
 set -euo pipefail
-# O treino não renderiza. O template PyTorch do RunPod não tem libEGL: com "egl" o import do mujoco quebra.
-export MUJOCO_GL=disable
-
 # Raiz do repo, a partir do próprio script (este arquivo fica em g1_v3/container/).
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -16,6 +13,7 @@ PERCEPCAO="${PERCEPCAO:-1}"
 SAIDA="${SAIDA:-/workspace/g1_v3}"
 TENSORBOARD="${TENSORBOARD:-1}"
 SECO="${SECO:-0}"
+VIDEO="${VIDEO:-0}"
 
 # 1. Entradas. RUN entra num glob e num nome de pasta: só caracteres seguros.
 [ -n "$RUN" ] || { echo "falta RUN (nome da corrida)" >&2; exit 1; }
@@ -23,6 +21,14 @@ SECO="${SECO:-0}"
 case "$RETOMA" in
   0|1) ;;
   *) echo "RETOMA é obrigatório: 0 (corrida nova) ou 1 (retoma a última com checkpoint)" >&2; exit 1 ;;
+esac
+
+# O vídeo usa o EGL da GPU: o pod precisa de libegl1 libopengl0 libgl1 ffmpeg (instalados pelo notebook; o mediapy
+# grava com ffmpeg). Sem vídeo, "disable": o template PyTorch do RunPod não tem libEGL e com "egl" o import do mujoco quebra.
+case "$VIDEO" in
+  1) export MUJOCO_GL=egl ;;
+  0) export MUJOCO_GL=disable ;;
+  *) echo "VIDEO aceita 0 ou 1" >&2; exit 1 ;;
 esac
 
 # 2. Checagens de GPU e versões. SECO=1 pula tudo (a máquina do teste não tem GPU).
@@ -79,9 +85,15 @@ esac
 ARGS=(python -m g1_v3.train "$TASK" --env.scene.num-envs "$NUM_ENVS" --agent.run-name "$RUN"
   --agent.max-iterations "$ITERS" --agent.logger tensorboard --log-root "$SAIDA")
 if [ "$RETOMA" = 1 ]; then
-  # ⚠ --agent.resume é bool do tyro: flag sem valor. --agent.load-run é regex: as âncoras impedem casar outra pasta.
+  # ⚠ O mjlab desliga a conversão de flag do tyro (FlagConversionOff): o bool exige valor explícito ("True").
+  # --agent.load-run é regex: as âncoras impedem casar outra pasta.
   # ITERS vale para esta sessão: o rsl_rl soma à it do checkpoint (total = início + ITERS).
-  ARGS+=(--agent.resume --agent.load-run "^${ESCOLHIDA}\$")
+  ARGS+=(--agent.resume True --agent.load-run "^${ESCOLHIDA}\$")
+fi
+if [ "$VIDEO" = 1 ]; then
+  # --video-interval conta passos de env: 12000 = 500 its × 24 passos (knobs.Balanceador.passos_por_iteracao).
+  # 1000 passos = 20 s, um episódio. O vídeo cai em <run>/videos/train/.
+  ARGS+=(--video True --video-interval 12000 --video-length 1000)
 fi
 
 if [ "$SECO" = 1 ]; then
