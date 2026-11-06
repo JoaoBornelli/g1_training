@@ -777,7 +777,8 @@ def contato_laje(env, tarefas):
 
 def freio(env, tarefas):
     """Freio: `velocidade_por_regime` do g1_limpo (E4). Regime pelo comando (`twist`), com a dobradiça do excesso
-    de velocidade sobre o teto da tabela; o preço cresce por degrau (`freio_fator ** v3_freio`). PEGAR, CARREGAR, BOTAR.
+    de velocidade sobre o teto da tabela; o preço cresce por degrau (`freio_fator ** v3_freio`) e pela rampa
+    `min(s/portão, 1)`, com o `s` médio das células abertas da tarefa. PEGAR, CARREGAR, BOTAR.
 
     """
     cmd = env.command_manager.get_command("twist")
@@ -789,7 +790,12 @@ def freio(env, tarefas):
     vp, va, vc = (torch.tensor(t, dtype=v.dtype, device=v.device) for t in _VMAX)
     vmax = (parado.float()[:, None] * vp + andando.float()[:, None] * va + correndo.float()[:, None] * vc)
     custo = torch.relu(v / vmax - 1.0).pow(2).sum(-1)
-    return _fim(env, tarefas, custo * R.freio_fator ** env.v3_freio.to(v.dtype))
+    # Rampa: o preço cheio só vale quando a tarefa passa no portão. Sem ela, o freio do PEGAR (punhos a 3,4 rad/s)
+    # custava mais que viver e a política colapsou na it 5140. Tarefa sem célula aberta: rampa 0.
+    abertas = [[c.s for c in env.v3_cur.celulas if c.tarefa == t and c.aberta] for t in TAREFAS]
+    s_t = torch.tensor([sum(a) / len(a) if a else 0.0 for a in abertas], dtype=v.dtype, device=v.device)
+    rampa = (s_t / ATIVO.balanceador.portao).clamp(max=1.0)[env.v3_tarefa]
+    return _fim(env, tarefas, custo * R.freio_fator ** env.v3_freio.to(v.dtype) * rampa)
 
 
 class sacudida:

@@ -356,5 +356,27 @@ class TestCercaRecuoNoP4(unittest.TestCase):
                 self.assertAlmostEqual(float(r[0]), 0.0, places=6)
 
 
+class TestFreioRampa(unittest.TestCase):
+    """O preço do freio cresce com o `s` das células abertas da tarefa, até o portão (colapso da it 5140)."""
+
+    def _custo(self, s):
+        # PEGAR com todas as juntas a 10 rad/s (acima do teto); só a célula aberta do PEGAR conta
+        cel = [types.SimpleNamespace(tarefa="PEGAR", aberta=True, s=s),
+               types.SimpleNamespace(tarefa="PEGAR", aberta=False, s=1.0)]
+        robo = types.SimpleNamespace(data=types.SimpleNamespace(joint_vel=torch.full((1, 29), 10.0)))
+        cmd = types.SimpleNamespace(get_command=lambda nome: torch.zeros(1, 3))
+        env = types.SimpleNamespace(
+            device="cpu", scene={"robot": robo}, command_manager=cmd, v3_cur=types.SimpleNamespace(celulas=cel),
+            v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]), v3_freio=torch.zeros(1, dtype=torch.long))
+        return float(recompensas.freio(env, ("PEGAR",))[0])
+
+    def test_rampa_zero_cheia_e_meia(self):
+        portao = ATIVO.balanceador.portao
+        cheio = self._custo(portao)
+        self.assertGreater(cheio, 0.0)
+        self.assertEqual(self._custo(0.0), 0.0)
+        self.assertAlmostEqual(self._custo(portao / 2), cheio / 2, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
