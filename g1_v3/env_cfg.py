@@ -36,9 +36,9 @@ PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
 # E11 R1 (29/10): o `progresso` não vale no CARREGAR (o índice fica no P4 e o termo cobraria (1 − γ)·w_p·Φ(P4)).
 ANDAR_PEGAR_BOTAR = ("ANDAR", "PEGAR", "BOTAR")
 
-# §6.5, na ordem do dict. Nome = função em `recompensas` = campo de `knobs.Recompensa` (o peso cru).
+# §6.5, na ordem do dict. Nome = função em `recompensas` = campo de `knobs.Recompensa` (o peso cru). Rastreio só no ANDAR e no CARREGAR (medida de 09/11: com comando zero ele cobrava 0,76/s no PEGAR por mover a base; o cerca_recuo já segura a base).
 _RECOMPENSAS = (
-    ("rastreio_linear", TODAS), ("rastreio_angular", TODAS), ("passo", ANDAR_CARREGAR),
+    ("rastreio_linear", ANDAR_CARREGAR), ("rastreio_angular", ANDAR_CARREGAR), ("passo", ANDAR_CARREGAR),
     ("vivo", ANDAR_CARREGAR), ("altura_pe", ANDAR_CARREGAR), ("escorrego", TODAS), ("vz", TODAS),
     ("giro_xy", TODAS), ("vel_junta", TODAS), ("acel_junta", TODAS), ("taxa_acao", TODAS),
     ("energia", TODAS), ("limite_junta", TODAS), ("desvio_bracos", ANDAR_CARREGAR),

@@ -187,7 +187,7 @@ class Alvos:  # S §8.2; PD-23
     faixa_recuo: float = 0.08  # S §8.2: faixa do recuo (m)
     faixa_com: float = 0.03  # S §8.2: faixa do centro de massa (m)
     delta_tronco_graus: float = 15.0  # PD-23: tolerância do tronco (graus)
-    delta_recuo: float = 0.08  # PD-23: tolerância do recuo (m)
+    delta_recuo: float = 0.30  # PD-23; 09/11: 0,08 zerava o Φ em 35 % dos passos no P0 (|recuo − ref| > 0,16 m); 0,30 mantém gradiente em toda a faixa
     delta_com: float = 0.03  # PD-23: tolerância do centro de massa (m)
 
 
