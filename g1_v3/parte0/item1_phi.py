@@ -126,7 +126,11 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     v = np.diff(z, prepend=z[0]) / DT
     pouso = P.fator_pouso(_t(v), _t(z - A_CAIXA - C.TOPO_BOTAR), R.sigma_pouso[0], R.altura_pouso,
                               R.altura_pouso_inicio).numpy()
-    k = P.nucleo(_t(d), _t(sigma)).numpy() * np.where(np.isin(idx, POUSO), pouso, 1.0)
+    # núcleo de duas escalas (09/11, o mesmo de `phi_do_alvo`): largo no B4, (1 − peso_fino)·largo + peso_fino·fino nos outros
+    largo = P.nucleo(_t(d), _t(sigma)).numpy()
+    fino = P.nucleo(_t(d), _t(np.minimum(sigma, K.sigma_fino))).numpy()
+    nuc = np.where(idx == NOMES.index("B4"), largo, (1 - K.peso_fino) * largo + K.peso_fino * fino)
+    k = nuc * np.where(np.isin(idx, POUSO), pouso, 1.0)
     # g: desloc. P0–P2 (x_lim = 1,0·a, Δ = 0,5·a); desloc. B2–B4; inclinação (x_lim = 30°, a fase aprender)
     maos = np.isin(idx, MAOS)
     x_ini = np.linalg.norm(caixa[:, :2] - pontos["caixa0"][:2], axis=1)

@@ -261,8 +261,13 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
     """Φ = nucleo(d, σ) · fator · Π portões (S §9.1; E4). `fator` é o pouso no B1 e no B2, 1 nos outros.
 
     −1 → 0. σ tem piso de `_EPS` só no denominador: com σ = 0 fora do alvo o gradiente daria NaN (§6.6).
+    Núcleo = (1 − peso_fino)·largo + peso_fino·fino (σ_fino ≤ σ); B4 só o largo (09/11).
     """
-    phi = potencial.phi(potencial.nucleo(d, sigma.clamp(min=_EPS)) * fator, list(portoes.values()))
+    s = sigma.clamp(min=_EPS)
+    largo = potencial.nucleo(d, s)
+    fino = potencial.nucleo(d, s.clamp(max=K.sigma_fino))  # σ ≤ o do largo: alvo com σ < 0,10 m (P3) fica igual
+    nuc = torch.where(indice == _B4, largo, (1 - K.peso_fino) * largo + K.peso_fino * fino)  # B4 é adimensional: só o largo
+    phi = potencial.phi(nuc * fator, list(portoes.values()))
     return torch.where(indice >= 0, phi, torch.zeros_like(phi))
 
 
