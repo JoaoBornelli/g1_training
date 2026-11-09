@@ -13,8 +13,12 @@ custo por s × duração; bônus de um passo soma B·dt, então B_alvo = 1,5·C/
 retorno (×dt), e o dt cancela onde os dois lados são termos de passo.
 
 Rodar da raiz do worktree: `python -m g1_v3.parte0.item3_escada`. Grava `saida/item3_escada.txt`.
+`--custo-pegar-s` e `--custo-botar-s` (magnitude, por s) substituem o custo/s total dos CSV em todas as contas, porque a medida
+de 09/11 no model_5100 deu 0,72/s de custo marginal de mover as mãos no P0 (os CSV dão 0,022/s); `--sufixo` muda o nome da saída.
 """
 from pathlib import Path
+
+import argparse
 
 import numpy as np
 
@@ -117,11 +121,12 @@ def phi_velho_no_novo(tr, res, refs, pts, a, src):
     return float(I1.avalia(dict(tr, indice=idx), refs, pts, alvo=alvo, sigma=sig)["phi"][a])
 
 
-def main():
+def main(custo_pegar_s=None, custo_botar_s=None):
     custos = custos_por_arquivo()
     med_p, usados_p, comp_p = media_fase("pegar", custos)
     med_b, usados_b, comp_b = media_fase("botar", custos)
     c_p, c_b = -med_p["total"], -med_b["total"]  # módulo do custo por s (positivo)
+    c_p, c_b = custo_pegar_s or c_p, custo_botar_s or c_b  # medida do treino, quando informada
 
     # --- roteiro do item 1 (reuso por import) ---
     refs = I1.referencias()
@@ -234,6 +239,8 @@ def main():
     # ================= saída =================
     emite("Item 3 da Parte 0: escada de custos, B_alvo, w_p e pesos das cercas (S §9.4, §10, §16 item 3)")
     emite(f"unidade: retorno do mjlab (× dt = {DT} s); custo/s = w·média(x); C = custo/s × duração.")
+    if custo_pegar_s or custo_botar_s:
+        emite(f"custo/s SUBSTITUÍDO (medida do treino): PEGAR = {c_p:.4f}/s, BOTAR = {c_b:.4f}/s (CSV: {-med_p['total']:.4f} e {-med_b['total']:.4f})")
     emite("")
 
     emite("1. Custo por s dos reguladores (custos_por_s; valor por s, negativo = custo)")
@@ -372,7 +379,13 @@ def _dur(nome, fase):
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--custo-pegar-s", type=float)
+    ap.add_argument("--custo-botar-s", type=float)
+    ap.add_argument("--sufixo", default="")
+    a = ap.parse_args()
+    SAIDA = SAIDA.with_name(f"item3_escada{a.sufixo}.txt")
+    main(a.custo_pegar_s, a.custo_botar_s)
     emite(f"Linhas deste script: {len(Path(__file__).read_text(encoding='utf-8').splitlines())}")
     texto = "\n".join(linhas_saida)
     print(texto)
