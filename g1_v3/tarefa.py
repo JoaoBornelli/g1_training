@@ -39,7 +39,9 @@ def rl_cfg():
     cfg.actor.obs_normalization = False
     cfg.critic.obs_normalization = False
     cfg.algorithm.class_name = algoritmo.CAMINHO
-    cfg.algorithm.entropy_coef = 0.005  # padrão do mjlab (rl/config.py); o 0,01 do G1 fez o std fugir 0,62 → 0,78 na poc2
+    # 0: com a renda em escada, a vantagem não segura o std e a entropia o empurra em todas as juntas (poc6: 0,38 → 0,73
+    # em 1500 its, com 0,005). Com std 0,73 a política amostrada perde a caixa no P4 em 0,4 s. Antes: 0,01 na poc2, 0,005.
+    cfg.algorithm.entropy_coef = 0.0
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 
