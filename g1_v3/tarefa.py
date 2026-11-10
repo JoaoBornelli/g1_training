@@ -39,9 +39,10 @@ def rl_cfg():
     cfg.actor.obs_normalization = False
     cfg.critic.obs_normalization = False
     cfg.algorithm.class_name = algoritmo.CAMINHO
-    # 0: com a renda em escada, a vantagem não segura o std e a entropia o empurra em todas as juntas (poc6: 0,38 → 0,73
-    # em 1500 its, com 0,005). Com std 0,73 a política amostrada perde a caixa no P4 em 0,4 s. Antes: 0,01 na poc2, 0,005.
-    cfg.algorithm.entropy_coef = 0.0
+    # O std é aprendido: fica onde a vantagem (que o baixa) e a entropia (que o sobe) se anulam. Com a renda em escada,
+    # 0,005 fez o std subir +0,03/100 its (poc6, 0,38 → 0,73; a política amostrada perdia a caixa no P4) e 0 o fez cair
+    # −0,013/100 its (poc7, 0,37 → 0,24). 0,002 fica perto do zero da deriva interpolada (~0,0015). Antes: 0,01 na poc2.
+    cfg.algorithm.entropy_coef = 0.002
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 
