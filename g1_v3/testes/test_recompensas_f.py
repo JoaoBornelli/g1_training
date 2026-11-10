@@ -45,9 +45,9 @@ class InvarianteDepoisDoApoio(unittest.TestCase):
 
 
 class PhiDoB2(unittest.TestCase):
-    def test_phi_no_b2_com_fator_0_44_e_0_44_vezes_o_nucleo_de_duas_escalas(self):
-        # Teste (F4; núcleo de duas escalas desde 09/11): phi_do_alvo no B2 com o fator 0,44 dá 0,44 × o núcleo
-        # (0,3·largo + 0,7·fino; portões todos 1 com as condições B2).
+    def test_phi_no_b2_com_fator_0_44_e_0_44_vezes_o_nucleo(self):
+        # Teste (F4; núcleo tanh desde 10/11): phi_do_alvo no B2 com o fator 0,44 dá 0,44 × (1 − tanh(d / 2σ))
+        # (portões todos 1 com as condições B2).
         indice = t(B2, torch.long)
         zeros = torch.zeros(1)
         portoes = recompensas.portoes_do_alvo(
@@ -55,15 +55,17 @@ class PhiDoB2(unittest.TestCase):
             torch.tensor([True]), t(0.1), A)
         d, sigma = t(0.2), t(0.5)
         phi = recompensas.phi_do_alvo(indice, d, sigma, t(0.44), portoes)
-        nucleo = 0.3 * math.exp(-((0.2 / 0.5) ** 2)) + 0.7 * math.exp(-((0.2 / 0.10) ** 2))
-        self.assertAlmostEqual(phi.item(), 0.44 * nucleo, delta=1e-5)
+        self.assertAlmostEqual(phi.item(), 0.44 * (1 - math.tanh(0.2)), delta=1e-5)  # 0,2 / (2 × 0,5)
 
-    def test_phi_com_dois_nucleos_no_p0_e_so_o_largo_no_b4(self):
-        # Teste (09/11): P0 com σ = d = 0,37 soma 0,3·largo + 0,7·fino (σ_fino 0,10); B4 (adimensional) só o largo.
+    def test_phi_tanh_no_alvo_em_sigma_e_longe(self):
+        # Teste (10/11): Φ = 1 − tanh(d / 2σ) em todo alvo, B4 incluído. No alvo vale 1; em d = σ, 1 − tanh(0,5) =
+        # 0,53788; a 4σ, 1 − tanh(2) = 0,03597 (a gaussiana já dava ~1e-7 ali: era o canal morto).
         zeros = torch.zeros(1)
         for alvo, d, sigma, esperado in (
-                (0, 0.37, 0.37, 0.3 * math.exp(-1) + 0.7 * math.exp(-((0.37 / 0.10) ** 2))),
-                (B4, 2.0, 2.0, math.exp(-1))):
+                (0, 0.0, 0.37, 1.0),
+                (0, 0.37, 0.37, 0.53788),
+                (1, 0.56, 0.14, 0.03597),
+                (B4, 2.0, 2.0, 0.53788)):
             indice = t(alvo, torch.long)
             portoes = recompensas.portoes_do_alvo(
                 indice, zeros, zeros, zeros, t(30.0), torch.ones(1, 2, dtype=torch.bool), zeros, zeros, zeros,

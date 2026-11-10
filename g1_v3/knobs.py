@@ -179,8 +179,7 @@ class Alvos:  # S §8.2; PD-23
     incl_fim_graus: float = 15.0  # S §8.2, §9.1: inclinação final da caixa (graus)
     delta_incl_graus: float = 15.0  # S §8.2, §9.1: tolerância de inclinação (graus)
     sigma_min: float = 0.01  # E3: piso do σ do alvo métrico (m); σ = 0 daria NaN no núcleo
-    sigma_fino: float = 0.10  # 09/11: σ do núcleo fino do Φ (m). O núcleo largo (σ = d inicial ~0,37 m) dá Φ 0,81 a 17 cm e 0,99 a 3 cm: sem gradiente nos últimos 14 cm
-    peso_fino: float = 0.7  # 09/11: peso do núcleo fino no Φ (o largo fica com 1 − peso_fino = 0,3: mantém ~0,6 por m de gradiente a 0,37 m)
+    largura_tanh: float = 2.0  # 10/11: Φ = 1 − tanh(d / (largura·σ)); com 2, Φ(σ) = 0,54 e o ganho/custo por cm no P1 fica ≥ 1 até ~40 cm
     desloc_p0p2_frac: float = 1.0  # S §8.2; PD-23: deslocamento P0–P2, × meia aresta
     delta_p0p2_frac: float = 0.5  # S §8.2; PD-23: tolerância P0–P2, × meia aresta
     desloc_b2b4: float = 0.02  # S §8.2; PD-23: deslocamento B2–B4 (m)
