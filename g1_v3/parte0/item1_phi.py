@@ -118,7 +118,7 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     if sigma is None:
         sig0 = d[ini][trecho]
         sigma = np.where(np.isin(idx, METRICOS), np.maximum(sig0, SIGMA_MIN), sig0)
-    # k_principal: nucleo(d, σ), vezes o fator de pouso no B1 e no B2 (velocidade vertical por diferença finita)
+    # k_principal: 1 − tanh(d / (largura·σ)), vezes o fator de pouso no B1 e no B2 (velocidade vertical por diferença finita)
     z = caixa[:, 2]
     v = np.diff(z, prepend=z[0]) / DT
     pouso = P.fator_pouso(_t(v), _t(z - A_CAIXA - C.TOPO_BOTAR), R.sigma_pouso[0], R.altura_pouso,

@@ -290,7 +290,8 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # 09/11: a desigualdade (1) da S §10 (queda > 20 s de reguladores no BOTAR) fica aberta de propósito: ela soma sem desconto, e com γ = 0,99 a 50 Hz o custo descontado é 1,44 ret < queda 6,0.
     # Renda por segundo (10/11): r = renda_etapa·etapa + renda_phi·Φ. O termo antigo (diferença de Φ + B_alvo) pagava um
     # valor fixo por avanço e não crescia com o tempo, enquanto os custos são por segundo: o robô parava na frente da caixa.
-    # renda_phi cobre 1,5 × o custo marginal de mover medido a 17 cm do alvo do P0; renda_etapa = 2·renda_phi para o fecho
+    # renda_phi: com o núcleo tanh, o ganho por cm fica ≥ 1,5 × o custo marginal de mover medido (0,44/s, model_6850)
+    # em todo d ≤ σ quando σ ≤ 0,36 m; σ maior espalha o mesmo Φ por mais cm. renda_etapa = 2·renda_phi para o fecho
     # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
     renda_phi: float = 3.0
     renda_etapa: float = 6.0

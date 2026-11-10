@@ -1,7 +1,7 @@
 """Item 2 da Parte 0 (S §16, item 2; plano B5): derivadas da proximidade e das rampas.
 
 Confere, nos roteiros do item 1 (`comum.trajetoria_pegar` e `comum.trajetoria_botar`):
-(a) dΦ/dd no estado inicial de cada alvo, com d = σ e Φ = nucleo(d, σ) · Πg (plano §6.4, `progresso`);
+(a) dΦ/dd no estado inicial de cada alvo, com d = σ e Φ = (1 − tanh(d / (largura·σ))) · Πg (o núcleo de `phi_do_alvo`);
 (b) d(rampa)/dx em x_lim + Δ/2 para cada rampa da §6.2 `Alvos` (S §9.1, PD-23).
 Critério: toda derivada ≠ 0. A derivada é por autograd do torch em float64; a diferença finita
 central sai ao lado só como conferência. Imprime a tabela dos Δ da PD-23 para o dono.
@@ -53,7 +53,7 @@ def _d0(ind, traj, i, ref) -> float:
 
 def _phi(d, sigma):
     # Gates (Πg) = 1 no início: o roteiro não quebra invariante (caixa parada, tronco e recuo na IK).
-    return P.phi(P.nucleo(d, sigma), [torch.ones((), dtype=torch.float64)])
+    return P.phi(1 - torch.tanh(d / (K.largura_tanh * sigma)), [torch.ones((), dtype=torch.float64)])
 
 
 def main() -> int:
@@ -63,7 +63,7 @@ def main() -> int:
 
     linhas.append("Item 2 da Parte 0 (S §16, item 2; plano B5)")
     linhas.append("")
-    linhas.append("A. dΦ/dd no estado inicial de cada alvo (d = σ; Φ = nucleo(d, σ), Πg = 1)")
+    linhas.append("A. dΦ/dd no estado inicial de cada alvo (d = σ; Φ = 1 − tanh(d / (largura·σ)), Πg = 1)")
     linhas.append("   derivada por autograd (float64); FD = diferença finita central, h = 1e-6·σ")
     for nome, ind in ALVOS:
         traj, roteiro = (pegar, "PEGAR") if nome[0] == "P" else (botar, "BOTAR")
