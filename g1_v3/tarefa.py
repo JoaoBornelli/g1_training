@@ -41,8 +41,9 @@ def rl_cfg():
     cfg.algorithm.class_name = algoritmo.CAMINHO
     # O std é aprendido: fica onde a vantagem (que o baixa) e a entropia (que o sobe) se anulam. Com a renda em escada,
     # 0,005 fez o std subir +0,03/100 its (poc6, 0,38 → 0,73; a política amostrada perdia a caixa no P4) e 0 o fez cair
-    # −0,013/100 its (poc7, 0,37 → 0,24). 0,002 fica perto do zero da deriva interpolada (~0,0015). Antes: 0,01 na poc2.
-    cfg.algorithm.entropy_coef = 0.002
+    # −0,013/100 its (poc7, 0,37 → 0,24). O zero da deriva interpolada fica em ~0,0015; 0,003 fica um pouco acima, para o
+    # std voltar a subir devagar a partir de 0,24 (estimativa: ~+0,013/100 its). Antes: 0,01 na poc2 e no g1_limpo.
+    cfg.algorithm.entropy_coef = 0.003
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 
