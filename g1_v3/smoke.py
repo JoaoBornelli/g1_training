@@ -663,9 +663,9 @@ def s18_pegar_com_acao_zero_nada_paga_positivo():
                     outros[nome] = outros.get(nome, 0.0) + float(v.clamp(min=0.0).sum())
         check("50 passos no PEGAR (a precondição da seção)", fora == 0, f"{fora} mundo-passo fora do PEGAR")
         check("nenhum termo além do `progresso` paga positivo (ação zero)", not outros, str(outros))
-        # ⚠ Φ é potencial (Ng 1999): o PD passivo sobe e desce Φ, e cada subida paga. O que vale é a soma: com γ < 1,
-        # pairar soma ≤ 0 (`potencial.progresso`). Fase I: positivos 1,87, líquido −0,14 a −0,35 por mundo.
-        check("progresso líquido ≤ 0 em cada mundo (ação zero, base segura)", bool((liquido <= 1e-6).all()),
+        # ⚠ A renda por segundo (10/11) paga `renda_phi`·Φ enquanto há alvo: pairar no P0 paga > 0 (a soma antiga ≤ 0
+        # era do potencial com γ). O teste só vale com o P0 aberto; sem leitura válida o alvo é −1 e a renda é 0.
+        check("progresso paga renda > 0 em cada mundo (ação zero, base segura, P0 aberto)", bool((liquido > 0).all()),
               str(liquido.tolist()))
     finally:
         env.close()

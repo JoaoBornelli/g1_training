@@ -40,14 +40,6 @@ class TestRampa(unittest.TestCase):
         self.assertAlmostEqual(potencial.rampa(t(60.0), x_lim, delta).item(), 0.0, places=9)
 
 
-class TestProgresso(unittest.TestCase):
-
-    def test_parado_com_gamma_paga_menos_um_centesimo(self):
-        # S §9.1: r = γΦ(s') − Φ(s); parado (Φ = 1 nos dois) com γ = 0,99 paga −0,01.
-        r = potencial.progresso(t(1.0), t(1.0), R.gamma)
-        self.assertAlmostEqual(r.item(), -0.01, delta=1e-9)
-
-
 class TestCustoAperto(unittest.TestCase):
 
     def test_valor_em_F_ref(self):

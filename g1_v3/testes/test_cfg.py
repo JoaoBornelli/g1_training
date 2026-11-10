@@ -53,10 +53,10 @@ TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
 PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
-ANDAR_PEGAR_BOTAR = ("ANDAR", "PEGAR", "BOTAR")  # E11 R1: o `progresso` não vale no CARREGAR
 # Fase E (§6.5, §6.6, E8): recompensas e terminação novas. Os pesos do `progresso` e do `perda_caixa` são ±1 no cfg.
 TAREFAS_E = {
-    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": ANDAR_PEGAR_BOTAR,
+    "contato_laje": PEGAR_BOTAR, "freio": PEGAR_CARREGAR_BOTAR, "progresso": TODAS,  # 10/11: renda por segundo; o CARREGAR entra com etapa 5
+   
     "perda_caixa": TODAS,
 }
 TAREFAS_E_TERMINACAO = {"caixa_perdida": PEGAR_CARREGAR_BOTAR, "chegada": ("BOTAR",)}  # chegada: fase F (§6.5)

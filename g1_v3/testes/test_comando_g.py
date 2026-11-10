@@ -160,7 +160,7 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
             v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_pegou=torch.zeros(1, dtype=torch.bool),
             v3_b4_fechado=torch.zeros(1, dtype=torch.bool), v3_avancou=torch.zeros(1, dtype=torch.bool),
             v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
-            v3_ponto_apoio=torch.zeros(1, 3), v3_sigma=torch.ones(1), v3_sigma_velho=torch.ones(1),
+            v3_ponto_apoio=torch.zeros(1, 3), v3_sigma=torch.ones(1),
             v3_phi=torch.zeros(1))
         m = dict(h=torch.full((1,), 0.50), pelve=torch.full((1,), 0.90), caixa_p=torch.zeros(1, 3),
                  palmas_c=torch.zeros(1, 2, 3), contatos=torch.zeros(1, 2, dtype=torch.bool),

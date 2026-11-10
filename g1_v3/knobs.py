@@ -289,13 +289,15 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
         (r".*shoulder_yaw.*", 2.5), (r".*elbow.*", 3.0), (r".*wrist.*", 2.5),
     )
     # 09/11: a desigualdade (1) da S §10 (queda > 20 s de reguladores no BOTAR) fica aberta de propósito: ela soma sem desconto, e com γ = 0,99 a 50 Hz o custo descontado é 1,44 ret < queda 6,0.
-    progresso: float = 85.4267  # S §9.4; escada com custo medido 0,72/s (09/11, saida/item3_escada_medido.txt); antes 1,8167
-    # um valor por alvo, na ordem de ALVOS; Parte 0, item 3 (report §6); PD-31
-    b_alvo: tuple = (54.0, 27.0, 1.08, 27.0, 54.0, 54.0, 27.0, 27.0, 54.0)  # S §9.4; escada medida 09/11 (antes 1,67/0,84/0,03/0,84/1,67/1,81/0,91/0,91/1,81)
-    gamma: float = 0.99  # S §9.1: desconto do potencial e do PPO
+    # Renda por segundo (10/11): r = renda_etapa·etapa + renda_phi·Φ. O termo antigo (diferença de Φ + B_alvo) pagava um
+    # valor fixo por avanço e não crescia com o tempo, enquanto os custos são por segundo: o robô parava na frente da caixa.
+    # renda_phi cobre 1,5 × o custo marginal de mover medido a 17 cm do alvo do P0; renda_etapa = 2·renda_phi para o fecho
+    # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
+    renda_phi: float = 3.0
+    renda_etapa: float = 6.0
     # custos: negativos, o peso do cfg é este knob; o fator d/5 do degrau mora no termo (30/10, P2; §6.9)
     sacudida: float = -0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
-    # caso 9 (30/10, dono): forma linear. Teto da (2b) por s (item 3, seção 4): w < 0,53; a (1) dá 0,071.
+    # caso 9 (30/10, dono): forma linear. Teto da (2b) por s: w < 0,53; a (1) dá 0,071 (parte0/saida/item3_escada.txt, registro histórico; o script saiu em 10/11).
     aperto: float = -0.05
     # norma (m/s², rad/s) do Δv e Δω por passo que vale 2 no p50 medido no 23250_topo004 (item 15). Provisória:
     # recalibrar na fase I pelo `Episodio/aceleracao_da_caixa` (30/10, P8, P10; a spec dizia 2,9 e 17)
@@ -303,7 +305,6 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     F_ref: float = 49.0  # S §8.2, §11.5: força de referência do aperto (N)
     terminacao: float = -300.0  # S §10; 09/11: −300 para queda > perda_caixa 240 (escada medida)
     perda_caixa: float = 240.0  # S §10; 09/11: fecha "perda > volta" (86) e a (2a) (234) da escada medida; antes 28,0515
-    devolve_b_alvo: bool = False  # S §10; PD-33; Parte 0, item 3 (report §6)
     sigma_pouso: tuple = (1.0, 0.35)  # S §9.1: σ do pouso (m/s), (início; refino)
     altura_pouso: float = 0.05  # S §9.1: altura do pouso (m), fator pleno abaixo dela
     altura_pouso_inicio: float = 0.10  # S §9.1; D3 da Parte 0 (dono, 29/10): o fator entra aos 0,10 m e fica pleno aos 0,05 m

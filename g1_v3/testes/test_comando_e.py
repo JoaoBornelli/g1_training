@@ -77,7 +77,7 @@ def _env_falso(idx, tarefa=comando.PEGAR):
         v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
         v3_ponto_apoio=torch.zeros(1, 3),
-        v3_sigma=torch.ones(1), v3_sigma_velho=torch.ones(1), v3_phi=torch.zeros(1),
+        v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
         v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])))
 
 
@@ -101,9 +101,8 @@ def _medidas():
 
 class TestCadeiaComEnvFalso(unittest.TestCase):
 
-    def test_sigma_velho_e_gravado_antes_da_troca_de_alvo(self):
-        # E11 S3: no avanço de P1 a P2 a cadeia grava o σ do P1 em `v3_sigma_velho` ANTES de pôr o σ do P2. O
-        # progresso paga Φ(s′, P1) com o σ velho; com o novo, o pagamento sairia espúrio
+    def test_troca_de_alvo_poe_o_sigma_do_novo_alvo(self):
+        # No avanço de P1 a P2 a cadeia põe o σ do P2 em `v3_sigma` (a renda usa o σ do alvo corrente)
         env = _env_falso(comando.P1)
         env.v3_sigma[:] = 0.15
         obj = _cadeia_sem_env(env)
@@ -115,7 +114,6 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
                 mock.patch.object(recompensas, "portoes_do_alvo", return_value=ok_todos):
             obj._alvos(_medidas(), 0.02)
         self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P2])
-        self.assertAlmostEqual(env.v3_sigma_velho.item(), 0.15, places=6)
         self.assertAlmostEqual(env.v3_sigma.item(), 0.02, places=6)
 
     def test_sem_leitura_valida_o_pega_fica_sem_alvo(self):
@@ -368,10 +366,10 @@ def _cadeia_de_trechos(n=1):
         device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), scene={}, step_dt=DT,
         v3_fatia=torch.full((n,), comando.FATIA_B, dtype=torch.long),
         v3_tarefa=torch.full((n,), comando.ANDAR, dtype=torch.long), v3_trecho=torch.zeros(n, dtype=torch.long),
-        v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_relogio_alvo=z(), v3_b_pagos=z(),
+        v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_relogio_alvo=z(),
         v3_freio=torch.zeros(n, dtype=torch.long), v3_degrau=torch.zeros(n, dtype=torch.long),
         v3_alvo_w=z(3), v3_caixa_pega_w=z(3), v3_ponto_apoio=z(3), v3_sigma=torch.ones(n),
-        v3_sigma_velho=torch.ones(n), v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),
+        v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),
         v3_pegou=b(), v3_perdeu=b(), v3_p4_fechado=b(), v3_b4_fechado=b(), v3_perdeu_agora=b(), v3_avancou=b(),
         v3_fim=b(), v3_t_empurrao=torch.full((n,), float("-inf")),
         v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(n), pelve_de_pe=0.0,

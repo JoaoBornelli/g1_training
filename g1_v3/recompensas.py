@@ -50,7 +50,7 @@ def _ix(*nomes):
     return tuple(ALVOS.index(n) for n in nomes)
 
 
-_P4, _B4 = ALVOS.index("P4"), ALVOS.index("B4")
+_P4, _B1, _B4 = ALVOS.index("P4"), ALVOS.index("B1"), ALVOS.index("B4")
 _P0_P2, _B3_B4 = _ix("P0", "P1", "P2"), _ix("B3", "B4")  # E4: portão do deslocamento (pega e apoio)
 _P2_B2, _POUSO = _ix("P2", "P3", "P4", "B1", "B2"), _ix("B1", "B2")  # E4: mãos e incl; pouso
 _PALMA_ALVO, _CAIXA_ALVO = _ix("P0", "P1", "P2", "B3"), _ix("P3", "P4", "B1", "B2")  # E4: distância por grupo
@@ -271,19 +271,10 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
     return torch.where(indice >= 0, phi, torch.zeros_like(phi))
 
 
-def n_progresso(phi_velho_no_novo, phi_ant, avancou, b_alvo, troca, perdeu, w_p, gamma) -> torch.Tensor:
-    """w_p·(γΦ(s′, i) − Φ(s, i)) + B_alvo[i]·avançou. O ΔΦ vai a zero na troca (PD-36; D1 da Parte 0) e na entrada
-    no alvo (`phi_ant` < 0 é a sentinela "sem alvo" no passo anterior; E4). O B_alvo paga também no passo da troca,
-    que é o fecho do B4 (E11 R3, 29/10), salvo com `perdeu` (a volta à pose de pé depois da perda paga como potencial,
-    S §10); na entrada no alvo ele não paga (`phi_ant` < 0 sem troca).
-
-    `phi_velho_no_novo` é Φ(s′, i) do alvo VELHO no passo do avanço (e do alvo corrente nos outros). `w_p` é a
-    escala do knob (o `RewardTermCfg` tem peso 1,0; a escala mora aqui). Pairar com γ < 1 soma ≤ 0.
-    """
-    dphi = w_p * potencial.progresso(phi_velho_no_novo, phi_ant, gamma)
-    dphi = torch.where(troca | (phi_ant < 0), torch.zeros_like(dphi), dphi)
-    paga = avancou & (troca | (phi_ant >= 0)) & ~(troca & perdeu)
-    return dphi + b_alvo * paga.float()
+def n_progresso(phi, etapa, w_phi, w_etapa) -> torch.Tensor:
+    """Renda por segundo: w_etapa·etapa + w_phi·Φ. Cresce com o tempo parado no alvo, como os custos (que são por
+    segundo); o termo antigo (diferença de Φ + prêmio por avanço) pagava um valor fixo e o robô parava na frente da caixa."""
+    return w_etapa * etapa + w_phi * phi
 
 
 def n_qualidade(d_transporte, incl_graus, incl_lim_graus, contatos, k) -> torch.Tensor:
@@ -298,10 +289,9 @@ def aplica_qualidade(r, q) -> torch.Tensor:
     return q * torch.relu(r) + torch.clamp(r, max=0.0)
 
 
-def n_perda_caixa(perdeu_agora, b_pagos, custo, devolve: bool) -> torch.Tensor:
-    """custo (+ b_pagos, se `devolve`) no passo seguinte à detecção da perda (S §10; E4). Positivo: o peso do cfg é −1."""
-    extra = b_pagos if devolve else torch.zeros_like(b_pagos)
-    return perdeu_agora.float() * (custo + extra)
+def n_perda_caixa(perdeu_agora, custo) -> torch.Tensor:
+    """custo no passo seguinte à detecção da perda (S §10; E4). Positivo: o peso do cfg é −1."""
+    return perdeu_agora.float() * custo
 
 
 def margem_com(com_xy, cantos_xy) -> torch.Tensor:
@@ -739,32 +729,26 @@ def contato_fora(env, tarefas):
 
 
 def progresso(env, tarefas):
-    """Potencial do alvo corrente (E4; §6.3, §6.5). No passo do avanço, Φ do alvo VELHO no estado novo e
-    B_alvo[velho]; no passo em que o índice vira −1, só o ΔΦ vai a zero (PD-36) e o B_alvo[B4] paga (E11 R3), salvo
-    com `v3_perdeu` (correção E11). Grava `v3_phi` (Φ do alvo corrente, −1 sem alvo)
-    e soma `v3_b_pagos` (só os avanços com o alvo velho ≥ P2). Pelo `avancou` do comando, o velho é `alvo_idx − 1`
-    (a ordem P0…B4 é sequencial), salvo no fecho do P4, que mantém o índice (`v3_p4_fechado`; S2, 29/10): aí o
-    alvo que paga é o P4. O σ do velho é `v3_sigma_velho` (S3). Sem `paga`: a volta à pose de pé também paga (S §10).
-    No fecho do B4 o índice vira −1 (troca): o alvo que paga é o B4 (E11 R3, 29/10), e só o ΔΦ vai a zero."""
-    idx, av = env.v3_alvo_idx, env.v3_avancou
-    troca = idx < 0
-    velho = torch.where(av & (idx >= 0) & ~((idx == _P4) & env.v3_p4_fechado), idx - 1, idx)
-    i_ef = torch.where(av & troca, torch.full_like(idx, _B4), velho)  # quem paga neste passo
-    phi_ef = _phi_env(env, i_ef, torch.where(av, env.v3_sigma_velho, env.v3_sigma))
-    phi_novo = phi_ef
-    if av.any():  # Φ do alvo corrente só no avanço (M10)
-        phi_novo = torch.where(av, _phi_env(env, idx, env.v3_sigma), phi_ef)
-    phi_novo = torch.where(troca, torch.full_like(phi_novo, -1.0), phi_novo)  # sentinela: sem alvo
-    b_tab = torch.tensor(R.b_alvo, dtype=phi_ef.dtype, device=phi_ef.device)
-    b = torch.where(i_ef >= 0, b_tab[i_ef.clamp(min=0)], torch.zeros_like(phi_ef))
-    # ⚠ F9 P3: o bônus do B2 vale × núcleo da velocidade de chegada (σ do pouso do degrau); sem toque (−1), vale 1
-    fator_b2 = potencial.nucleo(env.v3_v_chegada.clamp(min=0), por_degrau(env, *R.sigma_pouso))
-    b = torch.where(i_ef == alvos.B2, b * fator_b2, b)
-    perdeu = env.v3_perdeu
-    r = n_progresso(phi_ef, env.v3_phi, av, b, troca, perdeu, R.progresso, R.gamma)
-    pagos = av & (i_ef >= alvos.P2) & ~(troca & perdeu)  # B_alvo acumulado só desde o P2 (E4; a perda devolve esta soma)
-    env.v3_b_pagos[:] = env.v3_b_pagos + torch.where(pagos, b, torch.zeros_like(b))
-    env.v3_phi[:] = phi_novo
+    """Renda por segundo: `renda_etapa`·etapa + `renda_phi`·Φ do alvo corrente (proposta-renda-em-escada.md). A etapa
+    sobe com a cadeia e só cai na perda da caixa. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
+
+    | condição (nesta ordem)                          | etapa | Φ usado |
+    | `v3_perdeu` (alvo vira B4 da pose de pé)         | 0     | Φ do B4 |
+    | `v3_b4_fechado` (ANDAR final)                    | 9     | 0       |
+    | CARREGAR, ou P4 fechado com alvo < B1            | 5     | 0       |
+    | alvo ≥ 0                                         | alvo  | Φ do alvo |
+    | resto (ANDAR, PEGAR na espera)                   | 0     | 0       |
+
+    `v3_p4_fechado` só zera no reset do episódio: o `alvo < B1` impede que ele cubra o BOTAR da fatia C. Grava `v3_phi`
+    = Φ do alvo corrente (−1 sem alvo), que as métricas `phi_<alvo>` leem."""
+    idx = env.v3_alvo_idx
+    phi_alvo = _phi_env(env, idx, env.v3_sigma)  # 0 onde idx < 0
+    perdeu, b4_fechado = env.v3_perdeu, env.v3_b4_fechado
+    carrega = (env.v3_tarefa == TAREFAS.index("CARREGAR")) | (env.v3_p4_fechado & (idx < _B1))
+    etapa = torch.where(perdeu, 0, torch.where(b4_fechado, 9, torch.where(carrega, 5, idx.clamp(min=0))))
+    paga_phi = perdeu | ~(b4_fechado | carrega)
+    r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi, R.renda_etapa)
+    env.v3_phi[:] = torch.where(idx >= 0, phi_alvo, torch.full_like(phi_alvo, -1.0))
     return _fim(env, tarefas, r)
 
 
@@ -842,8 +826,8 @@ def aperto(env, tarefas):
 
 
 def perda_caixa(env, tarefas):
-    """Perda da caixa no passo seguinte à detecção (`v3_perdeu_agora` é escrito no `compute`, depois das recompensas): custo, e os B_alvo pagos se `devolve_b_alvo` (E4; S §10). Peso −1 no cfg."""
-    return _fim(env, tarefas, n_perda_caixa(env.v3_perdeu_agora, env.v3_b_pagos, R.perda_caixa, R.devolve_b_alvo))
+    """Perda da caixa no passo seguinte à detecção (`v3_perdeu_agora` é escrito no `compute`, depois das recompensas): só o custo (E4; S §10). Peso −1 no cfg."""
+    return _fim(env, tarefas, n_perda_caixa(env.v3_perdeu_agora, R.perda_caixa))
 
 
 def terminacao(env, tarefas):

@@ -37,15 +37,6 @@ def phi(k_principal, portoes: list[torch.Tensor]) -> torch.Tensor:
     return k_principal * functools.reduce(operator.mul, portoes)
 
 
-def progresso(phi_novo: torch.Tensor, phi_velho: torch.Tensor, gamma) -> torch.Tensor:
-    """r = γΦ(s') − Φ(s) (S §9.1). Forma de Ng, Harada e Russell (1999).
-
-    ⚠ Com γ < 1 um ciclo (parar, voltar) paga zero ou menos. Parado com Φ = 1 paga (γ − 1),
-    isto é −0,01 com γ = 0,99: pairar custa um pouco, e não paga.
-    """
-    return gamma * phi_novo - phi_velho
-
-
 def fator_pouso(v_vertical: torch.Tensor, fundo_sobre_laje: torch.Tensor, sigma, altura,
                 altura_inicio) -> torch.Tensor:
     """1 − s·(1 − exp(−(v/σ)²)), com s = clip((altura_inicio − fundo)/(altura_inicio − altura), 0, 1).

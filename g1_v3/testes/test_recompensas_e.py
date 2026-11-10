@@ -1,5 +1,5 @@
 """Testes da tarefa E4 do plano (§12.1, `recompensas.py` da fase E): distancia_do_alvo, portoes_do_alvo,
-phi_do_alvo, n_progresso, n_qualidade, aplica_qualidade e n_perda_caixa (§6.3, §6.2 `Alvos`/`Recompensa`).
+phi_do_alvo, n_progresso (renda por segundo e tabela de etapas), n_qualidade, aplica_qualidade e n_perda_caixa (§6.3, §6.2 `Alvos`/`Recompensa`).
 Escritos antes do código: as funções ainda não existem, então os testes falham com AttributeError até a E4.
 
 As tabelas de passo a passo usam o caminho roteirizado do item 1 da Parte 0 (`parte0/item1_phi.py`, com
@@ -142,51 +142,77 @@ class TestDistancia(unittest.TestCase):
 
 
 class TestProgresso(unittest.TestCase):
-    def test_pairar_soma_nao_positivo(self):
-        # Teste E4: pairar (Φ constante) soma ≤ 0 em n_progresso com γ < 1
-        phi = torch.full((1,), 0.6, dtype=torch.float64)
-        fora = torch.zeros(1, dtype=torch.bool)
-        b = torch.zeros(1, dtype=torch.float64)
-        soma = sum(float(recompensas.n_progresso(phi, phi, fora, b, fora, fora, R.progresso, R.gamma)[0])
-                   for _ in range(100))
-        self.assertLessEqual(soma, 1e-9)
+    """Núcleo da renda por segundo: w_etapa·etapa + w_phi·Φ, com os pesos do knob (3,0 e 6,0), valores à mão."""
 
-    def test_troca_sem_avanco_paga_zero(self):
-        # Teste E11 (correção 2): troca sem avanço não paga, nem o ΔΦ nem o B_alvo[B4]
-        nao = torch.zeros(1, dtype=torch.bool)
-        sim = torch.ones(1, dtype=torch.bool)
-        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), nao, torch.tensor([0.5]), sim, nao,
-                                    1.0, R.gamma)
+    def _n(self, phi, etapa):
+        return float(recompensas.n_progresso(torch.tensor([phi]), torch.tensor([float(etapa)]),
+                                             R.renda_phi, R.renda_etapa)[0])
+
+    def test_um_valor_por_linha_da_tabela_de_etapas(self):
+        self.assertAlmostEqual(self._n(0.8, 0), 2.4, places=5)   # P0 com Φ 0,8
+        self.assertAlmostEqual(self._n(0.0, 1), 6.0, places=5)   # P1 com Φ 0
+        self.assertAlmostEqual(self._n(0.0, 5), 30.0, places=5)  # CARREGAR: só a etapa 5 paga
+        self.assertAlmostEqual(self._n(0.5, 7), 43.5, places=5)  # B3 com Φ 0,5
+        self.assertAlmostEqual(self._n(0.0, 9), 54.0, places=5)  # depois do B4
+        self.assertAlmostEqual(self._n(0.5, 0), 1.5, places=5)   # caixa perdida, Φ do B4 0,5
+
+    def test_pairar_no_alvo_paga_renda_positiva(self):
+        # Φ constante > 0 no P0: a renda paga a cada passo e a soma cresce com o tempo (o oposto do termo por diferença)
+        soma = sum(self._n(0.6, 0) for _ in range(100))
+        self.assertAlmostEqual(soma, 180.0, places=3)
+
+    def test_o_fecho_sempre_sobe_a_renda(self):
+        # Para cada par de alvos consecutivos, a renda do próximo com Φ = 0 passa a do atual com Φ = 1.
+        # Etapas: P0..P4 = 0..4, B1..B4 = 5..8, depois do B4 = 9 (o CARREGAR, etapa 5, fica entre o P4 e o B1).
+        etapas = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        for atual, proximo in zip(etapas[:-1], etapas[1:]):
+            self.assertGreater(self._n(0.0, proximo), self._n(1.0, atual), f"etapa {atual} → {proximo}")
+        # P4 (Φ = 1) → CARREGAR (etapa 5, Φ = 0) sobe; CARREGAR (30) → B1 (etapa 5, Φ ≥ 0) não cai
+        self.assertGreater(self._n(0.0, 5), self._n(1.0, 4))
+        self.assertGreaterEqual(self._n(0.0, 5), 30.0)
+
+
+class TestEtapaDoProgresso(unittest.TestCase):
+    """`recompensas.progresso` com env falso e `_phi_env` trocado por um Φ fixo por env: a tabela de etapas inteira."""
+
+    # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado)
+    CASOS = [
+        (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),      # P0, Φ 0,8
+        (1, "PEGAR", False, False, False, 0.0, 6.0, 0.0),      # P1, Φ 0
+        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9),      # fecho do P4: etapa 5, Φ não paga
+        (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),   # CARREGAR: etapa 5
+        (-1, "CARREGAR", False, False, False, 0.0, 30.0, -1.0),  # CARREGAR sem alvo
+        (7, "BOTAR", False, False, False, 0.5, 43.5, 0.5),     # B3, Φ 0,5
+        (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),      # B2 com p4_fechado True: etapa 6, Φ pago (fatia C)
+        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0),     # ANDAR final depois do B4: etapa 9
+        (8, "ANDAR", True, False, True, 0.5, 1.5, 0.5),        # caixa perdida: etapa 0, Φ do B4
+        (-1, "ANDAR", False, False, False, 0.0, 0.0, -1.0),    # ANDAR da fatia ANDAR
+        (-1, "PEGAR", False, False, False, 0.0, 0.0, -1.0),    # PEGAR na espera, sem alvo
+    ]
+
+    def test_tabela_de_etapas(self):
+        n = len(self.CASOS)
+        col = lambda i, dtype: torch.tensor([c[i] for c in self.CASOS], dtype=dtype)
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in self.CASOS]),
+            v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
+            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n))
+        phi = col(5, torch.float32)
+        with mock.patch.object(recompensas, "_phi_env",
+                               lambda e, indice, sigma: torch.where(indice >= 0, phi, torch.zeros_like(phi))):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        for i, c in enumerate(self.CASOS):
+            self.assertAlmostEqual(float(r[i]), c[6], places=5, msg=str(c))
+            self.assertAlmostEqual(float(env.v3_phi[i]), c[7], places=5, msg=str(c))
+
+    def test_tarefa_fora_da_mascara_paga_zero(self):
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=torch.tensor([0]), v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
+            v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_b4_fechado=torch.zeros(1, dtype=torch.bool),
+            v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1))
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(1)):
+            r = recompensas.progresso(env, ("ANDAR",))
         self.assertEqual(float(r[0]), 0.0)
-
-    def test_troca_com_fecho_do_b4_sem_perda_paga_b_alvo(self):
-        # Teste E11 (R3): o fecho do B4 (troca com avanço, sem `v3_perdeu`) paga o B_alvo[B4]; o ΔΦ vai a zero (PD-36)
-        nao = torch.zeros(1, dtype=torch.bool)
-        sim = torch.ones(1, dtype=torch.bool)
-        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), sim, torch.tensor([0.5]), sim, nao,
-                                    1.0, R.gamma)
-        self.assertAlmostEqual(float(r[0]), 0.5, places=6)
-
-    def test_troca_com_fecho_do_b4_depois_da_perda_paga_zero(self):
-        # Teste E11 (correção 2; S §10): a volta à pose de pé depois da perda não paga o B_alvo[B4] (a perda devolve)
-        sim = torch.ones(1, dtype=torch.bool)
-        r = recompensas.n_progresso(torch.tensor([0.9]), torch.tensor([0.1]), sim, torch.tensor([0.5]), sim, sim,
-                                    1.0, R.gamma)
-        self.assertEqual(float(r[0]), 0.0)
-
-    def test_entrada_no_alvo_paga_zero(self):
-        # Teste E4: o passo com `phi_ant` = −1 (sem alvo antes) é a entrada no alvo e paga 0, sem o salto de Φ + 1
-        nao = torch.tensor([False])
-        r = recompensas.n_progresso(torch.tensor([0.5]), torch.tensor([-1.0]), nao,
-                                    torch.tensor([0.0]), nao, nao, 1.0, R.gamma)
-        self.assertEqual(float(r[0]), 0.0)
-
-    def test_avanco_usa_phi_do_alvo_velho_no_estado_novo_mais_b_alvo(self):
-        # Teste E4 (D1 da Parte 0): no passo do avanço, Φ(s′, i) do alvo VELHO + B_alvo; 0,99·0,8 − 0,6 + 0,5
-        nao = torch.tensor([False])
-        r = recompensas.n_progresso(torch.tensor([0.8]), torch.tensor([0.6]), torch.tensor([True]),
-                                    torch.tensor([0.5]), nao, nao, 1.0, 0.99)
-        self.assertAlmostEqual(float(r[0]), 0.692, places=5)
 
 
 class TestQualidade(unittest.TestCase):
@@ -212,18 +238,10 @@ class TestQualidade(unittest.TestCase):
 
 
 class TestPerdaCaixa(unittest.TestCase):
-    def test_perda_sem_devolver_b_pagos(self):
-        # Teste E4: n_perda_caixa com devolve False: só o custo, no passo em que o sinal de perda sobe (um passo depois da perda, caso 4)
-        out = recompensas.n_perda_caixa(torch.tensor([True, False]), torch.tensor([0.5, 0.5]),
-                                        R.perda_caixa, False)
+    def test_perda_paga_so_o_custo(self):
+        # n_perda_caixa: só o custo, no passo em que o sinal de perda sobe (um passo depois da perda, caso 4)
+        out = recompensas.n_perda_caixa(torch.tensor([True, False]), R.perda_caixa)
         self.assertAlmostEqual(float(out[0]), R.perda_caixa, places=4)
-        self.assertEqual(float(out[1]), 0.0)
-
-    def test_perda_devolvendo_b_pagos(self):
-        # Teste E4: n_perda_caixa com devolve True: custo + b_pagos, no passo em que o sinal de perda sobe (um passo depois da perda, caso 4)
-        out = recompensas.n_perda_caixa(torch.tensor([True, False]), torch.tensor([0.5, 0.5]),
-                                        R.perda_caixa, True)
-        self.assertAlmostEqual(float(out[0]), R.perda_caixa + 0.5, places=4)
         self.assertEqual(float(out[1]), 0.0)
 
 
@@ -271,17 +289,6 @@ class TestPortoes(unittest.TestCase):
 TODAS_TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 
 
-def _env_progresso(idx, av, p4_fechado, phi_ant, sigma, sigma_velho):
-    """Env falso (SimpleNamespace) com os buffers que `recompensas.progresso` lê. Um passo, E = 1."""
-    return types.SimpleNamespace(
-        device="cpu", v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
-        v3_alvo_idx=torch.tensor([idx]), v3_avancou=torch.tensor([av]), v3_p4_fechado=torch.tensor([p4_fechado]),
-        v3_phi=torch.tensor([phi_ant], dtype=torch.float32), v3_sigma=torch.tensor([sigma], dtype=torch.float32),
-        v3_sigma_velho=torch.tensor([sigma_velho], dtype=torch.float32), v3_b_pagos=torch.zeros(1),
-        v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_degrau=torch.zeros(1, dtype=torch.long),
-        v3_v_chegada=torch.full((1,), -1.0))
-
-
 class TestInclLim(unittest.TestCase):
     """B1 (revisão E11): `incl_lim` lia `K`, que não existia no módulo, e o primeiro reset caía com NameError."""
 
@@ -289,41 +296,6 @@ class TestInclLim(unittest.TestCase):
         env = types.SimpleNamespace(v3_degrau=torch.tensor([0, ATIVO.balanceador.degraus]))
         out = recompensas.incl_lim(env).double().numpy()
         np.testing.assert_allclose(out, [K.incl_inicio_graus, K.incl_fim_graus], atol=1e-4)
-
-
-class TestProgressoNoFechoDoP4(unittest.TestCase):
-    """S2 (revisão E11): no fecho do P4 a cadeia põe `v3_avancou` = True e mantém o índice em P4. O progresso tem
-    de pagar Φ(P4) e B_alvo[P4]; o código velho pagava o alvo P3 (`idx − 1`)."""
-
-    def test_fecho_do_p4_paga_b_alvo_do_p4(self):
-        # Φ(s′, P4) = 0,8; Φ_ant = 0,6 (Φ(s, P4)). Esperado: w·(γ·0,8 − 0,6) + B_alvo[P4].
-        phi = [0.0] * 9  # um Φ por alvo (ALVOS); só P4 importa aqui, e P3 fica em 0 (a faixa do tronco da pega)
-        phi[alvos.P4] = 0.8
-
-        def phi_por_alvo(env, indice, sigma=None):
-            tab = torch.tensor(phi, dtype=torch.float32)
-            return torch.where(indice >= 0, tab[indice.clamp(min=0)], torch.zeros(indice.shape))
-
-        env = _env_progresso(alvos.P4, av=True, p4_fechado=True, phi_ant=0.6, sigma=0.3, sigma_velho=0.3)
-        with mock.patch.object(recompensas, "_phi_env", phi_por_alvo):
-            r = recompensas.progresso(env, TODAS_TAREFAS)
-        esperado = R.progresso * (R.gamma * 0.8 - 0.6) + R.b_alvo[alvos.P4]
-        self.assertAlmostEqual(float(r[0]), esperado, places=4)
-
-
-class TestProgressoSigmaDoAlvoVelho(unittest.TestCase):
-    """S3 (revisão E11): no avanço P1 → P2, Φ(s′, P1) usa o σ do alvo VELHO (`v3_sigma_velho`), e não o σ novo."""
-
-    def test_avanco_p1_para_p2_mede_o_velho_com_sigma_velho(self):
-        # σ velho (P1) = 0,15; σ novo (P2) = 0,02. Φ(s′, P1) = σ usado. Esperado: w·(γ·0,15 − 0,5) + B_alvo[P1].
-        def phi_pelo_sigma(env, indice, sigma=None):
-            return env.v3_sigma if sigma is None else sigma
-
-        env = _env_progresso(alvos.P2, av=True, p4_fechado=False, phi_ant=0.5, sigma=0.02, sigma_velho=0.15)
-        with mock.patch.object(recompensas, "_phi_env", phi_pelo_sigma):
-            r = recompensas.progresso(env, TODAS_TAREFAS)
-        esperado = R.progresso * (R.gamma * 0.15 - 0.5) + R.b_alvo[alvos.P1]
-        self.assertAlmostEqual(float(r[0]), esperado, places=4)
 
 
 class TestCercaRecuoNoP4(unittest.TestCase):

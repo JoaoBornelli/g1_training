@@ -345,7 +345,7 @@ class CadeiaCmd(CommandTerm):
         self.pega[ids] = True  # F9 P6: só com o P0 aberto o PEGAR fica pendente de registro (sem caixa vista, não conta)
         pos = estimador.do_frame_da_base(est[:, :3], odo)[ids]
         env.v3_alvo_idx[ids] = P0
-        env.v3_phi[ids] = -1.0  # salto fora do `avanca` (S8): a entrada no P0 paga 0
+        env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>` (o progresso grava o Φ do alvo corrente)
         env.v3_relogio_alvo[ids] = 0.0
         env.v3_caixa_pega_w[ids] = pos
         env.v3_alvo_w[ids] = pos
@@ -373,7 +373,7 @@ class CadeiaCmd(CommandTerm):
             ids = perda.nonzero().flatten()
             env.v3_perdeu[ids] = True
             env.v3_alvo_idx[ids] = B4
-            env.v3_phi[ids] = -1.0  # salto fora do `avanca` (S8): sem isto, o passo da perda cobraria −w_p·Φ(alvo velho)
+            env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>`; o progresso grava o Φ do B4 no passo seguinte
             env.v3_relogio_alvo[ids] = 0.0
             env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B4))[ids]
             self._publica(ids, torch.full_like(ids, ANDAR))
@@ -419,9 +419,6 @@ class CadeiaCmd(CommandTerm):
         env.v3_avancou[:] = av
         env.v3_relogio_alvo[:] = rel
         env.v3_alvo_idx[:] = novo
-        # σ do alvo velho, gravado antes da troca: o progresso paga Φ(s′, velho) com ele (E11 S3). No fecho do P4 não
-        # troca, e o velho é o σ corrente.
-        env.v3_sigma_velho[:] = env.v3_sigma
         troca = av & ~fecha_p4 & (novo >= 0)
         env.v3_sigma[:] = torch.where(troca, self._sigma(m, novo), env.v3_sigma)
 
@@ -482,7 +479,7 @@ class CadeiaCmd(CommandTerm):
     def _abre_botar(self, ids, m) -> None:
         # Abertura do BOTAR (F1; PD-47): a laje de destino dá o ponto de soltura no topo, e o alvo sobe `a` (a caixa
         # fica com o centro a meia aresta acima). Alvo corrente B1, σ pelo `_sigma` como o P0 do PEGAR, e o salto
-        # fora do `avanca` paga 0 (`v3_phi` = −1). O ponto de apoio (F9 S2) zera aqui e é gravado no fecho do B2; o
+        # (`v3_phi` = −1 é a sentinela das métricas). O ponto de apoio (F9 S2) zera aqui e é gravado no fecho do B2; o
         # primeiro toque (F9 P3) também volta a −1.
         env = self._env
         soltura = eventos.posiciona_destino(env, ids).to(env.v3_alvo_w.dtype)
@@ -522,7 +519,7 @@ class CadeiaCmd(CommandTerm):
         self._publica(ids, tar)
         sem_alvo = (tar == ANDAR) | (tar == PEGAR)
         env.v3_alvo_idx[ids[sem_alvo]] = -1
-        env.v3_phi[ids[sem_alvo]] = -1.0  # salto fora do `avanca` (S8)
+        env.v3_phi[ids[sem_alvo]] = -1.0  # sentinela das métricas `phi_<alvo>`: sem alvo
         botar = tar == BOTAR
         self._registra(ids[botar], torch.zeros(int(botar.sum()), dtype=torch.bool, device=self.device))
         if botar.any():
@@ -581,9 +578,8 @@ class CadeiaCmd(CommandTerm):
             getattr(env, nome)[env_ids] = False
         env.v3_relogio_alvo[env_ids] = 0.0
         env.v3_sigma[env_ids] = 1.0  # neutro: o alvo −1 não o usa, e σ = 0 daria NaN
-        env.v3_phi[env_ids] = -1.0  # sem alvo no início do episódio: a entrada no alvo paga 0 (E4)
+        env.v3_phi[env_ids] = -1.0  # sem alvo no início do episódio: sentinela das métricas `phi_<alvo>`
         env.v3_v_chegada[env_ids] = -1.0
-        env.v3_b_pagos[env_ids] = 0.0
         self.rel_fim[env_ids] = 0.0
         fat = env.v3_fatia[env_ids]
         self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])  # o reset não mede: o BOTAR nunca abre aqui (M6)

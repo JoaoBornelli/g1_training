@@ -2,8 +2,8 @@
 
 Entrada: as trajetórias sintéticas de `comum.trajetoria_pegar` e `comum.trajetoria_botar` (sem CSV).
 Confere os quatro critérios da linha do item 1 do plano: Φ não desce dentro de cada alvo; pairar a
-1 cm por 2 s soma ≤ 0; tombar a caixa 40° no P3 leva Φ a ≤ a rampa; soltar uma mão divide Φ por 2.
-Pesos sem medida (saem do item 3): w_p = 1 e B_alvo = 0. Imprime a tabela e grava
+1 cm por 2 s paga > 0 (renda); tombar a caixa 40° no P3 leva Φ a ≤ a rampa; soltar uma mão divide Φ por 2.
+Pesos: renda_etapa e renda_phi do knob (10/11; antes w_p = 1 e B_alvo = 0). Imprime a tabela e grava
 `g1_v3/parte0/saida/item1_phi.txt`. Roda com `python -m g1_v3.parte0.item1_phi` na raiz do repo.
 """
 import math
@@ -26,9 +26,6 @@ EPS = 1e-9  # folga de ponto flutuante nos critérios de ≤ e de razão
 SIGMA_MIN = 0.01  # σ de alvo métrico com piso de 1 cm (plano E3); B4 é adimensional, sem piso
 N_HOLD = round(2.0 / DT)  # 2 s de pausa a 50 Hz
 OFFSET = 0.01  # 1 cm do alvo, na grandeza do próprio alvo (palmas, caixa ou pelve)
-# ⚠ Pesos sem medida: o item 3 mede. Até lá, 1 e 0 (a B5 manda).
-W_P = 1.0 if R.progresso is None else R.progresso
-B_ALVO = np.array([0.0 if b is None else b for b in R.b_alvo])
 # Grupos pela §6.3 e pela E4 do plano: qual grandeza o k_principal mede e quais invariantes valem.
 PALMA = [0, 1, 2, 7]  # k pelas palmas: P0–P2 e B3
 CAIXA = [3, 4, 5, 6]  # k pela caixa: P3, P4, B1, B2 (B4 usa a pose)
@@ -155,12 +152,8 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
 
 
 def recompensa(res) -> np.ndarray:
-    """r por passo (E4): r[t] = w_p·(γΦ(t) − Φ(t−1)) + B_alvo·avançou, com r[0] = 0 (PD-36 não se aplica aqui)."""
-    idx, phi = res["indice"], res["phi"]
-    av = np.r_[False, idx[1:] != idx[:-1]]
-    r = np.zeros(len(phi))
-    r[1:] = W_P * P.progresso(phi[1:], phi[:-1], R.gamma) + B_ALVO[idx[1:]] * av[1:]
-    return r
+    """r por passo (10/11): renda_etapa·etapa + renda_phi·Φ. No roteiro (sem CARREGAR) a etapa é o índice do alvo."""
+    return R.renda_etapa * res["indice"] + R.renda_phi * res["phi"]
 
 
 def _ok(b):
@@ -195,7 +188,7 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
     linhas.append(f"1. Φ não desce dentro de cada alvo: {_ok(oks[-1])}; pior ΔΦ = {pior[0]:+.2e} "
                   f"({pior[1]}, alvo {pior[2]}); tolerância {-EPS:.0e}")
 
-    # 2. Pairar a 1 cm do alvo por 2 s soma ≤ 0. Estado = fim do trecho do alvo, deslocado 1 cm na grandeza
+    # 2. Pairar a 1 cm do alvo por 2 s paga renda > 0 (a renda por segundo paga o tempo no alvo). Estado = fim do trecho do alvo, deslocado 1 cm na grandeza
     # dele; índice fixo (o avanço durante a pausa não é simulado, ver as premissas)
     somas = []
     for i in range(len(NOMES)):
@@ -214,9 +207,9 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
         sig = np.full(N_HOLD, res["sigma"][a0])
         rh = avalia(hold, refs, pts, alvo=_repete(tr["caixa"][a1]), sigma=sig)
         somas.append((NOMES[i], res["sigma"][a0], rh["phi"][-1], float(recompensa(rh).sum())))
-    maior = max(s[3] for s in somas)
-    oks.append(maior <= EPS)
-    linhas.append(f"2. Pairar a 1 cm por 2 s soma ≤ 0: {_ok(oks[-1])}; maior soma = {maior:+.2e}")
+    menor = min(s[3] for s in somas)
+    oks.append(menor > 0)
+    linhas.append(f"2. Pairar a 1 cm por 2 s paga > 0: {_ok(oks[-1])}; menor soma = {menor:+.2e}")
     for nome, sig, fi, soma in somas:
         linhas.append(f"     {nome}: σ = {sig:.4f}, Φ parado = {fi:.4f}, Σ r = {soma:+.2e}")
 
@@ -251,7 +244,7 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
 
 PREMISSAS = [
     "Premissas (o plano não define estes pontos; cada um é dúvida para o dono):",
-    "  pesos: w_p = 1 e B_alvo = 0 (knobs `progresso` e `b_alvo` são None; saem do item 3).",
+    "  pesos: renda_etapa e renda_phi do knob; etapa = índice do alvo (o roteiro não tem CARREGAR).",
     "  σ do alvo = d no início do trecho de mesmo índice, com piso de 1 cm; B4 sem piso (como o item 2).",
     "  k: palmas = média das duas distâncias (caixa sem giro, então a distância é no frame da caixa); caixa = 3D.",
     "  desloc. P0–P2: x_lim = 1,0·a = 0,10 m, Δ = 0,5·a; B3 e B4: x_lim 2 cm, Δ 2 cm, ponto de apoio = fim do B2.",
@@ -274,7 +267,7 @@ def main():
     rpe, rbo = avalia(pe, refs, pp), avalia(bo, refs, pb)
 
     linhas = ["Item 1 da Parte 0: Φ e progresso no caminho roteirizado (S §8.2, §9.1, §16 item 1)",
-              f"pesos: w_p = {W_P:g}, B_alvo = {B_ALVO.tolist()} (sem medida; item 3). γ = {R.gamma}; "
+              f"pesos: renda_etapa = {R.renda_etapa:g}, renda_phi = {R.renda_phi:g} (r = renda_etapa·etapa + renda_phi·Φ); "
               f"a = {A_CAIXA} m; passo {DT} s.", ""]
     linhas += tabela("PEGAR", pe, rpe) + [""] + tabela("BOTAR", bo, rbo) + [""]
     crit, oks = criterios(pe, bo, rpe, rbo, pp, pb, refs)

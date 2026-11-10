@@ -33,8 +33,9 @@ TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
 PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
-# E11 R1 (29/10): o `progresso` não vale no CARREGAR (o índice fica no P4 e o termo cobraria (1 − γ)·w_p·Φ(P4)).
-ANDAR_PEGAR_BOTAR = ("ANDAR", "PEGAR", "BOTAR")
+# 10/11: o `progresso` vale em todas as tarefas. Era E11 R1 (29/10): o CARREGAR ficava fora porque o índice fica no P4 e o
+# termo por diferença cobraria (1 − γ)·w_p·Φ(P4). Como renda por segundo, o CARREGAR entra com etapa 5: sem ele, a troca
+# PEGAR → CARREGAR cortaria a renda.
 
 # §6.5, na ordem do dict. Nome = função em `recompensas` = campo de `knobs.Recompensa` (o peso cru). Rastreio só no ANDAR e no CARREGAR (medida de 09/11: com comando zero ele cobrava 0,76/s no PEGAR por mover a base; o cerca_recuo já segura a base).
 _RECOMPENSAS = (
@@ -46,12 +47,12 @@ _RECOMPENSAS = (
     ("tronco_plano", ANDAR_CARREGAR), ("altura_base", ANDAR_CARREGAR), ("cerca_sola", PEGAR_BOTAR),
     ("cerca_giro", TODAS), ("cerca_tronco", TODAS), ("cerca_com", TODAS), ("cerca_torque", TODAS),
     ("cerca_pelve", TODAS), ("cerca_recuo", PEGAR_CARREGAR_BOTAR), ("contato_fora", TODAS),
-    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", ANDAR_PEGAR_BOTAR),
+    ("contato_laje", PEGAR_BOTAR), ("freio", PEGAR_CARREGAR_BOTAR), ("progresso", TODAS),
     ("sacudida", PEGAR_CARREGAR_BOTAR), ("aperto", PEGAR_CARREGAR_BOTAR),
     ("perda_caixa", TODAS), ("terminacao", TODAS),
 )
 # Pesos que NÃO vêm do `knobs`: o `progresso` e o `perda_caixa` entram com ±1 no cfg, e a escala mora no núcleo
-# (§6.3, bloco da fase E: w_p, B_alvo e o custo da perda ficam em `recompensas.py`).
+# (§6.3, bloco da fase E: as rendas `renda_phi` e `renda_etapa` e o custo da perda ficam em `recompensas.py`).
 _PESO_FIXO = {"progresso": 1.0, "perda_caixa": -1.0}
 
 # Geoms de colisão dos pés (o mesmo nome que o molde do mjlab usa em `foot_friction`).

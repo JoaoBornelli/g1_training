@@ -25,7 +25,7 @@ _LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_freio", "v3_degrau")
 _BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_p4_fechado", "v3_b4_fechado",
           "v3_perdeu_agora")
 _ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo",
-              "v3_b_pagos", "v3_vz_caixa_ant", "v3_incl_max_seg", "v3_sigma_velho", "v3_rumo_cena")
+              "v3_vz_caixa_ant", "v3_incl_max_seg", "v3_rumo_cena")
 _VETORES = {"v3_caixa_pega_w": 3, "v3_alvo_w": 3, "v3_ponto_apoio": 3, "v3_vies_giro": 3, "v3_ancora": 4,
             "v3_mapa_obs": 882, "v3_caixa_obs": 11}  # 882 = mapa do ator (I §2.4); 11 = caixa_obs (§6.4)
 
@@ -73,7 +73,7 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     for nome in _ESCALARES:
         _cria(env, nome, (), torch.float32)
     _cria(env, "v3_t_empurrao", (), torch.float32, float("-inf"))
-    _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; o passo de entrada no alvo paga 0 (E4)
+    _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; as métricas `phi_<alvo>` leem este buffer
     _cria(env, "v3_v_chegada", (), torch.float32, -1.0)  # F9 P3: vz do primeiro toque do BOTAR; −1 = sem toque
     for nome, dim in _VETORES.items():
         _cria(env, nome, (dim,), torch.float32)

@@ -202,27 +202,6 @@ class F9AlturaPeComComando(unittest.TestCase):
         self.assertAlmostEqual(float(r[0]), 1.0, places=6)
 
 
-class F9BonusDoB2NaChegada(unittest.TestCase):
-    """F9 P3: o bônus do B2 (pago no avanço B2 → B3) vale B_alvo[B2] × núcleo da velocidade de chegada, com o σ do pouso."""
-
-    def _progresso(self, v_chegada):
-        env = types.SimpleNamespace(
-            device="cpu", v3_tarefa=t(TAREFAS.index("BOTAR"), torch.long), v3_alvo_idx=t(B3, torch.long),
-            v3_avancou=t(True, torch.bool), v3_p4_fechado=t(False, torch.bool), v3_phi=t(0.0), v3_sigma=t(0.3),
-            v3_sigma_velho=t(0.3), v3_b_pagos=torch.zeros(1), v3_perdeu=torch.zeros(1, dtype=torch.bool),
-            v3_degrau=torch.zeros(1, dtype=torch.long), v3_v_chegada=t(v_chegada))
-        with mock.patch.object(recompensas, "_phi_env", lambda env, indice, sigma: torch.zeros(1)):
-            return float(recompensas.progresso(env, TODAS)[0])
-
-    def test_pouso_a_0_9_m_s_no_degrau_0_corta_o_bonus_do_b2(self):
-        # σ = 1,0 m/s no degrau 0: exp(−0,81) ≈ 0,44 do bônus cheio
-        self.assertAlmostEqual(self._progresso(0.9), R.b_alvo[B2] * math.exp(-0.81), places=4)
-
-    def test_bonus_cheio_com_velocidade_zero_ou_sem_toque(self):
-        self.assertAlmostEqual(self._progresso(0.0), R.b_alvo[B2], places=5)
-        self.assertAlmostEqual(self._progresso(-1.0), R.b_alvo[B2], places=5)
-
-
 class F9RefDoAlvoPublica(unittest.TestCase):
     """F9 S4: a referência do alvo vira pública, `ref_do_alvo`: a fonte única da observação `referencia`."""
 

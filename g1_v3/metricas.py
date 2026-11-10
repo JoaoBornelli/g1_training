@@ -343,7 +343,7 @@ class deslocamento_da_caixa:
 class velocidade_de_chegada:
     """Velocidade de descida da caixa (m/s, positiva) no primeiro contato caixa × laje, por env. Sem peso.
 
-    Lê `v3_v_chegada` (§6.4, F9 P3), o número que o B_alvo[B2] e a `chegada` julgam; −1 = sem toque.
+    Lê `v3_v_chegada` (§6.4, F9 P3), o número que a `chegada` julga; −1 = sem toque.
     ⚠ `reduce="last"` no cfg: o `__call__` devolve a flag "teve toque" (fração dos episódios com toque); o `reset`
     loga o valor do episódio que fecha com toque (`Episodio/velocidade_de_chegada`), antes de o `command_manager`
     voltar o `v3_v_chegada` a −1.
