@@ -154,7 +154,7 @@ class TestProgresso(unittest.TestCase):
         self.assertAlmostEqual(self._n(0.0, 5), 30.0, places=5)  # CARREGAR: só a etapa 5 paga
         self.assertAlmostEqual(self._n(0.5, 7), 43.5, places=5)  # B3 com Φ 0,5
         self.assertAlmostEqual(self._n(0.0, 9), 54.0, places=5)  # depois do B4
-        self.assertAlmostEqual(self._n(0.5, 0), 1.5, places=5)   # caixa perdida, Φ do B4 0,5
+        self.assertAlmostEqual(self._n(0.5, 0), 1.5, places=5)   # etapa 0 com Φ 0,5 (o núcleo soma; a perda zera o Φ em `progresso`)
 
     def test_pairar_no_alvo_paga_renda_positiva(self):
         # Φ constante > 0 no P0: a renda paga a cada passo e a soma cresce com o tempo (o oposto do termo por diferença)
@@ -177,17 +177,20 @@ class TestEtapaDoProgresso(unittest.TestCase):
 
     # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado)
     CASOS = [
-        (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),      # P0, Φ 0,8
-        (1, "PEGAR", False, False, False, 0.0, 6.0, 0.0),      # P1, Φ 0
-        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9),      # fecho do P4: etapa 5, Φ não paga
-        (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),   # CARREGAR: etapa 5
-        (-1, "CARREGAR", False, False, False, 0.0, 30.0, -1.0),  # CARREGAR sem alvo
-        (7, "BOTAR", False, False, False, 0.5, 43.5, 0.5),     # B3, Φ 0,5
-        (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),      # B2 com p4_fechado True: etapa 6, Φ pago (fatia C)
-        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0),     # ANDAR final depois do B4: etapa 9
-        (8, "ANDAR", True, False, True, 0.5, 1.5, 0.5),        # caixa perdida: etapa 0, Φ do B4
-        (-1, "ANDAR", False, False, False, 0.0, 0.0, -1.0),    # ANDAR da fatia ANDAR
-        (-1, "PEGAR", False, False, False, 0.0, 0.0, -1.0),    # PEGAR na espera, sem alvo
+        (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),        # P0, Φ 0,8
+        (1, "PEGAR", False, False, False, 0.0, 6.0, 0.0),        # P1, Φ 0
+        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9),        # PEGAR com p4_fechado (alvo P4): etapa 5, Φ não paga
+        (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),     # CARREGAR com p4_fechado (alvo P4): etapa 5
+        (-1, "CARREGAR", False, False, False, 0.0, 0.0, -1.0),   # CARREGAR sem a pega: 0
+        (5, "BOTAR", False, False, False, 0.7, 0.0, 0.7),        # B1 no BOTAR sem p4_fechado: 0
+        (7, "BOTAR", False, False, True, 0.5, 43.5, 0.5),        # B3, Φ 0,5, com a pega feita
+        (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),        # B2 com p4_fechado True: etapa 6, Φ pago (fatia C)
+        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0),       # ANDAR final depois do B4: etapa 9
+        (-1, "ANDAR", False, True, False, 0.0, 0.0, -1.0),       # b4_fechado sem p4_fechado: 0
+        (8, "ANDAR", True, False, True, 0.5, 0.0, 0.5),          # caixa perdida, alvo B4, Φ 0,5: 0
+        (-1, "ANDAR", True, True, True, 0.0, 0.0, -1.0),         # perdeu com b4_fechado: 0
+        (-1, "ANDAR", False, False, False, 0.0, 0.0, -1.0),      # ANDAR da fatia ANDAR
+        (-1, "PEGAR", False, False, False, 0.0, 0.0, -1.0),      # PEGAR na espera, sem alvo
     ]
 
     def test_tabela_de_etapas(self):

@@ -729,24 +729,29 @@ def contato_fora(env, tarefas):
 
 
 def progresso(env, tarefas):
-    """Renda por segundo: `renda_etapa`·etapa + `renda_phi`·Φ do alvo corrente (proposta-renda-em-escada.md). A etapa
-    sobe com a cadeia e só cai na perda da caixa. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
+    """Renda por segundo: `renda_etapa`·etapa + `renda_phi`·Φ pago (proposta-renda-em-escada.md). A etapa sobe com a
+    cadeia. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
 
-    | condição (nesta ordem)                          | etapa | Φ usado |
-    | `v3_perdeu` (alvo vira B4 da pose de pé)         | 0     | Φ do B4 |
-    | `v3_b4_fechado` (ANDAR final)                    | 9     | 0       |
-    | CARREGAR, ou P4 fechado com alvo < B1            | 5     | 0       |
-    | alvo ≥ 0                                         | alvo  | Φ do alvo |
-    | resto (ANDAR, PEGAR na espera)                   | 0     | 0       |
+    | condição (nesta precedência)                              | etapa | Φ pago    |
+    | `v3_perdeu`                                               | 0     | 0         |
+    | `~v3_p4_fechado` e tarefa ≠ PEGAR (sem a caixa na mão)    | 0     | 0         |
+    | `v3_b4_fechado` (ANDAR final)                             | 9     | 0         |
+    | `v3_p4_fechado` e alvo < B1 (CARREGAR, fecho do P4)       | 5     | 0         |
+    | alvo ≥ 0                                                  | alvo  | Φ do alvo |
+    | resto                                                     | 0     | 0         |
 
+    Por quê: a etapa 5 só vale com a pega feita (`v3_p4_fechado`). O PEGAR termina pelo detector de pose, que não mede a
+    caixa, então a tarefa CARREGAR sozinha não prova a pega. Depois da perda a renda é 0, sem Φ: com Φ do B4 pago, fechar o
+    B4 (que marca `v3_b4_fechado`) derrubaria a renda para 0, e perder a caixa no P0 renderia mais que ficar. O
     `v3_p4_fechado` só zera no reset do episódio: o `alvo < B1` impede que ele cubra o BOTAR da fatia C. Grava `v3_phi`
     = Φ do alvo corrente (−1 sem alvo), que as métricas `phi_<alvo>` leem."""
     idx = env.v3_alvo_idx
     phi_alvo = _phi_env(env, idx, env.v3_sigma)  # 0 onde idx < 0
-    perdeu, b4_fechado = env.v3_perdeu, env.v3_b4_fechado
-    carrega = (env.v3_tarefa == TAREFAS.index("CARREGAR")) | (env.v3_p4_fechado & (idx < _B1))
-    etapa = torch.where(perdeu, 0, torch.where(b4_fechado, 9, torch.where(carrega, 5, idx.clamp(min=0))))
-    paga_phi = perdeu | ~(b4_fechado | carrega)
+    p4_fechado, b4_fechado = env.v3_p4_fechado, env.v3_b4_fechado
+    sem_caixa = env.v3_perdeu | (~p4_fechado & (env.v3_tarefa != TAREFAS.index("PEGAR")))
+    fecho_p4 = p4_fechado & (idx < _B1)
+    etapa = torch.where(sem_caixa, 0, torch.where(b4_fechado, 9, torch.where(fecho_p4, 5, idx.clamp(min=0))))
+    paga_phi = ~(sem_caixa | b4_fechado | fecho_p4)
     r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi, R.renda_etapa)
     env.v3_phi[:] = torch.where(idx >= 0, phi_alvo, torch.full_like(phi_alvo, -1.0))
     return _fim(env, tarefas, r)
