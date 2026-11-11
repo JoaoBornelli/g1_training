@@ -68,12 +68,12 @@ class TestCelulaTerrenoDoCarregar(unittest.TestCase):
         self.assertTrue(cel(cur, "CARREGAR", "terreno").aberta)
 
     def test_terreno_do_carregar_espera_as_abertas_no_portao(self):
-        # §6.3 (regra 1): com o último nível e o ANDAR passado, uma célula de velocidade aberta abaixo do
-        # portão segura a célula `terreno` do CARREGAR.
+        # §6.3 (regra 1) e 11/11 (§5.1): com o último nível e o ANDAR passado, a média das velocidades abertas
+        # abaixo do portão segura a célula `terreno` do CARREGAR: (1 + 1 + 0) / 3 = 0,67.
         cur = novo()
         prepara_carregar_no_portao(cur)
         cur._nivel["CARREGAR"] = MAX_CARREGAR
-        cel(cur, "CARREGAR", "arco").s = 0.5
+        cel(cur, "CARREGAR", "arco").s = 0.0
         cur.fecha_iteracao()
         self.assertFalse(cel(cur, "CARREGAR", "terreno").aberta)
 

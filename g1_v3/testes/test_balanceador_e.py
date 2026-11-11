@@ -97,8 +97,9 @@ class TestPortaoDoPegarNivel0(unittest.TestCase):
         self.assertEqual(cur.nivel("PEGAR"), 1)  # o nível não desce
         self.assertEqual(cur.nivel_passou("PEGAR"), 0)
 
-    def test_portao_do_pegar_0_liga_atrito_dos_pads_e_da_laje_e_atraso_2(self):
-        # E6, linha "Teste": o PEGAR no portão do nível 0 liga o atrito dos pads e da laje e põe o atraso em 2
+    def test_portao_do_pegar_0_liga_atrito_dos_pads_e_da_laje(self):
+        # E6, linha "Teste": o PEGAR no portão do nível 0 liga o atrito dos pads e da laje. O atraso não vem daqui:
+        # 11/11 (§2) ele segue a restricao, 0 com os níveis em 0
         cur = novo()
         antes = None
         for _ in range(20):
@@ -114,8 +115,7 @@ class TestPortaoDoPegarNivel0(unittest.TestCase):
         depois = cur.dr()
         self.assertTrue(depois["atrito_pad"])
         self.assertTrue(depois["atrito_laje"])
-        self.assertEqual(depois["atraso_max"], DRK.atraso_portao[1])  # 2 passos (PD-28)
-        self.assertEqual(depois["atraso_max"], 2)
+        self.assertEqual(depois["atraso_max"], 0)  # restricao 0: nenhum nível subiu ainda
 
     def test_vies_imu_liga_com_reto_e_parado_do_andar(self):
         # E6, §6.3 (docstring de `dr`): "vies_imu" liga com reto e parado do ANDAR no portão, no mesmo fecho que
@@ -156,6 +156,18 @@ class TestPortaoDoPegarNivel0(unittest.TestCase):
         self.assertEqual(list(cur.dr()["com_caixa"]), [DRK.com_caixa_frac0[0], DRK.com_caixa_frac0[1]])
         ate(cur, lambda: cur.nivel("PEGAR") + cur.nivel("CARREGAR") > 0)
         self.assertEqual(list(cur.dr()["com_caixa"]), [DRK.com_caixa_frac_max[0], DRK.com_caixa_frac_max[1]])
+
+
+class TestAtrasoPelaRestricao(unittest.TestCase):
+
+    def test_atraso_max_segue_a_restricao_com_teto_ceil_de_2(self):
+        # 11/11 (§2): com o degrau global 0, o teto do atraso é ceil(atraso_portao[1] · restricao): 0, 1, 1, 2, 2
+        for nivel, esperado in ((0, 0), (1, 1), (2, 1), (3, 2), (4, 2)):
+            with self.subTest(nivel=nivel):
+                cur = novo()
+                for t in cur._nivel:
+                    cur._nivel[t] = nivel
+                self.assertEqual(cur.dr()["atraso_max"], esperado)
 
 
 class TestMuDosPads(unittest.TestCase):

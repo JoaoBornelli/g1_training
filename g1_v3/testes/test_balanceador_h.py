@@ -78,6 +78,21 @@ class TestDegrauGlobal(unittest.TestCase):
         self.assertEqual(novo().degrau_global(), 0)
 
 
+class TestRestricao(unittest.TestCase):
+
+    def test_restricao_e_o_menor_nivel_relativo_entre_as_quatro(self):
+        # 11/11 (§2): restricao = min de nível/max_nivel; 0 enquanto alguma tarefa está no nível 0
+        def com_niveis(niveis):
+            cur = novo()
+            for t, n in zip(TAREFAS, niveis):
+                cur._nivel[t] = n
+            return cur
+        self.assertEqual(novo().restricao(), 0.0)
+        self.assertEqual(com_niveis((1, 1, 1, 0)).restricao(), 0.0)
+        self.assertAlmostEqual(com_niveis((1, 1, 1, 1)).restricao(), 0.25, places=TOL)
+        self.assertAlmostEqual(com_niveis((4, 4, 4, 4)).restricao(), 1.0, places=TOL)
+
+
 class TestDrDoRefino(unittest.TestCase):
 
     def test_g0_sem_travas_fica_no_inicio(self):
@@ -91,16 +106,18 @@ class TestDrDoRefino(unittest.TestCase):
         self.assertEqual(d["rfi"], 0.0)
         self.assertEqual(d["atraso_max"], DRK.atraso_inicio[1])
 
-    def test_g0_com_portao0_e_subida_liga_rfi_e_atraso_2(self):
-        # §12.4 H1: g = 0 com "portao0" e "subida": rfi 0,05, atraso_max 2
+    def test_g0_com_portao0_e_subida_liga_rfi_e_atraso_0(self):
+        # §12.4 H1: g = 0 com "portao0" e "subida": rfi 0,05. 11/11 (§2): o atraso segue a restricao, 0 com os níveis em 0
         d = com_degraus((0, 0, 0, 0), subida=True, portao0=True).dr()
         self.assertAlmostEqual(d["rfi"], 0.05, places=TOL)
-        self.assertEqual(d["atraso_max"], 2)
+        self.assertEqual(d["atraso_max"], 0)
 
     def test_g2_com_travas_mantem_atraso_2(self):
-        # §12.4 H1: g = 2 com as travas: atraso_max 2 (abaixo de degrau_atraso_refino = 3)
-        d = com_degraus((2, 2, 2, 2), subida=True, portao0=True).dr()
-        self.assertEqual(d["atraso_max"], 2)
+        # §12.4 H1: g = 2 com as travas e restricao 1 (níveis no último): atraso_max 2 (abaixo de degrau_atraso_refino = 3)
+        cur = com_degraus((2, 2, 2, 2), subida=True, portao0=True)
+        for t in cur._nivel:
+            cur._nivel[t] = 4
+        self.assertEqual(cur.dr()["atraso_max"], 2)
 
     def test_g3_com_travas(self):
         # §12.4 H1: g = 3 (degraus (5, 3, 4, 3)) com as travas

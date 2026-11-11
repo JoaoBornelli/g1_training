@@ -7,6 +7,7 @@ O estado vai ao checkpoint em tipos do Python, no formato de g1_limpo/runner.py:
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import torch
 
@@ -78,6 +79,8 @@ class Curriculo:
         # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
         # "vies": o ANDAR passou no portão (reto e parado); "subida": o PEGAR ou o CARREGAR já subiu de nível
         self._dr = {"portao0": False, "vies": False, "subida": False}
+        # rampa da fatia (§5.3): o fecho em que cada fatia abriu (None = fechada); o ANDAR abre na iteração 0
+        self._it_abertura = [0, None, None]
 
     # --- consultas internas ---------------------------------------------------------------------
 
@@ -89,6 +92,11 @@ class Curriculo:
 
     def _passa(self, i):
         return self.celulas[i].s >= self.k.portao
+
+    def _passa_media(self, ids):
+        # 11/11: a média das células no portão. O portão conjuntivo (todas ≥ portão ao mesmo tempo) nunca abriu
+        # em 13 TensorBoards; o refino (`_conta_refino`) já usava a média.
+        return bool(ids) and sum(self.celulas[i].s for i in ids) / len(ids) >= self.k.portao
 
     def _de(self, t):
         return [i for i, c in enumerate(self.celulas) if c.tarefa == t]
@@ -122,6 +130,9 @@ class Curriculo:
         for t in TAREFAS:
             self._conta_refino(t)
         self._abre()
+        for f in (1, 2):
+            if self._it_abertura[f] is None and any(c.aberta and FATIA_DE[c.tarefa] == f for c in self.celulas):
+                self._it_abertura[f] = self.it
         self._sobe()
         self._trava_dr()
 
@@ -136,14 +147,14 @@ class Curriculo:
         # S §11.1 e §11.2 (tabela da §6.3). Um passo por fecho e por cadeia: a célula nova entra com s = 0,
         # então não passa no mesmo fecho e não abre a seguinte.
         andar_reto, andar_parado = _POS[("ANDAR", "reto")], _POS[("ANDAR", "parado")]
-        if not self._aberta("CARREGAR", "reto") and self._passa(andar_reto) and self._passa(andar_parado):
+        if not self._aberta("CARREGAR", "reto") and self._passa_media([andar_reto, andar_parado]):
             self._abre_cel("CARREGAR", "reto")  # fatia B: o CARREGAR reto e o PEGAR nível 0 abrem juntos
             self._abre_cel("PEGAR", "pegar")
         for t in CADEIA:
             abertas = self._abertos(t)
             fechadas = [tp for tp in VELOCIDADE[t] if not self._aberta(t, tp)]
             # `abertas` não vazio: o CARREGAR só começa depois da fatia B
-            if abertas and fechadas and all(self._passa(i) for i in abertas):
+            if abertas and fechadas and self._passa_media(abertas):
                 self._abre_cel(t, fechadas[0])
         for t in CADEIA:
             # terreno: depois do último nível de velocidade, com todas as abertas no portão.
@@ -153,7 +164,7 @@ class Curriculo:
                 continue
             if t == "CARREGAR" and not (self._nivel_ter["ANDAR"] >= 1 or self._passa(_POS[("ANDAR", "terreno")])):
                 continue
-            if all(self._passa(i) for i in self._abertos(t)):
+            if self._passa_media(self._abertos(t)):
                 self._abre_cel(t, "terreno")
         # fatia C: o PEGAR nível 0 no portão. O PEGAR não sobe antes disso: subir exige o portão e este passo
         # roda antes de `_sobe` no mesmo fecho.
@@ -168,8 +179,7 @@ class Curriculo:
         ultimo = self._nivel[t] == self.max_nivel[t] and (
             t not in CADEIA or (self._aberta(t, "terreno") and self._nivel_ter[t] == self._max_ter[t]))
         abertas = self._abertos(t)
-        media = sum(self.celulas[i].s for i in abertas) / len(abertas) if abertas else 0.0
-        if ultimo and abertas and media >= self.k.portao:
+        if ultimo and self._passa_media(abertas):
             self._cont[t] += 1
         else:
             self._cont[t] = 0
@@ -185,7 +195,7 @@ class Curriculo:
                 continue
             if self._nivel[t] < self.max_nivel[t]:
                 ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
-                if all(self.celulas[i].aberta for i in ids) and all(self._passa(i) for i in ids):
+                if all(self.celulas[i].aberta for i in ids) and self._passa_media(ids):
                     self._nivel[t] += 1
                     self._ult[t] = self.it
                     for i in self._de(t):
@@ -210,6 +220,13 @@ class Curriculo:
             return out
         d = torch.stack([self._deficit(grupos[f]).mean() for f in abertas])
         out[torch.tensor(abertas)] = fracoes(d, self.k.piso_tarefa, self.k.eps)
+        for f in (1, 2):
+            if self._it_abertura[f] is not None:
+                teto = min(1.0, self.k.rampa_fatia_inicio
+                           + self.k.rampa_fatia_passo * ((self.it - self._it_abertura[f]) // self.k.rampa_fatia_its))
+                excesso = max(0.0, float(out[f]) - teto)
+                out[f] -= excesso
+                out[0] += excesso  # o excedente volta para o ANDAR
         return out
 
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]:
@@ -255,6 +272,11 @@ class Curriculo:
         # §6.9, PD-41 (P5): o refino do DR só sobe quando as 4 tarefas chegaram: o menor degrau entre elas
         return min(self.degrau(t) for t in TAREFAS)
 
+    def restricao(self) -> float:
+        # 11/11 (specs/g1-v3-treino-unico.md §2): as restrições seguem o progresso, como o freio segue o nível.
+        # O menor nível relativo entre as 4 tarefas: 0 até todas passarem do nível 0; nunca desce.
+        return min(self._nivel[t] / self.max_nivel[t] for t in TAREFAS)
+
     def nivel_passou(self, tarefa: str) -> int:
         # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa
         i = self._de(tarefa)[0]
@@ -284,7 +306,7 @@ class Curriculo:
             "mu_min_pad": float(mu),
             "com_caixa": [float(x) for x in com] if d.com_caixa else [0.0, 0.0],
             "atraso_max": (d.atraso_refino[1] if g >= d.degrau_atraso_refino
-                           else d.atraso_portao[1] if p0 else d.atraso_inicio[1]),
+                           else math.ceil(d.atraso_portao[1] * self.restricao() - 1e-9)),
             "forca_caixa": sub,
             "rfi": no_degrau(d.rfi[0], d.rfi[1], g, n) if sub else 0.0,
             "pd": pares(1, d.pd),
@@ -303,6 +325,7 @@ class Curriculo:
             "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "ult": self._ult[t],
                             "degrau": self._degrau[t], "cont": self._cont[t]} for t in TAREFAS},
             "dr": dict(self._dr),
+            "it_abertura": list(self._it_abertura),
         }
 
     def carrega(self, estado: dict) -> None:
@@ -316,3 +339,4 @@ class Curriculo:
             self._nivel[t], self._nivel_ter[t] = d["nivel"], d["nivel_ter"]
             self._ult[t], self._degrau[t], self._cont[t] = d["ult"], d["degrau"], d["cont"]
         self._dr = dict(estado["dr"])
+        self._it_abertura = list(estado.get("it_abertura", [0, None, None]))

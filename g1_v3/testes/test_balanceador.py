@@ -92,8 +92,8 @@ class TestAberturaInicial(unittest.TestCase):
 class TestAberturaDeFatiaB(unittest.TestCase):
 
     def test_B_so_com_reto_e_parado_no_portao_e_baixo_junto(self):
-        # S §11.1: a B abre quando reto E parado do ANDAR passam no portão (0,75). A célula seguinte
-        # (baixo, S §11.2) abre quando todas as abertas do ANDAR passam: o mesmo momento aqui.
+        # S §11.1 e 11/11 (§5.1): a B abre quando a média de reto e parado do ANDAR passa no portão (0,75). A
+        # célula seguinte (baixo) abre pela média das abertas do ANDAR: o mesmo momento aqui.
         cur = novo(SEM_CARENCIA)
         reto, parado = cid(cur, "ANDAR", "reto"), cid(cur, "ANDAR", "parado")
         baixo = cid(cur, "ANDAR", "baixo")
@@ -106,16 +106,41 @@ class TestAberturaDeFatiaB(unittest.TestCase):
         primeiro = None
         for k in range(2, 80):
             fecha(cur)
-            passam = cur.celulas[reto].s >= PORTAO and cur.celulas[parado].s >= PORTAO
+            passam = (cur.celulas[reto].s + cur.celulas[parado].s) / 2 >= PORTAO
             aberta_b = cur.fracoes_fatias()[1].item() > 0
             self.assertEqual(aberta_b, passam, f"fecha {k}: a B abriu fora do critério")
             self.assertEqual(cur.celulas[baixo].aberta, passam, f"fecha {k}: baixo fora do critério")
             if aberta_b:
                 primeiro = k
                 break
-        # parado sobe 1 − 0,95^j depois da 1ª medida (j = fechas depois da 1ª): 28 passos para 0,75.
-        esperado = 1 + math.ceil(math.log(1 - PORTAO) / math.log(1 - ALFA))
+        # parado sobe 1 − 0,95^j depois da 1ª medida (j = fechas depois da 1ª). A média (1 + parado) / 2 ≥ 0,75
+        # pede parado ≥ 0,5: j = 14, então a B abre no 15º fecho.
+        esperado = 1 + math.ceil(math.log(1 - (2 * PORTAO - 1)) / math.log(1 - ALFA))
         self.assertEqual(primeiro, esperado)
+
+    def test_media_das_celulas_abre_a_fatia_b(self):
+        # 11/11 (§5.1): a B abre pela média de reto e parado no portão. Com reto 0,60 e parado 0,95, a média
+        # é 0,775 e abre; com parado 0,80, a média é 0,70 e não abre.
+        for parado, abre in ((0.95, True), (0.80, False)):
+            with self.subTest(parado=parado):
+                cur = novo(SEM_CARENCIA)
+                cur.celulas[cid(cur, "ANDAR", "reto")].s = 0.60
+                cur.celulas[cid(cur, "ANDAR", "parado")].s = parado
+                cur.fecha_iteracao()
+                self.assertEqual(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta, abre)
+
+    def test_rampa_da_fatia_b_entra_com_teto_e_sobe_por_degrau(self):
+        # 11/11 (§5.3): a B entra com fração ≤ rampa_fatia_inicio e o teto sobe rampa_fatia_passo a cada
+        # rampa_fatia_its fechos. O excedente vai para o ANDAR, então a soma continua 1.
+        cur = novo(SEM_CARENCIA)
+        while cur.fracoes_fatias()[1].item() == 0:
+            fecha(cur)
+        self.assertLessEqual(cur.fracoes_fatias()[1].item(), B.rampa_fatia_inicio + 1e-9)
+        self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
+        for _ in range(B.rampa_fatia_its):
+            fecha(cur)
+        self.assertLessEqual(cur.fracoes_fatias()[1].item(), B.rampa_fatia_inicio + B.rampa_fatia_passo + 1e-9)
+        self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
 
 
 class TestAberturaDeFatiaC(unittest.TestCase):
@@ -174,6 +199,16 @@ class TestSubidaDeNivel(unittest.TestCase):
         for k in range(1, 201):
             fecha(cur)
             self.assertEqual(cur.nivel("PEGAR"), min(k // 50, 4), f"fecha {k}")
+
+    def test_nivel_sobe_pela_media_das_velocidades_mesmo_com_uma_em_0_70(self):
+        # 11/11 (§5.1): a subida exige a média das células de velocidade no portão, não todas: (0,70 + 4·0,80) / 5 = 0,78
+        cur = novo(dataclasses.replace(B, iters_min_nivel=0))
+        for tp in balanceador.VELOCIDADE["ANDAR"]:
+            c = cur.celulas[cid(cur, "ANDAR", tp)]
+            c.aberta, c.s = True, 0.80
+        cur.celulas[cid(cur, "ANDAR", "reto")].s = 0.70
+        cur.fecha_iteracao()
+        self.assertEqual(cur.nivel("ANDAR"), 1)
 
 
 class TestRetomada(unittest.TestCase):
@@ -331,6 +366,24 @@ class TestEstado(unittest.TestCase):
                 ids2, f2 = c2.fracoes_celulas(tarefa)
                 self.assertEqual(ids1, ids2)
                 self.assertTrue(torch.allclose(f1, f2))
+
+    def test_it_abertura_vai_ao_estado_e_volta_no_carrega(self):
+        # 11/11 (§5.3): a rampa precisa do fecho em que cada fatia abriu; o estado leva isso ao checkpoint
+        c = novo()
+        fecha(c)  # a B abre no 1º fecho, com sucesso total
+        self.assertEqual(c.estado()["it_abertura"], [0, 1, None])
+        c2 = novo()
+        c2.carrega(c.estado())
+        self.assertEqual(c2.estado()["it_abertura"], [0, 1, None])
+        self.assertTrue(torch.allclose(c2.fracoes_fatias(), c.fracoes_fatias()))
+
+    def test_estado_sem_it_abertura_carrega_o_padrao(self):
+        # 11/11 (§5.3): um checkpoint sem a chave carrega com a rampa de fora (só o ANDAR abre na 0)
+        c = novo()
+        est = c.estado()
+        del est["it_abertura"]
+        c.carrega(est)
+        self.assertEqual(c.estado()["it_abertura"], [0, None, None])
 
 
 if __name__ == "__main__":
