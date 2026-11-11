@@ -235,6 +235,17 @@ Atualize a docstring (P4: caixa e pelve). O `dpelve` já chega pelos dois chamad
 `comando.py`, que calcula o σ); confira que o `dpelve` do `comando.py` no P4 é a altura da pelve menos a
 referência (`pelve_de_pe` e `pelve_com_caixa` valem 0,789 m nos três tamanhos).
 
+A mesma conta existe em `g1_v3/parte0/item1_phi.py`, função `_distancia`, e os testes
+`test_recompensas_e.py::TestPassoAPassoComItem1` comparam as duas. Aplique lá a mesma regra:
+
+```python
+    d_p4 = np.hypot(d_caixa, (tr["pelve"] - refs["pelve_pe"]) * (K.tol_caixa_p4 / K.tol_pelve_p4))
+    return np.where(np.isin(idx, PALMA), d_palma,
+                    np.where(idx == NOMES.index("P4"), d_p4, np.where(np.isin(idx, CAIXA), d_caixa, d_pose)))
+```
+
+e atualize a docstring dela. Não mude mais nada nesse arquivo.
+
 ### 6.5 Deriva do parado em `comando.py`
 
 - `sucesso_do_segmento` ganha o parâmetro final `deriva_pos_m=None`. Dentro:
