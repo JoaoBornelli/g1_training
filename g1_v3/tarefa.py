@@ -39,11 +39,12 @@ def rl_cfg():
     cfg.actor.obs_normalization = False
     cfg.critic.obs_normalization = False
     cfg.algorithm.class_name = algoritmo.CAMINHO
-    # O std é aprendido: fica onde a vantagem (que o baixa) e a entropia (que o sobe) se anulam. Com a renda em escada,
-    # 0,005 fez o std subir +0,03/100 its (poc6, 0,38 → 0,73; a política amostrada perdia a caixa no P4) e 0 o fez cair
-    # −0,013/100 its (poc7, 0,37 → 0,24). O zero da deriva interpolada fica em ~0,0015; 0,003 fica um pouco acima, para o
-    # std voltar a subir devagar a partir de 0,24 (estimativa: ~+0,013/100 its). Antes: 0,01 na poc2 e no g1_limpo.
-    cfg.algorithm.entropy_coef = 0.003
+    # O std é aprendido: fica onde a vantagem (que o baixa) e a entropia (que o sobe) se anulam. Medido com a renda em
+    # escada: 0,005 → +0,03/100 its (poc6, 0,38 → 0,73); 0 → −0,013/100 its (poc7, 0,37 → 0,24); 0,003 → +0,021/100 its
+    # (retomada da 9600) e +0,052/100 its (poc8, 0,24 → 0,47). A pega leve perde o contato com o std acima de ~0,3
+    # (duas palmas 72 → 38 % na poc8). 0 de novo (11/11) para isolar o portão de firmeza (`knobs.margem_pega`) a partir
+    # do model_9300, que treinou com 0. Subir só depois de a pega ficar firme. Antes: 0,01 na poc2 e no g1_limpo.
+    cfg.algorithm.entropy_coef = 0.0
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 
