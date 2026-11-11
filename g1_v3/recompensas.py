@@ -233,12 +233,14 @@ def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_g
     return torch.where(indice >= 0, d, torch.zeros_like(d))
 
 
-def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_graus, contatos, desvio_tronco_graus,
+def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_graus, maos, desvio_tronco_graus,
                     desvio_recuo, desvio_com, dois_pes, a, k) -> dict:
     """Portões de Φ, cada um em [0, 1] (E4; §6.2 `Alvos`, PD-19, PD-35). 1 fora do intervalo em que o portão vale.
 
     "desloc": P0–P2 pela caixa na pega, B3–B4 pelo ponto de apoio; "incl": P2–B2, com `incl_lim_graus` do degrau;
-    "maos": P2–B2, contatos/2 (PD-19); "tronco": faixa do tronco, do lado de fora só, 1 no B4 (F9 P2); "recuo": fora
+    "maos": P2–B2, o valor `maos` (E,) em [0, 1] de quem chama: a cadeia passa contatos/2 (PD-19; o invariante exige
+    1) e o `_phi_env` passa a firmeza da pega, tanh(min F / F_pega) (11/11; S §9.1: rampa por grandeza).
+    "tronco": faixa do tronco, do lado de fora só, 1 no B4 (F9 P2); "recuo": fora
     do B4; "com": só com os dois pés (PD-35). Desvios são não negativos (quem chama tira o módulo; o tronco entra
     com relu(incl − IK), S §8.2). Os intervalos são os de `parte0/item1_phi`.
     "com": `desvio_com` = relu(faixa_com − margem), 1 com margem ≥ faixa_com e 0 com margem ≤ 0 (R2, 29/10).
@@ -250,7 +252,7 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     return dict(
         desloc=desloc,
         incl=torch.where(dentro, rampa(incl_graus, incl_lim_graus, k.delta_incl_graus), um),
-        maos=torch.where(dentro, contatos.float().sum(-1) / 2.0, um),
+        maos=torch.where(dentro, maos, um),
         tronco=torch.where(indice == _B4, um, rampa(desvio_tronco_graus, k.faixa_tronco_graus, k.delta_tronco_graus)),
         recuo=torch.where(indice == _B4, um, rampa(desvio_recuo, k.faixa_recuo, k.delta_recuo)),
         com=torch.where(dois_pes, rampa(desvio_com, 0.0, k.delta_com), um),
@@ -473,8 +475,8 @@ def _phi_env(env, indice, sigma):
     xy = caixa_w[:, :2]
     rec = (xy - robo.data.root_link_pos_w[:, :2]).norm(dim=-1)  # recuo medido, como em `cerca_recuo`
     palmas_w = robo.data.site_pos_w[:, robo.find_sites(_PALMAS_SITIOS)[0]]  # (E,2,3)
-    palmas_c = torch.einsum("eij,eki->ekj", alvos.frame_da_caixa(quat, estimador.yaw(robo.data.root_link_quat_w)),
-                            palmas_w - caixa_w[:, None])
+    R_caixa = alvos.frame_da_caixa(quat, estimador.yaw(robo.data.root_link_quat_w))
+    palmas_c = torch.einsum("eij,eki->ekj", R_caixa, palmas_w - caixa_w[:, None])
     ref_do = ref_do_alvo(env, indice)
     dpelve = env.scene["altura_pelve"].data.heights[:, 0] - ref_do[:, 6]
     d = distancia_do_alvo(indice, palmas_c, caixa_w, alvo_da_caixa_w(env, indice), dpelve,
@@ -487,9 +489,14 @@ def _phi_env(env, indice, sigma):
     cantos, com, dois = _pes_e_com(env)
     # desloc do apoio = 0 com `v3_perdeu`: o B4 da perda não tem ponto de apoio, e o portão vale 1 (S8, 29/10)
     desloc_apoio = torch.where(env.v3_perdeu, torch.zeros_like(xy[:, 0]), (xy - env.v3_ponto_apoio[:, :2]).norm(dim=-1))
+    # mãos: firmeza da pega, e não a contagem dos contatos (11/11, `knobs.margem_pega`). F_pega = margem · m·g / (2μ)
+    faces = env.scene["caixa_faces"].data
+    f_pega = R.margem_pega * env.v3_massa * float(-env.sim.mj_model.opt.gravity[2]) / (2.0 * ATIVO.dr.atrito_pad[0])
+    maos = torch.tanh(potencial.custo_aperto(
+        *forcas_por_face(faces.normal, faces.force, faces.found > 0, R_caixa), f_pega))
     portoes = portoes_do_alvo(
         indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), desloc_apoio,
-        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), _contato_palmas(env),
+        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), maos,
         torch.relu(incl_torso(env) - torch.rad2deg(ref_do[:, 7])), (rec - _recuo_ref(env, indice)).abs(),
         torch.relu(K.faixa_com - margem_com(com, cantos)), dois, a, K)
     return phi_do_alvo(indice, d, sigma, fator, portoes)

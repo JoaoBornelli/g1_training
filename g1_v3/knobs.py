@@ -303,6 +303,12 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # recalibrar na fase I pelo `Episodio/aceleracao_da_caixa` (30/10, P8, P10; a spec dizia 2,9 e 17)
     sacudida_norma: tuple = (5.04, 31.56)
     F_ref: float = 49.0  # S §8.2, §11.5: força de referência do aperto (N)
+    # 11/11: o portão `maos` do Φ paga a firmeza da pega, tanh(min(F_esq, F_dir) / F_pega), com F_pega = margem_pega ·
+    # m·g / (2μ) e μ = a borda de baixo de `DR.atrito_pad` (a conta do g1_limpo `_forca_ref`, com margem). Com o contato
+    # contado (0, 1 ou 2), 1 N já pagava tudo: medido no model_9300, a palma mais fraca apertava 12 N (p50) no P4, 1,5 a 3×
+    # o mínimo do atrito, e uma palma soltava em 0,2 s em 65 a 86 % dos passos. Com 2,5: F_pega = 20,4 N para 1 kg e
+    # 102 N para 5 kg; o portão vale 0,53 a 12 N e 0,96 a 2·F_pega. O excesso de força é do `aperto`, pelo degrau.
+    margem_pega: float = 2.5
     terminacao: float = -300.0  # S §10; 09/11: −300 para queda > perda_caixa 240 (escada medida)
     perda_caixa: float = 240.0  # S §10; 09/11: fecha "perda > volta" (86) e a (2a) (234) da escada medida; antes 28,0515
     sigma_pouso: tuple = (1.0, 0.35)  # S §9.1: σ do pouso (m/s), (início; refino)

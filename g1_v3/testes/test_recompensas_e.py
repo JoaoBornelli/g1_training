@@ -67,7 +67,7 @@ class _Caminho:
             self.idx,
             T(np.linalg.norm(xy - self.pts["caixa0"][:2], axis=1)),
             T(np.linalg.norm(xy - self.pts["apoio"][:2], axis=1)),
-            T(self.tr["incl"]), K.incl_inicio_graus, T(contatos),
+            T(self.tr["incl"]), K.incl_inicio_graus, T(contatos.sum(1) / 2.0),
             T(np.maximum(self.dtronco, 0)),  # F9 P2: o portão do tronco é de um lado só; o chamador passa relu(incl − IK)
             T(np.abs(np.linalg.norm(xy, axis=1) - np.nan_to_num(rec))),
             torch.zeros(self.n, dtype=torch.float64), torch.zeros(self.n, dtype=torch.bool), self.a, K)
@@ -262,12 +262,13 @@ class TestPortoes(unittest.TestCase):
     """portoes_do_alvo: cada termo em [0, 1]; "maos" e "com" pelas regras do plano (PD-19, PD-35)."""
 
     def _p(self, idx, contatos=((True, True),), dois_pes=False, com=0.0):
-        """Portões de um alvo com os outros desvios em 0 (dentro de todas as faixas)."""
+        """Portões de um alvo com os outros desvios em 0 (dentro de todas as faixas). `maos` entra como a cadeia o
+        passa: contatos/2 (11/11: o portão recebe o valor pronto; a recompensa passa a firmeza da pega)."""
         def um(v):
             return torch.tensor([v], dtype=torch.float64)
         return recompensas.portoes_do_alvo(
             torch.tensor([idx]), um(0.0), um(0.0), um(0.0), K.incl_inicio_graus,
-            torch.tensor(contatos), um(0.0), um(0.0), um(com), torch.tensor([dois_pes]),
+            torch.tensor(contatos).double().sum(-1) / 2.0, um(0.0), um(0.0), um(com), torch.tensor([dois_pes]),
             torch.tensor([A], dtype=torch.float64), K)
 
     def test_maos_meio_com_um_contato_no_p3(self):

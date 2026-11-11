@@ -39,7 +39,7 @@ class InvarianteDepoisDoApoio(unittest.TestCase):
         indice = t(B3, torch.long)
         zeros = torch.zeros(1)
         portoes = recompensas.portoes_do_alvo(
-            indice, zeros, t(0.03), zeros, t(30.0), torch.ones(1, 2, dtype=torch.bool), zeros, zeros, zeros,
+            indice, zeros, t(0.03), zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
             torch.tensor([True]), t(0.1), A)
         self.assertAlmostEqual(portoes["desloc"].item(), 0.5, delta=1e-5)
 
@@ -51,7 +51,7 @@ class PhiDoB2(unittest.TestCase):
         indice = t(B2, torch.long)
         zeros = torch.zeros(1)
         portoes = recompensas.portoes_do_alvo(
-            indice, zeros, zeros, zeros, t(30.0), torch.ones(1, 2, dtype=torch.bool), zeros, zeros, zeros,
+            indice, zeros, zeros, zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
             torch.tensor([True]), t(0.1), A)
         d, sigma = t(0.2), t(0.5)
         phi = recompensas.phi_do_alvo(indice, d, sigma, t(0.44), portoes)
@@ -68,7 +68,7 @@ class PhiDoB2(unittest.TestCase):
                 (B4, 2.0, 2.0, 0.53788)):
             indice = t(alvo, torch.long)
             portoes = recompensas.portoes_do_alvo(
-                indice, zeros, zeros, zeros, t(30.0), torch.ones(1, 2, dtype=torch.bool), zeros, zeros, zeros,
+                indice, zeros, zeros, zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
                 torch.tensor([True]), t(0.1), A)
             phi = recompensas.phi_do_alvo(indice, t(d), t(sigma), t(1.0), portoes)
             self.assertAlmostEqual(phi.item(), esperado, delta=1e-4)
@@ -78,7 +78,7 @@ class PhiDoB2(unittest.TestCase):
         indice = t(-1, torch.long)
         zeros = torch.zeros(1)
         portoes = recompensas.portoes_do_alvo(
-            indice, zeros, zeros, zeros, t(30.0), torch.ones(1, 2, dtype=torch.bool), zeros, zeros, zeros,
+            indice, zeros, zeros, zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
             torch.tensor([True]), t(0.1), A)
         phi = recompensas.phi_do_alvo(indice, t(0.2), t(0.5), t(0.44), portoes)
         self.assertEqual(phi.item(), 0.0)
@@ -87,8 +87,9 @@ class PhiDoB2(unittest.TestCase):
 class F9PortaoDoTronco(unittest.TestCase):
     """F9 P2 / R1: o desvio do tronco que entra no portão é de um lado só, relu(incl − IK) (S §8.2); no B4 vale 1."""
 
-    def _portoes(self, indice, tronco_graus, ik_graus):
-        """Portões que `_phi_env` monta, com o tronco e a referência do tronco dados; o resto do env em repouso."""
+    def _portoes(self, indice, tronco_graus, ik_graus, forca_N=0.0, massa=1.0):
+        """Portões que `_phi_env` monta, com o tronco e a referência do tronco dados; o resto do env em repouso.
+        `forca_N`: força normal de cada palma nas faces ±y da caixa (sensor `caixa_faces`, 12 fatias)."""
         class Cena(dict):
             env_origins = torch.zeros(1, 3)
 
@@ -99,13 +100,17 @@ class F9PortaoDoTronco(unittest.TestCase):
             find_sites=lambda nomes: ([0, 1], None))
         caixa = types.SimpleNamespace(data=types.SimpleNamespace(
             root_link_pos_w=torch.zeros(1, 3), root_link_quat_w=quat, root_link_lin_vel_w=torch.zeros(1, 3)))
+        normal, achado = torch.zeros(1, 12, 3), torch.zeros(1, 12)
+        normal[0, 0, 1], normal[0, 1, 1], achado[0, :2] = 1.0, -1.0, 1.0  # fatia 0: face +y; fatia 1: face −y
         cena = Cena(robot=robo, box=caixa, altura_pelve=types.SimpleNamespace(
-            data=types.SimpleNamespace(heights=torch.zeros(1, 1))))
+            data=types.SimpleNamespace(heights=torch.zeros(1, 1))), caixa_faces=types.SimpleNamespace(
+            data=types.SimpleNamespace(normal=normal, force=normal * forca_N, found=achado)))
         env = types.SimpleNamespace(
             device="cpu", scene=cena, v3_meia=t(0.1), v3_topo_destino=t(0.0), v3_degrau=t(0, torch.long),
             v3_caixa_pega_w=torch.zeros(1, 3), v3_perdeu=torch.zeros(1, dtype=torch.bool),
             v3_ponto_apoio=torch.zeros(1, 3), v3_alvo_idx=t(indice, torch.long), v3_sigma=t(0.3),
-            v3_ref=None)
+            v3_ref=None, v3_massa=t(massa), sim=types.SimpleNamespace(mj_model=types.SimpleNamespace(
+                opt=types.SimpleNamespace(gravity=(0.0, 0.0, -9.81)))))
         ref_do = torch.zeros(1, 8)
         ref_do[:, 7] = math.radians(ik_graus)
         espiado = {}
@@ -119,13 +124,21 @@ class F9PortaoDoTronco(unittest.TestCase):
                 mock.patch.object(recompensas, "incl_torso", return_value=t(tronco_graus)), \
                 mock.patch.object(recompensas, "_pes_e_com",
                                   return_value=(torch.zeros(1, 8, 2), torch.zeros(1, 2), t(True, torch.bool))), \
-                mock.patch.object(recompensas, "_contato_palmas", return_value=torch.ones(1, 2, dtype=torch.bool)), \
                 mock.patch.object(recompensas, "_recuo_ref", return_value=torch.zeros(1)), \
                 mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
                 mock.patch.object(recompensas, "distancia_do_alvo", return_value=torch.zeros(1)), \
                 mock.patch.object(recompensas, "portoes_do_alvo", side_effect=espia):
             recompensas._phi_env(env, env.v3_alvo_idx, env.v3_sigma)
         return espiado["g"]
+
+    def test_maos_paga_a_firmeza_da_pega_pelo_peso(self):
+        # 11/11: maos = tanh(min F / F_pega), F_pega = margem_pega · m·g / (2μ), μ = DR.atrito_pad[0]. Com 1 kg e 20 N
+        # por palma: F_pega = 2,5 · 9,81 / 1,2 = 20,44 N → tanh(0,9786) = 0,7526. Com 5 kg a mesma força vale 5× menos
+        # no argumento: tanh(0,1957) = 0,1933. Sem força vale 0; fora de P2–B2 vale 1.
+        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0)["maos"].item(), 0.7526, delta=1e-3)
+        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0, massa=5.0)["maos"].item(), 0.1933, delta=1e-3)
+        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 0.0)
+        self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
 
     def test_tronco_vertical_com_ik_de_30_graus_da_portao_1(self):
         # F9 P2: tronco vertical (0°) com a IK em 30° está do lado livre: o portão vale 1 (hoje, |0 − 30| dá 0)

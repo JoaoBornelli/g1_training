@@ -134,7 +134,9 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
                       _g(x_ini, K.desloc_p0p2_frac * A_CAIXA, K.delta_p0p2_frac * A_CAIXA), 1.0)
     g_desl = np.where(np.isin(idx, DESLOC_BOTAR), _g(x_apo, K.desloc_b2b4, K.delta_b2b4), g_desl)
     g_incl = np.where(maos, _g(tr["incl"], K.incl_inicio_graus, K.delta_incl_graus), 1.0)
-    # g_mãos = contatos/2; contato = palma a até tol_palma do ponto do P1 (⚠ o plano não dá o contato em número)
+    # g_mãos = contatos/2; contato = palma a até tol_palma do ponto do P1 (⚠ o plano não dá o contato em número).
+    # ⚠ 11/11: a recompensa paga a firmeza, tanh(min F / F_pega); a trajetória daqui não tem força, e contatos/2 é o
+    # portão da cadeia (o teto do da recompensa).
     contato = np.linalg.norm(palmas - caixa[:, None, :] - ALVO_P1, axis=2) <= K.tol_palma
     g_maos = np.where(maos, contato.sum(1) / 2.0, 1.0)
     # faixa: tronco e recuo (x = |desvio| da referência); o recuo não vale no B4. O CoM não entra (ver a saída)

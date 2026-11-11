@@ -392,8 +392,8 @@ class CadeiaCmd(CommandTerm):
         desl = torch.where(env.v3_perdeu, zero, torch.where(tar == BOTAR, desl_apoio, desl))
         # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
         g = recompensas.portoes_do_alvo(
-            idx, desl, zero, m["incl_graus"], recompensas.incl_lim(env), m["contatos"], zero, zero, zero,
-            torch.ones_like(idx, dtype=torch.bool), a, A)
+            idx, desl, zero, m["incl_graus"], recompensas.incl_lim(env), m["contatos"].float().sum(-1) / 2.0,
+            zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
         inv = g["desloc"] * g["incl"] * g["maos"]
         # PEGAR
         d_palmas = (m["palmas_c"] - alvos.palmas_alvo_caixa(idx, a, A)).norm(dim=-1)
