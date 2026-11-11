@@ -152,5 +152,23 @@ class SegmentoTest(unittest.TestCase):
         self.assertFalse(bool(ok))
 
 
+class DerivaDoParado(unittest.TestCase):
+    def _parado(self, dpos, deriva_pos_m=None):
+        # Comando zero (canal lin inativo): só a deriva de posição decide o eixo linear
+        return comando.sucesso_do_segmento(
+            torch.zeros(1, 3), torch.zeros(1, 2), torch.ones(1, 2), t1(dpos), t1(0.0), t1(5.0), t1(1.5),
+            t1(False, torch.bool), t1(False, torch.bool), t1(0.0), t1(False, torch.bool), K,
+            deriva_pos_m=deriva_pos_m)
+
+    def test_deriva_de_20_cm_passa_com_o_limite_de_25_cm(self):
+        # §6.5: o limite do parado sobe de deriva_pos_inicio (0,25 m) a deriva_pos_m (0,10 m) pela restrição
+        _, suc = self._parado(0.20, deriva_pos_m=0.25)
+        self.assertTrue(bool(suc[0]))
+
+    def test_deriva_de_20_cm_falha_sem_o_parametro(self):
+        # Sem o parâmetro vale k.deriva_pos_m (0,10 m): 0,20 m falha
+        _, suc = self._parado(0.20)
+        self.assertFalse(bool(suc[0]))
+
 if __name__ == "__main__":
     unittest.main()

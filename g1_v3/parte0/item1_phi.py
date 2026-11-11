@@ -93,7 +93,7 @@ def pontos_de(tr) -> dict:
 
 def _distancia(tr, alvo, refs):
     """d na medida do alvo corrente (E4): palmas (média das duas) em P0–P2 e B3; distância da caixa
-    ao alvo em P3, P4, B1, B2; em B4, √((Δpelve/0,03)² + (Δtronco/5°)²)."""
+    ao alvo em P3, B1, B2; em P4 (11/11), a mesma com a pelve; em B4, √((Δpelve/0,03)² + (Δtronco/5°)²)."""
     idx = tr["indice"]
     rel = tr["palmas"] - tr["caixa"][:, None, :]
     alvo_rel = A.palmas_alvo_caixa(torch.as_tensor(idx, dtype=torch.long),
@@ -102,7 +102,9 @@ def _distancia(tr, alvo, refs):
     d_caixa = np.linalg.norm(tr["caixa"] - alvo, axis=1)
     d_pose = np.hypot((tr["pelve"] - refs["pelve_pe"]) / K.tol_pelve_b4,
                       np.degrees(tr["tronco"] - refs["tronco"][idx]) / K.tol_tronco_b4_graus)
-    return np.where(np.isin(idx, PALMA), d_palma, np.where(np.isin(idx, CAIXA), d_caixa, d_pose))
+    d_p4 = np.hypot(d_caixa, (tr["pelve"] - refs["pelve_pe"]) * (K.tol_caixa_p4 / K.tol_pelve_p4))
+    return np.where(np.isin(idx, PALMA), d_palma,
+                    np.where(idx == NOMES.index("P4"), d_p4, np.where(np.isin(idx, CAIXA), d_caixa, d_pose)))
 
 
 def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:

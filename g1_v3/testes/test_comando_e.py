@@ -146,7 +146,7 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         env.v3_fim = torch.zeros(1, dtype=torch.bool)
         env.v3_vz_caixa_ant = torch.zeros(1)
         env.v3_odo = mock.Mock()
-        env.v3_cur = types.SimpleNamespace(degrau_global=lambda: 3)  # H5: a deriva sai do degrau global
+        env.v3_cur = types.SimpleNamespace(degrau_global=lambda: 3, restricao=lambda: 1.0)  # H5: a deriva sai do degrau global
         env.scene = {"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))}
         obj = _cadeia_sem_env(env)
         obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[1.0, 2.0, 0.5]]),
@@ -360,7 +360,7 @@ def _cadeia_de_trechos(n=1):
     z = lambda *forma: torch.zeros(n, *forma)  # noqa: E731
     b = lambda: torch.zeros(n, dtype=torch.bool)  # noqa: E731
     cur = types.SimpleNamespace(registros=[], id_celula=lambda tarefa, tipo: 0, niveis_abertos=lambda nome: 0,
-                                degrau=lambda nome: 0)
+                                degrau=lambda nome: 0, restricao=lambda: 1.0)
     cur.registra = lambda celula, num, suc: cur.registros.append((num, suc))
     env = types.SimpleNamespace(
         device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), scene={}, step_dt=DT,

@@ -6,11 +6,12 @@ Convenções: E = 1 salvo onde a conta pede outro; `DT` = 0,02 s (`env.step_dt`)
 """
 import types
 import unittest
+from unittest import mock
 
 import torch
 
 from g1_v3 import recompensas
-from g1_v3.knobs import ALVOS, ATIVO, TAREFAS
+from g1_v3.knobs import ALVOS, ATIVO, JUNTAS, TAREFAS, TAU_MAX
 
 DT = 0.02
 NORMA_LIN, NORMA_ANG = ATIVO.recompensa.sacudida_norma  # (5,04; 31,56): o p50 medido no 23250
@@ -225,6 +226,53 @@ class PorDegrau(unittest.TestCase):
         # Teste (H2, P20): o `_TAU_MAX` do módulo sai; a `cerca_torque` lê `knobs.TAU_MAX`.
         self.assertFalse(hasattr(recompensas, "_TAU_MAX"))
 
+
+class RestricaoPeloProgresso(unittest.TestCase):
+    """§6.1, §6.2 e §6.3 (11/11): os termos de estilo, as cercas do ANDAR e o σ₀ do giro seguem `restricao`."""
+    ANDAR, PEGAR = TAREFAS.index("ANDAR"), TAREFAS.index("PEGAR")
+
+    def _env(self, restricao):
+        return types.SimpleNamespace(num_envs=2, device="cpu", v3_tarefa=torch.tensor([self.ANDAR, self.PEGAR]),
+                                     v3_cur=types.SimpleNamespace(restricao=lambda: restricao))
+
+    def test_por_restricao_zero_vale_o_inicio(self):
+        f = recompensas.por_restricao(self._env(0.0), 0.25)
+        self.assertTrue(torch.allclose(f, torch.tensor([0.25, 0.25])))
+
+    def test_por_restricao_um_vale_um(self):
+        f = recompensas.por_restricao(self._env(1.0), 0.25)
+        self.assertTrue(torch.allclose(f, torch.tensor([1.0, 1.0])))
+
+    def test_por_restricao_so_andar_zera_so_o_andar(self):
+        f = recompensas.por_restricao(self._env(0.0), 0.0, so_andar=True)
+        self.assertTrue(torch.allclose(f, torch.tensor([0.0, 1.0])))
+
+    def test_vel_junta_com_restricao_zero_e_o_fator_do_inicio(self):
+        qd = torch.full((2, len(JUNTAS)), 0.5)
+        env = self._env(0.0)
+        env.scene = {"robot": types.SimpleNamespace(data=types.SimpleNamespace(joint_vel=qd))}
+        out = recompensas.vel_junta(env, ("ANDAR", "PEGAR"))
+        self.assertTrue(torch.allclose(out, recompensas.n_vel_junta(qd) * ATIVO.recompensa.estilo_inicio))
+
+    def test_cerca_torque_com_restricao_zero_so_zera_o_andar(self):
+        # Joelho a 90% do τ_max nos dois envs: o ANDAR (fator 0) zera, o PEGAR (fator 1) dá 0,5 como antes
+        tau = torch.zeros(2, len(JUNTAS), dtype=torch.float64)
+        tau[:, JUNTAS.index("left_knee_joint")] = 0.9 * torch.tensor(TAU_MAX, dtype=torch.float64)[JUNTAS.index("left_knee_joint")]
+        env = self._env(0.0)
+        env.scene = {"robot": types.SimpleNamespace(data=types.SimpleNamespace(qfrc_actuator=tau))}
+        out = recompensas.cerca_torque(env, ("ANDAR", "PEGAR"))
+        self.assertTrue(torch.allclose(out, torch.tensor([0.0, 0.5], dtype=torch.float64), atol=1e-5))
+
+    def test_sigma_zero_do_giro_segue_a_restricao(self):
+        # §6.3: σ₀ = 0,5 com restricao 0 e 0,15 (sigma_zero_ang) com restricao 1
+        for restricao, esperado in ((0.0, 0.5), (1.0, 0.15)):
+            with self.subTest(restricao=restricao), mock.patch.object(recompensas.potencial, "rastreio_normalizado") as rast:
+                env = self._env(restricao)
+                env.command_manager = types.SimpleNamespace(
+                    get_command=lambda nome: torch.zeros(2, 3),
+                    get_term=lambda nome: types.SimpleNamespace(v_media_b=torch.zeros(2, 3)))
+                recompensas._rastreio(env, linear=False)
+                self.assertAlmostEqual(float(rast.call_args.args[4]), esperado, places=9)
 
 if __name__ == "__main__":
     unittest.main()

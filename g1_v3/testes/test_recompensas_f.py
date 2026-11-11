@@ -161,7 +161,8 @@ class F9CercaPelveSemAlvo(unittest.TestCase):
         # Pelve a 0,789 m, pose de pé também a 0,789 m: custo 0. A referência do alvo (pelve 0) daria 0,709.
         ref = types.SimpleNamespace(pelve_de_pe=0.789, pelve_com_caixa=lambda a: torch.zeros(1))
         env = types.SimpleNamespace(
-            device="cpu", v3_tarefa=t(TAREFAS.index("PEGAR"), torch.long), v3_alvo_idx=t(-1, torch.long),
+            device="cpu", num_envs=1, v3_cur=types.SimpleNamespace(restricao=lambda: 1.0),
+            v3_tarefa=t(TAREFAS.index("PEGAR"), torch.long), v3_alvo_idx=t(-1, torch.long),
             v3_meia=t(0.1), v3_ref=ref,
             scene={"altura_pelve": types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.tensor([[0.789]])))})
         with mock.patch.object(recompensas, "ref_do_alvo", return_value=torch.zeros(1, 8)):

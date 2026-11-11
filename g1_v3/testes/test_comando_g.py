@@ -104,7 +104,7 @@ class FechoDoSegmentoNoTerreno(unittest.TestCase):
             v3_incl_max_seg=torch.tensor([float(incl)]),
             v3_cur=types.SimpleNamespace(
                 id_celula=lambda tarefa, tipo: CARREGAR_TERRENO if (tarefa, tipo) == ("CARREGAR", "terreno") else -1,
-                registra=mock.Mock()))
+                restricao=lambda: 1.0, registra=mock.Mock()))
         obj = _twist_falso(env)
         obj._env, obj.k = env, K
         obj.pose_ult = torch.zeros(1, 3)

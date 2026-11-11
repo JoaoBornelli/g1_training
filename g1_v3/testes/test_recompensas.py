@@ -131,7 +131,8 @@ class TestInvolucrosDeTorque(unittest.TestCase):
 
     def _env(self, tau, qd):
         robo = types.SimpleNamespace(data=types.SimpleNamespace(qfrc_actuator=tau, joint_vel=qd))
-        return types.SimpleNamespace(device="cpu", v3_tarefa=torch.tensor([0, 1, 2, 3]),
+        return types.SimpleNamespace(device="cpu", num_envs=4, v3_tarefa=torch.tensor([0, 1, 2, 3]),
+                                     v3_cur=types.SimpleNamespace(restricao=lambda: 1.0),  # 1: valor antigo dos termos
                                      scene={"robot": robo})
 
     def test_energia_com_29_juntas_da_forma_E(self):

@@ -221,15 +221,18 @@ def _em(indice, grupo):
 
 
 def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_graus, a, k) -> torch.Tensor:
-    """d do alvo corrente, na medida de §6.3 (E4). P0–P2 e B3: média das duas palmas no frame da caixa; P3, P4,
-    B1, B2: ‖caixa − alvo‖; B4: √((Δpelve/tol)² + (Δtronco/tol)²) (adimensional); −1: 0 (nunca NaN, §6.6).
+    """d do alvo corrente, na medida de §6.3 (E4). P0–P2 e B3: média das duas palmas no frame da caixa; P3, B1, B2:
+    ‖caixa − alvo‖; P4 (11/11, §6.4): √(‖caixa − alvo‖² + (Δpelve·tol_caixa/tol_pelve)²), a caixa e a pelve;
+    B4: √((Δpelve/tol)² + (Δtronco/tol)²) (adimensional); −1: 0 (nunca NaN, §6.6).
 
     palmas_c (E,2,3) no frame da caixa (PD-29); dpelve e dtronco_graus (E,). Mesma conta de `parte0/item1_phi`.
     """
     d_palma = (palmas_c - alvos.palmas_alvo_caixa(indice, a, k)).norm(dim=-1).mean(-1)
     d_caixa = (caixa_w - caixa_alvo_w).norm(dim=-1)
     d_pose = torch.hypot(dpelve / k.tol_pelve_b4, dtronco_graus / k.tol_tronco_b4_graus)
-    d = torch.where(_em(indice, _PALMA_ALVO), d_palma, torch.where(_em(indice, _CAIXA_ALVO), d_caixa, d_pose))
+    d_p4 = torch.hypot(d_caixa, dpelve * (k.tol_caixa_p4 / k.tol_pelve_p4))
+    d = torch.where(_em(indice, _PALMA_ALVO), d_palma,
+                    torch.where(indice == _P4, d_p4, torch.where(_em(indice, _CAIXA_ALVO), d_caixa, d_pose)))
     return torch.where(indice >= 0, d, torch.zeros_like(d))
 
 
@@ -365,7 +368,7 @@ def _rastreio(env, linear):
         c = cmd[:, 2].abs()
         erro2 = (cmd[:, 2] - v[:, 2]).pow(2)
         v2 = v[:, 2].pow(2)
-        sigma_zero = R.sigma_zero_ang
+        sigma_zero = balanceador.no_degrau(R.sigma_zero_ang_inicio, R.sigma_zero_ang, env.v3_cur.restricao(), 1)
     return potencial.rastreio_normalizado(erro2, c, v2, R.sigma_rastreio, sigma_zero, C.limiar_canal,
                                           R.piso_rastreio)
 
@@ -407,6 +410,15 @@ def por_degrau(env, ini, fim):
     """Valor do degrau da tarefa corrente, `balanceador.no_degrau` (§6.9; P1). Chamam: `incl_lim`, o pouso do `_phi_env`,
     o fator do B2 no `progresso`, `contato_laje`, `sacudida`, `aperto` e `terminacoes.chegada` (esta, de outro módulo)."""
     return balanceador.no_degrau(ini, fim, env.v3_degrau.float(), ATIVO.balanceador.degraus)
+
+
+def por_restricao(env, ini, so_andar=False):
+    """Fator (E,) das restrições que seguem o progresso (11/11; specs/g1-v3-treino-unico.md §2): `ini` com
+    `restricao` 0 e 1 com `restricao` 1. `so_andar`: o fator vale só nos envs da tarefa ANDAR; nos outros, 1."""
+    f = torch.full((env.num_envs,), balanceador.no_degrau(ini, 1.0, env.v3_cur.restricao(), 1), device=env.device)
+    if so_andar:
+        f = torch.where(env.v3_tarefa == TAREFAS.index("ANDAR"), f, torch.ones_like(f))
+    return f
 
 
 def incl_lim(env):
@@ -591,17 +603,17 @@ def vz(env, tarefas):
 
 def giro_xy(env, tarefas):
     """ω_x² + ω_y² da base, no frame da base. Todas as tarefas."""
-    return _fim(env, tarefas, n_giro_xy(env.scene["robot"].data.root_link_ang_vel_b[:, :2]))
+    return _fim(env, tarefas, n_giro_xy(env.scene["robot"].data.root_link_ang_vel_b[:, :2])) * por_restricao(env, R.estilo_inicio)
 
 
 def vel_junta(env, tarefas):
     """Σ q̇² nas 29 juntas. Todas as tarefas."""
-    return _fim(env, tarefas, n_vel_junta(env.scene["robot"].data.joint_vel))
+    return _fim(env, tarefas, n_vel_junta(env.scene["robot"].data.joint_vel)) * por_restricao(env, R.estilo_inicio)
 
 
 def acel_junta(env, tarefas):
     """Σ q̈² nas 29 juntas. Todas as tarefas."""
-    return _fim(env, tarefas, n_acel_junta(env.scene["robot"].data.joint_acc))
+    return _fim(env, tarefas, n_acel_junta(env.scene["robot"].data.joint_acc)) * por_restricao(env, R.estilo_inicio)
 
 
 def taxa_acao(env, tarefas):
@@ -614,7 +626,7 @@ def energia(env, tarefas):
     """Energia Σ|τ·q̇| com τ de `qfrc_actuator`, que o mjlab já devolve só com as 29 juntas (sem a base
     livre). Todas as tarefas."""
     robo = env.scene["robot"]
-    return _fim(env, tarefas, n_energia(robo.data.qfrc_actuator, robo.data.joint_vel))
+    return _fim(env, tarefas, n_energia(robo.data.qfrc_actuator, robo.data.joint_vel)) * por_restricao(env, R.estilo_inicio)
 
 
 def limite_junta(env, tarefas):
@@ -627,19 +639,19 @@ def limite_junta(env, tarefas):
 def desvio_bracos(env, tarefas):
     """Desvio dos 14 braços de `q_de_pe` (ANDAR) ou de `q_com_caixa` (CARREGAR)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _BRACOS))
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _BRACOS)) * por_restricao(env, R.estilo_inicio)
 
 
 def desvio_cintura(env, tarefas):
     """Desvio das 3 juntas da cintura (mesmo alvo dos braços)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _CINTURA))
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _CINTURA)) * por_restricao(env, R.estilo_inicio)
 
 
 def desvio_quadril(env, tarefas):
     """Desvio de hip_roll e hip_yaw das duas pernas (mesmo alvo dos braços)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _QUADRIL))
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _QUADRIL)) * por_restricao(env, R.estilo_inicio)
 
 
 def tronco_plano(env, tarefas):
@@ -664,7 +676,7 @@ def cerca_sola(env, tarefas):
 def cerca_giro(env, tarefas):
     """Giro do hip_yaw de cada perna para dentro, além de `lim_giro_graus` (S §9.3). Todas as tarefas."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_cerca_giro(q[:, _YAW_E], q[:, _YAW_D], R.lim_giro_graus))
+    return _fim(env, tarefas, n_cerca_giro(q[:, _YAW_E], q[:, _YAW_D], R.lim_giro_graus)) * por_restricao(env, 0.0, so_andar=True)
 
 
 def cerca_tronco(env, tarefas):
@@ -675,13 +687,13 @@ def cerca_tronco(env, tarefas):
     incl = incl_torso(env)
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
     ik = torch.where(manip, torch.rad2deg(ref_do_alvo(env, env.v3_alvo_idx)[:, 7]), torch.zeros_like(incl))
-    return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus))
+    return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus)) * por_restricao(env, 0.0, so_andar=True)
 
 
 def cerca_com(env, tarefas):
     """Margem do CoM combinado às arestas das solas, só com os dois pés em contato (PD-35; S §9.3)."""
     cantos, com, dois = _pes_e_com(env)
-    return _fim(env, tarefas, n_cerca_com(com, cantos, dois, R.lim_com))
+    return _fim(env, tarefas, n_cerca_com(com, cantos, dois, R.lim_com)) * por_restricao(env, 0.0, so_andar=True)
 
 
 def cerca_torque(env, tarefas):
@@ -689,7 +701,7 @@ def cerca_torque(env, tarefas):
     tau = env.scene["robot"].data.qfrc_actuator  # (E,29): o mjlab já tira a base livre
     tau_max = torch.tensor(TAU_MAX, dtype=tau.dtype, device=tau.device)
     pares = _PARES.to(tau.device)
-    return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque))
+    return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque)) * por_restricao(env, 0.0, so_andar=True)
 
 
 def cerca_pelve(env, tarefas):
@@ -705,7 +717,7 @@ def cerca_pelve(env, tarefas):
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
     manip = manip & (env.v3_alvo_idx >= 0)
     ik = torch.where(manip, ref_do_alvo(env, env.v3_alvo_idx)[:, 6].to(h), ik)
-    return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve))
+    return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve)) * por_restricao(env, 0.0, so_andar=True)
 
 
 def cerca_recuo(env, tarefas):

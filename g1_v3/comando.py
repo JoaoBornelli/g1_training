@@ -196,7 +196,7 @@ def tempo_da_ancora(t_abertura, t_empurrao, ancora_s) -> torch.Tensor:
 
 
 def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho, t_ancora, perdeu,
-                        carregar, incl_max_seg, terreno, k: Comando):
+                        carregar, incl_max_seg, terreno, k: Comando, deriva_pos_m=None):
     """(registra, sucesso), (E,) bool. Canal ativo (|c| ≥ limiar): razão ≥ portão. Canal zero: deriva da âncora.
     ⚠ `carregar` é "tarefa com caixa" (PEGAR, CARREGAR, BOTAR): PD-50, o registro exige não perder a caixa.
     Fase G (§6.3): a caixa que anda no `terreno` só passa com a inclinação máxima do segmento (`incl_max_seg`, graus)
@@ -204,7 +204,8 @@ def sucesso_do_segmento(cmd, int_proj, int_cmd, deriva_pos, deriva_rumo, t_fecho
     ativo_lin = cmd[:, :2].norm(dim=1) >= k.limiar_canal
     ativo_giro = cmd[:, 2].abs() >= k.limiar_canal
     razao = int_proj / int_cmd.clamp(min=1e-6)
-    ok_lin = torch.where(ativo_lin, razao[:, 0] >= k.razao_portao, deriva_pos < k.deriva_pos_m)
+    lim_pos = k.deriva_pos_m if deriva_pos_m is None else deriva_pos_m
+    ok_lin = torch.where(ativo_lin, razao[:, 0] >= k.razao_portao, deriva_pos < lim_pos)
     ok_giro = torch.where(ativo_giro, razao[:, 1] >= k.razao_portao, deriva_rumo < k.deriva_rumo_rad)
     sucesso = ok_lin & ok_giro & ~(carregar & perdeu)
     sucesso &= ~(carregar & terreno & (incl_max_seg > k.incl_max_terreno_graus))
@@ -678,7 +679,8 @@ class TwistV3(UniformVelocityCommand):
         reg, suc = sucesso_do_segmento(
             self.seg_cmd[ids], self.seg_proj[ids], self.seg_int[ids], dpos, drum,
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
-            terreno, k)
+            terreno, k,
+            deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, env.v3_cur.restricao(), 1))
         suc = suc & ~falha
         reg = reg | falha
         cel = self.seg_cel[ids]

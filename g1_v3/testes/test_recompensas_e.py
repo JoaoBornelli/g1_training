@@ -354,5 +354,23 @@ class TestFreioRampa(unittest.TestCase):
         self.assertAlmostEqual(self._custo(portao / 2), cheio / 2, places=4)
 
 
+class TestDistanciaDoP4(unittest.TestCase):
+    def test_p4_soma_a_pelve_na_escala_das_tolerancias(self):
+        # §6.4: P4 = √(d_caixa² + (Δpelve · tol_caixa/tol_pelve)²); caixa no alvo e pelve 3 cm → 0,05
+        z = torch.zeros(1, dtype=torch.float64)
+        d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64), z.repeat(3).reshape(1, 3),
+                                          z.repeat(3).reshape(1, 3), torch.tensor([0.03], dtype=torch.float64), z,
+                                          torch.tensor([A], dtype=torch.float64), K)
+        self.assertAlmostEqual(float(d[0]), 0.05, places=6)
+
+    def test_p4_com_pelve_no_alvo_e_a_caixa(self):
+        # §6.4: com Δpelve 0, o P4 é a distância da caixa (0,30 m em x → 0,30)
+        z = torch.zeros(1, dtype=torch.float64)
+        d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64),
+                                          torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
+                                          torch.zeros(1, 3, dtype=torch.float64), z, z,
+                                          torch.tensor([A], dtype=torch.float64), K)
+        self.assertAlmostEqual(float(d[0]), 0.30, places=6)
+
 if __name__ == "__main__":
     unittest.main()
