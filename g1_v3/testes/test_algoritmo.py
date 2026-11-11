@@ -9,11 +9,13 @@ Grupo pequeno (< 2 amostras), como no g1_limpo: o ANDAR fica com a vantagem CRUA
 são normalizados pela "manipulação inteira" (todas as amostras não-ANDAR do lote, o próprio grupo
 ralo incluído), que é o fallback que evita o NaN do std de uma amostra. Os testes repetem essa conta.
 """
+import types
 import unittest
 import unittest.mock
 
 import torch
 
+from rsl_rl.algorithms import PPO
 from rsl_rl.modules.normalization import EmpiricalNormalization
 
 from g1_v3.algoritmo import PISO_DESVIO, PPOPorTarefa, fixa_normalizador, normaliza_por_grupo
@@ -70,7 +72,7 @@ class TestFixaNormalizador(unittest.TestCase):
         nz = self._nz()
         self.assertLess(float(nz._std[0, 1]), 1e-6)  # sem o conserto: ganho de 100
         var_antes = nz._var.clone()
-        fixa_normalizador(nz, [slice(2, 4)])
+        fixa_normalizador(nz, [(slice(2, 4), 1.0)])
         self.assertAlmostEqual(float(nz._std[0, 0]), float(var_antes[0, 0]) ** 0.5, places=6)  # canal vivo: intacto
         self.assertAlmostEqual(float(nz._std[0, 1]), PISO_DESVIO)
         self.assertEqual(float(nz._var[0, 1]), float(var_antes[0, 1]))  # o piso não mexe na estatística
@@ -80,8 +82,17 @@ class TestFixaNormalizador(unittest.TestCase):
         self.assertAlmostEqual(float(saida[0, 2]), 1.0 / 1.01, places=5)  # o slot aceso entra como ~1, e não ~18
         self.assertLess(float(saida[0, 1]), 1.0 / PISO_DESVIO)  # o canal constante que muda: ganho < 20
 
+    def test_par_com_desvio_0_1_fixa_media_zero_e_escala_a_entrada(self):
+        nz = self._nz()
+        fixa_normalizador(nz, [(slice(2, 4), 0.1)])
+        self.assertEqual(nz._mean[0, 2:].tolist(), [0.0, 0.0])
+        self.assertAlmostEqual(float(nz._std[0, 2]), 0.1, places=6)
+        self.assertAlmostEqual(float(nz._var[0, 2]), 0.01, places=6)
+        saida = nz(torch.tensor([[0.0, 0.0, 0.1, 0.0]]))
+        self.assertAlmostEqual(float(saida[0, 2]), 0.1 / 0.11, places=5)  # 0,1 / (0,1 + 0,01), ~0,909
+
     def test_sem_normalizador_nao_faz_nada(self):
-        fixa_normalizador(torch.nn.Identity(), [slice(0, 2)])
+        fixa_normalizador(torch.nn.Identity(), [(slice(0, 2), 1.0)])
 
     def test_process_env_step_fixa_depois_do_update_do_pai(self):
         from rsl_rl.algorithms import PPO
@@ -89,13 +100,45 @@ class TestFixaNormalizador(unittest.TestCase):
         nz_a, nz_c = self._nz(), self._nz()
         alg.actor = unittest.mock.Mock(obs_normalizer=nz_a)
         alg.critic = unittest.mock.Mock(obs_normalizer=nz_c)
-        alg.fatias_fixas = {"actor": [slice(2, 4)]}
+        alg.fatias_fixas = {"actor": [(slice(2, 4), 1.0)]}
         with unittest.mock.patch.object(PPO, "process_env_step", return_value="pai") as pai:
             self.assertEqual(alg.process_env_step(1, 2, x=3), "pai")
         pai.assert_called_once_with(1, 2, x=3)
         self.assertEqual(nz_a._std[0, 2:].tolist(), [1.0, 1.0])
         self.assertAlmostEqual(float(nz_c._std[0, 1]), PISO_DESVIO)  # crítico sem fatia: só o piso
         self.assertLess(float(nz_c._std[0, 2]), 1.0)
+
+    def test_compute_returns_agrupa_por_tarefa_e_alvo(self):
+        # 4 envs, observação do crítico com 20 colunas: alvo one-hot em 0:10, 4 colunas de ruído, tarefa em 14:20.
+        # ANDAR (alvos 2 e 5) cai no grupo 0; PEGAR (alvos 3 e 7) cai em 1 + 1*10 + alvo.
+        obs = torch.zeros(1, 4, 20)
+        for env, (alvo, tarefa) in enumerate([(2, ANDAR), (5, ANDAR), (3, PEGAR), (7, PEGAR)]):
+            obs[0, env, alvo] = 1.0
+            obs[0, env, 14 + tarefa] = 1.0
+        st = types.SimpleNamespace(observations={"critic": obs}, returns=torch.ones(1, 4),
+                                   values=torch.zeros(1, 4), advantages=None)
+        alg = object.__new__(PPOPorTarefa)
+        alg.storage = st
+        alg.fatia_alvo = slice(0, 10)
+        with unittest.mock.patch.object(PPO, "compute_returns"), \
+                unittest.mock.patch("g1_v3.algoritmo.normaliza_por_grupo",
+                                    side_effect=lambda adv, g: adv) as norm:
+            alg.compute_returns(None)
+        self.assertEqual(norm.call_args[0][1].tolist(), [0, 0, 14, 18])
+
+    def test_compute_returns_sem_fatia_alvo_agrupa_so_pela_tarefa(self):
+        obs = torch.zeros(1, 4, 20)
+        for env, tarefa in enumerate([ANDAR, ANDAR, PEGAR, PEGAR]):
+            obs[0, env, 14 + tarefa] = 1.0
+        st = types.SimpleNamespace(observations={"critic": obs}, returns=torch.ones(1, 4),
+                                   values=torch.zeros(1, 4), advantages=None)
+        alg = object.__new__(PPOPorTarefa)
+        alg.storage = st
+        with unittest.mock.patch.object(PPO, "compute_returns"), \
+                unittest.mock.patch("g1_v3.algoritmo.normaliza_por_grupo",
+                                    side_effect=lambda adv, g: adv) as norm:
+            alg.compute_returns(None)
+        self.assertEqual(norm.call_args[0][1].tolist(), [0, 0, 1, 1])
 
 
 

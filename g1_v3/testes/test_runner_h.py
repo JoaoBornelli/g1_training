@@ -52,12 +52,15 @@ class RunnerHTest(unittest.TestCase):
         embrulha.assert_called_once_with()
         fixa.assert_called_once_with()
 
-    def _runner_com_obs(self, dim_ator=None):
+    def _runner_com_obs(self, dim_ator=None, com_alvo=False):
         # ator: giro(15) tarefa(30) caixa(55) mapa(882); crítico: giro(15) tarefa(30) niveis(4) tarefa_critico(6)
+        # com `com_alvo`, o crítico ganha o alvo_macro(10) depois da tarefa
+        critico = ["giro_base", "tarefa", "alvo_macro", "niveis", "tarefa_critico"] if com_alvo \
+            else ["giro_base", "tarefa", "niveis", "tarefa_critico"]
+        dims_critico = [(15,), (30,), (10,), (4,), (6,)] if com_alvo else [(15,), (30,), (4,), (6,)]
         om = types.SimpleNamespace(
-            active_terms={"actor": ["giro_base", "tarefa", "caixa", "mapa"],
-                          "critic": ["giro_base", "tarefa", "niveis", "tarefa_critico"]},
-            group_obs_term_dim={"actor": [(15,), (30,), (55,), (21, 42)], "critic": [(15,), (30,), (4,), (6,)]})
+            active_terms={"actor": ["giro_base", "tarefa", "caixa", "mapa"], "critic": critico},
+            group_obs_term_dim={"actor": [(15,), (30,), (55,), (21, 42)], "critic": dims_critico})
         nz = lambda d: types.SimpleNamespace(_mean=torch.zeros(1, d))
         obj = object.__new__(RunnerV3)
         obj.env = types.SimpleNamespace(unwrapped=types.SimpleNamespace(observation_manager=om))
@@ -65,11 +68,19 @@ class RunnerHTest(unittest.TestCase):
                                         critic=types.SimpleNamespace(obs_normalizer=torch.nn.Identity()))
         return obj
 
-    def test_fixa_obs_acha_as_fatias_pelo_nome_do_termo(self):
+    def test_fixa_obs_acha_as_fatias_pelo_nome_do_termo_com_o_desvio(self):
         obj = self._runner_com_obs()
         obj._fixa_obs()
-        self.assertEqual(obj.alg.fatias_fixas, {"actor": [slice(15, 45), slice(100, 982)],
-                                                "critic": [slice(15, 45), slice(45, 49), slice(49, 55)]})
+        self.assertEqual(obj.alg.fatias_fixas, {
+            "actor": [(slice(15, 45), 1.0), (slice(45, 100), 0.1), (slice(100, 982), 1.0)],
+            "critic": [(slice(15, 45), 1.0), (slice(45, 49), 1.0), (slice(49, 55), 1.0)]})
+
+    def test_fixa_obs_guarda_a_fatia_do_alvo_macro_no_critico(self):
+        obj = self._runner_com_obs(com_alvo=True)
+        obj._fixa_obs()
+        self.assertEqual(obj.alg.fatia_alvo, slice(45, 55))
+        self.assertEqual(obj.alg.fatias_fixas["critic"], [(slice(15, 45), 1.0), (slice(45, 55), 1.0),
+                                                          (slice(55, 59), 1.0), (slice(59, 65), 1.0)])
 
     def test_fixa_obs_falha_se_a_entrada_da_rede_nao_e_a_soma_dos_termos(self):
         with self.assertRaises(AssertionError):

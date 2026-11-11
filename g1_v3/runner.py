@@ -22,10 +22,14 @@ from mjlab.rl import MjlabOnPolicyRunner
 
 __all__ = ["RunnerV3"]
 
-# Termos da observação que ficam FORA do normalizador (média 0, desvio 1; `algoritmo.fixa_normalizador`): os one-hot,
-# os canais do currículo, que são constantes por milhares de iterações, e o `mapa`, que já vem em [0, 1] e é ruído no
-# terreno plano (normalizado, ele seria 882 canais de ruído com desvio 1). Nomes de `observacoes.grupos`.
-_FIXOS = ("tarefa", "mapa", "alvo_macro", "niveis", "degrau", "massa", "tarefa_critico")
+# Termos da observação com escala FIXA (média 0 e o desvio abaixo; `algoritmo.fixa_normalizador`). Nomes de
+# `observacoes.grupos`. Os one-hot e os canais do currículo valem 1: são constantes por milhares de iterações. O `mapa`
+# já vem em [0, 1] e, normalizado, seria ruído no terreno plano. Os termos da caixa valem 0,1: enquanto só há ANDAR eles
+# valem zero, e com a estatística empírica entrariam com ganho de 16,7 na abertura da fatia B. Os desvios vêm da medida
+# no model_11200.
+_FIXOS = {"tarefa": 1.0, "mapa": 1.0, "alvo_macro": 1.0, "niveis": 1.0, "degrau": 1.0, "massa": 1.0,
+          "tarefa_critico": 1.0, "caixa": 0.1, "caixa_verdade": 0.1, "alvo_verdade": 0.1, "referencia": 0.1,
+          "forca_caixa": 0.3}
 
 
 class RunnerV3(MjlabOnPolicyRunner):
@@ -38,7 +42,8 @@ class RunnerV3(MjlabOnPolicyRunner):
         self._fixa_obs()
 
     def _fixa_obs(self) -> None:
-        """Entrega ao algoritmo as fatias dos termos `_FIXOS` do ator e do crítico, pelos NOMES dos termos.
+        """Entrega ao algoritmo as fatias dos termos `_FIXOS` do ator e do crítico, pelos NOMES dos termos, cada uma
+        com o seu desvio. No crítico, guarda também a fatia do `alvo_macro`, que a vantagem usa como grupo.
 
         ⚠ O layout é posicional: a fatia sai de `active_terms` e `group_obs_term_dim`, nunca de um índice escrito à mão.
         A trava é o tamanho: com normalizador, a soma dos termos tem de ser a entrada da rede.
@@ -50,7 +55,9 @@ class RunnerV3(MjlabOnPolicyRunner):
             for nome, dim in zip(om.active_terms[grupo], om.group_obs_term_dim[grupo]):
                 n = math.prod(dim)
                 if nome in _FIXOS:
-                    fatias[grupo].append(slice(i, i + n))
+                    fatias[grupo].append((slice(i, i + n), _FIXOS[nome]))
+                if grupo == "critic" and nome == "alvo_macro":
+                    self.alg.fatia_alvo = slice(i, i + n)
                 i += n
             nz = getattr(self.alg, grupo).obs_normalizer
             assert not hasattr(nz, "_mean") or nz._mean.shape[-1] == i, (grupo, nz._mean.shape, i)

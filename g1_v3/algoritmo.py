@@ -67,27 +67,30 @@ PISO_DESVIO = 0.05
 
 
 def fixa_normalizador(nz, fatias, piso: float = PISO_DESVIO) -> None:
-    """Põe o piso no desvio do normalizador `nz` e fixa as `fatias` em média 0 e desvio 1 (origem: `_fixa_one_hot` do
-    g1_limpo). Sem normalizador (`Identity`), não faz nada.
+    """Põe o piso no desvio do normalizador `nz` e fixa cada fatia de `fatias` em média 0 e no desvio do seu par
+    `(fatia, desvio)`. Sem normalizador (`Identity`), não faz nada.
 
-    ⚠ O piso vai só no `_std`, que é o que o `forward` lê; a `_var` segue a estatística real. Nas fatias fixas a rede
-    lê o valor cru: um one-hot é categórico, e padronizá-lo amplifica o slot raro (g1_limpo, model_3450: 94 no lugar
-    de 1).
+    ⚠ O piso vai só no `_std`, que é o que o `forward` lê; a `_var` segue a estatística real. Nas fatias fixas o desvio
+    é o do contrato (`runner._FIXOS`), e não o empírico: um one-hot é categórico, e padronizá-lo amplifica o slot raro
+    (g1_limpo, model_3450: 94 no lugar de 1).
     """
     if not hasattr(nz, "_std"):
         return
     nz._std.clamp_(min=piso)
-    for sl in fatias:
+    for sl, dv in fatias:
         nz._mean[..., sl] = 0.0
-        nz._var[..., sl] = 1.0
-        nz._std[..., sl] = 1.0
+        nz._std[..., sl] = dv
+        nz._var[..., sl] = dv * dv
 
 
 class PPOPorTarefa(PPO):
     """PPO com a vantagem normalizada por tarefa e os canais fixos fora do normalizador da observação."""
 
-    # {"actor": [slice, ...], "critic": [...]}: o `RunnerV3` preenche pelos nomes dos termos (`runner._FIXOS`).
+    # {"actor": [(slice, desvio), ...], "critic": [...]}: o `RunnerV3` preenche pelos nomes dos termos (`runner._FIXOS`).
     fatias_fixas: dict = {}
+
+    # Fatia do one-hot `alvo_macro` no crítico. O `RunnerV3` preenche; None faz o grupo da vantagem ser só a tarefa.
+    fatia_alvo = None
 
     def process_env_step(self, *a, **kw):
         """O `super()` atualiza os normalizadores em TODOS os canais; a fixação desfaz a mexida antes de a rede ler."""
@@ -117,7 +120,15 @@ class PPOPorTarefa(PPO):
         # ⚠ Sobre a vantagem CRUA, e não sobre a que o `super()` já normalizou: renormalizar o
         # normalizado misturaria as duas escalas.
         crua = st.returns - st.values
-        st.advantages = normaliza_por_grupo(
-            crua.reshape(-1), bloco.argmax(-1).reshape(-1)).reshape(crua.shape)
+        tarefa = bloco.argmax(-1)
+        grupo = tarefa
+        if self.fatia_alvo is not None:
+            # 11/11: um grupo por tarefa e alvo, como o g1_limpo normalizava por elo interno. Com um grupo por
+            # tarefa, o P4 tinha 40 % das amostras do PEGAR e 6,7 % da magnitude da vantagem. O ANDAR fica em um
+            # grupo só (o 0, que o `normaliza_por_grupo` trata como ANDAR).
+            alvo = st.observations["critic"][..., self.fatia_alvo].argmax(-1)
+            n_alvos = self.fatia_alvo.stop - self.fatia_alvo.start
+            grupo = torch.where(tarefa == ANDAR, torch.zeros_like(tarefa), 1 + tarefa * n_alvos + alvo)
+        st.advantages = normaliza_por_grupo(crua.reshape(-1), grupo.reshape(-1)).reshape(crua.shape)
 
 
