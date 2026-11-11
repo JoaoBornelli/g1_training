@@ -16,17 +16,45 @@ salvá-los criaria a chance de restaurar um alvo de uma pose que não existe mai
 """
 from __future__ import annotations
 
+import math
+
 from mjlab.rl import MjlabOnPolicyRunner
 
 __all__ = ["RunnerV3"]
 
+# Termos da observação que ficam FORA do normalizador (média 0, desvio 1; `algoritmo.fixa_normalizador`): os one-hot,
+# os canais do currículo, que são constantes por milhares de iterações, e o `mapa`, que já vem em [0, 1] e é ruído no
+# terreno plano (normalizado, ele seria 882 canais de ruído com desvio 1). Nomes de `observacoes.grupos`.
+_FIXOS = ("tarefa", "mapa", "alvo_macro", "niveis", "degrau", "massa", "tarefa_critico")
+
 
 class RunnerV3(MjlabOnPolicyRunner):
-    """O runner do mjlab, mais o estado do `Curriculo` no checkpoint (chave `v3_curriculo`) e o std por junta."""
+    """O runner do mjlab, mais o estado do `Curriculo` no checkpoint (chave `v3_curriculo`), o std por junta e as
+    fatias da observação que ficam fora do normalizador (`_fixa_obs`)."""
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._embrulha_log()
+        self._fixa_obs()
+
+    def _fixa_obs(self) -> None:
+        """Entrega ao algoritmo as fatias dos termos `_FIXOS` do ator e do crítico, pelos NOMES dos termos.
+
+        ⚠ O layout é posicional: a fatia sai de `active_terms` e `group_obs_term_dim`, nunca de um índice escrito à mão.
+        A trava é o tamanho: com normalizador, a soma dos termos tem de ser a entrada da rede.
+        """
+        om = self.env.unwrapped.observation_manager
+        fatias = {}
+        for grupo in ("actor", "critic"):
+            i, fatias[grupo] = 0, []
+            for nome, dim in zip(om.active_terms[grupo], om.group_obs_term_dim[grupo]):
+                n = math.prod(dim)
+                if nome in _FIXOS:
+                    fatias[grupo].append(slice(i, i + n))
+                i += n
+            nz = getattr(self.alg, grupo).obs_normalizer
+            assert not hasattr(nz, "_mean") or nz._mean.shape[-1] == i, (grupo, nz._mean.shape, i)
+        self.alg.fatias_fixas = fatias
 
     def _embrulha_log(self) -> None:
         """Embrulha `logger.log` e grava `Policy/std/<junta>` = média em 0 do `action_std` (S §14, H6).

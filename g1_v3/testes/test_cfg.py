@@ -301,8 +301,10 @@ class TestRegistro(unittest.TestCase):
 class TestTarefa(unittest.TestCase):
     def test_rl_cfg(self):
         rl = tarefa.rl_cfg()
-        self.assertFalse(rl.actor.obs_normalization)
-        self.assertFalse(rl.critic.obs_normalization)
+        # dono, 11/11: o normalizador e a entropia do mjlab, como no g1_limpo
+        self.assertTrue(rl.actor.obs_normalization)
+        self.assertTrue(rl.critic.obs_normalization)
+        self.assertEqual(rl.algorithm.entropy_coef, 0.01)
         self.assertEqual(rl.num_steps_per_env, ATIVO.balanceador.passos_por_iteracao)
         self.assertEqual(rl.experiment_name, "g1_v3")
 

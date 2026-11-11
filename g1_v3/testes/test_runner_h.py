@@ -45,10 +45,35 @@ class RunnerHTest(unittest.TestCase):
 
     def test_init_chama_o_pai_e_depois_embrulha_o_log(self):
         with mock.patch.object(MjlabOnPolicyRunner, "__init__", return_value=None) as pai, \
-                mock.patch.object(RunnerV3, "_embrulha_log") as embrulha:
+                mock.patch.object(RunnerV3, "_embrulha_log") as embrulha, \
+                mock.patch.object(RunnerV3, "_fixa_obs") as fixa:
             RunnerV3(1, key=2)
         pai.assert_called_once_with(1, key=2)  # o mock não é método: sem o self
         embrulha.assert_called_once_with()
+        fixa.assert_called_once_with()
+
+    def _runner_com_obs(self, dim_ator=None):
+        # ator: giro(15) tarefa(30) caixa(55) mapa(882); crítico: giro(15) tarefa(30) niveis(4) tarefa_critico(6)
+        om = types.SimpleNamespace(
+            active_terms={"actor": ["giro_base", "tarefa", "caixa", "mapa"],
+                          "critic": ["giro_base", "tarefa", "niveis", "tarefa_critico"]},
+            group_obs_term_dim={"actor": [(15,), (30,), (55,), (21, 42)], "critic": [(15,), (30,), (4,), (6,)]})
+        nz = lambda d: types.SimpleNamespace(_mean=torch.zeros(1, d))
+        obj = object.__new__(RunnerV3)
+        obj.env = types.SimpleNamespace(unwrapped=types.SimpleNamespace(observation_manager=om))
+        obj.alg = types.SimpleNamespace(actor=types.SimpleNamespace(obs_normalizer=nz(dim_ator or 982)),
+                                        critic=types.SimpleNamespace(obs_normalizer=torch.nn.Identity()))
+        return obj
+
+    def test_fixa_obs_acha_as_fatias_pelo_nome_do_termo(self):
+        obj = self._runner_com_obs()
+        obj._fixa_obs()
+        self.assertEqual(obj.alg.fatias_fixas, {"actor": [slice(15, 45), slice(100, 982)],
+                                                "critic": [slice(15, 45), slice(45, 49), slice(49, 55)]})
+
+    def test_fixa_obs_falha_se_a_entrada_da_rede_nao_e_a_soma_dos_termos(self):
+        with self.assertRaises(AssertionError):
+            self._runner_com_obs(dim_ator=981)._fixa_obs()
 
     def test_embrulha_chama_o_original_com_os_mesmos_argumentos(self):
         obj = runner_falso(WriterFalso())

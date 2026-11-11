@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 from rsl_rl.algorithms import PPO
 
-__all__ = ["PPOPorTarefa", "normaliza_por_grupo", "CAMINHO"]
+__all__ = ["PPOPorTarefa", "normaliza_por_grupo", "fixa_normalizador", "CAMINHO", "PISO_DESVIO"]
 
 # ⚠ O caminho QUALIFICADO, para o `class_name` do cfg (`rl_cfg()` da D10). Uma string, e não
 # a classe, porque o logger do mjlab despeja o cfg em disco e uma classe não serializa.
@@ -60,8 +60,41 @@ def normaliza_por_grupo(adv: torch.Tensor, grupo: torch.Tensor) -> torch.Tensor:
     return saida
 
 
+# Piso do desvio do normalizador da observação. O `rsl_rl` divide por `desvio + 0,01`: um canal que ficou constante
+# (a `caixa` vale zero no ANDAR, e o currículo começa só com ANDAR) entraria na rede com ganho de até 100 quando
+# mudasse. Com o piso o ganho máximo é ~17. Medido no model_11200: o menor desvio de um canal vivo é ~0,05.
+PISO_DESVIO = 0.05
+
+
+def fixa_normalizador(nz, fatias, piso: float = PISO_DESVIO) -> None:
+    """Põe o piso no desvio do normalizador `nz` e fixa as `fatias` em média 0 e desvio 1 (origem: `_fixa_one_hot` do
+    g1_limpo). Sem normalizador (`Identity`), não faz nada.
+
+    ⚠ O piso vai só no `_std`, que é o que o `forward` lê; a `_var` segue a estatística real. Nas fatias fixas a rede
+    lê o valor cru: um one-hot é categórico, e padronizá-lo amplifica o slot raro (g1_limpo, model_3450: 94 no lugar
+    de 1).
+    """
+    if not hasattr(nz, "_std"):
+        return
+    nz._std.clamp_(min=piso)
+    for sl in fatias:
+        nz._mean[..., sl] = 0.0
+        nz._var[..., sl] = 1.0
+        nz._std[..., sl] = 1.0
+
+
 class PPOPorTarefa(PPO):
-    """PPO com a vantagem normalizada por tarefa. Só `compute_returns` é diferente."""
+    """PPO com a vantagem normalizada por tarefa e os canais fixos fora do normalizador da observação."""
+
+    # {"actor": [slice, ...], "critic": [...]}: o `RunnerV3` preenche pelos nomes dos termos (`runner._FIXOS`).
+    fatias_fixas: dict = {}
+
+    def process_env_step(self, *a, **kw):
+        """O `super()` atualiza os normalizadores em TODOS os canais; a fixação desfaz a mexida antes de a rede ler."""
+        saida = super().process_env_step(*a, **kw)
+        for rede in ("actor", "critic"):
+            fixa_normalizador(getattr(self, rede).obs_normalizer, self.fatias_fixas.get(rede, ()))
+        return saida
 
     def compute_returns(self, obs) -> None:
         """Recalcula a vantagem por grupo de tarefa, sobre a vantagem CRUA.

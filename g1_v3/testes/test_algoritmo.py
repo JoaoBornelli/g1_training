@@ -10,10 +10,13 @@ são normalizados pela "manipulação inteira" (todas as amostras não-ANDAR do 
 ralo incluído), que é o fallback que evita o NaN do std de uma amostra. Os testes repetem essa conta.
 """
 import unittest
+import unittest.mock
 
 import torch
 
-from g1_v3.algoritmo import normaliza_por_grupo
+from rsl_rl.modules.normalization import EmpiricalNormalization
+
+from g1_v3.algoritmo import PISO_DESVIO, PPOPorTarefa, fixa_normalizador, normaliza_por_grupo
 
 ANDAR, PEGAR, CARREGAR = 0, 1, 2
 
@@ -51,6 +54,49 @@ class TestNormalizaPorGrupo(unittest.TestCase):
         grupo = torch.tensor([ANDAR, PEGAR, PEGAR, PEGAR])
         out = normaliza_por_grupo(adv, grupo)
         self.assertAlmostEqual(float(out[0]), 0.8, places=6)
+
+
+class TestFixaNormalizador(unittest.TestCase):
+    def _nz(self):
+        # canal 0 vivo (desvio ~1), canal 1 constante (desvio 0), canais 2 e 3 um one-hot raro
+        nz = EmpiricalNormalization(4)
+        x = torch.zeros(1000, 4)
+        x[:, 0] = torch.linspace(-1.7, 1.7, 1000)
+        x[:3, 2] = 1.0
+        nz.update(x)
+        return nz
+
+    def test_piso_no_canal_constante_e_fatia_fixa_em_media_zero_desvio_um(self):
+        nz = self._nz()
+        self.assertLess(float(nz._std[0, 1]), 1e-6)  # sem o conserto: ganho de 100
+        var_antes = nz._var.clone()
+        fixa_normalizador(nz, [slice(2, 4)])
+        self.assertAlmostEqual(float(nz._std[0, 0]), float(var_antes[0, 0]) ** 0.5, places=6)  # canal vivo: intacto
+        self.assertAlmostEqual(float(nz._std[0, 1]), PISO_DESVIO)
+        self.assertEqual(float(nz._var[0, 1]), float(var_antes[0, 1]))  # o piso não mexe na estatística
+        self.assertEqual(nz._mean[0, 2:].tolist(), [0.0, 0.0])
+        self.assertEqual(nz._std[0, 2:].tolist(), [1.0, 1.0])
+        saida = nz(torch.tensor([[0.0, 1.0, 1.0, 0.0]]))
+        self.assertAlmostEqual(float(saida[0, 2]), 1.0 / 1.01, places=5)  # o slot aceso entra como ~1, e não ~18
+        self.assertLess(float(saida[0, 1]), 1.0 / PISO_DESVIO)  # o canal constante que muda: ganho < 20
+
+    def test_sem_normalizador_nao_faz_nada(self):
+        fixa_normalizador(torch.nn.Identity(), [slice(0, 2)])
+
+    def test_process_env_step_fixa_depois_do_update_do_pai(self):
+        from rsl_rl.algorithms import PPO
+        alg = object.__new__(PPOPorTarefa)
+        nz_a, nz_c = self._nz(), self._nz()
+        alg.actor = unittest.mock.Mock(obs_normalizer=nz_a)
+        alg.critic = unittest.mock.Mock(obs_normalizer=nz_c)
+        alg.fatias_fixas = {"actor": [slice(2, 4)]}
+        with unittest.mock.patch.object(PPO, "process_env_step", return_value="pai") as pai:
+            self.assertEqual(alg.process_env_step(1, 2, x=3), "pai")
+        pai.assert_called_once_with(1, 2, x=3)
+        self.assertEqual(nz_a._std[0, 2:].tolist(), [1.0, 1.0])
+        self.assertAlmostEqual(float(nz_c._std[0, 1]), PISO_DESVIO)  # crítico sem fatia: só o piso
+        self.assertLess(float(nz_c._std[0, 2]), 1.0)
+
 
 
 if __name__ == "__main__":
