@@ -66,6 +66,37 @@ class AceleracaoDaCaixaTest(unittest.TestCase):
         self.assertEqual(cfg.reduce, "last")
 
 
+def env_do_p4_e_p0():
+    # env 0 no P4: caixa 0,20 m abaixo do alvo, 0,10 m ao lado (yaw 0), pelve 0,04 m fora da referência.
+    # env 1 no P0, com a caixa longe: se entrasse no log, o valor mudaria.
+    robo = types.SimpleNamespace(data=types.SimpleNamespace(root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]] * 2)))
+    caixa = types.SimpleNamespace(data=types.SimpleNamespace(
+        root_link_pos_w=torch.tensor([[1.0, 2.10, 0.30], [5.0, 5.0, 5.0]])))
+    altura = types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.tensor([[0.80], [0.30]])))
+    ref = types.SimpleNamespace(pelve_com_caixa=lambda a: torch.tensor([0.76, 0.25]))
+    return types.SimpleNamespace(num_envs=2, device="cpu", step_dt=DT, extras={"log": {}},
+                                 scene={"robot": robo, "box": caixa, "altura_pelve": altura},
+                                 v3_alvo_idx=torch.tensor([P4, P0]),
+                                 v3_tarefa=torch.tensor([metricas.CARREGAR] * 2),
+                                 v3_ref=ref, v3_meia=torch.tensor([0.5, 0.5]))
+
+
+class ErroP4Test(unittest.TestCase):
+    def test_erros_do_p4_so_com_o_env_do_p4(self):
+        # alvo da caixa fixo em (1,0; 2,0; 0,5) para os dois envs: e = caixa − alvo
+        # vertical = −e_z = −(0,30 − 0,50) = 0,20; lateral = |e_y| = |2,10 − 2,00| = 0,10; pelve = |0,80 − 0,76| = 0,04
+        env = env_do_p4_e_p0()
+        alvo = torch.tensor([[1.0, 2.0, 0.5], [1.0, 2.0, 0.5]])
+        m = metricas.erro_p4(None, env)
+        with mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=alvo):
+            flag = m(env)
+        self.assertEqual(flag.tolist(), [1.0, 0.0])  # o `__call__` devolve a flag "teve o P4"
+        m.reset()
+        log = env.extras["log"]
+        for nome, esperado in (("vertical", 0.20), ("lateral", 0.10), ("pelve", 0.04)):
+            self.assertAlmostEqual(log["Episodio/erro_p4_" + nome].item(), esperado, delta=1e-5)
+
+
 class FracaoDoCursoTest(unittest.TestCase):
     def test_maior_fracao_do_curso_com_a_conta_do_potencial(self):
         # junta 0: |0,5 − 0|/1 = 0,5; junta 1: |2,5 − 1|/1 = 1,5 → o pico é 1,5 (o mesmo de antes)

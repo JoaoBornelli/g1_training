@@ -23,8 +23,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
-from g1_v3 import recompensas
-from g1_v3.alvos import B3, B4, P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3 import estimador, recompensas
+from g1_v3.alvos import B3, B4, P0, P1, P2, P3, P4, inclinacao_da_caixa
 from g1_v3.knobs import FATIAS, TAREFAS
 from g1_v3.potencial import curso
 from g1_v3.recompensas import comprimento_do_passo, sacudida
@@ -53,6 +53,7 @@ __all__ = [
     "fracao_avisos",
     "fracao_fora_da_plataforma",
     "aceleracao_da_caixa",
+    "erro_p4",
 ]
 
 # nomes da cena v3 (`cena.py`): o sensor de contato dos pés, o de altura e os sítios. Os
@@ -291,6 +292,38 @@ class tempo_no_alvo:
             env_ids = slice(None)
         _loga_episodios(self.env, self.nome, self.passos * self.dt, self.passos > 0, env_ids)
         self.passos[env_ids] = 0.0
+
+
+class erro_p4:
+    """Erro médio no P4, por episódio, em metros (11/11): vertical e lateral da caixa ao alvo, e da pelve à
+    referência. Sem peso. `Episodio/erro_p4_vertical`, `_lateral` e `_pelve`; o `__call__` devolve "teve o P4"."""
+
+    def __init__(self, cfg, env):
+        self.env = env
+        self.soma = torch.zeros(env.num_envs, 3, device=env.device)
+        self.n = torch.zeros(env.num_envs, device=env.device)
+
+    def __call__(self, env) -> torch.Tensor:
+        robo = env.scene["robot"]
+        ok = (env.v3_alvo_idx == P4) & _com_caixa(env)
+        e = env.scene[CAIXA].data.root_link_pos_w - recompensas.alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, P4))
+        yaw = estimador.yaw(robo.data.root_link_quat_w)
+        lateral = (-torch.sin(yaw) * e[:, 0] + torch.cos(yaw) * e[:, 1]).abs()
+        h = env.scene["altura_pelve"].data.heights[:, 0]
+        pelve = (h - env.v3_ref.pelve_com_caixa(env.v3_meia).to(h)).abs()
+        erro = torch.stack([-e[:, 2], lateral, pelve], dim=-1)
+        self.soma = self.soma + torch.where(ok[:, None], erro, torch.zeros_like(erro))
+        self.n = self.n + ok.float()
+        return (self.n > 0).float()
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        media = self.soma / self.n.clamp(min=1.0)[:, None]
+        for i, nome in enumerate(("vertical", "lateral", "pelve")):
+            _loga_episodios(self.env, "erro_p4_" + nome, media[:, i], self.n > 0, env_ids)
+        self.soma[env_ids] = 0.0
+        self.n[env_ids] = 0.0
 
 
 def inclinacao_da_caixa_no_p3(env) -> torch.Tensor:
@@ -533,4 +566,5 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
     m["fracao_fora_da_plataforma"] = MetricsTermCfg(func=fracao_fora_da_plataforma, reduce="last")
     m["aceleracao_da_caixa"] = MetricsTermCfg(func=aceleracao_da_caixa, reduce="last")
+    m["erro_p4"] = MetricsTermCfg(func=erro_p4, reduce="last")
     return m
