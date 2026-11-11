@@ -26,7 +26,7 @@ class CurriculoHTest(unittest.TestCase):
 
     def test_log_traz_degraus_degrau_global_atraso_e_mu(self):
         # §12.4 H6: degraus (ANDAR, PEGAR, CARREGAR, BOTAR) = (5, 3, 4, 2) entram pelo estado.
-        # degrau_global = min = 2; g = 2 < 3, sem portão0: atraso_max no teto inicial (1); mu_min_pad = atrito_pad[0] = 0,6.
+        # degrau_global = min = 2; g = 2 < 3, sem portão0: atraso_max no teto inicial (11/11: 0, era 1, com atraso_inicio (0, 0)); mu_min_pad = atrito_pad[0] = 0,6.
         env = env_falso([0, 1, 2, 3])
         curriculo.garante_v3(env)
         est = env.v3_cur.estado()
@@ -39,7 +39,7 @@ class CurriculoHTest(unittest.TestCase):
         self.assertEqual(log["degrau_CARREGAR"], 4)
         self.assertEqual(log["degrau_BOTAR"], 2)
         self.assertEqual(log["degrau_global"], 2)
-        self.assertEqual(log["atraso_max"], 1)
+        self.assertEqual(log["atraso_max"], 0)
         self.assertAlmostEqual(log["mu_min_pad"], 0.6, places=6)
 
 

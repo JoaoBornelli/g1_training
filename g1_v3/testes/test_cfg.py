@@ -11,7 +11,7 @@ import numpy as np
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg
 
 from g1_v3 import algoritmo, cena, env_cfg, tarefa
-from g1_v3.knobs import ATIVO, JUNTAS
+from g1_v3.knobs import ATIVO, JUNTAS, escala_por_junta
 
 # Os 11 sensores de contato do g1_limpo/cena.py (palmas 2, dorsos 2, prateleira 3, apoio, caixa, auto, pés).
 SENSORES_G1_LIMPO = ("palma_E", "palma_D", "dorso_E", "dorso_D", "corpo_prateleira", "palma_prateleira",
@@ -311,6 +311,12 @@ class TestTarefa(unittest.TestCase):
     def test_classe_do_algoritmo_e_a_da_v3(self):
         self.assertEqual(tarefa.rl_cfg().algorithm.class_name, algoritmo.CAMINHO)
         self.assertEqual(load_rl_cfg(tarefa.TASK_ID).algorithm.class_name, algoritmo.CAMINHO)
+
+    def test_scale_do_joint_pos_por_junta(self):
+        # 11/11 (§4.4): o scale do joint_pos é um dict nas 29 juntas, com a escala de cada uma.
+        scale = env_cfg.make_env_cfg().actions["joint_pos"].scale
+        self.assertEqual(set(scale), set(JUNTAS))
+        self.assertEqual([scale[j] for j in JUNTAS], list(escala_por_junta()))
 
 
 if __name__ == "__main__":

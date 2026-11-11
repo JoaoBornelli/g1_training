@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from g1_v3.knobs import (ATIVO, DR, JUNTAS, TAREFAS, TAU_MAX, Contrato, Estimador, Knobs, Recompensa, Refino,
-                         dim_ator, q_de_pe)
+                         dim_ator, escala_por_junta, q_de_pe)
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -56,6 +56,13 @@ class TestKnobs(unittest.TestCase):
             self.assertAlmostEqual(q[JUNTAS.index(nome)], 0.600, delta=0.001, msg=nome)
         self.assertAlmostEqual(q[JUNTAS.index("left_shoulder_roll_joint")], 0.200, delta=0.001)
         self.assertAlmostEqual(q[JUNTAS.index("right_shoulder_roll_joint")], -0.200, delta=0.001)
+
+    def test_escala_por_junta_punho_e_resto(self):
+        # 11/11 (§4.4): os dois punhos (pitch e yaw) em 0,075; as outras 25 juntas em 0,25.
+        e = escala_por_junta()
+        self.assertEqual(len(e), 29)
+        self.assertEqual(sum(v == 0.075 for v in e), 4)
+        self.assertEqual(sum(v == 0.25 for v in e), 25)
 
     def test_knobs_e_contrato_congelados(self):
         # Um knob mutável deixa um termo mudar o número no meio do treino.

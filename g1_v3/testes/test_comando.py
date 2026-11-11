@@ -49,13 +49,13 @@ def segmento(cmd, iproj, icmd, dpos, drum, tf, ta, perdeu=False, carregar=False)
 class SorteiaVelocidadeTest(unittest.TestCase):
 
     def test_reto_nivel_2_modulos_e_quatro_direcoes(self):
-        # nível 2 → frente_tetos[2] = 0,75 para frente, e min(0,75; 1,0) = 0,75 para trás e de lado (S §11.2)
+        # nível 2 → frente_tetos[2] = 1,0 para frente (11/11: era 0,75), e min(1,0; 1,0) = 1,0 para trás e de lado (S §11.2)
         v = amostra("reto", 2)
         self.assertTrue(bool((v[:, 2] == 0).all()))  # reto não gira
         modulo = v[:, :2].norm(dim=1)
         self.assertGreaterEqual(float(modulo.min()), 0.25 - 1e-6)
-        self.assertLessEqual(float(modulo.max()), 0.75 + 1e-6)
-        self.assertGreater(float(modulo.max()), 0.74)  # o teto é atingido, não só o piso
+        self.assertLessEqual(float(modulo.max()), 1.0 + 1e-6)
+        self.assertGreater(float(modulo.max()), 0.99)  # o teto é atingido, não só o piso
         eixo_x = v[:, 0].abs() > v[:, 1].abs()
         dirs = torch.stack([eixo_x & (v[:, 0] > 0), eixo_x & (v[:, 0] < 0),
                             ~eixo_x & (v[:, 1] > 0), ~eixo_x & (v[:, 1] < 0)]).float().mean(dim=1)

@@ -26,7 +26,7 @@ from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_rough_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from g1_v3 import cena, comando, curriculo, eventos, metricas, observacoes, recompensas, terminacoes
-from g1_v3.knobs import ATIVO, Knobs
+from g1_v3.knobs import ATIVO, JUNTAS, Knobs, escala_por_junta
 
 # Tarefas de cada termo (§6.6; a tabela da D5 e a S §9.2). "todas" = as quatro da cadeia.
 TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
@@ -105,7 +105,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
 
     # ------------------------------------------------------------ 2. ação (§6.2: escala 0,25, pose de pé como offset)
     cfg.actions = {"joint_pos": JointPositionActionCfg(
-        entity_name="robot", actuator_names=(".*",), scale=k.contrato.escala_acao, use_default_offset=True)}
+        entity_name="robot", actuator_names=(".*",), scale=dict(zip(JUNTAS, escala_por_junta(k.contrato))), use_default_offset=True)}
 
     # ------------------------------------------------------------ 3. observações (§6.5: ator e crítico)
     cfg.observations = observacoes.grupos(k)

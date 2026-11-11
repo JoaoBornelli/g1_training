@@ -50,6 +50,7 @@ NUNCA = 10**9
 @dataclass(frozen=True)
 class Contrato:  # I §2, §3; S §6.3, §19.1
     escala_acao: float = 0.25  # I §3: q* = q_de_pé + 0,25·a; S §6.3
+    escala_acao_punho: float = 0.075  # 11/11 (§4.1): punho com 0,25 pedia 10 N·m com limite de 5
     dt_fisica: float = 0.005  # I §3: passo de física 5 ms; S §19
     decimacao: int = 4  # I §3: passo da política 0,02 s
     historico: int = 5  # I §2.1: histórico por bloco
@@ -116,15 +117,16 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
 
 @dataclass(frozen=True)
 class Comando:  # S §7, §11.2, §19
-    frente_tetos: tuple = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5)  # S §11.2: tetos para a frente (m/s)
+    frente_tetos: tuple = (0.5, 0.75, 1.0, 1.25, 1.5)  # S §11.2: tetos para a frente (m/s); 11/11: 5 valores, era 6 (§4.1)
     tras_lado_teto_max: float = 1.0  # S §11.2: teto para trás e de lado (m/s)
     giro_tetos: tuple = (0.25, 0.5, 0.75, 1.0)  # S §11.2: tetos de giro (rad/s)
     piso_velocidade: float = 0.25  # S §11.2: "entre 0,25 e o teto"
     baixo: tuple = (0.05, 0.25)  # S §19, conflito 5: subtarefa de comando baixo (m/s; rad/s)
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
-    janela_media_s: float = 0.8  # S §19, conflito 5: média da velocidade (s)
+    janela_media_s: float = 0.02  # S §19, conflito 5: média da velocidade (s); 11/11: era 0,8 (§4.1)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     deriva_pos_m: float = 0.10  # PD-15: deriva da âncora de posição (m)
+    deriva_pos_inicio: float = 0.25  # 11/11 (§2): deriva do parado no início; sobe até deriva_pos_m
     deriva_rumo_rad: float = 0.25  # PD-15: deriva da âncora de rumo (rad)
     ancora_s: float = 1.5  # PD-15: tempo da âncora (s)
     razao_portao: float = 0.50  # S §11.3: razão de deslocamento para o sucesso
@@ -194,17 +196,18 @@ class Alvos:  # S §8.2; PD-23
 
 @dataclass(frozen=True)
 class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
-    rastreio_linear: float = 1.0  # S §9.2, §19: receita da Unitree
-    rastreio_angular: float = 0.5  # S §9.2, §19: receita da Unitree
+    rastreio_linear: float = 2.0  # S §9.2, §19: receita da Unitree; 11/11: era 1,0 (§4.1)
+    rastreio_angular: float = 2.0  # S §9.2, §19: receita da Unitree; 11/11: era 0,5 (§4.1)
     sigma_rastreio: float = 0.5  # S §19: σ do rastreio (receita da Unitree)
     piso_rastreio: float = -1.0  # S §19, conflito 5: piso do rastreio normalizado
     # ⚠ σ₀ do canal sem comando (dono, 15/10). Com σ 0,5, deslizar a 0,05 m/s custava 0,01.
     sigma_zero_lin: float = 0.10  # PD-49: σ₀ do linear sem comando (m/s)
     sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s)
+    sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): σ₀ do giro no início; sobe até sigma_zero_ang
     passo: float = 0.5  # S §19, conflito 6: peso do comprimento do passo
     L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); calibrar na Parte 0, item 8
     fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|
-    vivo: float = 0.15  # S §9.2: peso do "vivo" (zero depois da caixa perdida)
+    vivo: float = 1.0  # S §9.2: peso do "vivo" (zero depois da caixa perdida); 11/11: era 0,15, a recompensa do início paga ficar de pé (§1)
     altura_pe: float = 1.0  # S §9.2: peso da altura do pé; foot_clearance_reward (unitree_rl_lab)
     alvo_pe: float = 0.10  # S §9.2: altura alvo do pé (m); foot_clearance_reward
     std_pe: float = 0.05  # S §9.2: σ da altura do pé (m); foot_clearance_reward
@@ -216,6 +219,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     acel_junta: float = -5e-8  # S §9.2 ÷5 (poc1, 05/11): −2,5e-7 dava 28% do negativo; o passo custava −0,036 ≈ a queda (−4) descontada
     taxa_acao: float = -0.01  # S §9.2 ÷5 (poc1, 05/11): 88% do Δa² era o ruído de std 0,51; −0,05 dava 26% do negativo
     energia: float = -2e-5  # S §9.2: peso da energia
+    estilo_inicio: float = 0.25  # 11/11 (§2): fator dos termos de estilo no início; sobe a 1
     # ⚠ limite mole 95% pelo dono (08/10); a receita da Unitree usa 90%; a IK fica a 90%
     limite_junta: float = -5.0  # S §9.2: peso do limite de junta
     limite_mole: float = 0.95  # S §9.2, §6.5: fração do curso onde a rampa começa
@@ -337,6 +341,9 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     portao: float = 0.75  # S §11.3: portão de sucesso da célula
     alfa: float = 0.05  # S §11; PD-13: taxa da EMA do sucesso
     iters_min_nivel: int = 50  # PD-12: carência mínima entre subidas de nível (iterações)
+    rampa_fatia_inicio: float = 0.05  # 11/11 (§5.3): teto da fração de uma fatia nova ao abrir
+    rampa_fatia_passo: float = 0.02  # 11/11 (§5.3): quanto o teto da fatia sobe a cada rampa_fatia_its fechos
+    rampa_fatia_its: int = 12  # 11/11 (§5.3): fechos de iteração por degrau da rampa da fatia
     iters_refino: int = 100  # S §11.5: iterações seguidas no portão para avançar o refino
     degraus: int = 5  # S §11.5: degraus do refino (0..5)
     passos_por_iteracao: int = 24  # D10: num_steps_per_env do rl_cfg(); guarda do termo v3 (D4)
@@ -431,7 +438,7 @@ class DR:  # S §12, DR §5; PD-24; §6.8 (quando: startup, reset, intervalo, po
     atrito_pe: tuple = (0.3, 1.0)  # §6.8 startup: atrito do pé, compartilhado entre as geoms do pé
     massa_tronco: tuple = (-1.0, 3.0)  # §6.8 startup: massa somada ao torso_link (kg)
     vies_encoder: float = 0.015  # §6.8 startup: viés de encoder (rad)
-    atraso_inicio: tuple = (0, 1)  # §6.8 reset: atraso da ação, propriocepção e mapa (passos)
+    atraso_inicio: tuple = (0, 0)  # 11/11 (§2): sem atraso no início; §6.8 reset: atraso da ação, propriocepção e mapa (passos)
     atraso_portao: tuple = (0, 2)  # §6.8 PEGAR no portão do nível 0 (passos); PD-28
     atraso_refino: tuple = (0, 3)  # §6.8 refino: atraso 0–2 → 0–3 (passos); PD-25
     degrau_atraso_refino: int = 3  # §6.8; PD-41: o atraso global vai a atraso_refino quando o degrau global chega aqui
@@ -505,3 +512,9 @@ def caminho(rel: str) -> Path:  # relativo à raiz do repo: g1_v3/knobs.py → p
 def q_de_pe(c: Contrato = Contrato()) -> np.ndarray:  # I §2.2: (29,); A3 gera referencias.npz
     with np.load(caminho(c.referencias)) as npz:
         return np.array(npz["q_de_pe"])
+
+
+def escala_por_junta(c: Contrato = Contrato()) -> tuple:  # I §3; 11/11: (29,) rad por unidade, na ordem de JUNTAS
+    # o punho (wrist_pitch e wrist_yaw) usa a escala do mjlab; com 0,25 e kp 40 ele pedia 10 N·m com limite de 5
+    return tuple(c.escala_acao_punho if re.fullmatch(r".*_wrist_(pitch|yaw)_joint", j) else c.escala_acao
+                 for j in JUNTAS)

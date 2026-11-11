@@ -776,7 +776,7 @@ def s20_estimador_ve_caixa_a_frente_e_idade_cresce_fora_do_fov():
 
 
 def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
-    from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, q_de_pe
+    from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, escala_por_junta, q_de_pe
 
     env = _abre_env(4)
     try:
@@ -803,7 +803,7 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         env.sim.sense()
         # ⚠ o alvo do PD é q_de_pé + escala·a − viés (s04): a ação soma o viés para o alvo ser q_com_caixa
         idx = [robo.joint_names.index(j) for j in JUNTAS]
-        acao = (q - qde + robo.data.encoder_bias[:, idx]) / ATIVO.contrato.escala_acao
+        acao = (q - qde + robo.data.encoder_bias[:, idx]) / torch.tensor(escala_por_junta(), device=q.device, dtype=q.dtype)
         avisos = []
         for _ in range(60):
             # ⚠ fase I: a ação zero não segura a base (S0), e a cintura (kp 40) não segura os braços à frente
