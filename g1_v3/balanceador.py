@@ -59,7 +59,7 @@ class Curriculo:
     def __init__(self, k_bal, k_niv, k_com, k_ter, k_dr=None):
         self.k = k_bal
         self.k_dr = k_dr  # DR (§6.8); sem ele, `dr()` devolve {}
-        # ⚠ ANDAR e CARREGAR têm 6 níveis de velocidade (`frente_tetos`); PEGAR e BOTAR, as tabelas de Niveis
+        # ⚠ ANDAR e CARREGAR têm 5 níveis de velocidade (`frente_tetos`); PEGAR e BOTAR, as tabelas de Niveis
         self.max_nivel = {"ANDAR": len(k_com.frente_tetos) - 1, "CARREGAR": len(k_com.frente_tetos) - 1,
                           "PEGAR": len(k_niv.pegar) - 1, "BOTAR": len(k_niv.botar) - 1}
         # linha de terreno (PD-20): ANDAR até linhas − 1; CARREGAR até a maior linha_max_carregar (as colunas
@@ -137,7 +137,7 @@ class Curriculo:
         self._trava_dr()
 
     def _trava_dr(self) -> None:
-        # §6.8: as travas do DR só ligam. Com o s já atualizado, o mesmo fecho que abre a fatia B liga o "vies"
+        # §6.8: as travas do DR só ligam. Desde 11/11 a fatia B abre pela média e o "vies" exige o reto e o parado no portão: o "vies" pode ligar depois da fatia B
         self._dr["portao0"] = self._dr["portao0"] or self.nivel_passou("PEGAR") >= 0
         self._dr["vies"] = self._dr["vies"] or (self._passa(_POS[("ANDAR", "reto")]) and
                                                 self._passa(_POS[("ANDAR", "parado")]))

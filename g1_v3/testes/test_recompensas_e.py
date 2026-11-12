@@ -371,6 +371,18 @@ class TestDistanciaDoP4(unittest.TestCase):
                                           torch.zeros(1, 3, dtype=torch.float64), z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.30, places=6)
+    def test_p3_e_b1_nao_somam_a_pelve(self):
+        # §6.4: a pelve só entra no P4. Com Δpelve 0,10 no P3 (índice 3) e no B1 (índice 5), d é o d_caixa (0,30 em x)
+        z = torch.zeros(1, dtype=torch.float64)
+        for indice in (3, 5):
+            with self.subTest(indice=indice):
+                d = recompensas.distancia_do_alvo(torch.tensor([indice]), torch.zeros(1, 2, 3, dtype=torch.float64),
+                                                  torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
+                                                  torch.zeros(1, 3, dtype=torch.float64),
+                                                  torch.tensor([0.10], dtype=torch.float64), z,
+                                                  torch.tensor([A], dtype=torch.float64), K)
+                self.assertAlmostEqual(float(d[0]), 0.30, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

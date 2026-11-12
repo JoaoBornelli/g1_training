@@ -97,6 +97,44 @@ class ErroP4Test(unittest.TestCase):
             self.assertAlmostEqual(log["Episodio/erro_p4_" + nome].item(), esperado, delta=1e-5)
 
 
+    def test_erro_lateral_com_yaw_de_90_graus(self):
+        # yaw de 90° (wxyz (0,7071; 0; 0; 0,7071)): sen = 1, cos = 0, então lateral = |e_x|. Caixa 0,10 m à frente
+        # do alvo em x e 0 em y, 0,20 m abaixo: lateral 0,10 (com yaw 0 seria 0, pois e_y = 0)
+        env = env_do_p4_e_p0()
+        env.scene["robot"].data.root_link_quat_w = torch.tensor([[0.70710678, 0.0, 0.0, 0.70710678]] * 2)
+        env.scene["box"].data.root_link_pos_w = torch.tensor([[1.10, 2.00, 0.30], [5.0, 5.0, 5.0]])
+        alvo = torch.tensor([[1.0, 2.0, 0.5], [1.0, 2.0, 0.5]])
+        m = metricas.erro_p4(None, env)
+        with mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=alvo):
+            m(env)
+        m.reset()
+        self.assertAlmostEqual(env.extras["log"]["Episodio/erro_p4_lateral"].item(), 0.10, delta=1e-5)
+
+    def test_media_de_dois_passos_no_p4(self):
+        # passo 1: caixa 0,20 abaixo do alvo (vertical 0,20); passo 2: 0,40 abaixo (vertical 0,40); média 0,30
+        env = env_do_p4_e_p0()
+        alvo = torch.tensor([[1.0, 2.0, 0.5], [1.0, 2.0, 0.5]])
+        m = metricas.erro_p4(None, env)
+        with mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=alvo):
+            m(env)
+            env.scene["box"].data.root_link_pos_w = torch.tensor([[1.0, 2.10, 0.10], [5.0, 5.0, 5.0]])
+            m(env)
+        m.reset()
+        self.assertAlmostEqual(env.extras["log"]["Episodio/erro_p4_vertical"].item(), 0.30, delta=1e-5)
+
+    def test_reset_so_do_env_0_nao_zera_a_soma_do_env_1(self):
+        # os dois envs no P4 e com caixa (CARREGAR); o env 1 tem erro grande, então a soma dele é visível
+        env = env_do_p4_e_p0()
+        env.v3_alvo_idx = torch.tensor([P4, P4])
+        alvo = torch.tensor([[1.0, 2.0, 0.5], [1.0, 2.0, 0.5]])
+        m = metricas.erro_p4(None, env)
+        with mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=alvo):
+            m(env)
+        m.reset(torch.tensor([0]))
+        self.assertEqual(m.n.tolist(), [0.0, 1.0])
+        self.assertGreater(m.soma[1].abs().sum().item(), 0.0)
+
+
 class FracaoDoCursoTest(unittest.TestCase):
     def test_maior_fracao_do_curso_com_a_conta_do_potencial(self):
         # junta 0: |0,5 − 0|/1 = 0,5; junta 1: |2,5 − 1|/1 = 1,5 → o pico é 1,5 (o mesmo de antes)

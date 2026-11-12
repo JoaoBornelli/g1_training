@@ -161,7 +161,7 @@ class DerivaDoParado(unittest.TestCase):
             deriva_pos_m=deriva_pos_m)
 
     def test_deriva_de_20_cm_passa_com_o_limite_de_25_cm(self):
-        # §6.5: o limite do parado sobe de deriva_pos_inicio (0,25 m) a deriva_pos_m (0,10 m) pela restrição
+        # §6.5: o limite do parado desce de deriva_pos_inicio (0,25 m) a deriva_pos_m (0,10 m) pela restrição
         _, suc = self._parado(0.20, deriva_pos_m=0.25)
         self.assertTrue(bool(suc[0]))
 

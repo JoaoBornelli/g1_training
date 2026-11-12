@@ -129,7 +129,7 @@ class Comando:  # S §7, §11.2, §19
     janela_media_s: float = 0.8  # S §19, conflito 5: média da velocidade (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     deriva_pos_m: float = 0.10  # PD-15: deriva da âncora de posição (m)
-    deriva_pos_inicio: float = 0.25  # 11/11 (§2): deriva do parado no início; sobe até deriva_pos_m
+    deriva_pos_inicio: float = 0.25  # 11/11 (§2): o limite DESCE de 0,25 m (restricao 0) a deriva_pos_m (restricao 1)
     deriva_rumo_rad: float = 0.25  # PD-15: deriva da âncora de rumo (rad)
     ancora_s: float = 1.5  # PD-15: tempo da âncora (s)
     razao_portao: float = 0.50  # S §11.3: razão de deslocamento para o sucesso
@@ -206,7 +206,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # ⚠ σ₀ do canal sem comando (dono, 15/10). Com σ 0,5, deslizar a 0,05 m/s custava 0,01.
     sigma_zero_lin: float = 0.10  # PD-49: σ₀ do linear sem comando (m/s)
     sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s)
-    sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): σ₀ do giro no início; sobe até sigma_zero_ang
+    sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): o σ₀ DESCE de 0,5 (restricao 0) a sigma_zero_ang (restricao 1)
     passo: float = 0.5  # S §19, conflito 6: peso do comprimento do passo
     L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); calibrar na Parte 0, item 8
     fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|
@@ -442,7 +442,7 @@ class DR:  # S §12, DR §5; PD-24; §6.8 (quando: startup, reset, intervalo, po
     massa_tronco: tuple = (-1.0, 3.0)  # §6.8 startup: massa somada ao torso_link (kg)
     vies_encoder: float = 0.015  # §6.8 startup: viés de encoder (rad)
     atraso_inicio: tuple = (0, 0)  # 11/11 (§2): sem atraso no início; §6.8 reset: atraso da ação, propriocepção e mapa (passos)
-    atraso_portao: tuple = (0, 2)  # §6.8 PEGAR no portão do nível 0 (passos); PD-28
+    atraso_portao: tuple = (0, 2)  # §6.8 PEGAR no portão do nível 0 (passos); PD-28. 11/11: o teto do atraso é ceil(atraso_portao[1] · restricao); antes ligava quando o PEGAR passava no nível 0
     atraso_refino: tuple = (0, 3)  # §6.8 refino: atraso 0–2 → 0–3 (passos); PD-25
     degrau_atraso_refino: int = 3  # §6.8; PD-41: o atraso global vai a atraso_refino quando o degrau global chega aqui
     # §6.5 (29/10: sai do observacoes.py): ruído do ator, ± antes da escala; a capacidade do atraso é atraso_refino[1]

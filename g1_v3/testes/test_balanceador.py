@@ -130,17 +130,31 @@ class TestAberturaDeFatiaB(unittest.TestCase):
                 self.assertEqual(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta, abre)
 
     def test_rampa_da_fatia_b_entra_com_teto_e_sobe_por_degrau(self):
-        # 11/11 (§5.3): a B entra com fração ≤ rampa_fatia_inicio e o teto sobe rampa_fatia_passo a cada
-        # rampa_fatia_its fechos. O excedente vai para o ANDAR, então a soma continua 1.
+        # 11/11 (§5.3): a B entra com fração ≤ rampa_fatia_inicio (0,05) e o teto sobe rampa_fatia_passo (0,02) a
+        # cada rampa_fatia_its (12) fechos. Sem medida, o s das células nascidas em 0 fica em 0: o déficit da B
+        # é 0,75 e a fração sem a rampa passa de 0,5. O excedente vai para o ANDAR, então a soma continua 1.
         cur = novo(SEM_CARENCIA)
         while cur.fracoes_fatias()[1].item() == 0:
             fecha(cur)
-        self.assertLessEqual(cur.fracoes_fatias()[1].item(), B.rampa_fatia_inicio + 1e-9)
+        self.assertAlmostEqual(cur.fracoes_fatias()[1].item(), 0.05)
+        self.assertAlmostEqual(cur.fracoes_fatias()[0].item(), 0.95)
+        self.assertAlmostEqual(cur.fracoes_fatias()[2].item(), 0.0)
         self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
         for _ in range(B.rampa_fatia_its):
-            fecha(cur)
-        self.assertLessEqual(cur.fracoes_fatias()[1].item(), B.rampa_fatia_inicio + B.rampa_fatia_passo + 1e-9)
+            cur.fecha_iteracao()
+        self.assertAlmostEqual(cur.fracoes_fatias()[1].item(), 0.07)
+        self.assertAlmostEqual(cur.fracoes_fatias()[0].item(), 0.93)
         self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
+
+    def test_fracao_da_fatia_c_entra_com_teto_no_fecho_da_abertura(self):
+        # 11/11 (§5.3): a C entra com fração 0,05, o mesmo teto da B. A 1ª medida do PEGAR (s = 1, célula
+        # nascida em 0 e medida no fecho seguinte) abre a C; com 3 fatias abertas, o piso dá 0,20 e o teto corta.
+        cur = novo(SEM_CARENCIA)
+        while cur.fracoes_fatias()[1].item() == 0:  # abre a B
+            fecha(cur)
+        fecha(cur)
+        self.assertGreater(cur.fracoes_fatias()[2].item(), 0.0, "a C deveria abrir no fecho seguinte à B")
+        self.assertAlmostEqual(cur.fracoes_fatias()[2].item(), 0.05)
 
 
 class TestAberturaDeFatiaC(unittest.TestCase):

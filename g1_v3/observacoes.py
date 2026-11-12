@@ -5,7 +5,7 @@ entra SEMPRE por último, e nos dois grupos na mesma ordem. Inserir no meio desl
 em silêncio. O teste `test_ordem_dos_termos_do_ator_e_do_critico` trava a ordem da §6.5.
 
 ⚠ O mjlab cria o `DelayBuffer` com a capacidade do cfg (`observation_manager.py:465-475`): por isso os cinco
-termos com atraso nascem com `delay_max_lag` 3, e o evento `atraso` (D7) baixa o teto para 1 no startup.
+termos com atraso nascem com `delay_max_lag` 3, e o evento `atraso` (D7) define o teto inicial como `atraso_inicio[1]`, que vale 0 desde 11/11, no startup.
 
 Os termos `n_*` não existem aqui: as observações não têm núcleo de recompensa. Os núcleos puros são
 `passo_de_percepcao` (o mapa, sobre tensores) e `referencia_do_alvo`; os demais termos são funções finas

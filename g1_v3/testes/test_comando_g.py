@@ -98,18 +98,18 @@ class InclMaxDoSegmento(unittest.TestCase):
 class FechoDoSegmentoNoTerreno(unittest.TestCase):
     # `_fecha` real, com o núcleo real: o `terreno` sai da célula do segmento e o `incl_max_seg` do buffer do env
 
-    def _fecha(self, incl, cel, carregar):
+    def _fecha(self, incl, cel, carregar, restricao=1.0, parado=False):
         env = types.SimpleNamespace(
             v3_ancora=torch.tensor([[0.0, 0.0, 0.0, 1.5]]), v3_perdeu=torch.zeros(1, dtype=torch.bool),
             v3_incl_max_seg=torch.tensor([float(incl)]),
             v3_cur=types.SimpleNamespace(
                 id_celula=lambda tarefa, tipo: CARREGAR_TERRENO if (tarefa, tipo) == ("CARREGAR", "terreno") else -1,
-                restricao=lambda: 1.0, registra=mock.Mock()))
+                restricao=lambda: restricao, registra=mock.Mock()))
         obj = _twist_falso(env)
         obj._env, obj.k = env, K
-        obj.pose_ult = torch.zeros(1, 3)
+        obj.pose_ult = torch.tensor([[0.20 if parado else 0.0, 0.0, 0.0]])
         obj._agora = torch.tensor([5.0])
-        obj.seg_cmd = torch.tensor([[0.5, 0.0, 0.0]])
+        obj.seg_cmd = torch.zeros(1, 3) if parado else torch.tensor([[0.5, 0.0, 0.0]])
         obj.seg_cel = torch.tensor([cel])
         obj.seg_carrega = torch.tensor([carregar])
         obj.seg_proj = torch.tensor([[0.6, 0.0]])
@@ -129,6 +129,13 @@ class FechoDoSegmentoNoTerreno(unittest.TestCase):
     def test_celula_que_nao_e_terreno_a_16_graus_registra_com_sucesso(self):
         registra = self._fecha(16.0, CARREGAR_TERRENO + 4, True)
         registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 1)
+
+    def test_parado_com_deriva_de_020_m_passa_so_com_restricao_zero(self):
+        # comando zero, deriva 0,20 m, rumo 0: o limite desce de 0,25 m (restricao 0) a 0,10 m (restricao 1)
+        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, False, restricao=0.0, parado=True)
+        registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 1)
+        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, False, restricao=1.0, parado=True)
+        registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 0)
 
 
 def _cadeia_falsa(env, n=1):

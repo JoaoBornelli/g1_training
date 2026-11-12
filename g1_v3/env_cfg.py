@@ -191,7 +191,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         "tamanho_caixa": EventTermCfg(func=eventos.tamanho_caixa, mode="startup", params={
             "faixa": k.cena.caixa_meia_faixa, "n_variantes": k.cena.caixa_n_variantes,
             "asset_cfg": SceneEntityCfg("box", geom_names=(cena.BOX_GEOM,))}),
-        # ⚠ `atraso` baixa o teto do buffer para `atraso_inicio[1]` (1 passo); a capacidade do build fica (observacoes.py).
+        # ⚠ `atraso` define o teto inicial do buffer como `atraso_inicio[1]`, que vale 0 desde 11/11; a capacidade do build fica (observacoes.py).
         "atraso": EventTermCfg(func=eventos.atraso, mode="startup", params={
             "passos_max": k.dr.atraso_inicio[1], "decimacao": k.contrato.decimacao}),
     }

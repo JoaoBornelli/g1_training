@@ -41,6 +41,7 @@ class CurriculoHTest(unittest.TestCase):
         self.assertEqual(log["degrau_global"], 2)
         self.assertEqual(log["atraso_max"], 0)
         self.assertAlmostEqual(log["mu_min_pad"], 0.6, places=6)
+        self.assertAlmostEqual(log["restricao"], env.v3_cur.restricao(), places=9)
 
 
 if __name__ == "__main__":
