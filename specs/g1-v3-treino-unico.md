@@ -62,7 +62,7 @@ Arquivos: `g1_v3/knobs.py`, `g1_v3/env_cfg.py`, `g1_v3/smoke.py`, `g1_v3/testes/
 |---|---|---|
 | `Contrato` | `escala_acao_punho` (campo novo, logo depois de `escala_acao`) | `0.075` |
 | `Comando` | `frente_tetos` | `(0.5, 0.75, 1.0, 1.25, 1.5)` |
-| `Comando` | `janela_media_s` | `0.02` |
+| `Comando` | `janela_media_s` | `0.8` (fica; ver a nota abaixo da tabela) |
 | `Comando` | `deriva_pos_inicio` (campo novo, logo depois de `deriva_pos_m`) | `0.25` |
 | `Recompensa` | `rastreio_linear` | `2.0` |
 | `Recompensa` | `rastreio_angular` | `2.0` |
@@ -73,6 +73,10 @@ Arquivos: `g1_v3/knobs.py`, `g1_v3/env_cfg.py`, `g1_v3/smoke.py`, `g1_v3/testes/
 | `Balanceador` | `rampa_fatia_passo` (campo novo) | `0.02` |
 | `Balanceador` | `rampa_fatia_its` (campo novo, `int`) | `12` |
 | `DR` | `atraso_inicio` | `(0, 0)` |
+
+Nota sobre `janela_media_s` (verificação de 11/11): a T1 aplicou 0,02 e a medida local com ação zero e com ação
+N(0,1) reprovou o valor. Com 0,02 o `rastreio_linear` do robô sem treino foi de −0,24 para −0,70/s na célula reto e
+de −1,04 para −1,69/s na parado, e o `rastreio_angular` de −0,68 para −1,79/s. O knob voltou a 0,8.
 
 Cada campo novo ou mudado leva um comentário na linha com "11/11" e o motivo em poucas palavras
 (use a §1 e a §2). Os tipos são `float`, salvo os indicados.

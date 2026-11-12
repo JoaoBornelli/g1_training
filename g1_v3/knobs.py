@@ -123,7 +123,10 @@ class Comando:  # S §7, §11.2, §19
     piso_velocidade: float = 0.25  # S §11.2: "entre 0,25 e o teto"
     baixo: tuple = (0.05, 0.25)  # S §19, conflito 5: subtarefa de comando baixo (m/s; rad/s)
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
-    janela_media_s: float = 0.02  # S §19, conflito 5: média da velocidade (s); 11/11: era 0,8 (§4.1)
+    # 11/11: fica 0,8. O lote do treino único testou 0,02 e a medida local reprovou: com ação zero o `rastreio_linear`
+    # foi de −0,24 para −0,70/s na célula reto e de −1,04 para −1,69/s na parado; com ação N(0,1), o `rastreio_angular`
+    # foi de −0,68 para −1,79/s. A média de 0,8 s faz o canal sem comando cobrar a deriva, e não a oscilação do corpo.
+    janela_media_s: float = 0.8  # S §19, conflito 5: média da velocidade (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     deriva_pos_m: float = 0.10  # PD-15: deriva da âncora de posição (m)
     deriva_pos_inicio: float = 0.25  # 11/11 (§2): deriva do parado no início; sobe até deriva_pos_m
