@@ -376,3 +376,45 @@ segue `specs/g1-v3-treino-unico.md`: restrições pelo progresso, currículo pel
 P4, vantagem por tarefa e alvo e escala do punho por junta."
 
 Commit: `feat(v3): métrica do erro do P4 e ponteiro da spec do treino único`
+
+## 9. Tarefa T6: correções da revisão (só comentários e testes)
+
+A revisão do lote não achou defeito no código de produção. Ela achou comentários falsos e testes fracos.
+Esta tarefa NÃO muda lógica de produção: só o texto de comentários e os testes.
+
+### 9.1 Comentários
+
+| Arquivo | Onde | Texto certo |
+|---|---|---|
+| `g1_v3/knobs.py` | comentário de `deriva_pos_inicio` | o limite DESCE de 0,25 m (restricao 0) a `deriva_pos_m` (restricao 1) |
+| `g1_v3/knobs.py` | comentário de `sigma_zero_ang_inicio` | o σ₀ DESCE de 0,5 (restricao 0) a `sigma_zero_ang` (restricao 1) |
+| `g1_v3/knobs.py` | comentário de `atraso_portao` | 11/11: o teto do atraso é `ceil(atraso_portao[1] · restricao)`; antes ligava quando o PEGAR passava no nível 0 |
+| `g1_v3/balanceador.py` | comentário do `max_nivel` no `__init__` ("6 níveis de velocidade") | 5 níveis de velocidade |
+| `g1_v3/balanceador.py` | comentário do `_trava_dr` ("o mesmo fecho que abre a fatia B liga o vies") | desde 11/11 a fatia B abre pela média e o "vies" exige o reto e o parado no portão: o "vies" pode ligar depois da fatia B |
+| `g1_v3/env_cfg.py` | comentário do evento `atraso` (teto de 1 passo) | o teto inicial é `atraso_inicio[1]`, que vale 0 desde 11/11 |
+| `g1_v3/observacoes.py` | docstring do topo (o evento `atraso` baixa o teto para 1) | o teto inicial é `atraso_inicio[1]`, que vale 0 desde 11/11 |
+| `g1_v3/testes/test_comando.py` | comentário "o limite do parado sobe de 0,25 a 0,10" | desce |
+
+### 9.2 Testes
+
+1. `test_balanceador.py`, o teste da rampa (`test_rampa_da_fatia_b_entra_com_teto_e_sobe_por_degrau`): hoje ele só
+   afirma "no máximo". Monte o caso com o déficit da fatia B alto (a fração sem a rampa passa de 0,5), e afirme com
+   `assertAlmostEqual`: no fecho da abertura a fração da B é 0,05 e a do ANDAR é 0,95; 12 fechos depois a da B é
+   0,07 e a do ANDAR é 0,93; a fração da fatia C fechada é 0. Teste novo: quando a fatia C abre, a fração dela
+   é 0,05 no fecho da abertura.
+2. `test_metricas_h.py`, `ErroP4Test`: teste novo com yaw de 90° (quaternion wxyz `(0.70710678, 0, 0, 0.70710678)`):
+   com `e = (0,10; 0; −0,20)` no mundo, o erro lateral é 0,10 (com yaw 0 seria 0). Teste novo com DOIS passos de
+   `__call__` no P4 com erros verticais 0,20 e 0,40: a média logada é 0,30. Teste novo: `reset` só do env 0 não zera
+   a soma do env 1.
+3. `test_comando_g.py` (ou o arquivo onde está o env falso do `_fecha`): teste novo que chama o `_fecha` com um
+   segmento parado de deriva 0,20 m: com `restricao=lambda: 0.0` o segmento registra sucesso; com
+   `restricao=lambda: 1.0` registra falha. Use o mesmo env falso do teste `FechoDoSegmentoNoTerreno`.
+4. `test_recompensas_e.py`, `TestDistanciaDoP4`: teste novo: no P3 (índice 3) e no B1 (índice 5), com `dpelve` 0,10
+   a distância é igual ao `d_caixa` (a pelve só entra no P4).
+5. `test_curriculo_h.py`, `test_log_traz_degraus_degrau_global_atraso_e_mu`: afirme também que o log tem a chave
+   `restricao` com o valor de `cur.restricao()`.
+
+Se um teste novo desta lista FALHAR contra o código de produção atual, não mude o código de produção: pare e relate
+o caso, com os números.
+
+Commit: `test(v3): reforço dos testes do treino único e comentários corrigidos`
