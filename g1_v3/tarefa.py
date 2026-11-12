@@ -30,15 +30,22 @@ EXPERIMENT = "g1_v3"
 def rl_cfg():
     """O PPO do mjlab com a classe de algoritmo da v3 (`algoritmo.CAMINHO`, a vantagem normalizada por tarefa).
 
-    ⚠ `obs_normalization` e `entropy_coef` são os do mjlab (True e 0,01), como no g1_limpo (dono, 11/11; antes: False e
-    0 a 0,005). Medido na poc9: sem o normalizador o ator recebe a caixa com desvio 0,07 e a ação anterior com 0,82, e
-    a marcha ficou no nível 0 da it 4600 à 11231 (`s_ANDAR_reto` 0,65 → 0,79). Os termos categóricos e o mapa ficam
+    ⚠ `obs_normalization` é o do mjlab (True), como no g1_limpo (dono, 11/11; antes: False). Medido na poc9: sem o
+    normalizador o ator recebe a caixa com desvio 0,07 e a ação anterior com 0,82, e a marcha ficou no nível 0 da it
+    4600 à 11231 (`s_ANDAR_reto` 0,65 → 0,79). Os termos categóricos e o mapa ficam
     fora do normalizador (`runner._FIXOS`, `algoritmo.fixa_normalizador`). `num_steps_per_env` vem do
     `Balanceador.passos_por_iteracao`: é a iteração que o balanceador fecha (`v3.curriculo`).
+
+    ⚠ `entropy_coef` 0,001 (dono, 12/11; antes: 0,01 do mjlab em 11/11 e 0 a 0,005 antes disso). O std da ação é o
+    equilíbrio entre o bônus de entropia e o custo do ruído. O g1_limpo paga 0,01 contra `action_rate_l2` −0,10; a v3
+    tem `taxa_acao` −0,01, e com 0,01 o ruído custava 10 vezes menos. Medido na unico1 (0,01, do zero): std 1,02 →
+    1,48 em 578 its sem desacelerar, e a `taxa_acao` (−1,45/s, 94 % de ruído pela conta) anulou o `vivo`. 0,001
+    repete a razão do g1_limpo sem subir punição.
     """
     cfg = unitree_g1_ppo_runner_cfg()
     cfg.experiment_name = EXPERIMENT
     cfg.algorithm.class_name = algoritmo.CAMINHO
+    cfg.algorithm.entropy_coef = 0.001
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 

@@ -301,10 +301,11 @@ class TestRegistro(unittest.TestCase):
 class TestTarefa(unittest.TestCase):
     def test_rl_cfg(self):
         rl = tarefa.rl_cfg()
-        # dono, 11/11: o normalizador e a entropia do mjlab, como no g1_limpo
+        # dono, 11/11: o normalizador do mjlab, como no g1_limpo; 12/11: entropia 0,001, a razão do g1_limpo entre a
+        # entropia e o custo do ruído (0,01 contra −0,10), com a `taxa_acao` −0,01 da v3
         self.assertTrue(rl.actor.obs_normalization)
         self.assertTrue(rl.critic.obs_normalization)
-        self.assertEqual(rl.algorithm.entropy_coef, 0.01)
+        self.assertEqual(rl.algorithm.entropy_coef, 0.001)
         self.assertEqual(rl.num_steps_per_env, ATIVO.balanceador.passos_por_iteracao)
         self.assertEqual(rl.experiment_name, "g1_v3")
 
