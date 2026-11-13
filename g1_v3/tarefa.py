@@ -36,16 +36,15 @@ def rl_cfg():
     fora do normalizador (`runner._FIXOS`, `algoritmo.fixa_normalizador`). `num_steps_per_env` vem do
     `Balanceador.passos_por_iteracao`: é a iteração que o balanceador fecha (`v3.curriculo`).
 
-    ⚠ `entropy_coef` 0,001 (dono, 12/11; antes: 0,01 do mjlab em 11/11 e 0 a 0,005 antes disso). O std da ação é o
-    equilíbrio entre o bônus de entropia e o custo do ruído. O g1_limpo paga 0,01 contra `action_rate_l2` −0,10; a v3
-    tem `taxa_acao` −0,01, e com 0,01 o ruído custava 10 vezes menos. Medido na unico1 (0,01, do zero): std 1,02 →
-    1,48 em 578 its sem desacelerar, e a `taxa_acao` (−1,45/s, 94 % de ruído pela conta) anulou o `vivo`. 0,001
-    repete a razão do g1_limpo sem subir punição.
+    ⚠ `entropy_coef` 0,01 com `taxa_acao` −0,10 (dono, 13/11): o par do g1_limpo. O std da ação é o equilíbrio entre o
+    bônus de entropia e o custo do ruído (≈ 2·Σσ²·|taxa_acao| por segundo). Medido antes: 0,01 com −0,01 (unico1, 11/11),
+    std 1,02 → 1,48 em 578 its, e a `taxa_acao` anulou o `vivo`; 0,001 com −0,01 (12/11), std 0,32 e marcha de
+    micro-passo no model_3999 (9 balanços/s, voo de 25 ms). O g1_limpo credita ao −0,10 a marcha que formou.
     """
     cfg = unitree_g1_ppo_runner_cfg()
     cfg.experiment_name = EXPERIMENT
     cfg.algorithm.class_name = algoritmo.CAMINHO
-    cfg.algorithm.entropy_coef = 0.001
+    cfg.algorithm.entropy_coef = 0.01
     cfg.num_steps_per_env = ATIVO.balanceador.passos_por_iteracao
     return cfg
 

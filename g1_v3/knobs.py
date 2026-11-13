@@ -220,7 +220,9 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     giro_xy: float = -0.05  # S §9.2: peso do giro em x e y
     vel_junta: float = -0.001  # S §9.2: peso da velocidade de junta
     acel_junta: float = -5e-8  # S §9.2 ÷5 (poc1, 05/11): −2,5e-7 dava 28% do negativo; o passo custava −0,036 ≈ a queda (−4) descontada
-    taxa_acao: float = -0.01  # S §9.2 ÷5 (poc1, 05/11): 88% do Δa² era o ruído de std 0,51; −0,05 dava 26% do negativo
+    # 13/11 (dono): o par do g1_limpo (`action_rate_l2` −0,10 com `entropy_coef` 0,01, `tarefa.rl_cfg`) contra o micro-passo
+    # medido no model_3999 (9 balanços/s, voo de 25 ms, pé deslizando a 0,27 m/s). Antes −0,01 (S §9.2 ÷5, poc1, 05/11).
+    taxa_acao: float = -0.10
     energia: float = -2e-5  # S §9.2: peso da energia
     estilo_inicio: float = 0.25  # 11/11 (§2): fator dos termos de estilo no início; sobe a 1
     # ⚠ limite mole 95% pelo dono (08/10); a receita da Unitree usa 90%; a IK fica a 90%
