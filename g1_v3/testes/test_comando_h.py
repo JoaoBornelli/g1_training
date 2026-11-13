@@ -49,6 +49,7 @@ class TestComputeDaOPassoDaOdometria(unittest.TestCase):
             v3_fim=torch.zeros(1, dtype=torch.bool), v3_perdeu=torch.zeros(1, dtype=torch.bool),
             v3_tarefa=torch.zeros(1, dtype=torch.long), v3_p4_fechado=torch.zeros(1, dtype=torch.bool),
             v3_b4_fechado=torch.zeros(1, dtype=torch.bool), v3_vz_caixa_ant=torch.zeros(1), v3_odo=mock.Mock(),
+            v3_perdeu_agora=torch.zeros(1, dtype=torch.bool), extras={},
             v3_cur=types.SimpleNamespace(degrau_global=lambda: 3, restricao=lambda: 1.0),
             scene={"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))})
         obj = _cadeia_sem_env(env)

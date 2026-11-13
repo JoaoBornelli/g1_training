@@ -530,6 +530,8 @@ class CadeiaCmd(CommandTerm):
         env = self._env
         m = self._mede()
         self._perda(m)
+        # 13/11, M1: o `extras` do mjlab persiste entre passos (só o "log" é refeito); o `PPOPorTarefa` lê o pulso da perda
+        env.extras["v3_perdeu_agora"] = env.v3_perdeu_agora
         self._abre_p0(m)
         self._alvos(m, dt)
         # 13/11, M6: o aviso do trecho é o fecho do alvo dele (P4 no PEGAR, B4 no BOTAR), só nos trechos por aviso. O

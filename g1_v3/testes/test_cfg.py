@@ -36,7 +36,7 @@ TETOS_CARREGAR = (
 # §6.5, na ordem do dict. Termos de fases futuras ainda não existem; o teste checa só o que existe.
 ATOR = ("giro_base", "gravidade", "comando", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa")
 CRITICO = ATOR + ("vel_lin_base", "caixa_verdade", "alvo_verdade", "alvo_macro", "referencia", "niveis",
-                  "degrau", "massa", "forca_caixa", "tarefa_critico")
+                  "degrau", "massa", "forca_caixa", "privilegiados", "tarefa_critico")
 RECOMPENSAS = ("rastreio_linear", "rastreio_angular", "passo", "vivo", "altura_pe", "escorrego", "vz",
                "giro_xy", "vel_junta", "acel_junta", "taxa_acao", "energia", "limite_junta", "desvio_bracos",
                "desvio_cintura", "desvio_quadril", "tronco_plano", "altura_base", "cerca_sola", "cerca_giro",

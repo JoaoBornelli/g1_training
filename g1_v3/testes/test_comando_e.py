@@ -78,7 +78,8 @@ def _env_falso(idx, tarefa=comando.PEGAR):
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
         v3_ponto_apoio=torch.zeros(1, 3),
         v3_sigma=torch.ones(1), v3_phi=torch.zeros(1), v3_h=torch.ones(1), v3_phi_melhor=torch.zeros(1),
-        v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])))
+        v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])),
+        v3_perdeu_agora=b.clone(), extras={})
 
 
 def _cadeia_sem_env(env):
@@ -171,6 +172,7 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
             obj.robot.data.root_link_pos_w, obj.robot.data.root_link_quat_w,
             comando.deriva_do_degrau(obj.cfg.est, 3, ATIVO.balanceador.degraus))
         self.assertEqual(ordem, ["odo", "chegada"])  # a odometria anda antes das escritas do fim (grava_chegada)
+        self.assertIs(env.extras["v3_perdeu_agora"], env.v3_perdeu_agora)  # 13/11, M1: o pulso da perda vai ao algoritmo
 
 
 class TestOkAgoraPegar(unittest.TestCase):
@@ -371,7 +373,7 @@ def _cadeia_de_trechos(n=1):
         v3_alvo_w=z(3), v3_caixa_pega_w=z(3), v3_ponto_apoio=z(3), v3_sigma=torch.ones(n),
         v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),
         v3_pegou=b(), v3_perdeu=b(), v3_p4_fechado=b(), v3_b4_fechado=b(), v3_perdeu_agora=b(), v3_avancou=b(),
-        v3_fim=b(), v3_t_empurrao=torch.full((n,), float("-inf")),
+        extras={}, v3_fim=b(), v3_t_empurrao=torch.full((n,), float("-inf")),
         v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(n), pelve_de_pe=0.0,
                                      palmas_de_pe_b=torch.zeros(n, 2, 3),
                                      palmas_com_caixa_b=lambda a: torch.zeros(n, 2, 3)),

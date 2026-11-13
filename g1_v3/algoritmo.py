@@ -13,7 +13,7 @@ segurando a caixa, precisa); o que muda é só a estatística de agregação do 
 
 ⚠ O GRUPO é a tarefa corrente, lida do crítico: o argmax das 6 últimas colunas da observação
 (`tarefa_critico`, §6.5). É o crítico que estima o retorno, e o retorno é o que a normalização
-escala.
+escala. A M1 (13/11) usa o mesmo grupo para a média de V que ela soma na queda e na perda da caixa.
 """
 from __future__ import annotations
 
@@ -92,9 +92,44 @@ class PPOPorTarefa(PPO):
     # Fatia do one-hot `alvo_macro` no crítico. O `RunnerV3` preenche; None faz o grupo da vantagem ser só a tarefa.
     fatia_alvo = None
 
-    def process_env_step(self, *a, **kw):
-        """O `super()` atualiza os normalizadores em TODOS os canais; a fixação desfaz a mexida antes de a rede ler."""
-        saida = super().process_env_step(*a, **kw)
+    # Média de `storage.values` por grupo, do rollout anterior (1 + 6·n posições; o `compute_returns` preenche).
+    v_grupo = None
+
+    def _grupo(self, obs_critico: torch.Tensor) -> torch.Tensor:
+        """Grupo da vantagem e da M1, de uma observação do crítico (..., D): (...,) long.
+
+        A tarefa é o argmax das 6 últimas colunas. Sem `fatia_alvo`, o grupo é a tarefa. Com ela, o grupo é 0 para o
+        ANDAR com o slot "nenhum" (o último da fatia) e `1 + tarefa·n + slot` no resto: o ANDAR final (B4 fechado) e o
+        ANDAR depois da perda ganham grupo próprio, como as outras tarefas (13/11, M7). Desde 11/11, um grupo por tarefa e
+        alvo, como o g1_limpo normalizava por elo: com um grupo por tarefa, o P4 tinha 6,7 % da magnitude da vantagem.
+        """
+        tarefa = obs_critico[..., -6:].argmax(-1)
+        if self.fatia_alvo is None:
+            return tarefa
+        fatia = obs_critico[..., self.fatia_alvo]
+        n = fatia.shape[-1]
+        slot = fatia.argmax(-1)
+        return torch.where((tarefa == ANDAR) & (slot == n - 1), torch.zeros_like(tarefa), 1 + tarefa * n + slot)
+
+    def process_env_step(self, obs, rewards, dones, extras):
+        """M1 (13/11): a queda e a perda da caixa nunca escapam de um futuro negativo. Numa terminação ruim
+        (`dones` sem `time_outs`) e no passo da perda (`extras["v3_perdeu_agora"]`), a recompensa ganha
+        γ·min(V̄_g, 0), com V̄_g a média do valor do grupo no rollout anterior (`v_grupo`, sem gradiente).
+        Com V̄_g ≥ 0 nada muda. Com V̄_g < 0, cair custa a perda mais o futuro negativo que o robô evitaria.
+
+        ⚠ A média do grupo, e não o V do próprio estado: o alvo de um estado que cai viraria r + γ·min(V(s), 0), e o
+        crítico convergiria para r/(1 − γ) nesses estados. A perda da caixa não termina o episódio, e vale pelo
+        mesmo motivo: com V < −5,8, largar a caixa seria a saída mais barata.
+        ⚠ O grupo vem das observações do PASSO (`transition.observations`, gravadas no `act`), e não das de `obs`, que
+        já são as do reset.
+        O `super()` atualiza os normalizadores em TODOS os canais; a fixação desfaz a mexida antes de a rede ler.
+        """
+        if self.fatia_alvo is not None and self.v_grupo is not None:
+            g = self._grupo(self.transition.observations["critic"])
+            time_outs = extras.get("time_outs", torch.zeros_like(dones)).bool()
+            ruim = ((dones > 0) & ~time_outs) | extras["v3_perdeu_agora"]
+            rewards = rewards + self.gamma * self.v_grupo[g].clamp(max=0.0) * ruim.float()
+        saida = super().process_env_step(obs, rewards, dones, extras)
         for rede in ("actor", "critic"):
             fixa_normalizador(getattr(self, rede).obs_normalizer, self.fatias_fixas.get(rede, ()))
         return saida
@@ -120,15 +155,15 @@ class PPOPorTarefa(PPO):
         # ⚠ Sobre a vantagem CRUA, e não sobre a que o `super()` já normalizou: renormalizar o
         # normalizado misturaria as duas escalas.
         crua = st.returns - st.values
-        tarefa = bloco.argmax(-1)
-        grupo = tarefa
-        if self.fatia_alvo is not None:
-            # 11/11: um grupo por tarefa e alvo, como o g1_limpo normalizava por elo interno. Com um grupo por
-            # tarefa, o P4 tinha 40 % das amostras do PEGAR e 6,7 % da magnitude da vantagem. O ANDAR fica em um
-            # grupo só (o 0, que o `normaliza_por_grupo` trata como ANDAR).
-            alvo = st.observations["critic"][..., self.fatia_alvo].argmax(-1)
-            n_alvos = self.fatia_alvo.stop - self.fatia_alvo.start
-            grupo = torch.where(tarefa == ANDAR, torch.zeros_like(tarefa), 1 + tarefa * n_alvos + alvo)
+        grupo = self._grupo(st.observations["critic"])
         st.advantages = normaliza_por_grupo(crua.reshape(-1), grupo.reshape(-1)).reshape(crua.shape)
-
-
+        if self.fatia_alvo is not None:
+            # M1: V̄ de cada grupo, para o rollout seguinte (sem gradiente). Grupo ausente fica com o valor anterior.
+            n = self.fatia_alvo.stop - self.fatia_alvo.start
+            soma = torch.zeros(1 + bloco.shape[-1] * n, device=st.values.device)
+            cont = torch.zeros_like(soma)
+            g, v = grupo.reshape(-1), st.values.detach().reshape(-1)
+            soma.index_add_(0, g, v)
+            cont.index_add_(0, g, torch.ones_like(v))
+            anterior = self.v_grupo if self.v_grupo is not None else torch.zeros_like(soma)
+            self.v_grupo = torch.where(cont > 0, soma / cont.clamp(min=1.0), anterior)

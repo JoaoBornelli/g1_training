@@ -1,8 +1,9 @@
 """Observações do ator e do crítico da v3 (D2 do plano; §6.3, §6.4, §6.5, §6.6; S §19.1; PD-25, PD-28).
 
 ⚠ CONTRATO DO LAYOUT (herdado do `g1_limpo/observacoes.py`): a ordem dos termos é o contrato. Um termo novo
-entra SEMPRE por último, e nos dois grupos na mesma ordem. Inserir no meio desloca o peso da primeira camada
-em silêncio. O teste `test_ordem_dos_termos_do_ator_e_do_critico` trava a ordem da §6.5.
+entra SEMPRE por último, e nos dois grupos na mesma ordem. Exceção do crítico: `tarefa_critico` fica por último
+(o `PPOPorTarefa` lê as 6 últimas colunas), e o termo novo entra antes dele. Inserir no meio desloca o peso da
+primeira camada em silêncio. O teste `test_ordem_dos_termos_do_ator_e_do_critico` trava a ordem da §6.5.
 
 ⚠ O mjlab cria o `DelayBuffer` com a capacidade do cfg (`observation_manager.py:465-475`): por isso os cinco
 termos com atraso nascem com `delay_max_lag` 3, e o evento `atraso` (D7) define o teto inicial como `atraso_inicio[1]`, que vale 0 desde 11/11, no startup.
@@ -40,7 +41,8 @@ if TYPE_CHECKING:
 K = knobs.ATIVO
 ANDAR, CARREGAR, BOTAR = (knobs.TAREFAS.index(n) for n in ("ANDAR", "CARREGAR", "BOTAR"))
 N_TAREFAS = len(knobs.TAREFAS)  # 6 canais one-hot (§6.5 `tarefa`)
-N_ALVO_MACRO = len(knobs.ALVOS) + 1  # P0–B4 e "nenhum" (§6.5 `alvo_macro`)
+# 13/11, M7: P0–B4 (9), P4 fechado, B4 fechado, perda e "nenhum" (§6.5 `alvo_macro`)
+N_ALVO_MACRO = len(knobs.ALVOS) + 4
 _CAMERA = "d435"  # site da D435i no torso (cena.py); o eixo x é o óptico (PD-11)
 # Os 9 pontos da caixa (PD-11), em fração da meia aresta: o centro (o primeiro, que o `visivel` exige) e os 8 cantos.
 _CANTOS = torch.tensor([[0.0, 0.0, 0.0]] + [[sx, sy, sz] for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)
@@ -277,10 +279,30 @@ def alvo_verdade(env: ManagerBasedRlEnv) -> torch.Tensor:
 
 
 def alvo_macro(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """One-hot (E,10) de P0–B4 e "nenhum". O "nenhum" é o último canal (índice −1 vira 9)."""
+    """One-hot (E,13) do estado da cadeia (13/11, M7): 0–8 o índice de ALVOS (P0–B4), 9 P4 fechado, 10 B4 fechado,
+    11 perda, 12 nenhum. Prioridade: perda, B4 fechado, P4 fechado (com o índice no P4), índice < 0, índice.
+
+    ⚠ O crítico precisa ver o que a renda lê: o P4 fechado paga 30/s e o aberto 24·h + 3Φ; o ANDAR final (B4 fechado)
+    paga 54/s e o ANDAR depois da perda 0, e os três tinham o mesmo "nenhum". O `PPOPorTarefa._grupo` lê esta fatia.
+    """
+    na = len(knobs.ALVOS)
     idx = env.v3_alvo_idx
-    slot = torch.where(idx < 0, torch.full_like(idx, N_ALVO_MACRO - 1), idx)
+    slot = torch.where(idx < 0, torch.full_like(idx, na + 3), idx)
+    slot = torch.where((idx == _P4) & env.v3_p4_fechado, torch.full_like(idx, na), slot)
+    slot = torch.where(env.v3_b4_fechado, torch.full_like(idx, na + 1), slot)
+    slot = torch.where(env.v3_perdeu, torch.full_like(idx, na + 2), slot)
     return torch.nn.functional.one_hot(slot, num_classes=N_ALVO_MACRO).float()
+
+
+def privilegiados(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Estado da recompensa que o ator não vê, só no crítico (E,6; 13/11, M7): seno e cosseno da fase do relógio de
+    marcha (M4), relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
+
+    ⚠ Lacuna = relu(melhor Φ − Φ): o Φ é −1 sem alvo (sentinela), e o `clamp` o trata como 0. Sem ruído (§6.5).
+    """
+    ang = 2 * torch.pi * env.v3_fase_marcha
+    lacuna = torch.relu(env.v3_phi_melhor - env.v3_phi.clamp(min=0.0))
+    return torch.stack([ang.sin(), ang.cos(), env.v3_marcha_on.float(), env.v3_h, lacuna, env.v3_sigma], dim=-1)
 
 
 def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:
@@ -377,6 +399,7 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
         "degrau": termo("degrau", degrau),
         "massa": termo("massa", massa),
         "forca_caixa": termo("forca_caixa", forca_caixa),
+        "privilegiados": termo("privilegiados", privilegiados),  # 13/11, M7; antes do one-hot, que fica por último
         "tarefa_critico": termo("tarefa_critico", um_de_seis),
     })
     return {

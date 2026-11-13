@@ -775,7 +775,7 @@ def s20_estimador_ve_caixa_a_frente_e_idade_cresce_fora_do_fov():
         env.close()
 
 
-def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
+def s21_aviso_do_pegar_vem_do_fecho_do_p4_e_nao_da_pose_de_pe():
     from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, escala_por_junta, q_de_pe
 
     env = _abre_env(4)
@@ -791,8 +791,9 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         q = env.v3_ref.q_com_caixa(a).to(dev, torch.float32)  # ⚠ a ordem é a de JUNTAS (s04)
         qde = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=dev)
         # ⚠ força a pose de pé com caixa: braços em q_com_caixa e a pelve na altura de `pelve_com_caixa`.
-        # ⚠ Limite conhecido (I §4.2; 13/11, M6): o aviso do PEGAR é o fecho do P4 (`v3_p4_fechado`), que pede a caixa a
-        # 5 cm do transporte e a pelve a 3 cm por 0,5 s, e não mais o detector de pose (alvos.detecta_fim, só do pilota_v3).
+        # ⚠ 13/11, M6: o aviso do PEGAR é o fecho do P4 (`v3_p4_fechado`), que pede a caixa a 5 cm do transporte e a
+        # pelve a 3 cm por 0,5 s, e não mais o detector de pose (alvos.detecta_fim, só do pilota_v3). A pose forçada
+        # abaixo não fecha o P4 por si: a seção força o fecho no passo `p_fecho`.
         robo.write_joint_state_to_sim(q, torch.zeros_like(q))
         env.sim.forward()
         env.sim.sense()
@@ -805,7 +806,10 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         idx = [robo.joint_names.index(j) for j in JUNTAS]
         acao = (q - qde + robo.data.encoder_bias[:, idx]) / torch.tensor(escala_por_junta(), device=q.device, dtype=q.dtype)
         avisos = []
-        for _ in range(60):
+        p_fecho = 30  # 13/11, M6: o fecho do P4 é forçado neste passo; antes dele a pose de pé sozinha não acaba o trecho
+        for p in range(60):
+            if p == p_fecho:
+                env.v3_p4_fechado[:] = True
             # ⚠ fase I: a ação zero não segura a base (S0), e a cintura (kp 40) não segura os braços à frente
             # (tronco +8° em 0,36 s). A seção mede o aviso do trecho: base e juntas reescritas a cada passo.
             _segura_base(env, pose)
@@ -813,10 +817,11 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
             env.step(acao)
             avisos.append(env.v3_aviso.clone())
         m = torch.stack(avisos)  # (60, E)
-        check("precondição: a tarefa segue PEGAR durante os 60 passos (o trecho é por detector)",
+        check("precondição: a tarefa segue PEGAR durante os 60 passos (o trecho é por aviso)",
               bool((env.v3_tarefa == TAREFAS.index("PEGAR")).all()))
-        check("nenhum aviso nos primeiros 24 passos (0,48 s: a janela de 0,5 s ainda não fechou)", not bool(m[:24].any()))
-        check("aviso depois de 0,5 s, com a pose de pé com caixa", bool(m.any(dim=0).all()),
+        check("a pose de pé com caixa sozinha não dá aviso (sem o fecho do P4)", not bool(m[:p_fecho].any()),
+              f"primeiro aviso por mundo: {m.float().argmax(0).tolist()}")
+        check("com o fecho do P4 forçado, o aviso vem em todo mundo", bool(m[p_fecho:].any(dim=0).all()),
               f"primeiro aviso por mundo: {m.float().argmax(0).tolist()}")
     finally:
         env.close()
@@ -866,10 +871,10 @@ def s23_tamanho_do_critico_confere_com_6_5():
     try:
         obs, _ = env.reset()
         # §6.5: os nove do ator com o mesmo histórico (1 447), mais vel_lin_base (3×5), caixa_verdade (7),
-        # alvo_verdade (3), alvo_macro (10), referencia (8), niveis (4), degrau (1), massa (1), forca_caixa (1),
-        # tarefa_critico (6). Total: 1 503.
-        esperado = dim_ator() + 3 * 5 + 7 + 3 + 10 + 8 + 4 + 1 + 1 + 1 + 6
-        check("crítico = 1 447 do ator + 56 de §6.5 (= 1 503)", obs["critic"].shape[-1] == esperado,
+        # alvo_verdade (3), alvo_macro (13; M7), referencia (8), niveis (4), degrau (1), massa (1), forca_caixa (1),
+        # privilegiados (6; M7), tarefa_critico (6). Total: 1 512.
+        esperado = dim_ator() + 3 * 5 + 7 + 3 + 13 + 8 + 4 + 1 + 1 + 1 + 6 + 6
+        check("crítico = 1 447 do ator + 65 de §6.5 e da M7 (= 1 512)", obs["critic"].shape[-1] == esperado,
               f"{obs['critic'].shape[-1]} != {esperado}")
     finally:
         env.close()
@@ -1025,7 +1030,10 @@ def s28_one_hot_fica_em_botar_durante_o_atraso():
         ok = torch.ones(n, dtype=torch.bool, device=dev)
         # ⚠ para quando todo mundo trocou, ou no tempo máximo (aviso em 1,5 s + atraso máximo + margem)
         pose0 = env.scene["robot"].data.root_link_pose_w.clone()
+        p_fecho = math.ceil(0.5 / dt)  # 13/11, M6: o fecho do B4 é forçado neste passo; a pose de pé sozinha não dá aviso
         for p in range(math.ceil((1.5 + atraso_max + margem) / dt)):
+            if p == p_fecho:
+                env.v3_b4_fechado[:] = True
             _segura_base(env, pose0)  # S0: a ação zero cai em ~1,1 s, antes do aviso
             env.step(zeros)
             aviso0 = torch.where((aviso0 < 0) & env.v3_aviso, torch.full_like(aviso0, p), aviso0)
@@ -1038,10 +1046,12 @@ def s28_one_hot_fica_em_botar_durante_o_atraso():
                 break
         t_aviso = (aviso0 + 1).float() * dt
         t_troca = (troca + 1).float() * dt
-        # ⚠ o aviso é a pose de pé sem caixa com 0,5 s de estabilidade: não pode vir antes disso (± 1 passo)
-        check("aviso do BOTAR em até 1,5 s (a pose de pé sem caixa)", bool(((aviso0 >= 0) & (t_aviso <= 1.5)).all()),
+        # ⚠ 13/11, M6: o aviso é o fecho do B4 (`v3_b4_fechado`), forçado no passo `p_fecho`. A pose de pé sem caixa que a
+        # seção segura não o fecha, e o aviso não pode vir antes do fecho forçado.
+        check("aviso do BOTAR em até 1,5 s (o fecho do B4 forçado em 0,5 s)", bool(((aviso0 >= 0) & (t_aviso <= 1.5)).all()),
               f"aviso em {t_aviso.tolist()} s")
-        check("aviso não antes de 0,5 s de pose estável", bool((t_aviso >= 0.5 - dt).all()), f"{t_aviso.tolist()} s")
+        check("aviso não antes do fecho do B4 forçado (a pose de pé sozinha não dá aviso)",
+              bool((aviso0 >= p_fecho).all()), f"aviso no passo {aviso0.tolist()}, fecho no {p_fecho}")
         # M1 (F9): o limite conta do aviso MEDIDO (o primeiro passo com v3_aviso), e não de 0,5 s fixos
         atraso = t_troca - t_aviso
         check("trecho sai do BOTAR até atraso máximo + margem depois do aviso",
@@ -1564,7 +1574,7 @@ SECOES = (
     ("19 caixa no chão: paga uma vez e vira ANDAR; sem a chave, termina",
      s19_caixa_no_chao_paga_uma_vez_e_vira_andar_com_a_chave),
     ("20 estimador vê a caixa à frente; idade cresce fora do FOV", s20_estimador_ve_caixa_a_frente_e_idade_cresce_fora_do_fov),
-    ("21 pose de pé com caixa: aviso depois de 0,5 s", s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo),
+    ("21 aviso do PEGAR vem do fecho do P4, e não da pose de pé", s21_aviso_do_pegar_vem_do_fecho_do_p4_e_nao_da_pose_de_pe),
     ("22 laje sai com o CARREGAR que anda", s22_laje_sai_com_o_carregar_que_anda),
     ("23 tamanho do crítico confere com §6.5", s23_tamanho_do_critico_confere_com_6_5),
     ("24 atraso do atuador em {0..8} depois do portão do PEGAR", s24_atraso_do_atuador_depois_do_portao_do_pegar),

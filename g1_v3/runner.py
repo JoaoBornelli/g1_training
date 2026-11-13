@@ -26,10 +26,11 @@ __all__ = ["RunnerV3"]
 # `observacoes.grupos`. Os one-hot e os canais do currículo valem 1: são constantes por milhares de iterações. O `mapa`
 # já vem em [0, 1] e, normalizado, seria ruído no terreno plano. Os termos da caixa valem 0,1: enquanto só há ANDAR eles
 # valem zero, e com a estatística empírica entrariam com ganho de 16,7 na abertura da fatia B. Os desvios vêm da medida
-# no model_11200.
+# no model_11200. O `privilegiados` (13/11, M7) tem ordem de grandeza 1 (seno, cosseno, flag, h, lacuna, σ em m):
+# escala fixa 1.
 _FIXOS = {"tarefa": 1.0, "mapa": 1.0, "alvo_macro": 1.0, "niveis": 1.0, "degrau": 1.0, "massa": 1.0,
-          "tarefa_critico": 1.0, "caixa": 0.1, "caixa_verdade": 0.1, "alvo_verdade": 0.1, "referencia": 0.1,
-          "forca_caixa": 0.3}
+          "tarefa_critico": 1.0, "privilegiados": 1.0, "caixa": 0.1, "caixa_verdade": 0.1, "alvo_verdade": 0.1,
+          "referencia": 0.1, "forca_caixa": 0.3}
 
 
 class RunnerV3(MjlabOnPolicyRunner):

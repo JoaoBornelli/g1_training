@@ -20,7 +20,8 @@ from g1_v3.knobs import ALVOS, ATIVO, TAREFAS, caminho
 
 ATOR = ["giro_base", "gravidade", "comando", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa"]  # §6.5
 CRITICO = ATOR + ["vel_lin_base", "caixa_verdade", "alvo_verdade", "alvo_macro", "referencia",
-                  "niveis", "degrau", "massa", "forca_caixa", "tarefa_critico"]  # §6.5, o último é o grupo de D9
+                  "niveis", "degrau", "massa", "forca_caixa", "privilegiados",  # M7 (13/11)
+                  "tarefa_critico"]  # §6.5, o último é o grupo de D9
 COM_ATRASO = ["giro_base", "gravidade", "juntas", "vel_juntas", "mapa"]  # §6.5: atraso 0–1 em cinco termos
 K_PERC = ATIVO.percepcao
 CPU = "cpu"
@@ -44,6 +45,41 @@ class ObservacoesTest(unittest.TestCase):
         out = observacoes.um_de_seis(env)
         self.assertEqual(out.shape, (2, 6))
         self.assertEqual(out.tolist(), [[1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]])
+
+    def _env_macro(self, idx, p4=False, b4=False, perdeu=False):
+        n = len(idx)
+        flag = lambda v: torch.full((n,), v, dtype=torch.bool)
+        return types.SimpleNamespace(v3_alvo_idx=torch.tensor(idx, dtype=torch.long), v3_p4_fechado=flag(p4),
+                                     v3_b4_fechado=flag(b4), v3_perdeu=flag(perdeu))
+
+    def test_alvo_macro_tem_13_posicoes_e_cada_caso_da_prioridade(self):
+        p4, b4 = ALVOS.index("P4"), ALVOS.index("B4")
+        self.assertEqual(observacoes.N_ALVO_MACRO, 13)
+        casos = [  # (env, posição acesa)
+            (self._env_macro([0, p4, b4]), [0, p4, b4]),  # o índice, sem fecho nem perda
+            (self._env_macro([-1]), [12]),  # nenhum
+            (self._env_macro([p4], p4=True), [9]),  # P4 fechado, com o índice no P4
+            (self._env_macro([ALVOS.index("P3")], p4=True), [ALVOS.index("P3")]),  # P4 fechado fora do P4: o índice
+            (self._env_macro([-1], b4=True), [10]),  # B4 fechado (o índice cai no fecho: −1)
+            (self._env_macro([p4], p4=True, b4=True), [10]),  # B4 fechado vence P4 fechado
+            (self._env_macro([-1, p4], b4=True, perdeu=True), [11, 11]),  # a perda vence tudo
+        ]
+        for env, acesas in casos:
+            out = observacoes.alvo_macro(env)
+            self.assertEqual(out.shape, (len(acesas), 13))
+            self.assertEqual(out.sum(-1).tolist(), [1.0] * len(acesas))
+            self.assertEqual(out.argmax(-1).tolist(), acesas)
+
+    def test_privilegiados_tem_6_colunas_na_ordem_do_termo(self):
+        fase = torch.tensor([0.0, 0.25])
+        env = types.SimpleNamespace(
+            v3_fase_marcha=fase, v3_marcha_on=torch.tensor([False, True]), v3_h=torch.tensor([1.0, 0.4]),
+            v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]), v3_sigma=torch.tensor([0.3, 0.1]))
+        out = observacoes.privilegiados(env)
+        self.assertEqual(out.shape, (2, 6))
+        esperado = torch.tensor([[0.0, 1.0, 0.0, 1.0, 0.5, 0.3],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
+                                 [1.0, 0.0, 1.0, 0.4, 0.0, 0.1]])  # Φ acima do melhor: lacuna 0
+        self.assertTrue(torch.allclose(out, esperado, atol=1e-6), f"{out}")
 
     def test_ordem_dos_termos_do_ator_e_do_critico(self):
         grupos = observacoes.grupos(ATIVO)
