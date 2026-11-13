@@ -311,7 +311,7 @@ class CadeiaCmd(CommandTerm):
             peso_N=env.v3_massa * float(-env.sim.mj_model.opt.gravity[2]),  # m·g, com a gravidade do modelo
             # palmas no frame da base: a maior das duas distâncias à `palmas_de_pe_b`
             dpalmas=(quat_apply_inverse(d.root_link_quat_w[:, None].expand(-1, 2, -1), palmas_w - d.root_link_pos_w[:, None])
-                     - env.v3_ref.palmas_de_pe_b).norm(dim=-1).amax(-1),
+                     - env.v3_ref.palmas_de_pe_b.to(palmas_w.dtype)).norm(dim=-1).amax(-1),  # ref é float64
         )
         return m
 

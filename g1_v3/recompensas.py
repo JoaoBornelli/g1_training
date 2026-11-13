@@ -511,7 +511,7 @@ def _phi_env(env, indice, sigma):
     # mesmos sensores e o mesmo peso de `CadeiaCmd._mede` (`forca_de_apoio`: |Fz| somada)
     palmas_b = quat_apply_inverse(robo.data.root_link_quat_w[:, None].expand(-1, 2, -1),
                                   palmas_w - robo.data.root_link_pos_w[:, None])
-    dpalmas = (palmas_b - env.v3_ref.palmas_de_pe_b).norm(dim=-1).amax(-1)
+    dpalmas = (palmas_b - env.v3_ref.palmas_de_pe_b.to(palmas_b.dtype)).norm(dim=-1).amax(-1)  # ref é float64
     apoio_N = env.scene["apoio_caixa"].data.force[..., 2].abs().sum(-1)
     peso_N = env.v3_massa * float(-env.sim.mj_model.opt.gravity[2])
     deficit = torch.relu(1.0 - apoio_N / (K.apoio_b2_mg * peso_N))
