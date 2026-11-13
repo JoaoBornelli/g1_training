@@ -54,6 +54,41 @@ def so_tipos_python(v):
     return isinstance(v, (int, float, bool, str, type(None)))
 
 
+class TestCarenciaDaTarefaNova(unittest.TestCase):
+
+    def test_pegar_conta_a_carencia_da_abertura_da_fatia_b(self):
+        # 13/11, A8: a fatia B abre na it 61 (> iters_min_nivel); o PEGAR, com sucesso total desde a 1ª medida, só sobe
+        # de nível na it 61 + iters_min_nivel. Antes, `_ult` valia 0 e a 1ª medida (it 62) subia o nível sem carência.
+        cur = novo()
+        cur.it = B.iters_min_nivel + 10
+        for tp in ("reto", "parado"):
+            cid_ = cid(cur, "ANDAR", tp)
+            cur.celulas[cid_].s, cur.celulas[cid_].n_medidas = 1.0, 1
+        cur.fecha_iteracao()
+        abriu = cur.it
+        self.assertGreater(abriu, B.iters_min_nivel)
+        self.assertTrue(cur.celulas[cid(cur, "PEGAR", "pegar")].aberta)
+        self.assertEqual((cur._ult["PEGAR"], cur._ult["CARREGAR"]), (abriu, abriu))
+        pegar = cid(cur, "PEGAR", "pegar")
+        while cur.it < abriu + B.iters_min_nivel - 1:
+            cur.registra(pegar, 10, 10)
+            cur.fecha_iteracao()
+            self.assertEqual(cur.nivel("PEGAR"), 0, f"it {cur.it}")
+        cur.registra(pegar, 10, 10)
+        cur.fecha_iteracao()
+        self.assertEqual(cur.nivel("PEGAR"), 1)
+
+    def test_botar_conta_a_carencia_da_abertura_da_fatia_c(self):
+        # 13/11, A8: a fatia C abre quando o PEGAR passa no portão; `_ult` do BOTAR vale essa iteração
+        cur = novo()
+        cur.it = B.iters_min_nivel + 10
+        cur._abre_cel("PEGAR", "pegar")
+        cur.celulas[cid(cur, "PEGAR", "pegar")].s = 1.0
+        cur.fecha_iteracao()
+        self.assertTrue(cur.celulas[cid(cur, "BOTAR", "botar")].aberta)
+        self.assertEqual(cur._ult["BOTAR"], cur.it)
+
+
 class TestFracoes(unittest.TestCase):
 
     def test_sem_deficit_da_um_terco_para_cada(self):
@@ -187,19 +222,20 @@ class TestAberturaDeFatiaC(unittest.TestCase):
 class TestSubidaDeNivel(unittest.TestCase):
 
     def test_primeira_subida_so_depois_de_50_its(self):
-        # PD-12: "mínimo de 50 its entre subidas": a 1ª subida conta desde o começo (it = 0).
+        # PD-12: "mínimo de 50 its entre subidas": a 1ª subida do PEGAR conta desde a abertura da fatia B (fecha 1;
+        # 13/11, A8; o ANDAR conta desde it = 0).
         cur = novo()
-        for k in range(1, 50):
+        for k in range(1, 51):
             fecha(cur)
             self.assertEqual(cur.nivel("PEGAR"), 0, f"subiu cedo, fecha {k}")
-        fecha(cur)  # fecha 50
+        fecha(cur)  # fecha 51
         self.assertEqual(cur.nivel("PEGAR"), 1)
 
     def test_EMA_recomeca_na_primeira_medida_depois_da_subida(self):
         # PD-12/§6.3: depois da subida, a 1ª medida dá s = x (não o EMA do s antigo).
         cur = novo()
         pegar = cid(cur, "PEGAR", "pegar")
-        for _ in range(50):
+        for _ in range(51):  # a fatia B abre na fecha 1 (13/11, A8); a subida sai na 51
             fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)
         fecha(cur, falha={pegar})  # 1ª medida depois da subida: x = 0
@@ -208,11 +244,11 @@ class TestSubidaDeNivel(unittest.TestCase):
         self.assertAlmostEqual(cur.celulas[pegar].s, ALFA, places=9)
 
     def test_proxima_subida_espera_mais_50_its(self):
-        # Carência de 50 its entre subidas: nível = min(it // 50, 4) com sucesso total.
+        # Carência de 50 its entre subidas: nível = min((it − 1) // 50, 4) com sucesso total (a fatia B abre na it 1).
         cur = novo()
-        for k in range(1, 201):
+        for k in range(1, 202):
             fecha(cur)
-            self.assertEqual(cur.nivel("PEGAR"), min(k // 50, 4), f"fecha {k}")
+            self.assertEqual(cur.nivel("PEGAR"), min((k - 1) // 50, 4), f"fecha {k}")
 
     def test_nivel_sobe_pela_media_das_velocidades_mesmo_com_uma_em_0_70(self):
         # 11/11 (§5.1): a subida exige a média das células de velocidade no portão, não todas: (0,70 + 4·0,80) / 5 = 0,78
@@ -228,8 +264,8 @@ class TestSubidaDeNivel(unittest.TestCase):
 class TestRetomada(unittest.TestCase):
 
     def test_carregado_20_its_depois_de_uma_subida_espera_mais_30(self):
-        # §6.3: a subida em 50; carregado em 70, o próximo nível sai em 100 (50 its depois da subida),
-        # e não em 120. O estado é restaurado com `carrega`, e o contador `it` vem junto.
+        # §6.3: a subida em 51 (13/11, A8); carregado em 70, o próximo nível sai em 101 (50 its depois da subida),
+        # e não em 121. O estado é restaurado com `carrega`, e o contador `it` vem junto.
         cur = novo()
         for _ in range(70):
             fecha(cur)
@@ -240,11 +276,11 @@ class TestRetomada(unittest.TestCase):
         cur2.carrega(estado)
         self.assertEqual(cur2.estado(), estado)
         self.assertEqual(cur2.it, 70)
-        for k in range(71, 101):
+        for k in range(71, 102):
             fecha(cur)
             fecha(cur2)
             self.assertEqual(cur2.nivel("PEGAR"), cur.nivel("PEGAR"), f"fecha {k}")
-            if k == 99:
+            if k == 100:
                 self.assertEqual(cur2.nivel("PEGAR"), 1, "retomada recomeçou a carência")
         self.assertEqual(cur2.nivel("PEGAR"), 2)
 
@@ -252,18 +288,18 @@ class TestRetomada(unittest.TestCase):
 class TestRefino(unittest.TestCase):
 
     def test_refino_so_depois_do_ultimo_nivel_e_100_its_no_portao_e_nunca_desce(self):
-        # §6.3 / S §11.5: o refino começa com o último nível aberto (PEGAR 4, em it 200) e 100 its
+        # §6.3 / S §11.5: o refino começa com o último nível aberto (PEGAR 4, em it 201; 13/11, A8) e 100 its
         # seguidas no portão. Depois, falhar não faz o degrau descer.
         cur = novo()
         pegar = cid(cur, "PEGAR", "pegar")
-        for _ in range(200):
+        for _ in range(201):
             fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 4)
         self.assertEqual(cur.degrau("PEGAR"), 0)
-        for _ in range(50):  # até it 250: 50 its depois do último nível, ainda não são 100
+        for _ in range(50):  # até it 251: 50 its depois do último nível, ainda não são 100
             fecha(cur)
         self.assertEqual(cur.degrau("PEGAR"), 0)
-        for _ in range(55):  # até it 305: 100 its no portão depois do it 200
+        for _ in range(55):  # até it 306: 100 its no portão depois do it 201
             fecha(cur)
         self.assertGreaterEqual(cur.degrau("PEGAR"), 1)
         self.assertEqual(cur.nivel("PEGAR"), 4)  # não passa do último nível

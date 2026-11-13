@@ -52,9 +52,10 @@ def _ix(*nomes):
 
 _P4, _B1, _B4 = ALVOS.index("P4"), ALVOS.index("B1"), ALVOS.index("B4")
 _P0_P2, _B3_B4 = _ix("P0", "P1", "P2"), _ix("B3", "B4")  # E4: portão do deslocamento (pega e apoio)
-_P2_B2, _POUSO = _ix("P2", "P3", "P4", "B1", "B2"), _ix("B1", "B2")  # E4: mãos e incl; pouso
+_INCL, _MAOS = _ix("P2", "P3", "P4", "B1", "B2", "B3"), _ix("P3", "P4", "B1", "B2")  # 13/11, A1/A6: incl; mãos
+_POUSO, _P3_B3 = _ix("B1", "B2"), _ix("P3", "P4", "B1", "B2", "B3")  # E4: pouso; 13/11, A7: caixa no CoM
 _PALMA_ALVO, _CAIXA_ALVO = _ix("P0", "P1", "P2", "B3"), _ix("P3", "P4", "B1", "B2")  # E4: distância por grupo
-_B1_B3, _JANELA_PEGA = _ix("B1", "B2", "B3"), _ix("P2", "P3", "P4", "B1", "B2", "B3")  # E4: topo; janela da pega
+_B1_B3, _JANELA_PEGA = _ix("B1", "B2", "B3"), _ix("P1", "P2", "P3", "P4", "B1", "B2", "B3")  # E4: topo; 13/11, A2: janela (P1 = palma encostada)
 _PARES = torch.tensor([[JUNTAS.index(a), JUNTAS.index(b)] for a, b in R.pares_torque],
                       dtype=torch.long)  # PD-45: (waist_pitch, waist_roll) e os dois pares do tornozelo
 
@@ -240,9 +241,11 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
                     desvio_recuo, desvio_com, dois_pes, a, k) -> dict:
     """Portões de Φ, cada um em [0, 1] (E4; §6.2 `Alvos`, PD-19, PD-35). 1 fora do intervalo em que o portão vale.
 
-    "desloc": P0–P2 pela caixa na pega, B3–B4 pelo ponto de apoio; "incl": P2–B2, com `incl_lim_graus` do degrau;
-    "maos": P2–B2, o valor `maos` (E,) em [0, 1] de quem chama: a cadeia passa contatos/2 (PD-19; o invariante exige
-    1) e o `_phi_env` passa a firmeza da pega, tanh(min F / F_pega) (11/11; S §9.1: rampa por grandeza).
+    "desloc": P0–P2 pela caixa na pega, B3–B4 pelo ponto de apoio; "incl": P2–B3 (13/11, A1/A6: o B3 exige a caixa
+    nivelada, §4.5), com `incl_lim_graus` do degrau;
+    "maos": P3–B2 (13/11, A1: o Φ do P2 puxa a palma à face até o contato, sem exigir força), o valor `maos` (E,) em
+    [0, 1] de quem chama: a cadeia passa contatos/2 (PD-19; o invariante exige 1) e o `_phi_env` passa a firmeza da
+    pega, tanh(min F / F_pega) (11/11; S §9.1: rampa por grandeza).
     "tronco": faixa do tronco, do lado de fora só, 1 no B4 (F9 P2); "recuo": fora
     do B4; "com": só com os dois pés (PD-35). Desvios são não negativos (quem chama tira o módulo; o tronco entra
     com relu(incl − IK), S §8.2). Os intervalos são os de `parte0/item1_phi`.
@@ -251,11 +254,10 @@ def portoes_do_alvo(indice, desloc_pega, desloc_apoio, incl_graus, incl_lim_grau
     rampa, um = potencial.rampa, torch.ones_like(desloc_pega)
     desloc = torch.where(_em(indice, _P0_P2), rampa(desloc_pega, k.desloc_p0p2_frac * a, k.delta_p0p2_frac * a),
                          torch.where(_em(indice, _B3_B4), rampa(desloc_apoio, k.desloc_b2b4, k.delta_b2b4), um))
-    dentro = _em(indice, _P2_B2)
     return dict(
         desloc=desloc,
-        incl=torch.where(dentro, rampa(incl_graus, incl_lim_graus, k.delta_incl_graus), um),
-        maos=torch.where(dentro, maos, um),
+        incl=torch.where(_em(indice, _INCL), rampa(incl_graus, incl_lim_graus, k.delta_incl_graus), um),
+        maos=torch.where(_em(indice, _MAOS), maos, um),
         tronco=torch.where(indice == _B4, um, rampa(desvio_tronco_graus, k.faixa_tronco_graus, k.delta_tronco_graus)),
         recuo=torch.where(indice == _B4, um, rampa(desvio_recuo, k.faixa_recuo, k.delta_recuo)),
         com=torch.where(dois_pes, rampa(desvio_com, 0.0, k.delta_com), um),
@@ -381,7 +383,8 @@ def _q_alvo(env, q):
 
 
 def _com_combinado(env):
-    """CoM de robô + caixa presa (E,3). A caixa entra só quando está na mão (`v3_pegou` e não `v3_perdeu`).
+    """CoM de robô + caixa presa (E,3). A caixa entra só quando está na mão (`v3_pegou` e não `v3_perdeu`) e o alvo
+    está entre P3 e B3 (13/11, A7: com o índice no B4 a caixa já está na laje; o CARREGAR fica com o índice no P4).
 
     ⚠ Robô: `subtree_com` e `body_subtreemass` da raiz (a pelve, com toda a subárvore do robô). Os campos do modelo
     têm forma (mundos, corpos): indexa a raiz pela coluna e expande para (E,), porque antes da DR de massa há 1 mundo.
@@ -391,7 +394,8 @@ def _com_combinado(env):
     raiz = robo.indexing.root_body_id
     com_robo = env.sim.data.subtree_com[:, raiz]  # (E,3), mundo
     m_robo = env.sim.model.body_subtreemass[:, raiz].expand(com_robo.shape[0])  # (E,)
-    m_caixa = torch.where(env.v3_pegou & ~env.v3_perdeu, env.v3_massa, torch.zeros_like(env.v3_massa))
+    na_mao = env.v3_pegou & ~env.v3_perdeu & _em(env.v3_alvo_idx, _P3_B3)
+    m_caixa = torch.where(na_mao, env.v3_massa, torch.zeros_like(env.v3_massa))
     m_tot = m_robo + m_caixa
     com = (m_robo.unsqueeze(-1) * com_robo + m_caixa.unsqueeze(-1) * env.scene["box"].data.root_com_pos_w)
     return com / m_tot.unsqueeze(-1)
@@ -736,7 +740,7 @@ def cerca_recuo(env, tarefas):
 
 def contato_fora(env, tarefas):
     """Contatos do robô com o chão fora dos pés (> 1 N), corpos em autocolisão (S §9.2) e, fora da janela da pega
-    (P2 a B3 e o CARREGAR), contatos do robô com a caixa (E4). Todas as tarefas."""
+    (P1 a B3 e o CARREGAR), contatos do robô com a caixa (E4). Todas as tarefas."""
     forca = env.scene["nao_pes_chao"].data.force.norm(dim=-1)  # (E,1)
     colisoes = (env.scene["auto_colisao"].data.found > 0).sum(-1)
     base = n_contato_fora(forca, colisoes, R.contato_fora_N)

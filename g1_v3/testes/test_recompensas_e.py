@@ -261,13 +261,13 @@ class TestPhiDoAlvo(unittest.TestCase):
 class TestPortoes(unittest.TestCase):
     """portoes_do_alvo: cada termo em [0, 1]; "maos" e "com" pelas regras do plano (PD-19, PD-35)."""
 
-    def _p(self, idx, contatos=((True, True),), dois_pes=False, com=0.0):
+    def _p(self, idx, contatos=((True, True),), dois_pes=False, com=0.0, incl=0.0):
         """Portões de um alvo com os outros desvios em 0 (dentro de todas as faixas). `maos` entra como a cadeia o
         passa: contatos/2 (11/11: o portão recebe o valor pronto; a recompensa passa a firmeza da pega)."""
         def um(v):
             return torch.tensor([v], dtype=torch.float64)
         return recompensas.portoes_do_alvo(
-            torch.tensor([idx]), um(0.0), um(0.0), um(0.0), K.incl_inicio_graus,
+            torch.tensor([idx]), um(0.0), um(0.0), um(incl), K.incl_inicio_graus,
             torch.tensor(contatos).double().sum(-1) / 2.0, um(0.0), um(0.0), um(com), torch.tensor([dois_pes]),
             torch.tensor([A], dtype=torch.float64), K)
 
@@ -279,6 +279,23 @@ class TestPortoes(unittest.TestCase):
         # Teste E4: maos = 1 fora de P2–B2 (P0 e B3), mesmo sem contato
         self.assertEqual(float(self._p(0, [(False, False)])["maos"][0]), 1.0)
         self.assertEqual(float(self._p(7, [(False, False)])["maos"][0]), 1.0)
+
+    def test_maos_um_no_p2_e_zero_no_p3_sem_contato(self):
+        # 13/11, A1: o Φ do P2 não zera sem força (maos = 1); o P3 a B2 seguem exigindo o contato
+        self.assertEqual(float(self._p(2, [(False, False)])["maos"][0]), 1.0)
+        self.assertEqual(float(self._p(3, [(False, False)])["maos"][0]), 0.0)
+
+    def test_incl_exige_a_caixa_nivelada_ate_o_b3(self):
+        # 13/11, A6: a inclinação acima de limite + delta zera o `incl` no B3 e no P2; no B4 o portão vale 1
+        fora = K.incl_inicio_graus + K.delta_incl_graus + 1.0
+        self.assertEqual(float(self._p(7, incl=fora)["incl"][0]), 0.0)
+        self.assertEqual(float(self._p(2, incl=fora)["incl"][0]), 0.0)
+        self.assertEqual(float(self._p(8, incl=fora)["incl"][0]), 1.0)
+
+    def test_janela_da_pega_comeca_no_p1(self):
+        # 13/11, A2: o alvo do P1 é a palma encostada, então o contato com a caixa no P1 não é contato fora
+        self.assertIn(1, recompensas._JANELA_PEGA)
+        self.assertNotIn(0, recompensas._JANELA_PEGA)
 
     def test_com_um_sem_os_dois_pes(self):
         # Teste E4: com = 1 sem os dois pés no chão, mesmo com desvio do CoM fora da faixa

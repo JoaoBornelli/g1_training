@@ -301,12 +301,12 @@ class TestRegistro(unittest.TestCase):
 class TestTarefa(unittest.TestCase):
     def test_rl_cfg(self):
         rl = tarefa.rl_cfg()
-        # dono, 11/11: o normalizador do mjlab, como no g1_limpo; 13/11: entropia 0,01 com a `taxa_acao` −0,10, o par
-        # do g1_limpo
+        # dono, 11/11: o normalizador do mjlab, como no g1_limpo; 13/11, M2: entropia 0,001 com a `taxa_acao` −0,01,
+        # o par da corrida que formou marcha (12/11)
         self.assertTrue(rl.actor.obs_normalization)
         self.assertTrue(rl.critic.obs_normalization)
-        self.assertEqual(rl.algorithm.entropy_coef, 0.01)
-        self.assertEqual(ATIVO.recompensa.taxa_acao, -0.10)
+        self.assertEqual(rl.algorithm.entropy_coef, 0.001)
+        self.assertEqual(ATIVO.recompensa.taxa_acao, -0.01)
         self.assertEqual(rl.num_steps_per_env, ATIVO.balanceador.passos_por_iteracao)
         self.assertEqual(rl.experiment_name, "g1_v3")
 

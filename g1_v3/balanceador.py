@@ -72,7 +72,9 @@ class Curriculo:
         self._acum_suc = [0] * len(LAYOUT)
         self._nivel = dict.fromkeys(TAREFAS, 0)
         self._nivel_ter = dict.fromkeys(TAREFAS, 0)  # só ANDAR e CARREGAR sobem; PEGAR e BOTAR ficam em 0
-        # ⚠ a carência conta desde it = 0 para a 1ª subida (PD-12); por isso `_ult` começa em 0 e vai no estado
+        # ⚠ a carência conta desde it = 0 para a 1ª subida (PD-12): o ANDAR conta desde a iteração 0; as tarefas que
+        # abrem depois contam da abertura (`_abre`; 13/11, A8; antes, a primeira medida da célula, com 1 ou 2
+        # episódios, subia o nível sem carência). `_ult` vai no estado
         self._ult = dict.fromkeys(TAREFAS, 0)
         self._degrau = dict.fromkeys(TAREFAS, 0)
         self._cont = dict.fromkeys(TAREFAS, 0)
@@ -150,6 +152,7 @@ class Curriculo:
         if not self._aberta("CARREGAR", "reto") and self._passa_media([andar_reto, andar_parado]):
             self._abre_cel("CARREGAR", "reto")  # fatia B: o CARREGAR reto e o PEGAR nível 0 abrem juntos
             self._abre_cel("PEGAR", "pegar")
+            self._ult["PEGAR"] = self._ult["CARREGAR"] = self.it  # 13/11, A8: a carência conta da abertura
         for t in CADEIA:
             abertas = self._abertos(t)
             fechadas = [tp for tp in VELOCIDADE[t] if not self._aberta(t, tp)]
@@ -170,6 +173,7 @@ class Curriculo:
         # roda antes de `_sobe` no mesmo fecho.
         if not self._aberta("BOTAR", "botar") and self._passa(_POS[("PEGAR", "pegar")]):
             self._abre_cel("BOTAR", "botar")
+            self._ult["BOTAR"] = self.it  # 13/11, A8
 
     def _conta_refino(self, t: str) -> None:
         # S §11.5 e §6.9: o último nível aberto e a média das células abertas da tarefa ≥ portão por

@@ -72,7 +72,8 @@ def ok_agora_botar(indice, d_horiz_b1, d_caixa_b2, apoio_N, peso_N, afasta_palma
     afasta_palmas (E,2) m, uma por palma; apoio_N e peso_N (E,) N. B1..B4 são os índices 5..8; P0..P4 e −1 dão False.
     ⚠ O B4 da caixa perdida (E3) usa este núcleo com `invariantes` = 1: sem o portão desloc (E11)."""
     b1 = d_horiz_b1 <= k.tol_b1_horizontal
-    b2 = (d_caixa_b2 <= k.raio_b2) & (apoio_N >= k.apoio_b2_mg * peso_N)
+    # 13/11, A4: a caixa parada no fecho, para o ponto de apoio (`v3_ponto_apoio`) sair sem deslizamento
+    b2 = (d_caixa_b2 <= k.raio_b2) & (apoio_N >= k.apoio_b2_mg * peso_N) & (v_caixa.norm(dim=-1) < k.v_parada_b3)
     b3 = (afasta_palmas >= k.b3_afasta).all(-1) & apoiada & (v_caixa.norm(dim=-1) < k.v_parada_b3)
     b4 = (dpelve.abs() <= k.tol_pelve_b4) & (dtronco_graus.abs() <= k.tol_tronco_b4_graus)
     ok = ((indice == B1) & b1) | ((indice == B2) & b2) | ((indice == B3) & b3) | ((indice == B4) & b4)
@@ -390,10 +391,13 @@ class CadeiaCmd(CommandTerm):
         desl = (m["caixa_p"][:, :2] - env.v3_caixa_pega_w[:, :2]).norm(dim=-1)
         # F9 S2/P1: o ponto de apoio é a caixa no fecho do B2 (gravado depois do `avanca`); o portão desloc de B3–B4 lê dele
         desl_apoio = (m["caixa_p"][:, :2] - env.v3_ponto_apoio[:, :2]).norm(dim=-1)
-        desl = torch.where(env.v3_perdeu, zero, torch.where(tar == BOTAR, desl_apoio, desl))
+        # 13/11, A5: cada deslocamento no argumento do próprio portão (antes, o do apoio ia no lugar do da pega e o
+        # zero no lugar do do apoio: o fecho do B3 e do B4 ignorava o arrasto). Sem perda; a caixa perdida zera os dois.
+        desl_pega = torch.where((tar != BOTAR) & ~env.v3_perdeu, desl, zero)
+        desl_apoio = torch.where((tar == BOTAR) & ~env.v3_perdeu, desl_apoio, zero)
         # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
         g = recompensas.portoes_do_alvo(
-            idx, desl, zero, m["incl_graus"], recompensas.incl_lim(env), m["contatos"].float().sum(-1) / 2.0,
+            idx, desl_pega, desl_apoio, m["incl_graus"], recompensas.incl_lim(env), m["contatos"].float().sum(-1) / 2.0,
             zero, zero, zero, torch.ones_like(idx, dtype=torch.bool), a, A)
         inv = g["desloc"] * g["incl"] * g["maos"]
         # PEGAR

@@ -60,6 +60,12 @@ class OkAgoraBotar(unittest.TestCase):
         self.assertFalse(ok(B2, d_caixa=A.raio_b2 + 0.001))
         self.assertFalse(ok(B2, apoio=A.apoio_b2_mg * 10.0 - 0.5))
 
+    def test_b2_pede_a_caixa_parada(self):
+        # 13/11, A4: com distância e apoio cumpridos, ‖v_caixa‖ 0,10 não fecha o B2; parada, fecha. O ponto de apoio
+        # (gravado no fecho do B2) sai então sem a caixa deslizando.
+        self.assertFalse(ok(B2, vel=0.10))
+        self.assertTrue(ok(B2, vel=0.0))
+
     def test_b3_palmas_apoio_e_velocidade_dentro_e_fora(self):
         # Teste (F1): B3, as duas palmas a ≥ 5 cm dos planos das faces, caixa apoiada e ‖v‖ < 0,05 m/s (PD-39).
         self.assertTrue(ok(B3, afasta=(A.b3_afasta + 0.01, A.b3_afasta + 0.01), vel=V_PARADA_B3 - 0.01))
@@ -90,7 +96,7 @@ def _cumpre(i):
                 dtronco=90.0)
     cumpre = {
         B1: dict(d_horiz=0.0),
-        B2: dict(d_caixa=0.0, apoio=10.0),
+        B2: dict(d_caixa=0.0, apoio=10.0, vel=0.0),  # 13/11, A4: o B2 pede a caixa parada
         B3: dict(afasta=(0.2, 0.2), apoiada=True, vel=0.0),
         B4: dict(dpelve=0.0, dtronco=0.0),
     }[i]

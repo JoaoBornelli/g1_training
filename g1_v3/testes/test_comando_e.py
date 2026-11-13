@@ -428,6 +428,28 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         self.assertEqual(obj._env.v3_alvo_idx.tolist(), [comando.B3])
         self.assertEqual([round(v, 6) for v in obj._env.v3_ponto_apoio[0].tolist()], [0.03, 0.0, 0.5])
 
+    def test_o_invariante_recebe_cada_deslocamento_no_argumento_certo(self):
+        # 13/11, A5: no BOTAR sem perda, `portoes_do_alvo` recebe 0 no desloc da pega e ‖caixa − ponto de apoio‖ (xy) no
+        # desloc do apoio. Antes o do apoio ia no lugar do da pega e o zero no lugar do apoio (o B3 e o B4 ignoravam o arrasto).
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        env.v3_alvo_idx[:] = comando.B3
+        env.v3_tarefa[:] = comando.BOTAR
+        env.v3_ponto_apoio[:] = torch.tensor([[0.03, 0.0, 0.5]])
+        env.v3_caixa_pega_w[:] = 0.0
+        m = _medidas()
+        m["caixa_p"] = torch.tensor([[0.08, 0.0, 0.5]])
+        with mock.patch.object(comando, "ok_agora_botar", return_value=torch.tensor([False])), \
+                mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
+                mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
+                mock.patch.object(recompensas, "portoes_do_alvo",
+                                  return_value=dict(desloc=torch.ones(1), incl=torch.ones(1),
+                                                    maos=torch.ones(1))) as portoes:
+            obj._alvos(m, DT)
+        desloc_pega, desloc_apoio = portoes.call_args.args[1:3]
+        self.assertEqual(desloc_pega.tolist(), [0.0])
+        self.assertAlmostEqual(desloc_apoio.item(), 0.05, places=6)
+
     def test_afasta_e_zero_com_a_palma_no_contato_e_o_b3_fecha_a_5_cm(self):
         # F9 S3: `afasta` mede da face, a + palma_face. Com a palma encostada dá 0; a 5 cm além (e 1 mm), o B3 fecha
         obj = _cadeia_de_trechos()

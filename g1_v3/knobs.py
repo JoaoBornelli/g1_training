@@ -188,7 +188,7 @@ class Alvos:  # S §8.2; PD-23
     desloc_p0p2_frac: float = 1.0  # S §8.2; PD-23: deslocamento P0–P2, × meia aresta
     delta_p0p2_frac: float = 0.5  # S §8.2; PD-23: tolerância P0–P2, × meia aresta
     desloc_b2b4: float = 0.02  # S §8.2; PD-23: deslocamento B2–B4 (m)
-    delta_b2b4: float = 0.02  # S §8.2; PD-23: tolerância B2–B4 (m)
+    delta_b2b4: float = 0.06  # 13/11, A5: com 0,02 o portão do Φ ia a 0 com 4 cm de arrasto; S §8.2; PD-23: tolerância B2–B4 (m)
     faixa_tronco_graus: float = 15.0  # S §8.2: faixa do tronco (graus)
     faixa_recuo: float = 0.08  # S §8.2: faixa do recuo (m)
     faixa_com: float = 0.03  # S §8.2: faixa do centro de massa (m)
@@ -220,9 +220,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     giro_xy: float = -0.05  # S §9.2: peso do giro em x e y
     vel_junta: float = -0.001  # S §9.2: peso da velocidade de junta
     acel_junta: float = -5e-8  # S §9.2 ÷5 (poc1, 05/11): −2,5e-7 dava 28% do negativo; o passo custava −0,036 ≈ a queda (−4) descontada
-    # 13/11 (dono): o par do g1_limpo (`action_rate_l2` −0,10 com `entropy_coef` 0,01, `tarefa.rl_cfg`) contra o micro-passo
-    # medido no model_3999 (9 balanços/s, voo de 25 ms, pé deslizando a 0,27 m/s). Antes −0,01 (S §9.2 ÷5, poc1, 05/11).
-    taxa_acao: float = -0.10
+    taxa_acao: float = -0.01  # 13/11, M2: o par da corrida que formou marcha (12/11), com `entropy_coef` 0,001; −0,10 (unico3) não saiu do nível 0
     energia: float = -2e-5  # S §9.2: peso da energia
     estilo_inicio: float = 0.25  # 11/11 (§2): fator dos termos de estilo no início; sobe a 1
     # ⚠ limite mole 95% pelo dono (08/10); a receita da Unitree usa 90%; a IK fica a 90%

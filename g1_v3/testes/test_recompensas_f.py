@@ -34,14 +34,17 @@ class PousoDevagar(unittest.TestCase):
 
 
 class InvarianteDepoisDoApoio(unittest.TestCase):
-    def test_deslocamento_de_3_cm_depois_do_apoio_da_meio(self):
-        # Teste (F4): no B3, deslocar 3 cm depois de apoiar leva a rampa do `desloc` a 0,5 (rampa(0,03; 0,02; 0,02)).
-        indice = t(B3, torch.long)
+    def _desloc_no_b3(self, desloc_apoio):
         zeros = torch.zeros(1)
-        portoes = recompensas.portoes_do_alvo(
-            indice, zeros, t(0.03), zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
-            torch.tensor([True]), t(0.1), A)
-        self.assertAlmostEqual(portoes["desloc"].item(), 0.5, delta=1e-5)
+        return recompensas.portoes_do_alvo(
+            t(B3, torch.long), zeros, t(desloc_apoio), zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
+            torch.tensor([True]), t(0.1), A)["desloc"].item()
+
+    def test_deslocamento_de_5_cm_depois_do_apoio_da_meio(self):
+        # Teste (F4; 13/11, A5: delta_b2b4 0,06): no B3, deslocar 5 cm depois de apoiar leva a rampa do `desloc` a 0,5
+        # (rampa(0,05; 0,02; 0,06)); com 10 cm, a 0.
+        self.assertAlmostEqual(self._desloc_no_b3(0.05), 0.5, delta=1e-5)
+        self.assertEqual(self._desloc_no_b3(0.10), 0.0)
 
 
 class PhiDoB2(unittest.TestCase):
@@ -139,6 +142,11 @@ class F9PortaoDoTronco(unittest.TestCase):
         self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0, massa=5.0)["maos"].item(), 0.1933, delta=1e-3)
         self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 0.0)
         self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
+
+    def test_maos_nao_zera_o_phi_do_p2_sem_forca(self):
+        # 13/11, A1: o P2 sai do portão `maos` (a palma é puxada à face até o contato); o P3 continua exigindo a força
+        self.assertEqual(self._portoes(2, 0.0, 0.0)["maos"].item(), 1.0)
+        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 0.0)
 
     def test_tronco_vertical_com_ik_de_30_graus_da_portao_1(self):
         # F9 P2: tronco vertical (0°) com a IK em 30° está do lado livre: o portão vale 1 (hoje, |0 − 30| dá 0)
