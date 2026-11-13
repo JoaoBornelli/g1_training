@@ -24,7 +24,13 @@ TOL = 1e-9
 
 
 def novo(k_dr=DRK):
-    return balanceador.Curriculo(B, N, COM, TER, k_dr=k_dr)
+    # 13/11, M3: PEGAR e BOTAR já no último subnível (o nível 0 de antes)
+    cur = balanceador.Curriculo(B, N, COM, TER, k_dr=k_dr)
+    est = cur.estado()
+    for t in ("PEGAR", "BOTAR"):
+        est["tarefas"][t]["sub"] = len(N.subnivel_extra) - 1
+    cur.carrega(est)
+    return cur
 
 
 def cid(cur, tarefa, tipo):

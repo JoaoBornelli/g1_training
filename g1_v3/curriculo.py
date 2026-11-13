@@ -129,6 +129,7 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     for t in balanceador.TAREFAS:
         log[f"nivel_{t}"] = cur.nivel(t)
         log[f"degrau_{t}"] = cur.degrau(t)
+    log.update(subnivel_PEGAR=cur.subnivel("PEGAR"), subnivel_BOTAR=cur.subnivel("BOTAR"))
     for t in balanceador.CADEIA:  # só as cadeias têm linha de terreno (PD-20)
         log[f"nivel_terreno_{t}"] = cur.nivel_terreno(t)
     log.update(atraso_max=teto, mu_min_pad=dr["mu_min_pad"], degrau_global=cur.degrau_global(),

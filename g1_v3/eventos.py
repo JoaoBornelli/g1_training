@@ -72,7 +72,7 @@ def _uniforme(gerador, forma, dev):
 
 
 def sorteia_topo_e_massa(fatia, nivel_pegar: int, nivel_massa_c: int, origem_z, k_niv: Niveis, k_cena: Cena,
-                         gerador):
+                         gerador, extra: float = 0.0):
     """Núcleo puro (E1, §6.3 "Fase E"; S §7, §11.2): topo e massa da caixa de cada episódio.
 
     Devolve (topo, topo_w, massa): topo sobre o chão LOCAL, topo_w = origem_z + topo (a altura absoluta, §6.4)
@@ -80,6 +80,7 @@ def sorteia_topo_e_massa(fatia, nivel_pegar: int, nivel_massa_c: int, origem_z, 
     - B: topo U[h_k; h_0], massa U[m_min; m_k];
     - C: topo U[max(h_k; topo_min_c); h_0], massa U[m_min; m_j], com j = `nivel_massa_c` (−1 → m_min);
     - ANDAR: topo 0 (a cena estaciona, §6.5) e massa m_min.
+    13/11, M3: `extra` (m) sobe o piso e o teto de B e C (o subnível do PEGAR no nível 0): com h_0 + extra, a laje é fixa.
 
     ⚠ O piso da C (`topo_min_c`) é o que mantém a fatia C fora do topo baixo: com h_k < 0,30 o sorteio cola no piso.
     ⚠ `nivel_massa_c` existe porque a C mede a massa pelo maior PEGAR que já passou no portão (S §11.2), e não
@@ -93,8 +94,8 @@ def sorteia_topo_e_massa(fatia, nivel_pegar: int, nivel_massa_c: int, origem_z, 
     m_j = k_niv.pegar[nivel_massa_c][1] if nivel_massa_c >= 0 else m_min
     andar, c = fatia == ANDAR, fatia == C
     u = _uniforme(gerador, (2, fatia.shape[0]), dev)
-    lo = torch.where(c, t(max(h_k, k_niv.topo_min_c)), t(h_k))
-    topo = torch.where(andar, t(0.0), lo + (t(h_0) - lo) * u[0])
+    lo = torch.where(c, t(max(h_k, k_niv.topo_min_c)), t(h_k)) + extra
+    topo = torch.where(andar, t(0.0), lo + (t(h_0 + extra) - lo) * u[0])
     teto_m = torch.where(fatia == B, t(m_k), torch.where(c, t(m_j), t(m_min)))
     massa = t(m_min) + (teto_m - t(m_min)) * u[1]
     return topo, origem_z.to(dev, torch.float64) + topo, massa
@@ -165,7 +166,8 @@ def _base_da_pega(env, ids, faixa: dict):
     n = len(ids)
     u = _uniforme(g, (3, n), dev)
     recuo = env.v3_ref.recuo(env.v3_topo[ids], env.v3_meia[ids]).to(dev, torch.float64)
-    d = recuo + (2.0 * u[0] - 1.0) * ATIVO.alvos.faixa_recuo
+    jitter = ATIVO.niveis.subnivel_jitter[env.v3_cur.subnivel("PEGAR")]  # 13/11, M3: sem jitter com a laje alta
+    d = recuo + (2.0 * u[0] - 1.0) * ATIVO.alvos.faixa_recuo * jitter
     lo_yaw, hi_yaw = faixa["yaw"]
     lo_z, hi_z = faixa["z"]
     rumo = env.v3_rumo_cena[ids].to(torch.float64)
@@ -317,7 +319,8 @@ def posiciona_cena(env, env_ids):
     cur, g, dev = env.v3_cur, env.v3_gerador, env.device
     fatia = env.v3_fatia[env_ids]
     topo, topo_w, massa = sorteia_topo_e_massa(fatia, cur.nivel("PEGAR"), cur.nivel_passou("PEGAR"),
-                                               env.scene.env_origins[env_ids, 2], ATIVO.niveis, ATIVO.cena, g)
+                                               env.scene.env_origins[env_ids, 2], ATIVO.niveis, ATIVO.cena, g,
+                                               ATIVO.niveis.subnivel_extra[cur.subnivel("PEGAR")])
     env.v3_topo[env_ids] = topo.to(env.v3_topo.dtype)
     env.v3_massa[env_ids] = massa.to(env.v3_massa.dtype)
     andar = fatia == ANDAR
@@ -344,12 +347,13 @@ def posiciona_cena(env, env_ids):
 # ------------------------------------------------------------------ fase F: a laje de destino do BOTAR (F2; PD-47)
 
 
-def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerador):
+def sorteia_destino(nivel_botar: int, subnivel: int, n: int, k_niv: Niveis, k_cena: Cena, gerador):
     """Núcleo puro (F2, §6.3 "Fase F"; PD-47, [C38]): a laje de destino do BOTAR de cada episódio.
 
     Devolve (theta, y, longe, topo): θ U[±radians(destino_giro_max_graus)] em rad, y U[±destino_jitter_y] (m),
     longe U[0; jitter_x_max[nível]] (m, só para longe, [C38]) e topo U[botar[nível]; botar[0]] sobre o chão local.
     ⚠ Quatro uniformes por episódio, sobre o gerador (o sorteio sai no device dele).
+    13/11, M3: com o subnível abaixo do último (nível 0), longe = U[0; subnivel_longe[s]] e topo = botar[0] + subnivel_extra[s].
     """
     u = _uniforme(gerador, (4, n), gerador.device)
     giro = math.radians(k_cena.destino_giro_max_graus)
@@ -357,6 +361,9 @@ def sorteia_destino(nivel_botar: int, n: int, k_niv: Niveis, k_cena: Cena, gerad
     y = (2.0 * u[1] - 1.0) * k_cena.destino_jitter_y
     longe = u[2] * k_cena.jitter_x_max[nivel_botar]
     topo = k_niv.botar[nivel_botar] + (k_niv.botar[0] - k_niv.botar[nivel_botar]) * u[3]
+    if subnivel < len(k_niv.subnivel_extra) - 1:
+        longe = u[2] * k_niv.subnivel_longe[subnivel]
+        topo = torch.full_like(u[3], k_niv.botar[0] + k_niv.subnivel_extra[subnivel])
     return theta, y, longe, topo
 
 
@@ -370,7 +377,7 @@ def posiciona_destino(env, ids):
     """
     cur, g, dev, k = env.v3_cur, env.v3_gerador, env.device, ATIVO.cena
     f64 = torch.float64
-    theta, y, longe, topo = sorteia_destino(cur.nivel("BOTAR"), len(ids), ATIVO.niveis, k, g)
+    theta, y, longe, topo = sorteia_destino(cur.nivel("BOTAR"), cur.subnivel("BOTAR"), len(ids), ATIVO.niveis, k, g)
     theta, y, longe, topo = (x.to(dev, f64) for x in (theta, y, longe, topo))
     recuo = env.v3_ref.recuo(topo.to(env.v3_topo.dtype), env.v3_meia[ids]).to(dev, f64) + longe
     alvo_b, centro_b = alvos.laje_destino(recuo, theta, y, k.prateleira_meia_xy, k.destino_borda)

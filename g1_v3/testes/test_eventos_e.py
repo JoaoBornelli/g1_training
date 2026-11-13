@@ -33,6 +33,16 @@ def sorteia(fatia, nivel_pegar=0, nivel_massa_c=-1, origem_z=0.0, seed=0):
 
 class TestSorteiaTopoEMassa(unittest.TestCase):
 
+    def test_extra_do_subnivel_fixa_o_topo_de_b_e_c_e_nao_mexe_no_andar(self):
+        # 13/11, M3: no nível 0, extra 0,20 m dá topo 0,75 fixo em B e C; o ANDAR segue 0
+        g = torch.Generator().manual_seed(0)
+        for fatia in (ANDAR, B, C):
+            f = torch.full((E,), fatia, dtype=torch.long)
+            topo, topo_w, _ = sorteia_topo_e_massa(f, 0, -1, torch.zeros(E), NIV, CENA, g, extra=0.20)
+            with self.subTest(fatia=fatia):
+                alvo = 0.0 if fatia == ANDAR else 0.75
+                self.assertTrue(torch.allclose(topo, torch.full_like(topo, alvo), atol=1e-9))
+
     def test_topo_w_soma_a_origem_do_chao_local(self):
         # E1, linha "Teste": com a origem a +1,4 m, o topo da laje fica a 1,4 + h (topo_w = origem_z + topo)
         for fatia in (ANDAR, B, C):

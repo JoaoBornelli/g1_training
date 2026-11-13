@@ -72,6 +72,9 @@ class Curriculo:
         self._acum_suc = [0] * len(LAYOUT)
         self._nivel = dict.fromkeys(TAREFAS, 0)
         self._nivel_ter = dict.fromkeys(TAREFAS, 0)  # só ANDAR e CARREGAR sobem; PEGAR e BOTAR ficam em 0
+        # 13/11, M3: subnível do nível 0 do PEGAR e do BOTAR (laje alta primeiro). O índice do nível não muda com ele
+        self._sub = {"PEGAR": 0, "BOTAR": 0}
+        self._sub_max = len(k_niv.subnivel_extra) - 1
         # ⚠ a carência conta desde it = 0 para a 1ª subida (PD-12): o ANDAR conta desde a iteração 0; as tarefas que
         # abrem depois contam da abertura (`_abre`; 13/11, A8; antes, a primeira medida da célula, com 1 ou 2
         # episódios, subia o nível sem carência). `_ult` vai no estado
@@ -200,7 +203,10 @@ class Curriculo:
             if self._nivel[t] < self.max_nivel[t]:
                 ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
                 if all(self.celulas[i].aberta for i in ids) and self._passa_media(ids):
-                    self._nivel[t] += 1
+                    if self.subnivel(t) < self._sub_max:  # 13/11, M3: só PEGAR e BOTAR no nível 0 têm subnível abaixo do último
+                        self._sub[t] += 1
+                    else:
+                        self._nivel[t] += 1
                     self._ult[t] = self.it
                     for i in self._de(t):
                         self.celulas[i].n_medidas = 0
@@ -263,6 +269,10 @@ class Curriculo:
     def nivel(self, tarefa: str) -> int:
         return self._nivel[tarefa]
 
+    def subnivel(self, tarefa: str) -> int:
+        # 13/11, M3: ANDAR e CARREGAR não têm subnível: valem o último
+        return self._sub.get(tarefa, self._sub_max)
+
     def nivel_terreno(self, tarefa: str) -> int:
         return self._nivel_ter[tarefa]
 
@@ -282,9 +292,10 @@ class Curriculo:
         return min(self._nivel[t] / self.max_nivel[t] for t in TAREFAS)
 
     def nivel_passou(self, tarefa: str) -> int:
-        # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa
+        # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa.
+        # 13/11, M3: com o subnível abaixo do último, o nível 0 ainda não passou
         i = self._de(tarefa)[0]
-        return self._nivel[tarefa] if self._passa(i) else self._nivel[tarefa] - 1
+        return self._nivel[tarefa] if self._passa(i) and self.subnivel(tarefa) == self._sub_max else self._nivel[tarefa] - 1
 
     def dr(self) -> dict:
         # §6.8: o estado de DR que o env aplica, só tipos do Python. Sobe no fecho e nunca desce (as travas).
@@ -327,7 +338,7 @@ class Curriculo:
             "celulas": [{"aberta": c.aberta, "s": c.s, "n": c.n_medidas} for c in self.celulas],
             "acum": [[n, s] for n, s in zip(self._acum_n, self._acum_suc)],
             "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "ult": self._ult[t],
-                            "degrau": self._degrau[t], "cont": self._cont[t]} for t in TAREFAS},
+                            "degrau": self._degrau[t], "cont": self._cont[t], "sub": self.subnivel(t)} for t in TAREFAS},
             "dr": dict(self._dr),
             "it_abertura": list(self._it_abertura),
         }
@@ -342,5 +353,7 @@ class Curriculo:
             d = estado["tarefas"][t]
             self._nivel[t], self._nivel_ter[t] = d["nivel"], d["nivel_ter"]
             self._ult[t], self._degrau[t], self._cont[t] = d["ult"], d["degrau"], d["cont"]
+            if t in self._sub:
+                self._sub[t] = d.get("sub", self._sub_max)  # estado sem a chave: vale o último subnível
         self._dr = dict(estado["dr"])
         self._it_abertura = list(estado.get("it_abertura", [0, None, None]))

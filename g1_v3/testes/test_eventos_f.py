@@ -25,9 +25,12 @@ TOL_MM = 1e-3  # tolerância da geometria (1 mm), PD-47
 GIRO_MAX = math.radians(CENA.destino_giro_max_graus)  # 10°
 
 
-def sorteia(nivel, n=N, seed=0):
+ULTIMO = len(NIV.subnivel_extra) - 1  # 13/11, M3: o último subnível é o nível 0 de antes
+
+
+def sorteia(nivel, n=N, seed=0, subnivel=ULTIMO):
     g = torch.Generator().manual_seed(seed)
-    return eventos.sorteia_destino(nivel, n, NIV, CENA, g)
+    return eventos.sorteia_destino(nivel, subnivel, n, NIV, CENA, g)
 
 
 class SorteioDestino(unittest.TestCase):
@@ -53,6 +56,20 @@ class SorteioDestino(unittest.TestCase):
         self.assertLess(longe.max().item(), CENA.jitter_x_max[nivel] + 1e-6)
         self.assertGreater(longe.max().item(), 0.9 * CENA.jitter_x_max[nivel])
         self.assertGreater(topo.max().item(), 0.9 * NIV.botar[0])
+
+    def test_subniveis_do_botar_fixam_o_topo_e_o_teto_do_longe(self):
+        # 13/11, M3: subnível 0 -> longe 0 e topo 0,75 fixo; subnível 1 -> longe até 0,10 e topo 0,65; o último é o de hoje.
+        theta, y, longe, topo = sorteia(0, subnivel=0)
+        self.assertEqual(longe.abs().max().item(), 0.0)
+        self.assertTrue(torch.allclose(topo, torch.full_like(topo, NIV.botar[0] + 0.20)))
+        self.assertAlmostEqual(topo[0].item(), 0.75, places=9)
+        _, _, longe, topo = sorteia(0, subnivel=1)
+        self.assertLessEqual(longe.max().item(), 0.10 + 1e-9)
+        self.assertGreater(longe.max().item(), 0.09)
+        self.assertTrue(torch.allclose(topo, torch.full_like(topo, 0.65)))
+        _, _, longe, topo = sorteia(0, subnivel=ULTIMO)
+        self.assertGreater(longe.max().item(), 0.18)
+        self.assertLessEqual(topo.max().item(), NIV.botar[0] + 1e-6)
 
     def test_mesma_semente_mesmo_sorteio(self):
         # Teste (F2): o sorteio é determinístico com o gerador semeado (o teste de reset depende disso).
@@ -125,7 +142,7 @@ class BaseEYawDaLajeDestino(unittest.TestCase):
         cena = _Cena(robot=SimpleNamespace(data=robo))
         cena.env_origins = torch.zeros(1, 3)
         env = SimpleNamespace(
-            v3_cur=SimpleNamespace(nivel=lambda nome: 0), v3_gerador=torch.Generator().manual_seed(0),
+            v3_cur=SimpleNamespace(nivel=lambda nome: 0, subnivel=lambda nome: ULTIMO), v3_gerador=torch.Generator().manual_seed(0),
             device="cpu", scene=cena, v3_topo=torch.zeros(1), v3_topo_destino=torch.zeros(1),
             v3_meia=torch.tensor([0.1]), v3_ref=SimpleNamespace(recuo=lambda topo, meia: torch.full((1,), 0.5)))
         sorteio = (torch.zeros(1), torch.zeros(1), torch.zeros(1), torch.full((1,), 0.5))  # θ = 0, y = 0, longe = 0

@@ -59,7 +59,8 @@ def env_falso(fatias, colunas=None, recuo=0.6, origens=None):
     cena = _Cenario(robot=_Robo(n), table=_Corpo(n, 7), box=_Corpo(n, 7),
                     terrain=SimpleNamespace(terrain_types=torch.tensor(colunas if colunas is not None else [0] * n)))
     cena.env_origins = torch.zeros(n, 3) if origens is None else origens
-    cur = SimpleNamespace(nivel=lambda tarefa: 0, nivel_passou=lambda tarefa: -1)
+    cur = SimpleNamespace(nivel=lambda tarefa: 0, nivel_passou=lambda tarefa: -1,
+                          subnivel=lambda tarefa: len(ATIVO.niveis.subnivel_extra) - 1)  # 13/11, M3: último subnível
     return SimpleNamespace(
         device="cpu", scene=cena, v3_cur=cur, v3_gerador=torch.Generator().manual_seed(0),
         v3_fatia=torch.tensor(fatias), v3_topo=torch.zeros(n), v3_massa=torch.zeros(n),
@@ -199,6 +200,16 @@ class BasePegaComRumo(unittest.TestCase):
         self.assertAlmostEqual(robo[0, 1].item(), 0.0, delta=TOL)
         yaw = estimador.yaw(robo[:, 3:7].double())[0].item()
         self.assertLessEqual(abs(yaw), 0.2 + TOL)
+
+    def test_subnivel_0_do_pegar_tira_o_jitter_do_recuo(self):
+        # 13/11, M3: com a laje de 0,75 m (subnível 0) o recuo é exato, sem a faixa_recuo
+        n = 200
+        env = env_falso([eventos.B] * n, recuo=0.6)
+        env.v3_cur.subnivel = lambda tarefa: 0
+        env.v3_caixa_xy[:] = torch.tensor([0.57, 0.0])
+        eventos._base_da_pega(env, torch.arange(n), self.FAIXA)
+        d = 0.57 - env.scene["robot"].pose[:, 0]
+        self.assertLessEqual((d - 0.6).abs().max().item(), TOL)
 
 
 class PlataformaDeTerreno(unittest.TestCase):

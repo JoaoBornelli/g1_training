@@ -25,8 +25,16 @@ ALFA = B.alfa      # 0,05 (PD-13)
 SEM_CARENCIA = dataclasses.replace(B, iters_min_nivel=10 ** 6)
 
 
-def novo(k_bal=B):
-    return balanceador.Curriculo(k_bal, N, COM, TER)
+def novo(k_bal=B, sub_final=True):
+    # 13/11, M3: por padrão o PEGAR e o BOTAR já estão no último subnível (o nível 0 de antes); os testes do
+    # subnível passam `sub_final=False`
+    cur = balanceador.Curriculo(k_bal, N, COM, TER)
+    if sub_final:
+        est = cur.estado()
+        for t in ("PEGAR", "BOTAR"):
+            est["tarefas"][t]["sub"] = len(N.subnivel_extra) - 1
+        cur.carrega(est)
+    return cur
 
 
 def cid(cur, tarefa, tipo):
@@ -259,6 +267,72 @@ class TestSubidaDeNivel(unittest.TestCase):
         cur.celulas[cid(cur, "ANDAR", "reto")].s = 0.70
         cur.fecha_iteracao()
         self.assertEqual(cur.nivel("ANDAR"), 1)
+
+
+class TestSubnivel(unittest.TestCase):
+    # 13/11, M3: o nível 0 do PEGAR e do BOTAR tem 3 subníveis; o índice do nível só sobe depois do último
+
+    def sobe_ate(self, cur, tarefa, sub, limite=400):
+        # fecha com sucesso total até o subnível da tarefa valer `sub`; devolve o it da subida
+        for _ in range(limite):
+            fecha(cur)
+            if cur.subnivel(tarefa) == sub:
+                return cur.it
+        raise AssertionError("o subnível não subiu")
+
+    def test_pegar_sobe_0_1_2_com_carencia_e_o_nivel_fica_0(self):
+        cur = novo(sub_final=False)
+        self.assertEqual(cur.subnivel("PEGAR"), 0)
+        self.assertEqual(cur.nivel_passou("PEGAR"), -1)
+        it1 = self.sobe_ate(cur, "PEGAR", 1)
+        self.assertEqual(cur.nivel("PEGAR"), 0)
+        self.assertEqual(cur.nivel_passou("PEGAR"), -1)
+        self.assertEqual(cur._ult["PEGAR"], it1)  # a subida grava `_ult`
+        self.assertEqual(cur.celulas[cid(cur, "PEGAR", "pegar")].n_medidas, 0)  # e zera n_medidas
+        it2 = self.sobe_ate(cur, "PEGAR", 2)
+        self.assertEqual(it2 - it1, B.iters_min_nivel)  # a carência entre as subidas
+        self.assertEqual(cur.nivel("PEGAR"), 0)
+        fecha(cur)  # no último subnível, com s no portão, o nível 0 passou
+        self.assertEqual(cur.nivel_passou("PEGAR"), 0)
+        for _ in range(B.iters_min_nivel):
+            fecha(cur)
+        self.assertEqual(cur.nivel("PEGAR"), 1)
+        self.assertEqual(cur.subnivel("PEGAR"), 2)
+
+    def test_botar_tem_o_mesmo_caminho_e_as_outras_tarefas_valem_o_ultimo(self):
+        cur = novo(sub_final=False)
+        self.assertEqual(cur.subnivel("BOTAR"), 0)
+        self.assertEqual(cur.subnivel("ANDAR"), 2)
+        self.assertEqual(cur.subnivel("CARREGAR"), 2)
+        self.sobe_ate(cur, "BOTAR", 1)
+        self.assertEqual(cur.nivel("BOTAR"), 0)
+        self.assertEqual(cur.nivel_passou("BOTAR"), -1)
+        self.sobe_ate(cur, "BOTAR", 2)
+        self.assertEqual(cur.nivel("BOTAR"), 0)
+        fecha(cur)
+        self.assertEqual(cur.nivel_passou("BOTAR"), 0)
+
+    def test_a_fatia_c_abre_no_subnivel_0_do_pegar(self):
+        cur = novo(sub_final=False)
+        for _ in range(3):
+            fecha(cur)
+        self.assertEqual(cur.subnivel("PEGAR"), 0)
+        self.assertTrue(cur.celulas[cid(cur, "BOTAR", "botar")].aberta)
+
+    def test_estado_leva_o_subnivel_e_estado_antigo_vale_o_ultimo(self):
+        cur = novo(sub_final=False)
+        self.sobe_ate(cur, "PEGAR", 1)
+        est = cur.estado()
+        self.assertEqual((est["tarefas"]["PEGAR"]["sub"], est["tarefas"]["BOTAR"]["sub"]), (1, 0))
+        self.assertTrue(so_tipos_python(est))
+        cur2 = novo(sub_final=False)
+        cur2.carrega(est)
+        self.assertEqual((cur2.subnivel("PEGAR"), cur2.subnivel("BOTAR")), (1, 0))
+        self.assertEqual(cur2.estado(), est)
+        for t in TAREFAS:
+            del est["tarefas"][t]["sub"]
+        cur2.carrega(est)
+        self.assertEqual((cur2.subnivel("PEGAR"), cur2.subnivel("BOTAR")), (2, 2))
 
 
 class TestRetomada(unittest.TestCase):

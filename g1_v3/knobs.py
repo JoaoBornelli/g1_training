@@ -370,6 +370,10 @@ class Niveis:  # S §11.2
     pegar: tuple = ((0.55, 1), (0.45, 2), (0.30, 3), (0.15, 4), (0.04, 5))  # S §11.2: (topo h_k; massa m_k em kg) por nível 0..4
     botar: tuple = (0.55, 0.45, 0.30, 0.15, 0.04)  # S §11.2: topo por nível do BOTAR (m)
     topo_min_c: float = 0.30  # S §7; fatia C: o topo sorteado nunca fica abaixo disto (m), com o PEGAR no nível 4
+    # 13/11, M3: subníveis do nível 0 do PEGAR e do BOTAR (laje alta primeiro); o último é o nível 0 de antes
+    subnivel_extra: tuple = (0.20, 0.10, 0.0)  # 13/11, M3: m acima do topo do nível 0 (0,75, 0,65 e 0,55 m de topo)
+    subnivel_longe: tuple = (0.0, 0.10, 0.20)  # 13/11, M3: teto do `longe` do destino (m); o passo à frente cresce por subnível
+    subnivel_jitter: tuple = (0.0, 0.0, 1.0)  # 13/11, M3: fração da `faixa_recuo` na base da pega; sem jitter com a laje alta
 
 
 @dataclass(frozen=True)
