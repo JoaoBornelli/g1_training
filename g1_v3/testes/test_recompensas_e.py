@@ -7,6 +7,7 @@ As tabelas de passo a passo usam o caminho roteirizado do item 1 da Parte 0 (`pa
 e `referencias()` faz FK com o g1.xml: é importação e cinemática, não simulador nem env.
 Ângulos em graus nas tabelas; comprimentos em metros.
 """
+import math
 import types
 import unittest
 from unittest import mock
@@ -52,7 +53,8 @@ class _Caminho:
 
     def distancia(self):
         return recompensas.distancia_do_alvo(self.idx, T(self.palmas_c), T(self.caixa), T(self.caixa_alvo),
-                                             T(self.dpelve), T(self.dtronco), self.a, K)
+                                             T(self.dpelve), T(self.dtronco), torch.zeros(self.n, dtype=torch.float64),
+                                             torch.zeros(self.n, dtype=torch.float64), self.a, K)
 
     def phi(self):
         z = self.caixa[:, 2]
@@ -110,6 +112,7 @@ class TestDistancia(unittest.TestCase):
         palmas = alvos.palmas_alvo_caixa(torch.tensor([0]), a, K)  # (1, 2, 3)
         d = recompensas.distancia_do_alvo(torch.tensor([0]), palmas, torch.zeros(1, 3, dtype=torch.float64),
                                           torch.zeros(1, 3, dtype=torch.float64), torch.zeros(1, dtype=torch.float64),
+                                          torch.zeros(1, dtype=torch.float64), torch.zeros(1, dtype=torch.float64),
                                           torch.zeros(1, dtype=torch.float64), a, K)
         self.assertAlmostEqual(float(d[0]), 0.0, places=6)
 
@@ -118,25 +121,51 @@ class TestDistancia(unittest.TestCase):
         z = torch.zeros(1, dtype=torch.float64)
         d = recompensas.distancia_do_alvo(torch.tensor([3]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
-                                          torch.zeros(1, 3, dtype=torch.float64), z, z,
+                                          torch.zeros(1, 3, dtype=torch.float64), z, z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.30, places=6)
 
     def test_b4_normaliza_pelve_e_tronco(self):
-        # Borda E4: B4 = √((Δpelve/0,03)² + (Δtronco/5°)²); Δpelve 3 cm com Δtronco 0 → 1
+        # Borda E4: B4 = √((Δpelve/0,03)² + (Δtronco/5°)² + (dpalmas/0,05)²); Δpelve 3 cm com o resto 0 → 1
         z = torch.zeros(1, dtype=torch.float64)
         d = recompensas.distancia_do_alvo(torch.tensor([8]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.zeros(1, 3, dtype=torch.float64), torch.zeros(1, 3, dtype=torch.float64),
-                                          torch.tensor([0.03], dtype=torch.float64), z,
+                                          torch.tensor([0.03], dtype=torch.float64), z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 1.0, places=6)
+
+    def _d_b(self, indice, dpalmas=0.0, deficit=0.0, caixa_x=0.0):
+        # `distancia_do_alvo` no índice dado, com a caixa em (caixa_x, 0, 0), o alvo na origem e pelve e tronco no alvo
+        z = torch.zeros(1, dtype=torch.float64)
+        return float(recompensas.distancia_do_alvo(
+            torch.tensor([indice]), torch.zeros(1, 2, 3, dtype=torch.float64),
+            torch.tensor([[caixa_x, 0.0, 0.0]], dtype=torch.float64), torch.zeros(1, 3, dtype=torch.float64), z, z,
+            torch.tensor([dpalmas], dtype=torch.float64), torch.tensor([deficit], dtype=torch.float64),
+            torch.tensor([A], dtype=torch.float64), K)[0])
+
+    def test_b4_cresce_com_as_palmas_longe_do_tronco(self):
+        # 13/11, A9: com pelve e tronco no alvo, d = dpalmas/tol_palmas_b4 (0,05 m → 1; 0,10 m → 2), e cresce com dpalmas
+        self.assertAlmostEqual(self._d_b(8, dpalmas=0.0), 0.0, places=6)
+        self.assertAlmostEqual(self._d_b(8, dpalmas=K.tol_palmas_b4), 1.0, places=6)
+        self.assertAlmostEqual(self._d_b(8, dpalmas=2 * K.tol_palmas_b4), 2.0, places=6)
+
+    def test_b2_soma_o_deficit_de_apoio_a_distancia_da_caixa(self):
+        # 13/11, A3: déficit 0 dá d_caixa; déficit 1 dá hypot(d_caixa, escala_apoio_b2 = 0,10)
+        self.assertAlmostEqual(self._d_b(6, deficit=0.0, caixa_x=0.05), 0.05, places=6)
+        self.assertAlmostEqual(self._d_b(6, deficit=1.0, caixa_x=0.05), math.hypot(0.05, K.escala_apoio_b2), places=6)
+        self.assertAlmostEqual(self._d_b(6, deficit=1.0, caixa_x=0.0), K.escala_apoio_b2, places=6)
+
+    def test_deficit_e_dpalmas_so_valem_no_b2_e_no_b4(self):
+        # 13/11, A3/A9: no B1 (5) e no P3 (3) a distância segue a da caixa, com déficit 1 e dpalmas altos
+        for indice in (3, 5):
+            self.assertAlmostEqual(self._d_b(indice, dpalmas=1.0, deficit=1.0, caixa_x=0.30), 0.30, places=6)
 
     def test_indice_menos_um_da_zero(self):
         # Borda E4: −1 (nenhum alvo) → 0, nunca NaN
         z = torch.zeros(1, dtype=torch.float64)
         d = recompensas.distancia_do_alvo(torch.tensor([-1]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.full((1, 3), 0.5, dtype=torch.float64),
-                                          torch.zeros(1, 3, dtype=torch.float64), z, z,
+                                          torch.zeros(1, 3, dtype=torch.float64), z, z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertEqual(float(d[0]), 0.0)
 
@@ -376,7 +405,7 @@ class TestDistanciaDoP4(unittest.TestCase):
         # §6.4: P4 = √(d_caixa² + (Δpelve · tol_caixa/tol_pelve)²); caixa no alvo e pelve 3 cm → 0,05
         z = torch.zeros(1, dtype=torch.float64)
         d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64), z.repeat(3).reshape(1, 3),
-                                          z.repeat(3).reshape(1, 3), torch.tensor([0.03], dtype=torch.float64), z,
+                                          z.repeat(3).reshape(1, 3), torch.tensor([0.03], dtype=torch.float64), z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.05, places=6)
 
@@ -385,7 +414,7 @@ class TestDistanciaDoP4(unittest.TestCase):
         z = torch.zeros(1, dtype=torch.float64)
         d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
-                                          torch.zeros(1, 3, dtype=torch.float64), z, z,
+                                          torch.zeros(1, 3, dtype=torch.float64), z, z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.30, places=6)
     def test_p3_e_b1_nao_somam_a_pelve(self):
@@ -396,7 +425,7 @@ class TestDistanciaDoP4(unittest.TestCase):
                 d = recompensas.distancia_do_alvo(torch.tensor([indice]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                                   torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
                                                   torch.zeros(1, 3, dtype=torch.float64),
-                                                  torch.tensor([0.10], dtype=torch.float64), z,
+                                                  torch.tensor([0.10], dtype=torch.float64), z, z, z,
                                                   torch.tensor([A], dtype=torch.float64), K)
                 self.assertAlmostEqual(float(d[0]), 0.30, places=6)
 

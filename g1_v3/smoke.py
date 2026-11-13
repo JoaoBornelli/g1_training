@@ -784,15 +784,15 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         _abre_cargar_no_curriculo(env)  # M1: o trecho que vem depois do aviso é o CARREGAR; a célula não pode estar fechada
         _le_caixa_valida(env)  # S5b: o PEGAR abre depois da primeira leitura válida (estado forçado)
         cad = _abre_trecho_de(env, "PEGAR")
-        # M1: o trecho acaba pelo aviso do detector (por_detector), e não pelo atraso sorteado em U[0; 1] s, que
+        # M1: o trecho acaba pelo aviso (por_detector; 13/11, M6: o fecho do P4), e não pelo atraso sorteado em U[0; 1] s, que
         # venceria em ~99% dos mundos. ⚠ `inf` segura o trecho no PEGAR durante os 60 passos.
         cad.alvo_s[:] = float("inf")
         robo, dev, a = env.scene["robot"], env.device, env.v3_meia
         q = env.v3_ref.q_com_caixa(a).to(dev, torch.float32)  # ⚠ a ordem é a de JUNTAS (s04)
         qde = torch.as_tensor(q_de_pe(ATIVO.contrato), dtype=torch.float32, device=dev)
         # ⚠ força a pose de pé com caixa: braços em q_com_caixa e a pelve na altura de `pelve_com_caixa`.
-        # ⚠ Limite conhecido (I §4.2): o detector lê só as palmas e a pelve (alvos.detecta_fim), não a caixa. Que o PD
-        # alcance q_com_caixa e que a pelve fique em 3 cm: medir na fase I.
+        # ⚠ Limite conhecido (I §4.2; 13/11, M6): o aviso do PEGAR é o fecho do P4 (`v3_p4_fechado`), que pede a caixa a
+        # 5 cm do transporte e a pelve a 3 cm por 0,5 s, e não mais o detector de pose (alvos.detecta_fim, só do pilota_v3).
         robo.write_joint_state_to_sim(q, torch.zeros_like(q))
         env.sim.forward()
         env.sim.sense()
@@ -807,7 +807,7 @@ def s21_pose_de_pe_com_caixa_dispara_aviso_depois_de_meio_segundo():
         avisos = []
         for _ in range(60):
             # ⚠ fase I: a ação zero não segura a base (S0), e a cintura (kp 40) não segura os braços à frente
-            # (tronco +8° em 0,36 s). A seção mede o relógio do detector: base e juntas reescritas a cada passo.
+            # (tronco +8° em 0,36 s). A seção mede o aviso do trecho: base e juntas reescritas a cada passo.
             _segura_base(env, pose)
             robo.write_joint_state_to_sim(q, torch.zeros_like(q))
             env.step(acao)

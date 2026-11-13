@@ -151,7 +151,7 @@ class Cadeia:  # S §7
 
 
 @dataclass(frozen=True)
-class Detector:  # I §4.2; PD-26
+class Detector:  # I §4.2; PD-26 (13/11, M6: o treino só lê as tolerâncias, que o B4 usa; o resto é do `pilota_v3.py`)
     tol_pelve: float = 0.03  # I §4.2: tolerância da pelve (m)
     tol_tronco_graus: float = 5.0  # I §4.2: tolerância do tronco (graus)
     tol_palma: float = 0.05  # I §4.2: tolerância das palmas (m)
@@ -172,12 +172,14 @@ class Alvos:  # S §8.2; PD-23
     tol_b1_horizontal: float = 0.03  # S §8.2: tolerância horizontal de B1 (m)
     raio_b2: float = 0.10  # S §8.2: raio de B2 (m)
     apoio_b2_mg: float = 0.8  # S §8.2: fração do peso no apoio de B2
+    escala_apoio_b2: float = 0.10  # 13/11, A3: o déficit de apoio vira distância no Φ do B2, da ordem do raio_b2 (m)
     tempo_b2: float = 0.3  # S §8.2: tempo de permanência em B2 (s)
     b3_afasta: float = 0.05  # S §8.2: afastamento das palmas em B3 (m)
     tempo_b3: float = 0.5  # S §8.2: tempo de permanência em B3 (s)
     v_parada_b3: float = 0.05  # PD-39: caixa parada no B3, ‖v_caixa‖ abaixo disto (m/s)
     tol_pelve_b4: float = Detector.tol_pelve  # S §8.2; I §4.2: a mesma tolerância do detector (m)
     tol_tronco_b4_graus: float = Detector.tol_tronco_graus  # S §8.2; I §4.2: a mesma do detector (graus)
+    tol_palmas_b4: float = Detector.tol_palma  # 13/11, A9: as mãos ao lado do tronco no B4 (§4.5), a tolerância de 5 cm do detector (m)
     tempo_b4: float = 0.5  # S §8.2: tempo de permanência em B4 (s)
     z_transporte: float = 0.90  # S §8.2: altura de transporte sobre o chão local (m); PD-21
     incl_inicio_graus: float = 30.0  # S §8.2, §9.1: inclinação inicial da caixa (graus)

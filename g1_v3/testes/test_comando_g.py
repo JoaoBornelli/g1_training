@@ -139,7 +139,7 @@ class FechoDoSegmentoNoTerreno(unittest.TestCase):
 
 
 def _cadeia_falsa(env, n=1):
-    # `CadeiaCmd` sem o `__init__`: só o que `_alvos`, `_detector` e `_abre_p0` leem
+    # `CadeiaCmd` sem o `__init__`: só o que `_alvos` e `_abre_p0` leem
     obj = comando.CadeiaCmd.__new__(comando.CadeiaCmd)
     obj._env = env
     obj.pega = torch.zeros(n, dtype=torch.bool)
@@ -172,7 +172,7 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
         m = dict(h=torch.full((1,), 0.50), pelve=torch.full((1,), 0.90), caixa_p=torch.zeros(1, 3),
                  palmas_c=torch.zeros(1, 2, 3), contatos=torch.zeros(1, 2, dtype=torch.bool),
                  apoio=torch.zeros(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
-                 v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1))
+                 v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=torch.full((1,), 0.07))
         obj = _cadeia_falsa(env)
         ok_todos = dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))
         with mock.patch.object(comando, "ok_agora_botar", return_value=torch.zeros(1, dtype=torch.bool)) as botar, \
@@ -184,25 +184,8 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
             obj._alvos(m, 0.02)
         dpelve = botar.call_args.args[8]  # posição de `dpelve` em `ok_agora_botar`
         self.assertAlmostEqual(float(dpelve[0]), 0.111, places=6)
-
-    def test_detector_usa_a_pelve_da_medida(self):
-        # `_detector` e `_alvos` leem a mesma pelve: a de `_mede` (`m["pelve"]`). Aqui `z_pe_min` é mockado para
-        # 0,10, e `m["pelve"]` = 0,42 difere de root_z − 0,10 = 0,90: o detector tem de receber 0,42.
-        env = types.SimpleNamespace(
-            v3_ref=_ref_falsa(), v3_meia=torch.tensor([0.1]), v3_tarefa=torch.tensor([comando.ANDAR]),
-            v3_alvo_idx=torch.tensor([-1]), v3_trecho=torch.tensor([0]), v3_aviso=torch.zeros(1, dtype=torch.bool))
-        obj = _cadeia_falsa(env)
-        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(
-            root_link_pos_w=torch.tensor([[0.0, 0.0, 1.0]]), joint_vel=torch.zeros(1, 4)))
-        obj.rel_fim = torch.zeros(1)
-        obj.tab = types.SimpleNamespace(por_detector=torch.tensor([True]))
-        m = dict(base_q=torch.tensor([[1.0, 0.0, 0.0, 0.0]]), base_p=torch.zeros(1, 3),
-                 palmas_w=torch.zeros(1, 2, 3), tronco_graus=torch.zeros(1), pelve=torch.tensor([0.42]))
-        with mock.patch.object(comando, "z_pe_min", return_value=torch.tensor([0.10])), \
-                mock.patch.object(alvos, "detecta_fim", return_value=(torch.zeros(1, dtype=torch.bool),
-                                                                      torch.zeros(1))) as det:
-            obj._detector(m, 0.02)
-        self.assertAlmostEqual(float(det.call_args.args[0][0]), 0.42, places=6)
+        # 13/11, A9: o `dpalmas` da medida chega ao fecho do B4 (a caixa perdida usa o mesmo núcleo)
+        self.assertAlmostEqual(float(botar.call_args.args[10][0]), 0.07, places=6)
 
 
 if __name__ == "__main__":

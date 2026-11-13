@@ -107,12 +107,13 @@ class F9PortaoDoTronco(unittest.TestCase):
         normal[0, 0, 1], normal[0, 1, 1], achado[0, :2] = 1.0, -1.0, 1.0  # fatia 0: face +y; fatia 1: face −y
         cena = Cena(robot=robo, box=caixa, altura_pelve=types.SimpleNamespace(
             data=types.SimpleNamespace(heights=torch.zeros(1, 1))), caixa_faces=types.SimpleNamespace(
-            data=types.SimpleNamespace(normal=normal, force=normal * forca_N, found=achado)))
+            data=types.SimpleNamespace(normal=normal, force=normal * forca_N, found=achado)),
+            apoio_caixa=types.SimpleNamespace(data=types.SimpleNamespace(force=torch.zeros(1, 1, 3))))
         env = types.SimpleNamespace(
             device="cpu", scene=cena, v3_meia=t(0.1), v3_topo_destino=t(0.0), v3_degrau=t(0, torch.long),
             v3_caixa_pega_w=torch.zeros(1, 3), v3_perdeu=torch.zeros(1, dtype=torch.bool),
             v3_ponto_apoio=torch.zeros(1, 3), v3_alvo_idx=t(indice, torch.long), v3_sigma=t(0.3),
-            v3_ref=None, v3_massa=t(massa), sim=types.SimpleNamespace(mj_model=types.SimpleNamespace(
+            v3_ref=types.SimpleNamespace(palmas_de_pe_b=torch.zeros(2, 3)), v3_massa=t(massa), sim=types.SimpleNamespace(mj_model=types.SimpleNamespace(
                 opt=types.SimpleNamespace(gravity=(0.0, 0.0, -9.81)))))
         ref_do = torch.zeros(1, 8)
         ref_do[:, 7] = math.radians(ik_graus)

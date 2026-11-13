@@ -215,6 +215,7 @@ def avanca(indice, ok_agora, relogio, dt, tempos):
 def detecta_fim(pelve_sobre_pe, tronco, palmas_b, vel_juntas, ref_pelve, ref_palmas_b,
                 relogio, dt, k):
     """Aviso de fim de PEGAR ou BOTAR (I §4.2). Devolve (aviso (E,) bool, novo_relogio (E,)).
+    13/11, M6: o treino não a chama mais (o aviso é o fecho do P4 e do B4); só o `pilota_v3.py` a usa.
 
     Pose dentro das tolerâncias (pelve ±3 cm, tronco ±5°, cada palma ±5 cm) e juntas paradas
     (média de |q̇| abaixo de juntas_paradas), sustentadas por estavel_s. ⚠ Usa a média do instante, e

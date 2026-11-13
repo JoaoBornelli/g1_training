@@ -78,14 +78,14 @@ class SorteiaVelocidadeTest(unittest.TestCase):
 
 class CadeiaDeTrechosTest(unittest.TestCase):
 
-    def test_fatia_c_pegar_por_detector_e_botar_no_atraso(self):
+    def test_fatia_c_pegar_por_aviso_e_botar_no_atraso(self):
         tab = comando.monta_tabela_trechos(ATIVO.cadeia, CPU)
         seq = trechos_de(tab, tab.inicio[2])
-        # §7, fatia C: ANDAR parado, PEGAR (detector), CARREGAR parado, BOTAR (detector), ANDAR parado
+        # §7, fatia C: ANDAR parado, PEGAR (aviso), CARREGAR parado, BOTAR (aviso), ANDAR parado
         self.assertEqual([int(tab.tarefa[t]) for t in seq], [0, 1, 2, 3, 0])
         self.assertEqual([bool(tab.por_detector[t]) for t in seq], [False, True, False, True, False])
 
-        # PEGAR: sem aviso, não avança e o relógio fica em 0
+        # PEGAR (13/11, M6: o aviso é o latch do fecho do P4): sem o latch, não avança e o relógio fica em 0
         pegar = seq[1]
         trecho, relogio = t1(pegar, torch.long), t1(0.0)
         for _ in range(5):

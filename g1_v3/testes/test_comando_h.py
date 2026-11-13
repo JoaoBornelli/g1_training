@@ -47,13 +47,14 @@ class TestComputeDaOPassoDaOdometria(unittest.TestCase):
         env = types.SimpleNamespace(
             v3_trecho=torch.zeros(1, dtype=torch.long), v3_aviso=torch.zeros(1, dtype=torch.bool),
             v3_fim=torch.zeros(1, dtype=torch.bool), v3_perdeu=torch.zeros(1, dtype=torch.bool),
-            v3_vz_caixa_ant=torch.zeros(1), v3_odo=mock.Mock(),
+            v3_tarefa=torch.zeros(1, dtype=torch.long), v3_p4_fechado=torch.zeros(1, dtype=torch.bool),
+            v3_b4_fechado=torch.zeros(1, dtype=torch.bool), v3_vz_caixa_ant=torch.zeros(1), v3_odo=mock.Mock(),
             v3_cur=types.SimpleNamespace(degrau_global=lambda: 3, restricao=lambda: 1.0),
             scene={"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))})
         obj = _cadeia_sem_env(env)
         pos, quat = torch.tensor([[1.0, 2.0, 0.5]]), torch.tensor([[1.0, 0.0, 0.0, 0.0]])
         obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=pos, root_link_quat_w=quat))
-        obj.tab = None  # a tabela só vai ao `avanca_trecho`, que está mockado
+        obj.tab = types.SimpleNamespace(por_detector=torch.zeros(1, dtype=torch.bool))  # só o latch do aviso lê a tabela
         obj.relogio = torch.zeros(1)
         obj.alvo_s = torch.zeros(1)
         obj.bota = torch.zeros(1, dtype=torch.bool)
@@ -63,7 +64,6 @@ class TestComputeDaOPassoDaOdometria(unittest.TestCase):
         obj._perda = mock.Mock()
         obj._abre_p0 = mock.Mock()
         obj._alvos = mock.Mock()
-        obj._detector = mock.Mock()
         obj._grava_chegada = mock.Mock(side_effect=lambda: ordem.append("chegada"))
         nao_avancou = (torch.zeros(1, dtype=torch.long), torch.zeros(1), torch.zeros(1, dtype=torch.bool),
                        torch.zeros(1, dtype=torch.bool))

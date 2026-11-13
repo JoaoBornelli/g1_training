@@ -96,7 +96,7 @@ def _medidas():
     return dict(h=z, pelve=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
                 palmas_w=torch.zeros(1, 2, 3), palmas_c=torch.zeros(1, 2, 3), contatos=torch.ones(1, 2, dtype=torch.bool),
                 apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
-                v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1))
+                v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=z.clone())
 
 
 class TestCadeiaComEnvFalso(unittest.TestCase):
@@ -151,7 +151,7 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         obj = _cadeia_sem_env(env)
         obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor([[1.0, 2.0, 0.5]]),
                                                                      root_link_quat_w=torch.tensor([[1.0, 0, 0, 0]])))
-        obj.tab = None  # a tabela só vai ao `avanca_trecho`, que está mockado
+        obj.tab = types.SimpleNamespace(por_detector=torch.zeros(1, dtype=torch.bool))  # só o latch do aviso lê a tabela
         obj.relogio = torch.zeros(1)
         obj.alvo_s = torch.zeros(1)
         obj.pega = torch.zeros(1, dtype=torch.bool)
@@ -162,7 +162,6 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
         obj._perda = mock.Mock()
         obj._abre_p0 = mock.Mock()
         obj._alvos = mock.Mock()
-        obj._detector = mock.Mock()
         obj._grava_chegada = mock.Mock(side_effect=lambda: ordem.append("chegada"))
         nao_avancou = (torch.zeros(1, dtype=torch.long), torch.zeros(1), torch.zeros(1, dtype=torch.bool),
                        torch.zeros(1, dtype=torch.bool))
@@ -379,7 +378,7 @@ def _cadeia_de_trechos(n=1):
         v3_odo=types.SimpleNamespace(pos_w=torch.zeros(n, 3), quat_w=torch.tensor([[1.0, 0, 0, 0]]).repeat(n, 1)),
         v3_estimador=types.SimpleNamespace(saida_b=lambda odo, q: torch.zeros(n, 8), tem_leitura=lambda: b()))
     obj = _cadeia_sem_env(env)
-    obj.pega, obj.bota, obj.rel_fim = b(), b(), z()
+    obj.pega, obj.bota = b(), b()
     obj.relogio, obj.alvo_s = z(), z()
     obj.tab, obj.faixas = comando._monta(ATIVO.cadeia, "cpu")
     obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
@@ -393,6 +392,21 @@ def _abre(obj, trecho, m=None, ids=(0,)):
     # Abre o `trecho` nos `ids` como o `compute` (com `m`) ou o reset (sem `m`)
     ids = torch.tensor(ids, dtype=torch.long)
     obj._abre_trecho(ids, torch.full((len(ids),), trecho, dtype=torch.long), m)
+
+
+def _roda_compute(obj, passos):
+    # `compute` sem a cena: medidas, perda, P0, alvos e odometria ficam de fora. O latch do aviso, o `avanca_trecho` e a
+    # abertura do trecho são os reais.
+    env = obj._env
+    env.v3_odo = mock.Mock()
+    env.v3_cur.degrau_global = lambda: 0
+    env.scene = {"box": types.SimpleNamespace(data=types.SimpleNamespace(root_link_lin_vel_w=torch.zeros(1, 3)))}
+    obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
+                                                                 root_link_quat_w=torch.tensor([[1.0, 0, 0, 0]])))
+    obj._mede = lambda: _medidas()
+    obj._perda = obj._abre_p0 = obj._alvos = obj._grava_chegada = mock.Mock()
+    for _ in range(passos):
+        obj.compute(DT)
 
 
 def _posiciona(n=1):
@@ -510,34 +524,51 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         curriculo.garante_v3(env)
         self.assertEqual(env.v3_v_chegada.tolist(), [-1.0, -1.0])
 
-    def test_aviso_do_detector_e_latch_no_trecho(self):
-        # F9 P5/R2: `v3_aviso` é o latch do aviso no trecho. Depois do aviso, a pose que sai não o desfaz
+    def test_trecho_por_aviso_so_acaba_com_o_fecho_do_alvo_e_depois_do_atraso(self):
+        # 13/11, M6: o PEGAR só sai com `v3_p4_fechado`, e sai depois do atraso sorteado (0,1 s = 5 passos) contado do
+        # fecho. Sem o fecho, mesmo uma pose de pé com as palmas na referência não acaba o trecho (o detector antigo acabava)
         obj = _cadeia_de_trechos()
         env = obj._env
         env.v3_tarefa[:] = comando.PEGAR
         env.v3_trecho[:] = PEGAR_TRECHO
-        env.v3_alvo_idx[:] = comando.P0  # o trecho já tem alvo: não está à espera da caixa
-        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
-                                                                     joint_vel=torch.zeros(1, 29)))
-        avisos = iter([torch.tensor([True]), torch.tensor([False])])
-        with mock.patch.object(comando.alvos, "detecta_fim", side_effect=lambda *a: (next(avisos), torch.zeros(1))), \
-                mock.patch.object(comando, "z_pe_min", return_value=torch.zeros(1)):
-            obj._detector(_medidas(), DT)
-            self.assertTrue(env.v3_aviso.item())
-            obj._detector(_medidas(), DT)  # a pose saiu: o latch fica
-            self.assertTrue(env.v3_aviso.item())
+        env.v3_alvo_idx[:] = comando.P4
+        obj.alvo_s[:] = 0.1
+        _roda_compute(obj, 20)  # sem o fecho: nem o latch nem o avanço
+        self.assertFalse(env.v3_aviso.item())
+        self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO])
+        env.v3_p4_fechado[:] = True
+        _roda_compute(obj, 4)  # o latch pega no 1º passo; o relógio ainda não chegou ao atraso
+        self.assertTrue(env.v3_aviso.item())
+        self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO])
+        _roda_compute(obj, 1)
+        self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO + 1])  # o CARREGAR
+        self.assertFalse(env.v3_aviso.item())  # a abertura do trecho zera o latch
 
-    def test_aviso_so_entra_no_latch_em_trecho_por_detector_e_abertura_zera(self):
-        # F9 P5: num trecho por tempo (ANDAR) o aviso não entra; a abertura do trecho zera o latch
+    def test_botar_so_acaba_com_o_b4_fechado_e_nao_com_o_p4_do_pegar(self):
+        # 13/11, M6: no BOTAR o aviso é o `v3_b4_fechado`. O `v3_p4_fechado` do PEGAR anterior segue True no episódio
+        # e não vale como aviso
+        obj = _cadeia_de_trechos()
+        env = obj._env
+        env.v3_tarefa[:] = comando.BOTAR
+        env.v3_trecho[:] = BOTAR_TRECHO
+        env.v3_alvo_idx[:] = comando.B4
+        env.v3_p4_fechado[:] = True
+        obj.alvo_s[:] = 0.1
+        _roda_compute(obj, 10)
+        self.assertFalse(env.v3_aviso.item())
+        self.assertEqual(env.v3_trecho.tolist(), [BOTAR_TRECHO])
+        env.v3_b4_fechado[:] = True
+        _roda_compute(obj, 5)
+        self.assertEqual(env.v3_trecho.tolist(), [BOTAR_TRECHO + 1])  # o ANDAR final
+
+    def test_fecho_nao_entra_no_latch_em_trecho_por_tempo_e_abertura_zera(self):
+        # F9 P5: num trecho por tempo (ANDAR) o fecho não vira aviso; a abertura do trecho zera o latch
         obj = _cadeia_de_trechos()
         env = obj._env
         env.v3_tarefa[:] = comando.ANDAR
         env.v3_trecho[:] = ANDAR_TRECHO
-        obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3),
-                                                                     joint_vel=torch.zeros(1, 29)))
-        with mock.patch.object(comando.alvos, "detecta_fim", return_value=(torch.tensor([True]), torch.zeros(1))), \
-                mock.patch.object(comando, "z_pe_min", return_value=torch.zeros(1)):
-            obj._detector(_medidas(), DT)
+        env.v3_p4_fechado[:] = True
+        _roda_compute(obj, 1)
         self.assertFalse(env.v3_aviso.item())
         env.v3_aviso[:] = True
         _abre(obj, ANDAR_TRECHO)

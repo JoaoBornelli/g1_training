@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 import torch
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_yaw
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, quat_apply_yaw
 
 from g1_v3 import alvos, balanceador, estimador, potencial
 from g1_v3.cena import MESA_POR_GRUPO
@@ -50,7 +50,7 @@ def _ix(*nomes):
     return tuple(ALVOS.index(n) for n in nomes)
 
 
-_P4, _B1, _B4 = ALVOS.index("P4"), ALVOS.index("B1"), ALVOS.index("B4")
+_P4, _B1, _B2, _B4 = ALVOS.index("P4"), ALVOS.index("B1"), ALVOS.index("B2"), ALVOS.index("B4")
 _P0_P2, _B3_B4 = _ix("P0", "P1", "P2"), _ix("B3", "B4")  # E4: portão do deslocamento (pega e apoio)
 _INCL, _MAOS = _ix("P2", "P3", "P4", "B1", "B2", "B3"), _ix("P3", "P4", "B1", "B2")  # 13/11, A1/A6: incl; mãos
 _POUSO, _P3_B3 = _ix("B1", "B2"), _ix("P3", "P4", "B1", "B2", "B3")  # E4: pouso; 13/11, A7: caixa no CoM
@@ -221,19 +221,27 @@ def _em(indice, grupo):
     return torch.isin(indice, torch.tensor(grupo, device=indice.device))
 
 
-def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_graus, a, k) -> torch.Tensor:
-    """d do alvo corrente, na medida de §6.3 (E4). P0–P2 e B3: média das duas palmas no frame da caixa; P3, B1, B2:
+def distancia_do_alvo(indice, palmas_c, caixa_w, caixa_alvo_w, dpelve, dtronco_graus, dpalmas_b4, deficit_apoio, a,
+                      k) -> torch.Tensor:
+    """d do alvo corrente, na medida de §6.3 (E4). P0–P2 e B3: média das duas palmas no frame da caixa; P3 e B1:
     ‖caixa − alvo‖; P4 (11/11, §6.4): √(‖caixa − alvo‖² + (Δpelve·tol_caixa/tol_pelve)²), a caixa e a pelve;
-    B4: √((Δpelve/tol)² + (Δtronco/tol)²) (adimensional); −1: 0 (nunca NaN, §6.6).
+    B2 (13/11, A3): hypot(‖caixa − alvo‖, escala_apoio_b2 · deficit_apoio), o apoio que falta entra na distância;
+    B4: √((Δpelve/tol)² + (Δtronco/tol)² + (dpalmas_b4/tol_palmas_b4)²) (adimensional; 13/11, A9: as mãos ao lado do
+    tronco); −1: 0 (nunca NaN, §6.6).
 
-    palmas_c (E,2,3) no frame da caixa (PD-29); dpelve e dtronco_graus (E,). Mesma conta de `parte0/item1_phi`.
+    palmas_c (E,2,3) no frame da caixa (PD-29); dpelve e dtronco_graus (E,); dpalmas_b4 (E,): a maior das duas
+    distâncias palma–`palmas_de_pe_b` no frame da base; deficit_apoio (E,) em [0, 1] = relu(1 − apoio/(apoio_b2_mg·peso)).
+    Mesma conta de `parte0/item1_phi` quando os dois últimos valem 0.
     """
     d_palma = (palmas_c - alvos.palmas_alvo_caixa(indice, a, k)).norm(dim=-1).mean(-1)
     d_caixa = (caixa_w - caixa_alvo_w).norm(dim=-1)
-    d_pose = torch.hypot(dpelve / k.tol_pelve_b4, dtronco_graus / k.tol_tronco_b4_graus)
+    d_pose = torch.hypot(torch.hypot(dpelve / k.tol_pelve_b4, dtronco_graus / k.tol_tronco_b4_graus),
+                         dpalmas_b4 / k.tol_palmas_b4)
     d_p4 = torch.hypot(d_caixa, dpelve * (k.tol_caixa_p4 / k.tol_pelve_p4))
+    d_b2 = torch.hypot(d_caixa, k.escala_apoio_b2 * deficit_apoio)
     d = torch.where(_em(indice, _PALMA_ALVO), d_palma,
-                    torch.where(indice == _P4, d_p4, torch.where(_em(indice, _CAIXA_ALVO), d_caixa, d_pose)))
+                    torch.where(indice == _P4, d_p4,
+                                torch.where(indice == _B2, d_b2, torch.where(_em(indice, _CAIXA_ALVO), d_caixa, d_pose))))
     return torch.where(indice >= 0, d, torch.zeros_like(d))
 
 
@@ -495,8 +503,16 @@ def _phi_env(env, indice, sigma):
     palmas_c = torch.einsum("eij,eki->ekj", R_caixa, palmas_w - caixa_w[:, None])
     ref_do = ref_do_alvo(env, indice)
     dpelve = env.scene["altura_pelve"].data.heights[:, 0] - ref_do[:, 6]
+    # 13/11, A9: as palmas no frame da base contra a pose de pé (o B4 as mede); A3: o déficit de apoio do B2, com os
+    # mesmos sensores e o mesmo peso de `CadeiaCmd._mede` (`forca_de_apoio`: |Fz| somada)
+    palmas_b = quat_apply_inverse(robo.data.root_link_quat_w[:, None].expand(-1, 2, -1),
+                                  palmas_w - robo.data.root_link_pos_w[:, None])
+    dpalmas = (palmas_b - env.v3_ref.palmas_de_pe_b).norm(dim=-1).amax(-1)
+    apoio_N = env.scene["apoio_caixa"].data.force[..., 2].abs().sum(-1)
+    peso_N = env.v3_massa * float(-env.sim.mj_model.opt.gravity[2])
+    deficit = torch.relu(1.0 - apoio_N / (K.apoio_b2_mg * peso_N))
     d = distancia_do_alvo(indice, palmas_c, caixa_w, alvo_da_caixa_w(env, indice), dpelve,
-                          incl_torso(env) - torch.rad2deg(ref_do[:, 7]), a, K)
+                          incl_torso(env) - torch.rad2deg(ref_do[:, 7]), dpalmas, deficit, a, K)
     # fator de pouso: B1 e B2, com o fundo da caixa sobre a laje de destino (D3 da Parte 0)
     fundo = caixa_w[:, 2] - a - (env.scene.env_origins[:, 2] + env.v3_topo_destino)
     pouso = potencial.fator_pouso(caixa.data.root_link_lin_vel_w[:, 2], fundo, por_degrau(env, *R.sigma_pouso),

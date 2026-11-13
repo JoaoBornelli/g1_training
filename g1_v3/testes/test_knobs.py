@@ -84,12 +84,16 @@ class TestKnobs(unittest.TestCase):
         for no in ast.walk(arvore):
             if isinstance(no, ast.ClassDef) and no.name == "Alvos":
                 defaults = {st.target.id: st.value for st in no.body if isinstance(st, ast.AnnAssign)}
-        for nome in ("tol_pelve_b4", "tol_tronco_b4_graus"):
+        for nome in ("tol_pelve_b4", "tol_tronco_b4_graus", "tol_palmas_b4"):
             self.assertIsInstance(defaults[nome], ast.Attribute, f"{nome} repete um literal")
         self.assertEqual(ATIVO.alvos.tol_pelve_b4, 0.03)
         self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, 5.0)
         self.assertEqual(ATIVO.alvos.tol_pelve_b4, ATIVO.detector.tol_pelve)
         self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, ATIVO.detector.tol_tronco_graus)
+        # 13/11, A9: as mãos ao lado do tronco no B4, a tolerância de 5 cm do detector; A3: a escala do déficit de apoio
+        self.assertEqual(ATIVO.alvos.tol_palmas_b4, 0.05)
+        self.assertEqual(ATIVO.alvos.tol_palmas_b4, ATIVO.detector.tol_palma)
+        self.assertEqual(ATIVO.alvos.escala_apoio_b2, 0.10)
 
     def test_dr_e_refino(self):
         # §6.2, contrato de 29/10: o DR (§6.8) e o Refino (§6.9) entram no agregador.

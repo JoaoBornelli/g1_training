@@ -24,7 +24,7 @@ TEMPOS = torch.tensor([0, 0, 0, 0, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.temp
 
 
 def ok(indice, d_horiz=0.0, d_caixa=0.0, apoio=10.0, peso=10.0, afasta=(0.20, 0.20), apoiada=True,
-       vel=0.0, dpelve=0.0, dtronco=0.0, invariantes=1.0):
+       vel=0.0, dpelve=0.0, dtronco=0.0, dpalmas=0.0, invariantes=1.0):
     # Um passo sintético (E = 1). Os defaults cumprem as condições de B1..B4 ao mesmo tempo; o caso troca só a sua.
     return comando.ok_agora_botar(
         torch.tensor([indice], dtype=torch.long),
@@ -37,6 +37,7 @@ def ok(indice, d_horiz=0.0, d_caixa=0.0, apoio=10.0, peso=10.0, afasta=(0.20, 0.
         torch.tensor([[float(vel), 0.0, 0.0]]),
         torch.tensor([float(dpelve)]),
         torch.tensor([float(dtronco)]),
+        torch.tensor([float(dpalmas)]),
         torch.tensor([float(invariantes)]),
         A,
     ).item()
@@ -78,6 +79,11 @@ class OkAgoraBotar(unittest.TestCase):
         self.assertTrue(ok(B4, dpelve=-(A.tol_pelve_b4 - 0.001), dtronco=-(A.tol_tronco_b4_graus - 0.5)))
         self.assertFalse(ok(B4, dpelve=A.tol_pelve_b4 + 0.001))
         self.assertFalse(ok(B4, dtronco=A.tol_tronco_b4_graus + 0.5))
+
+    def test_b4_pede_as_maos_ao_lado_do_tronco(self):
+        # 13/11, A9: com pelve e tronco dentro, a maior distância palma–pose de pé de 0,06 m (> 5 cm) não fecha o B4; 0,04 fecha.
+        self.assertFalse(ok(B4, dpalmas=0.06))
+        self.assertTrue(ok(B4, dpalmas=0.04))
 
     def test_invariante_menor_que_1_bloqueia_b1_a_b4(self):
         # Teste (F1): `& (invariantes == 1)`: com o produto 0,99 nenhum alvo B vale (S §8.2).
