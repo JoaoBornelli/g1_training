@@ -241,6 +241,7 @@ def empurrao(env, env_ids, velocity_range: dict):
     push_by_setting_velocity(env, env_ids, velocity_range=velocity_range)
     # o buffer é float32 (curriculo.py:75): converte a conta para o dtype dele, senão o index_put quebra
     env.v3_t_empurrao[env_ids] = env.episode_length_buf[env_ids].to(env.v3_t_empurrao.dtype) * env.step_dt
+    env.v3_fase_marcha[env_ids] = 0.0  # 13/11, M4: o relógio de marcha recomeça no empurrão
 
 
 # ------------------------------------------------------------------ fase E: a cena da caixa (E1; §6.5)

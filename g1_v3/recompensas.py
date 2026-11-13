@@ -21,7 +21,7 @@ import math
 import re
 
 import torch
-from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, quat_apply_yaw
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse
 
 from g1_v3 import alvos, balanceador, estimador, potencial
 from g1_v3.cena import MESA_POR_GRUPO
@@ -34,7 +34,6 @@ K = ATIVO.alvos
 _EPS = 1e-6  # tolerância de "sobre a reta" no fecho convexo do CoM (metros)
 
 _PES_CORPOS = ("left_ankle_roll_link", "right_ankle_roll_link")  # PD-21: altura e velocidade do pé
-_PES_SITIOS = ("left_foot", "right_foot")  # PD-16: ordem = `pes_de_pe_b` (0 esquerdo, 1 direito)
 _BRACOS = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"shoulder|elbow|wrist", j))  # 14
 _CINTURA = tuple(i for i, j in enumerate(JUNTAS) if "waist" in j)  # 3
 _QUADRIL = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"hip_(roll|yaw)", j))  # 4
@@ -72,15 +71,12 @@ def comprimento_do_passo(p_toque_w, p_apoio_w, c_w, p0_toque_b, p0_apoio_b, c_b)
     return ((p_toque_w - p_apoio_w) * c_w).sum(-1) - ((p0_toque_b - p0_apoio_b) * c_b).sum(-1)
 
 
-def n_passo(L, L_alvo, r_lin, c_xy, limiar) -> torch.Tensor:
-    """min(relu(L)/L_alvo, 1)² · max(r_lin, 0), zero com ‖cmd_xy‖ < limiar (PD-48; S §9.2).
-
-    ⚠ Forma do quadrado (PD-48): linear por toque paga v/L_alvo por segundo, o mesmo para todo L abaixo do
-    alvo (derivada zero em L). Com o quadrado, a derivada em L é positiva, e o gradiente aponta para o passo
-    do alvo. ⚠ L_alvo vai com `max(·, 1e-6)` só no denominador: com comando zero o clamp de 1 cobre o resto.
-    """
-    r = torch.clamp(torch.relu(L) / torch.clamp(L_alvo, min=1e-6), max=1.0).pow(2) * torch.clamp(r_lin, min=0.0)
-    return torch.where(c_xy < limiar, torch.zeros_like(r), r)
+def n_passo(contato, fase, on, fase_apoio) -> torch.Tensor:
+    """(E,2) 1 onde o contato do pé bate com o relógio (13/11, M4; unitree_rl_lab `feet_gait`). Pé esquerdo na `fase`,
+    direito na fase + 0,5; apoio com fase < `fase_apoio`. Com `on` False (comando zero), os dois pés em apoio."""
+    fases = torch.stack([fase, torch.remainder(fase + 0.5, 1.0)], dim=-1)
+    apoio = (fases < fase_apoio) | ~on.unsqueeze(-1)
+    return (contato == apoio).float()
 
 
 def n_vivo(perdeu) -> torch.Tensor:
@@ -577,26 +573,25 @@ def rastreio_angular(env, tarefas):
 
 
 def passo(env, tarefas):
-    """Comprimento do passo no toque, na forma de PD-48. Só ANDAR e CARREGAR; zero sem toque neste passo.
+    """Marcha por relógio, na forma do `feet_gait` do unitree_rl_lab (13/11, M4). ANDAR e CARREGAR.
 
-    ⚠ "Toque" é o `first_contact` do `pes_chao` (mjlab, `compute_first_contact`), e não o contato deste
-    passo: o pé que já estava no chão não paga outra vez. Com os dois pés no mesmo passo, vale o esquerdo.
+    O relógio mora no `TwistV3._update_metrics` (fase por pé, pés defasados em meio ciclo, período pela velocidade
+    comandada). Cada pé paga 1 quando o contato bate com a fase. Sem comando, o relógio fica parado em apoio duplo e o
+    termo paga cada pé no chão. ⚠ Portão de velocidade (spec de comportamento §4.1): o termo vale × a fração da
+    velocidade comandada que o robô cumpre (média de 0,8 s), então a marcha no lugar não recebe o termo inteiro.
+    Sem comando o portão vale 1. A taxa de acerto, sem o portão, vai para `v3_acerto_marcha` (métrica `acerto_relogio`).
     """
-    robo = env.scene["robot"]
     cmd = env.command_manager.get_command("twist")
-    c_xy = cmd[:, :2]
-    n_cmd = c_xy.norm(dim=-1)
-    c_b = torch.cat([c_xy / n_cmd.clamp(min=_EPS).unsqueeze(-1), torch.zeros_like(n_cmd).unsqueeze(-1)], dim=-1)
-    c_w = quat_apply_yaw(robo.data.root_link_quat_w, c_b)  # o mesmo comando, girado pelo rumo da base
-    pos = robo.data.site_pos_w[:, robo.find_sites(_PES_SITIOS)[0]]  # (E,2,3) sites dos pés, mundo
-    p0 = env.v3_ref.pes_de_pe_b.to(pos)  # (2,3) pose de pé, frame da pelve (PD-16)
-    primeiro = env.scene["pes_chao"].compute_first_contact(env.step_dt)  # (E,2): pousou agora
-    L_esq = comprimento_do_passo(pos[:, 0], pos[:, 1], c_w, p0[0], p0[1], c_b)
-    L_dir = comprimento_do_passo(pos[:, 1], pos[:, 0], c_w, p0[1], p0[0], c_b)
-    L = torch.where(primeiro[:, 0], L_esq, L_dir)
-    r = n_passo(L, potencial.L_alvo(n_cmd, R.L_min, R.fator_T), _rastreio(env, True), n_cmd, C.limiar_canal)
-    r = torch.where(primeiro.any(-1), r, torch.zeros_like(r))
-    return _fim(env, tarefas, r, paga=True)
+    v = env.command_manager.get_term("twist").v_media_b
+    c_lin, c_ang = cmd[:, :2].norm(dim=-1), cmd[:, 2].abs()
+    lin, ang = c_lin >= C.limiar_canal, c_ang >= C.limiar_canal
+    contato = env.scene["pes_chao"].data.found > 0  # (E,2)
+    acerto = n_passo(contato, env.v3_fase_marcha, lin | ang, C.fase_apoio)
+    g_lin = torch.clamp((v[:, :2] * cmd[:, :2]).sum(-1) / c_lin.pow(2).clamp(min=_EPS), 0.0, 1.0)
+    g_ang = torch.clamp(v[:, 2] * torch.sign(cmd[:, 2]) / c_ang.clamp(min=_EPS), 0.0, 1.0)
+    portao = torch.where(lin, g_lin, torch.where(ang, g_ang, torch.ones_like(g_lin)))
+    env.v3_acerto_marcha[:] = acerto.mean(-1)
+    return _fim(env, tarefas, acerto.sum(-1) * portao, paga=True)
 
 
 def vivo(env, tarefas):

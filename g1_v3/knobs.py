@@ -128,6 +128,10 @@ class Comando:  # S §7, §11.2, §19
     # foi de −0,68 para −1,79/s. A média de 0,8 s faz o canal sem comando cobrar a deriva, e não a oscilação do corpo.
     janela_media_s: float = 0.8  # S §19, conflito 5: média da velocidade (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
+    fase_apoio: float = 0.55  # 13/11, M4: fração do ciclo com o pé no chão (`feet_gait` do unitree_rl_lab)
+    cadencia_base: float = 1.4  # 13/11, M4: passos/s com v = 0; a cadência do relógio sobe com a velocidade
+    cadencia_por_v: float = 1.2  # 13/11, M4: passos/s por m/s de velocidade comandada
+    giro_para_v: float = 0.3  # 13/11, M4: m/s equivalentes por rad/s, para o giro no lugar
     deriva_pos_m: float = 0.10  # PD-15: deriva da âncora de posição (m)
     deriva_pos_inicio: float = 0.25  # 11/11 (§2): o limite DESCE de 0,25 m (restricao 0) a deriva_pos_m (restricao 1)
     deriva_rumo_rad: float = 0.25  # PD-15: deriva da âncora de rumo (rad)
@@ -209,9 +213,9 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     sigma_zero_lin: float = 0.10  # PD-49: σ₀ do linear sem comando (m/s)
     sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s)
     sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): o σ₀ DESCE de 0,5 (restricao 0) a sigma_zero_ang (restricao 1)
-    passo: float = 0.5  # S §19, conflito 6: peso do comprimento do passo
-    L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); calibrar na Parte 0, item 8
-    fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|
+    passo: float = 1.3  # 13/11, M4: relógio de marcha do unitree_rl_lab, `feet_gait`; 1,3 por pé
+    L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); 13/11, M4: o treino não lê; só `parte0/item8_passo.py`
+    fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|; 13/11, M4: o treino não lê; só `parte0/item8_passo.py`
     vivo: float = 1.0  # S §9.2: peso do "vivo" (zero depois da caixa perdida); 11/11: era 0,15, a recompensa do início paga ficar de pé (§1)
     altura_pe: float = 1.0  # S §9.2: peso da altura do pé; foot_clearance_reward (unitree_rl_lab)
     alvo_pe: float = 0.10  # S §9.2: altura alvo do pé (m); foot_clearance_reward

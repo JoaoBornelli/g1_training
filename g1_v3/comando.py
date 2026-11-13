@@ -608,7 +608,7 @@ class TwistV3Cfg(UniformVelocityCommandCfg):
         return TwistV3(self, env)
 
 
-_METRICAS = ("razao_marcha", "eficiencia_min", "eficiencia_media", "segmentos")
+_METRICAS = ("razao_marcha", "acerto_relogio", "eficiencia_min", "eficiencia_media", "segmentos")
 
 
 class TwistV3(UniformVelocityCommand):
@@ -627,6 +627,8 @@ class TwistV3(UniformVelocityCommand):
             self.metrics[m] = torch.zeros(n, device=dev)
         self.soma_erro_marcha = torch.zeros(n, device=dev)
         self.soma_cmd_marcha = torch.zeros(n, device=dev)
+        self.soma_acerto = torch.zeros(n, device=dev)  # 13/11, M4: Σ acerto do relógio e nº de passos com comando
+        self.passos_on = torch.zeros(n, device=dev)
         # média da base (vx, vy, wz) nos últimos `janela_media_s` (S §19, conflito 5); zera só no reset
         self.v_media_b = torch.zeros(n, 3, device=dev)
         self._hist = torch.zeros(n, round(self.k.janela_media_s / env.step_dt), 3, device=dev)
@@ -744,6 +746,18 @@ class TwistV3(UniformVelocityCommand):
         self._hist[:, self._i] = torch.cat([vel, wz[:, None]], dim=1)
         self._i = (self._i + 1) % self._hist.shape[1]
         self.v_media_b = self._hist.mean(dim=1)
+        # 5. relógio de marcha (13/11, M4): roda depois das recompensas, então o `passo` do passo t lê a fase do passo
+        # t − 1. O período vem da velocidade comandada (o giro no lugar vale `giro_para_v` por rad/s).
+        c_lin, c_ang = cmd[:, :2].norm(dim=1), cmd[:, 2].abs()
+        on = (c_lin >= k.limiar_canal) | (c_ang >= k.limiar_canal)
+        v = torch.where(c_lin >= k.limiar_canal, c_lin, k.giro_para_v * c_ang)
+        T = 2.0 / (k.cadencia_base + k.cadencia_por_v * v)  # período: dois passos
+        fase = torch.where(on & ~env.v3_marcha_on, torch.zeros_like(c_lin), env.v3_fase_marcha)  # recomeço no limiar
+        env.v3_fase_marcha[:] = torch.where(on, torch.remainder(fase + dt / T, 1.0), torch.zeros_like(fase))
+        env.v3_marcha_on[:] = on
+        self.soma_acerto += env.v3_acerto_marcha * on
+        self.passos_on += on
+        self.metrics["acerto_relogio"][:] = self.soma_acerto / self.passos_on.clamp(min=1.0)
 
     def reset(self, env_ids):
         # ⚠ A cadeia roda ANTES do twist (§6.5): o trecho novo já está publicado, por isso o segmento antigo usa o
@@ -755,6 +769,10 @@ class TwistV3(UniformVelocityCommand):
         self._agora[env_ids] = 0.0
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0
+        self.soma_acerto[env_ids] = 0.0
+        self.passos_on[env_ids] = 0.0
+        self._env.v3_fase_marcha[env_ids] = 0.0
+        self._env.v3_marcha_on[env_ids] = False
         extras = super().reset(env_ids)  # zera as métricas e o contador, e reamostra (chama `_resample`)
         self._abre(env_ids)
         return extras

@@ -76,6 +76,9 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     _cria(env, "v3_phi", (), torch.float32, -1.0)  # sentinela −1 = sem alvo; as métricas `phi_<alvo>` leem este buffer
     _cria(env, "v3_h", (), torch.float32, 1.0)  # 13/11, M5: fator da renda da etapa, em [0, 1]
     _cria(env, "v3_phi_melhor", (), torch.float32, 0.0)  # 13/11, M5: melhor Φ da etapa; o h só recarrega acima dele
+    _cria(env, "v3_fase_marcha", (), torch.float32, 0.0)  # 13/11, M4: fase do relógio de marcha, em [0, 1)
+    _cria(env, "v3_marcha_on", (), torch.bool, False)  # 13/11, M4: comando acima do limiar no passo anterior
+    _cria(env, "v3_acerto_marcha", (), torch.float32, 0.0)  # 13/11, M4: fração de pés que bateram com o relógio
     _cria(env, "v3_v_chegada", (), torch.float32, -1.0)  # F9 P3: vz do primeiro toque do BOTAR; −1 = sem toque
     for nome, dim in _VETORES.items():
         _cria(env, nome, (dim,), torch.float32)

@@ -1,4 +1,4 @@
-"""Testes dos núcleos de recompensa da D5 (recompensas.py) e de potencial.L_alvo/excesso_de_junta. Escritos antes do código.
+"""Testes dos núcleos de recompensa da D5 (recompensas.py) e de potencial.excesso_de_junta. Escritos antes do código.
 
 Os números são os da linha "Teste" de D5 (plano §11) e dos knobs. Tensores sintéticos; nenhum env é construído.
 Ângulos em graus, comprimentos em metros, torque em fração (§6.3).
@@ -10,7 +10,7 @@ import unittest
 
 import torch
 
-from g1_v3 import alvos, potencial, recompensas
+from g1_v3 import potencial, recompensas
 from g1_v3.knobs import ATIVO, JUNTAS, caminho
 
 R = ATIVO.recompensa
@@ -28,33 +28,23 @@ def _tau_max():
 
 
 class TestPasso(unittest.TestCase):
-    def setUp(self):
-        self.l_alvo = potencial.L_alvo(t(0.5), R.L_min, R.fator_T)  # 0,5·clamp(0,8; 0,8; 1,4)/2 = 0,20
+    """13/11, M4: n_passo é o relógio do `feet_gait`. Pé E na `fase`, pé D na fase + 0,5; apoio com fase < 0,55."""
 
-    def n(self, L, r_lin=1.0, c_xy=0.5):
-        return recompensas.n_passo(t(L), self.l_alvo, t(r_lin), t(c_xy), ATIVO.comando.limiar_canal)
+    def n(self, contato, fase=0.2, on=True):
+        return recompensas.n_passo(torch.tensor([contato]), t(fase), torch.tensor([on]), ATIVO.comando.fase_apoio)[0].tolist()
 
-    def test_l_020_a_05_ms_com_r_lin_1_da_1(self):
-        self.assertAlmostEqual(self.n(0.20).item(), 1.0, places=5)
+    def test_fase_02_com_comando_e_apoio_e_d_em_balanco(self):
+        # E: 0,2 < 0,55 apoio; D: 0,7 balanço
+        self.assertEqual(self.n((True, False)), [1.0, 1.0])
+        self.assertEqual(self.n((True, True)), [1.0, 0.0])
 
-    def test_l_040_satura_em_1(self):
-        self.assertAlmostEqual(self.n(0.40).item(), 1.0, places=5)
+    def test_sem_comando_os_dois_pes_em_apoio(self):
+        self.assertEqual(self.n((True, True), on=False), [1.0, 1.0])
+        self.assertEqual(self.n((False, True), on=False), [0.0, 1.0])
 
-    def test_l_010_da_025(self):
-        self.assertAlmostEqual(self.n(0.10).item(), 0.25, places=5)
-
-    def test_cadencia_dobrada_com_l_010_da_metade_da_de_l_020(self):
-        # Soma por segundo: 2 passos com L = 0,10 contra 1 passo com L = 0,20 (PD-48).
-        self.assertAlmostEqual(2 * self.n(0.10).item(), 0.5 * self.n(0.20).item(), places=5)
-
-    def test_passo_de_lado_com_a_largura_de_pe_da_zero(self):
-        # Pés na pose de pé (pes_de_pe_b), comando lateral (eixo y): L = 0, logo recompensa 0.
-        pes = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV).pes_de_pe_b
-        p_toque, p_apoio = pes[1].unsqueeze(0), pes[0].unsqueeze(0)
-        ceu = t(0.0, 1.0, 0.0).unsqueeze(0)
-        L = recompensas.comprimento_do_passo(p_toque, p_apoio, ceu, p_toque, p_apoio, ceu)
-        self.assertAlmostEqual(recompensas.n_passo(L, self.l_alvo, t(1.0), t(0.5), ATIVO.comando.limiar_canal)
-                               .item(), 0.0, places=6)
+    def test_fase_070_inverte_os_papeis(self):
+        # E: 0,7 balanço; D: 0,2 apoio
+        self.assertEqual(self.n((False, True), fase=0.7), [1.0, 1.0])
 
 
 class TestVivo(unittest.TestCase):
