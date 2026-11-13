@@ -54,19 +54,19 @@ class QualidadeNoTerreno(unittest.TestCase):
         # G7 S3 (P2): na célula `terreno`, a caixa rígida em pelve + transporte (rumo 90°) dá qualidade 1. Hoje o
         # alvo é o chão sob a pelve + 0,90, 0,15 m abaixo: d = 0,15 e q = exp(−9) ≈ 0. Falha antes do conserto.
         env = env_falso(CELULA_TERRENO, yaw=math.pi / 2, caixa_z=Z_TRANSPORTE_PELVE)
-        self.assertAlmostEqual(recompensas._qualidade(env).item(), 1.0, places=4)
+        self.assertAlmostEqual(recompensas._qualidade(env)[0].item(), 1.0, places=4)
 
 
 class QualidadeNoPlano(unittest.TestCase):
     def test_plano_caixa_no_alvo_de_hoje_da_qualidade_1(self):
         # Regressão: fora da célula `terreno` (sem célula, aqui −1) o alvo é o de hoje, chão sob a pelve + 0,90.
         env = env_falso(-1, yaw=math.pi / 2, caixa_z=Z_ALVO_DE_HOJE)
-        self.assertAlmostEqual(recompensas._qualidade(env).item(), 1.0, places=4)
+        self.assertAlmostEqual(recompensas._qualidade(env)[0].item(), 1.0, places=4)
 
     def test_plano_caixa_no_transporte_da_pelve_nao_conta(self):
         # No plano o alvo continua sendo o de hoje: a caixa na pelve + transporte fica 0,15 m longe e q ≈ 0.
         env = env_falso(-1, yaw=math.pi / 2, caixa_z=Z_TRANSPORTE_PELVE)
-        self.assertLess(recompensas._qualidade(env).item(), 0.01)
+        self.assertLess(recompensas._qualidade(env)[0].item(), 0.01)
 
 
 if __name__ == "__main__":

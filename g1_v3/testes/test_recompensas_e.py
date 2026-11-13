@@ -170,12 +170,35 @@ class TestDistancia(unittest.TestCase):
         self.assertEqual(float(d[0]), 0.0)
 
 
-class TestProgresso(unittest.TestCase):
-    """Núcleo da renda por segundo: w_etapa·etapa + w_phi·Φ, com os pesos do knob (3,0 e 6,0), valores à mão."""
+def _buffers_m5(n):
+    """Buffers e relógio que o `progresso` lê desde a M5 (13/11): h cheio, melhor Φ zerado, comando zero."""
+    return dict(v3_h=torch.ones(n), v3_phi_melhor=torch.zeros(n), step_dt=DT,
+                command_manager=types.SimpleNamespace(get_command=lambda nome: torch.zeros(n, 3)))
 
-    def _n(self, phi, etapa):
+
+def _sinal_m5(n):
+    """Rastreio zero e qualidade larga 1 (caixa no alvo): o sinal do CARREGAR vale 1 e o h fica em 1."""
+    return mock.patch.multiple(recompensas, _rastreio=lambda e, linear: torch.zeros(n),
+                               _qualidade=lambda e: (torch.ones(n), torch.zeros(n)))
+
+
+class TestProgresso(unittest.TestCase):
+    """Núcleo da renda por segundo: w_etapa·etapa·h + w_phi·Φ, com os pesos do knob (3,0 e 6,0), valores à mão."""
+
+    def _n(self, phi, etapa, h=1.0):
         return float(recompensas.n_progresso(torch.tensor([phi]), torch.tensor([float(etapa)]),
-                                             R.renda_phi, R.renda_etapa)[0])
+                                             R.renda_phi, R.renda_etapa, torch.tensor([h]))[0])
+
+    def test_h_so_multiplica_a_etapa(self):
+        # 13/11, M5: 6·n·h + 3·Φ, com n = 5, h = 0,5 e Φ = 0,4: 15 + 1,2
+        self.assertAlmostEqual(self._n(0.4, 5, h=0.5), 16.2, places=5)
+
+    def test_salto_do_fecho_nunca_cai_abaixo_de_3(self):
+        # M5: para n de 1 a 8, h e Φ em [0, 1], a renda da etapa seguinte (h = 1, Φ = 0) passa a atual por ≥ 3
+        for n in range(1, 9):
+            for h in (0.0, 0.25, 0.5, 1.0):
+                for phi in (0.0, 0.5, 1.0):
+                    self.assertGreaterEqual(6 * (n + 1) - self._n(phi, n, h), 3.0 - 1e-6, f"n={n} h={h} Φ={phi}")
 
     def test_um_valor_por_linha_da_tabela_de_etapas(self):
         self.assertAlmostEqual(self._n(0.8, 0), 2.4, places=5)   # P0 com Φ 0,8
@@ -201,13 +224,34 @@ class TestProgresso(unittest.TestCase):
         self.assertGreaterEqual(self._n(0.0, 5), 30.0)
 
 
+class TestPressa(unittest.TestCase):
+    """`n_pressa` (M5): h·exp(−dt/τ) + recarga·ganho, com teto 1."""
+
+    def _h(self, h, ganho):
+        return float(recompensas.n_pressa(torch.tensor([h]), torch.tensor([ganho]), DT, R.tau_renda, R.recarga_renda)[0])
+
+    def test_sem_ganho_h_cai_por_exp_a_cada_passo(self):
+        self.assertAlmostEqual(self._h(1.0, 0.0), math.exp(-DT / R.tau_renda), places=6)
+        self.assertAlmostEqual(self._h(0.5, 0.0), 0.5 * math.exp(-DT / R.tau_renda), places=6)
+
+    def test_tres_segundos_sem_ganho_levam_h_a_e_menos_1(self):
+        h = torch.tensor([1.0])
+        for _ in range(round(3.0 / DT)):
+            h = recompensas.n_pressa(h, torch.zeros(1), DT, R.tau_renda, R.recarga_renda)
+        self.assertAlmostEqual(float(h[0]), math.exp(-1.0), places=4)
+
+    def test_ganho_de_0_2_devolve_h_a_1_e_o_teto_vale_1(self):
+        self.assertAlmostEqual(self._h(0.0, 0.2), 1.0, places=6)  # 5 · 0,2 = 1
+        self.assertAlmostEqual(self._h(1.0, 5.0), 1.0, places=6)
+
+
 class TestEtapaDoProgresso(unittest.TestCase):
     """`recompensas.progresso` com env falso e `_phi_env` trocado por um Φ fixo por env: a tabela de etapas inteira."""
 
     # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado)
     CASOS = [
         (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),        # P0, Φ 0,8
-        (1, "PEGAR", False, False, False, 0.0, 6.0, 0.0),        # P1, Φ 0
+        (1, "PEGAR", False, False, False, 0.0, 6.0 * math.exp(-DT / R.tau_renda), 0.0),  # P1, Φ 0: h cai um passo
         (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9),        # PEGAR com p4_fechado (alvo P4): etapa 5, Φ não paga
         (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),     # CARREGAR com p4_fechado (alvo P4): etapa 5
         (-1, "CARREGAR", False, False, False, 0.0, 0.0, -1.0),   # CARREGAR sem a pega: 0
@@ -228,10 +272,11 @@ class TestEtapaDoProgresso(unittest.TestCase):
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in self.CASOS]),
             v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
-            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n))
+            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n), **_buffers_m5(n))
         phi = col(5, torch.float32)
         with mock.patch.object(recompensas, "_phi_env",
-                               lambda e, indice, sigma: torch.where(indice >= 0, phi, torch.zeros_like(phi))):
+                               lambda e, indice, sigma: torch.where(indice >= 0, phi, torch.zeros_like(phi))), \
+                _sinal_m5(n):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         for i, c in enumerate(self.CASOS):
             self.assertAlmostEqual(float(r[i]), c[6], places=5, msg=str(c))
@@ -241,10 +286,49 @@ class TestEtapaDoProgresso(unittest.TestCase):
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=torch.tensor([0]), v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
             v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_b4_fechado=torch.zeros(1, dtype=torch.bool),
-            v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1))
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(1)):
+            v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
+            **_buffers_m5(1))
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(1)), _sinal_m5(1):
             r = recompensas.progresso(env, ("ANDAR",))
         self.assertEqual(float(r[0]), 0.0)
+
+    def test_phi_melhor_sobe_e_h_recarrega_so_com_ganho(self):
+        # M5, P2 (etapa 2): env 0 com Φ 0,3 abaixo do melhor 0,5 (sem ganho: h cai); env 1 com Φ 0,6 sobre o melhor 0,1
+        # (ganho 0,5 × 5 = 2,5: h volta ao teto 1). O melhor Φ guarda o máximo.
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=torch.tensor([2, 2]), v3_tarefa=torch.full((2,), TAREFAS.index("PEGAR")),
+            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_b4_fechado=torch.zeros(2, dtype=torch.bool),
+            v3_p4_fechado=torch.zeros(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+            **{**_buffers_m5(2), "v3_h": torch.tensor([0.8, 0.8]), "v3_phi_melhor": torch.tensor([0.5, 0.1])})
+        phi = torch.tensor([0.3, 0.6])
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: phi), _sinal_m5(2):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        self.assertAlmostEqual(float(env.v3_h[0]), 0.8 * math.exp(-DT / R.tau_renda), places=5)
+        self.assertAlmostEqual(float(env.v3_h[1]), 1.0, places=5)
+        self.assertEqual(env.v3_phi_melhor.tolist(), [0.5, torch.tensor(0.6).item()])
+        self.assertAlmostEqual(float(r[0]), 6 * 2 * float(env.v3_h[0]) + 3 * 0.3, places=5)
+
+    def test_sinal_do_carregar_com_e_sem_comando(self):
+        # M5, CARREGAR com a pega feita (p4_fechado, alvo P4), h inicial 0,5. Env 0: comando linear 0,5, rastreio linear
+        # 0,6 e o angular −0,8 fora (canal sem comando), caixa no alvo (d 0): sinal 0,6. Env 1: sem comando, r_lin −0,5 e
+        # r_ang −0,2: (1 − 0,5)(1 − 0,2) = 0,4, com a caixa a 0,20 m: rampa 0,4, sinal 0,16.
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=torch.tensor([4, 4]), v3_tarefa=torch.full((2,), TAREFAS.index("CARREGAR")),
+            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_b4_fechado=torch.zeros(2, dtype=torch.bool),
+            v3_p4_fechado=torch.ones(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+            **{**_buffers_m5(2), "v3_h": torch.tensor([0.5, 0.5])})
+        env.command_manager = types.SimpleNamespace(
+            get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]))
+        r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(2)), \
+                mock.patch.object(recompensas, "_rastreio", lambda e, linear: r_lin if linear else r_ang), \
+                mock.patch.object(recompensas, "_qualidade", lambda e: (torch.ones(2), torch.tensor([0.0, 0.20]))):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        passo = DT / R.tau_renda
+        esperado = [0.5 + passo * (0.6 - 0.5), 0.5 + passo * (0.16 - 0.5)]
+        for i in range(2):
+            self.assertAlmostEqual(float(env.v3_h[i]), esperado[i], places=5)
+            self.assertAlmostEqual(float(r[i]), 30.0 * esperado[i], places=4)  # etapa 5, Φ não paga
 
 
 class TestQualidade(unittest.TestCase):

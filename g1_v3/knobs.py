@@ -304,6 +304,13 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
     renda_phi: float = 3.0
     renda_etapa: float = 6.0
+    # 13/11, M5: a renda da etapa (6·etapa·h) cai com τ = 3 s sem progresso do Φ; cada ganho de Φ sobre o melhor da etapa recarrega h
+    # (5 × o ganho: 0,2 de Φ devolve h a 1). Sem isso a renda de 25/s no P4 parado pagava mais que fechar (renda congelada).
+    tau_renda: float = 3.0
+    recarga_renda: float = 5.0
+    # 13/11, M5: qualidade larga da caixa no CARREGAR (m: x_lim e Δ da rampa): vale 1 até 5 cm e 0 a 30 cm do alvo de transporte;
+    # sem ela, 30·h pagaria andar com a caixa torta (o núcleo estreito σ 0,05 m fica só no rastreio fino)
+    qualidade_larga: tuple = (0.05, 0.25)
     # custos: negativos, o peso do cfg é este knob; o fator d/5 do degrau mora no termo (30/10, P2; §6.9)
     sacudida: float = -0.05  # S §8.2, §11.5; Parte 0, item 15 (report §6); D7
     # caso 9 (30/10, dono): forma linear. Teto da (2b) por s: w < 0,53; a (1) dá 0,071 (parte0/saida/item3_escada.txt, registro histórico; o script saiu em 10/11).

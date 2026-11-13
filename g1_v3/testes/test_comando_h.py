@@ -93,7 +93,7 @@ class TestAbreBotarComViesDoAlvo(unittest.TestCase):
         env = types.SimpleNamespace(
             v3_gerador=gerador, v3_cur=types.SimpleNamespace(degrau_global=lambda: g, restricao=lambda: 1.0),
             v3_alvo_w=torch.zeros(n, 3), v3_meia=torch.full((n,), self.A), v3_alvo_idx=torch.zeros(n, dtype=torch.long),
-            v3_phi=z.clone(), v3_relogio_alvo=z.clone(), v3_ponto_apoio=torch.zeros(n, 3), v3_v_chegada=z.clone(),
+            v3_phi=z.clone(), v3_h=z.clone(), v3_phi_melhor=z.clone(), v3_relogio_alvo=z.clone(), v3_ponto_apoio=torch.zeros(n, 3), v3_v_chegada=z.clone(),
             v3_sigma=z.clone())
         obj = _cadeia_sem_env(env)
         obj.bota = torch.zeros(n, dtype=torch.bool)

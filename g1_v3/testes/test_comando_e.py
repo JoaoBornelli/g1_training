@@ -77,7 +77,7 @@ def _env_falso(idx, tarefa=comando.PEGAR):
         v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
         v3_ponto_apoio=torch.zeros(1, 3),
-        v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
+        v3_sigma=torch.ones(1), v3_phi=torch.zeros(1), v3_h=torch.ones(1), v3_phi_melhor=torch.zeros(1),
         v3_odo=types.SimpleNamespace(pos_w=torch.tensor([[1.0, 2.0, 0.0]]), quat_w=torch.tensor([[1.0, 0, 0, 0]])))
 
 
@@ -299,6 +299,7 @@ class TestPerdaNoPrimeiroPasso(unittest.TestCase):
         env.v3_perdeu_agora = torch.zeros(1, dtype=torch.bool)
         env.v3_perdeu = torch.zeros(1, dtype=torch.bool)
         env.v3_phi = torch.zeros(1)
+        env.v3_h, env.v3_phi_melhor = torch.ones(1), torch.zeros(1)
         env.v3_relogio_alvo = torch.zeros(1)
         env.v3_sigma = torch.ones(1)
         obj = _cadeia_sem_env(env)
@@ -365,7 +366,7 @@ def _cadeia_de_trechos(n=1):
         device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), scene={}, step_dt=DT,
         v3_fatia=torch.full((n,), comando.FATIA_B, dtype=torch.long),
         v3_tarefa=torch.full((n,), comando.ANDAR, dtype=torch.long), v3_trecho=torch.zeros(n, dtype=torch.long),
-        v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_relogio_alvo=z(),
+        v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_h=torch.ones(n), v3_phi_melhor=z(), v3_relogio_alvo=z(),
         v3_freio=torch.zeros(n, dtype=torch.long), v3_degrau=torch.zeros(n, dtype=torch.long),
         v3_alvo_w=z(3), v3_caixa_pega_w=z(3), v3_ponto_apoio=z(3), v3_sigma=torch.ones(n),
         v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),

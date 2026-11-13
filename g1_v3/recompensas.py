@@ -17,6 +17,7 @@ em fração de τ_max ou de `tau_par` (§6.3).
 """
 from __future__ import annotations
 
+import math
 import re
 
 import torch
@@ -284,10 +285,17 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
     return torch.where(indice >= 0, phi, torch.zeros_like(phi))
 
 
-def n_progresso(phi, etapa, w_phi, w_etapa) -> torch.Tensor:
-    """Renda por segundo: w_etapa·etapa + w_phi·Φ. Cresce com o tempo parado no alvo, como os custos (que são por
-    segundo); o termo antigo (diferença de Φ + prêmio por avanço) pagava um valor fixo e o robô parava na frente da caixa."""
-    return w_etapa * etapa + w_phi * phi
+def n_progresso(phi, etapa, w_phi, w_etapa, h) -> torch.Tensor:
+    """Renda por segundo: w_etapa·etapa·h + w_phi·Φ. Cresce com o tempo parado no alvo, como os custos (que são por
+    segundo); o termo antigo (diferença de Φ + prêmio por avanço) pagava um valor fixo e o robô parava na frente da caixa.
+    13/11, M5: o h em [0, 1] só multiplica a parte da etapa e cai sem progresso (`n_pressa`): parado no P4, a renda de
+    ~25/s pagava mais que fechar. O Φ fica fora do h para o gradiente do alvo não sumir; o fecho sobe a renda em ≥ 3/s."""
+    return w_etapa * etapa * h + w_phi * phi
+
+
+def n_pressa(h, ganho, dt, tau, recarga) -> torch.Tensor:
+    """h·exp(−dt/τ) + recarga·ganho, com teto 1 (13/11, M5). `ganho` = relu(Φ − melhor Φ da etapa)."""
+    return torch.clamp(h * math.exp(-dt / tau) + recarga * ganho, max=1.0)
 
 
 def n_qualidade(d_transporte, incl_graus, incl_lim_graus, contatos, k) -> torch.Tensor:
@@ -535,7 +543,8 @@ def _phi_env(env, indice, sigma):
 
 
 def _qualidade(env):
-    """Fator de qualidade do rastreio no CARREGAR (E,): a caixa perto do transporte, inclinação e as duas mãos (E4).
+    """(qualidade, d) no CARREGAR, cada um (E,): a caixa perto do transporte, inclinação e as duas mãos (E4); `d` é a
+    distância da caixa ao alvo de transporte (a qualidade larga da M5 usa o mesmo `d`).
     ⚠ G7 S3 (P2): na célula `terreno` o alvo é a pelve + `caixa_transporte_b` no frame da pelve (z incluso). O chão
     sob a pelve pula 0,15 m na quina do degrau; no plano fica o alvo de hoje (chão + 0,90, E §4.4)."""
     caixa, robo = env.scene["box"], env.scene["robot"]
@@ -547,14 +556,14 @@ def _qualidade(env):
     alvo = torch.where(terreno[:, None], pelve_tb, alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, _P4)))
     d = (caixa.data.root_link_pos_w - alvo).norm(dim=-1)
     incl = torch.rad2deg(alvos.inclinacao_da_caixa(caixa.data.root_link_quat_w))
-    return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K)
+    return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K), d
 
 
 def _rastreio_com_qualidade(env, linear):
     """Rastreio; no CARREGAR a qualidade escala só a parte positiva (PD-37)."""
     r = _rastreio(env, linear)
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
-    return torch.where(carrega, aplica_qualidade(r, _qualidade(env)), r)
+    return torch.where(carrega, aplica_qualidade(r, _qualidade(env)[0]), r)
 
 
 def rastreio_linear(env, tarefas):
@@ -766,7 +775,7 @@ def contato_fora(env, tarefas):
 
 
 def progresso(env, tarefas):
-    """Renda por segundo: `renda_etapa`·etapa + `renda_phi`·Φ pago (proposta-renda-em-escada.md). A etapa sobe com a
+    """Renda por segundo: `renda_etapa`·etapa·h + `renda_phi`·Φ pago (proposta-renda-em-escada.md). A etapa sobe com a
     cadeia. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
 
     | condição (nesta precedência)                              | etapa | Φ pago    |
@@ -781,7 +790,13 @@ def progresso(env, tarefas):
     caixa, então a tarefa CARREGAR sozinha não prova a pega. Depois da perda a renda é 0, sem Φ: com Φ do B4 pago, fechar o
     B4 (que marca `v3_b4_fechado`) derrubaria a renda para 0, e perder a caixa no P0 renderia mais que ficar. O
     `v3_p4_fechado` só zera no reset do episódio: o `alvo < B1` impede que ele cubra o BOTAR da fatia C. Grava `v3_phi`
-    = Φ do alvo corrente (−1 sem alvo), que as métricas `phi_<alvo>` leem."""
+    = Φ do alvo corrente (−1 sem alvo), que as métricas `phi_<alvo>` leem.
+
+    13/11, M5: o h (`v3_h`) só multiplica a etapa. P0 a B4 com Φ pago: `n_pressa` (cai com τ, recarrega com o ganho do Φ
+    sobre `v3_phi_melhor`). CARREGAR: média móvel (τ) de um sinal em [0, 1], o rastreio dos canais comandados (ou o deslize
+    parado, `(1 + r_lin)(1 + r_ang)`) vezes a qualidade larga da caixa. Depois do fecho do P4 (fora do CARREGAR) e do B4,
+    h = 1: o robô não muda a duração desses trechos. Os buffers recomeçam em `comando.py` (reset, troca de alvo, abertura de
+    trecho, perda). Lê o que os comandos gravaram no passo anterior."""
     idx = env.v3_alvo_idx
     phi_alvo = _phi_env(env, idx, env.v3_sigma)  # 0 onde idx < 0
     p4_fechado, b4_fechado = env.v3_p4_fechado, env.v3_b4_fechado
@@ -789,7 +804,22 @@ def progresso(env, tarefas):
     fecho_p4 = p4_fechado & (idx < _B1)
     etapa = torch.where(sem_caixa, 0, torch.where(b4_fechado, 9, torch.where(fecho_p4, 5, idx.clamp(min=0))))
     paga_phi = ~(sem_caixa | b4_fechado | fecho_p4)
-    r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi, R.renda_etapa)
+    dt, tau = env.step_dt, R.tau_renda
+    com_alvo = paga_phi & (idx >= 0)
+    carrega = fecho_p4 & ~sem_caixa & (env.v3_tarefa == TAREFAS.index("CARREGAR"))
+    h_alvo = n_pressa(env.v3_h, torch.relu(phi_alvo - env.v3_phi_melhor), dt, tau, R.recarga_renda)
+    cmd = env.command_manager.get_command("twist")
+    com_lin, com_ang = cmd[:, :2].norm(dim=-1) >= C.limiar_canal, cmd[:, 2].abs() >= C.limiar_canal
+    r_lin, r_ang = _rastreio(env, True), _rastreio(env, False)
+    comandado = (com_lin * r_lin.clamp(0, 1) + com_ang * r_ang.clamp(0, 1)) / (com_lin.float() + com_ang).clamp(min=1)
+    sinal = torch.where(com_lin | com_ang, comandado, ((1 + r_lin) * (1 + r_ang)).clamp(0, 1))
+    sinal = sinal * potencial.rampa(_qualidade(env)[1], *R.qualidade_larga)
+    h_carga = env.v3_h + (dt / tau) * (sinal - env.v3_h)
+    env.v3_h[:] = torch.where(com_alvo, h_alvo, torch.where(carrega, h_carga, env.v3_h))
+    env.v3_phi_melhor[:] = torch.where(com_alvo, torch.maximum(env.v3_phi_melhor, phi_alvo), env.v3_phi_melhor)
+    h_ef = torch.where(com_alvo | carrega, env.v3_h, torch.ones_like(env.v3_h))
+    r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi,
+                    R.renda_etapa, h_ef)
     env.v3_phi[:] = torch.where(idx >= 0, phi_alvo, torch.full_like(phi_alvo, -1.0))
     return _fim(env, tarefas, r)
 

@@ -355,6 +355,7 @@ class CadeiaCmd(CommandTerm):
         pos = estimador.do_frame_da_base(est[:, :3], odo)[ids]
         env.v3_alvo_idx[ids] = P0
         env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>` (o progresso grava o Φ do alvo corrente)
+        env.v3_h[ids], env.v3_phi_melhor[ids] = 1.0, 0.0  # 13/11, M5: a renda da etapa recomeça
         env.v3_relogio_alvo[ids] = 0.0
         env.v3_caixa_pega_w[ids] = pos
         env.v3_alvo_w[ids] = pos
@@ -383,6 +384,7 @@ class CadeiaCmd(CommandTerm):
             env.v3_perdeu[ids] = True
             env.v3_alvo_idx[ids] = B4
             env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>`; o progresso grava o Φ do B4 no passo seguinte
+            env.v3_h[ids], env.v3_phi_melhor[ids] = 1.0, 0.0  # 13/11, M5
             env.v3_relogio_alvo[ids] = 0.0
             env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B4))[ids]
             self._publica(ids, torch.full_like(ids, ANDAR))
@@ -434,6 +436,7 @@ class CadeiaCmd(CommandTerm):
         env.v3_alvo_idx[:] = novo
         troca = av & ~fecha_p4 & (novo >= 0)
         env.v3_sigma[:] = torch.where(troca, self._sigma(m, novo), env.v3_sigma)
+        env.v3_h[troca], env.v3_phi_melhor[troca] = 1.0, 0.0  # 13/11, M5: a etapa nova começa com h cheio
 
     # --- trechos -------------------------------------------------------------------------------------
 
@@ -488,6 +491,7 @@ class CadeiaCmd(CommandTerm):
         env.v3_alvo_w[ids] = soltura
         env.v3_alvo_idx[ids] = B1
         env.v3_phi[ids] = -1.0
+        env.v3_h[ids], env.v3_phi_melhor[ids] = 1.0, 0.0  # 13/11, M5
         env.v3_relogio_alvo[ids] = 0.0
         env.v3_ponto_apoio[ids] = 0.0
         env.v3_v_chegada[ids] = -1.0
@@ -509,6 +513,7 @@ class CadeiaCmd(CommandTerm):
         self.relogio[ids] = 0.0
         env.v3_trecho[ids] = trecho
         env.v3_aviso[ids] = False  # F9 P5: o latch do aviso começa de zero em cada trecho
+        env.v3_h[ids], env.v3_phi_melhor[ids] = 1.0, 0.0  # 13/11, M5: cada trecho começa com a renda da etapa cheia
         self._publica(ids, tar)
         sem_alvo = (tar == ANDAR) | (tar == PEGAR)
         env.v3_alvo_idx[ids[sem_alvo]] = -1
@@ -575,6 +580,7 @@ class CadeiaCmd(CommandTerm):
         env.v3_relogio_alvo[env_ids] = 0.0
         env.v3_sigma[env_ids] = 1.0  # neutro: o alvo −1 não o usa, e σ = 0 daria NaN
         env.v3_phi[env_ids] = -1.0  # sem alvo no início do episódio: sentinela das métricas `phi_<alvo>`
+        env.v3_h[env_ids], env.v3_phi_melhor[env_ids] = 1.0, 0.0  # 13/11, M5
         env.v3_v_chegada[env_ids] = -1.0
         fat = env.v3_fatia[env_ids]
         self._abre_trecho(env_ids, self.tab.inicio.to(fat.device)[fat])  # o reset não mede: o BOTAR nunca abre aqui (M6)
