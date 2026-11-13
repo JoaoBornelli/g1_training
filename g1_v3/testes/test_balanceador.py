@@ -292,8 +292,13 @@ class TestSubnivel(unittest.TestCase):
         it2 = self.sobe_ate(cur, "PEGAR", 2)
         self.assertEqual(it2 - it1, B.iters_min_nivel)  # a carência entre as subidas
         self.assertEqual(cur.nivel("PEGAR"), 0)
-        fecha(cur)  # no último subnível, com s no portão, o nível 0 passou
+        # C1: no fecho da subida o `s` ainda é o do subnível anterior (no portão), mas sem medida nova o nível 0 não
+        # passou e a trava do DR (atrito, `com_caixa`) fica desligada
+        self.assertEqual(cur.nivel_passou("PEGAR"), -1)
+        self.assertFalse(cur._dr["portao0"])
+        fecha(cur)  # a primeira medida no último subnível, com s no portão: o nível 0 passou
         self.assertEqual(cur.nivel_passou("PEGAR"), 0)
+        self.assertTrue(cur._dr["portao0"])
         for _ in range(B.iters_min_nivel):
             fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)

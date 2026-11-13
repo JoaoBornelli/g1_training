@@ -74,12 +74,14 @@ class ObservacoesTest(unittest.TestCase):
         fase = torch.tensor([0.0, 0.25])
         env = types.SimpleNamespace(
             v3_fase_marcha=fase, v3_marcha_on=torch.tensor([False, True]), v3_h=torch.tensor([1.0, 0.4]),
-            v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]), v3_sigma=torch.tensor([0.3, 0.1]))
+            v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]), v3_sigma=torch.tensor([0.3, 8.0]))
         out = observacoes.privilegiados(env)
         self.assertEqual(out.shape, (2, 6))
-        esperado = torch.tensor([[0.0, 1.0, 0.0, 1.0, 0.5, 0.3],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
-                                 [1.0, 0.0, 1.0, 0.4, 0.0, 0.1]])  # Φ acima do melhor: lacuna 0
+        esperado = torch.tensor([[0.0, 1.0, 0.0, 1.0, 0.5, math.log1p(0.3)],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
+                                 [1.0, 0.0, 1.0, 0.4, 0.0, math.log1p(8.0)]])  # Φ acima do melhor: lacuna 0
         self.assertTrue(torch.allclose(out, esperado, atol=1e-6), f"{out}")
+        # C4: o canal 5 é log1p(σ): o σ adimensional do B4 (8) entra em ~2,2, e não em 8
+        self.assertTrue(torch.allclose(out[:, 5], torch.log1p(env.v3_sigma), atol=1e-6))
 
     def test_ordem_dos_termos_do_ator_e_do_critico(self):
         grupos = observacoes.grupos(ATIVO)

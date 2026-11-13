@@ -508,7 +508,8 @@ def idade_das_leituras(env) -> torch.Tensor:
 
 
 def fracao_avisos(env) -> torch.Tensor:
-    """Fração dos passos depois do primeiro aviso do detector de fim no trecho, por env. Sem peso.
+    """Fração dos passos depois do primeiro aviso de fim no trecho, por env. Sem peso. Com a M6 o aviso é o fecho do P4
+    no PEGAR e o do B4 no BOTAR (não há mais detector de pose).
 
     `v3_aviso` é o latch do aviso no trecho (F9 P5): conta os passos a partir do primeiro aviso, e não os
     passos com o aviso do instante.

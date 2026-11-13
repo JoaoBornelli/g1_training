@@ -298,11 +298,14 @@ def privilegiados(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Estado da recompensa que o ator não vê, só no crítico (E,6; 13/11, M7): seno e cosseno da fase do relógio de
     marcha (M4), relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
 
+    ⚠ O σ entra como log1p(σ) (C4): nos alvos em metros vale ≈ σ, mas o do B4 é adimensional e abre em ~5 a 10; sem o
+    log ele entraria no crítico 5 a 10 vezes maior que os outros canais (escala fixa 1).
+
     ⚠ Lacuna = relu(melhor Φ − Φ): o Φ é −1 sem alvo (sentinela), e o `clamp` o trata como 0. Sem ruído (§6.5).
     """
     ang = 2 * torch.pi * env.v3_fase_marcha
     lacuna = torch.relu(env.v3_phi_melhor - env.v3_phi.clamp(min=0.0))
-    return torch.stack([ang.sin(), ang.cos(), env.v3_marcha_on.float(), env.v3_h, lacuna, env.v3_sigma], dim=-1)
+    return torch.stack([ang.sin(), ang.cos(), env.v3_marcha_on.float(), env.v3_h, lacuna, torch.log1p(env.v3_sigma)], dim=-1)
 
 
 def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:

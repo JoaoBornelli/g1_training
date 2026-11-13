@@ -781,8 +781,8 @@ def progresso(env, tarefas):
     | alvo ≥ 0                                                  | alvo  | Φ do alvo |
     | resto                                                     | 0     | 0         |
 
-    Por quê: a etapa 5 só vale com a pega feita (`v3_p4_fechado`). O PEGAR termina pelo detector de pose, que não mede a
-    caixa, então a tarefa CARREGAR sozinha não prova a pega. Depois da perda a renda é 0, sem Φ: com Φ do B4 pago, fechar o
+    Por quê: a etapa 5 só vale com a pega feita (`v3_p4_fechado`). A tarefa CARREGAR sozinha não prova a pega: o aviso do
+    PEGAR é o fecho do P4 e o do BOTAR é o do B4 (M6). Depois da perda a renda é 0, sem Φ: com Φ do B4 pago, fechar o
     B4 (que marca `v3_b4_fechado`) derrubaria a renda para 0, e perder a caixa no P0 renderia mais que ficar. O
     `v3_p4_fechado` só zera no reset do episódio: o `alvo < B1` impede que ele cubra o BOTAR da fatia C. Grava `v3_phi`
     = Φ do alvo corrente (−1 sem alvo), que as métricas `phi_<alvo>` leem.

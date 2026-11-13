@@ -293,9 +293,11 @@ class Curriculo:
 
     def nivel_passou(self, tarefa: str) -> int:
         # o maior nível da tarefa cuja célula já passou no portão (−1 = nenhum). Só PEGAR e BOTAR: uma célula por tarefa.
-        # 13/11, M3: com o subnível abaixo do último, o nível 0 ainda não passou
+        # 13/11, M3: com o subnível abaixo do último, o nível 0 ainda não passou. C1: no nível 0 o `s` da célula é o do
+        # subnível anterior até a primeira medida do último (a subida zera só o `n_medidas`), então exige `n_medidas > 0`
         i = self._de(tarefa)[0]
-        return self._nivel[tarefa] if self._passa(i) and self.subnivel(tarefa) == self._sub_max else self._nivel[tarefa] - 1
+        ok = self._passa(i) and self.subnivel(tarefa) == self._sub_max and (self._nivel[tarefa] > 0 or self.celulas[i].n_medidas > 0)
+        return self._nivel[tarefa] if ok else self._nivel[tarefa] - 1
 
     def dr(self) -> dict:
         # §6.8: o estado de DR que o env aplica, só tipos do Python. Sobe no fecho e nunca desce (as travas).

@@ -248,17 +248,18 @@ class TestPressa(unittest.TestCase):
 class TestEtapaDoProgresso(unittest.TestCase):
     """`recompensas.progresso` com env falso e `_phi_env` trocado por um Φ fixo por env: a tabela de etapas inteira."""
 
-    # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado)
+    # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado[, h de entrada,
+    # 1 se faltar]). C3: nas etapas 5 (PEGAR) e 9 o h de entrada é 0,3 e a renda pede h = 1; sem o `h_ef = 1` ela cai.
     CASOS = [
         (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),        # P0, Φ 0,8
         (1, "PEGAR", False, False, False, 0.0, 6.0 * math.exp(-DT / R.tau_renda), 0.0),  # P1, Φ 0: h cai um passo
-        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9),        # PEGAR com p4_fechado (alvo P4): etapa 5, Φ não paga
+        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9, 0.3),   # PEGAR com p4_fechado (alvo P4): etapa 5, Φ não paga, h = 1
         (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),     # CARREGAR com p4_fechado (alvo P4): etapa 5
         (-1, "CARREGAR", False, False, False, 0.0, 0.0, -1.0),   # CARREGAR sem a pega: 0
         (5, "BOTAR", False, False, False, 0.7, 0.0, 0.7),        # B1 no BOTAR sem p4_fechado: 0
         (7, "BOTAR", False, False, True, 0.5, 43.5, 0.5),        # B3, Φ 0,5, com a pega feita
         (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),        # B2 com p4_fechado True: etapa 6, Φ pago (fatia C)
-        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0),       # ANDAR final depois do B4: etapa 9
+        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0, 0.3),  # ANDAR final depois do B4: etapa 9, h = 1
         (-1, "ANDAR", False, True, False, 0.0, 0.0, -1.0),       # b4_fechado sem p4_fechado: 0
         (8, "ANDAR", True, False, True, 0.5, 0.0, 0.5),          # caixa perdida, alvo B4, Φ 0,5: 0
         (-1, "ANDAR", True, True, True, 0.0, 0.0, -1.0),         # perdeu com b4_fechado: 0
@@ -272,7 +273,8 @@ class TestEtapaDoProgresso(unittest.TestCase):
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in self.CASOS]),
             v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
-            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n), **_buffers_m5(n))
+            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n),
+            **{**_buffers_m5(n), "v3_h": torch.tensor([c[8] if len(c) > 8 else 1.0 for c in self.CASOS])})
         phi = col(5, torch.float32)
         with mock.patch.object(recompensas, "_phi_env",
                                lambda e, indice, sigma: torch.where(indice >= 0, phi, torch.zeros_like(phi))), \

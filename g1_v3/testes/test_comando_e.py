@@ -293,7 +293,7 @@ class TestCaixaPerdidaAgora(unittest.TestCase):
 
 class TestPerdaNoPrimeiroPasso(unittest.TestCase):
 
-    def _perda_no_passo(self, buf):
+    def _perda_no_passo(self, buf, h=1.0, melhor=0.0):
         # `_perda` com a caixa "no chão" pelo `h_caixa` e a tarefa PEGAR, num env de E = 1 com `episode_length_buf` = buf.
         # A chave `caixa_perdida_vira_andar` está ligada, para que a perda apareça também em `v3_perdeu`.
         env = _env_falso(comando.P1)
@@ -301,7 +301,7 @@ class TestPerdaNoPrimeiroPasso(unittest.TestCase):
         env.v3_perdeu_agora = torch.zeros(1, dtype=torch.bool)
         env.v3_perdeu = torch.zeros(1, dtype=torch.bool)
         env.v3_phi = torch.zeros(1)
-        env.v3_h, env.v3_phi_melhor = torch.ones(1), torch.zeros(1)
+        env.v3_h, env.v3_phi_melhor = torch.full((1,), h), torch.full((1,), melhor)
         env.v3_relogio_alvo = torch.zeros(1)
         env.v3_sigma = torch.ones(1)
         obj = _cadeia_sem_env(env)
@@ -622,6 +622,72 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         obj._mede.assert_not_called()
         with self.assertRaises(ValueError), _posiciona():
             _abre(obj, BOTAR_TRECHO, None)
+
+
+class TestRecomecoDaRendaM5(unittest.TestCase):
+    # 13/11, M5, C2: cada recomeço põe `v3_h` = 1 e o melhor Φ = 0. Os envs falsos já nascem com h = 1, então estes testes
+    # partem de h = 0,3 e melhor Φ = 0,8: sem a linha do recomeço o valor velho fica e o assert falha.
+
+    H, MELHOR = 0.3, 0.8
+    _perda_no_passo = TestPerdaNoPrimeiroPasso._perda_no_passo  # o env falso da perda, com h e melhor Φ sujos
+
+    def _suja(self, env):
+        env.v3_h[:], env.v3_phi_melhor[:] = self.H, self.MELHOR
+
+    def _recomecou(self, env):
+        self.assertEqual(env.v3_h.tolist(), [1.0])
+        self.assertEqual(env.v3_phi_melhor.tolist(), [0.0])
+
+    def test_abre_p0(self):
+        env = _env_falso(-1)
+        env.v3_estimador = types.SimpleNamespace(saida_b=lambda odo, q: torch.tensor([[0.3, 0, 0.1, 0, 0, 0, 0.1, 0.5]]),
+                                                 tem_leitura=lambda: torch.tensor([True]))
+        self._suja(env)
+        obj = _cadeia_sem_env(env)
+        obj._sigma = lambda m, indice: torch.full((1,), 0.02)
+        obj._abre_p0(_medidas())
+        self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P0])
+        self._recomecou(env)
+
+    def test_perda_com_a_caixa_virando_andar(self):
+        self._recomecou(self._perda_no_passo(buf=1, h=self.H, melhor=self.MELHOR))
+
+    def test_troca_de_alvo_em_alvos(self):
+        env = _env_falso(comando.P1)
+        self._suja(env)
+        obj = _cadeia_sem_env(env)
+        obj._sigma = lambda m, indice: torch.full((1,), 0.02)
+        ok_todos = dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))
+        with mock.patch.object(comando, "ok_agora_pegar", return_value=torch.tensor([True])), \
+                mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
+                mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
+                mock.patch.object(recompensas, "portoes_do_alvo", return_value=ok_todos):
+            obj._alvos(_medidas(), 0.02)
+        self.assertEqual(env.v3_alvo_idx.tolist(), [comando.P2])
+        self._recomecou(env)
+
+    def test_abre_botar(self):
+        obj = _cadeia_de_trechos()
+        self._suja(obj._env)
+        with _posiciona():
+            obj._abre_botar(torch.tensor([0]), _medidas())
+        self.assertEqual(obj._env.v3_alvo_idx.tolist(), [B1])
+        self._recomecou(obj._env)
+
+    def test_abre_trecho(self):
+        # trecho ANDAR: não passa por `_abre_botar` nem por `_abre_p0`, então só a linha da abertura recomeça
+        obj = _cadeia_de_trechos()
+        self._suja(obj._env)
+        _abre(obj, ANDAR_TRECHO)
+        self._recomecou(obj._env)
+
+    def test_resample(self):
+        # `_resample` chama `_abre_trecho` para os mesmos ids: a linha do `_resample` e a da abertura se cobrem, e o teste
+        # sozinho não distingue qual das duas recomeçou
+        obj = _cadeia_de_trechos()
+        self._suja(obj._env)
+        obj._resample(torch.tensor([0]))
+        self._recomecou(obj._env)
 
 
 if __name__ == "__main__":
