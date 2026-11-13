@@ -328,3 +328,43 @@ Commit: `feat(v3): laje alta primeiro, por subníveis no nível 0 (M3)`
 3. Contagem de funções antes → depois (473 na linha de base).
 4. `git log 3a01bc1..HEAD --format=%B | grep -ci co-authored` = 0.
 5. Uma revisão (opus, esforço médio) do lote contra esta spec. Se houver achado, um despacho de correção.
+
+## 10. Tarefa C: correção da revisão (13/11)
+
+A revisão (opus, esforço médio) achou um defeito e três testes fracos. Arquivos: `g1_v3/balanceador.py`,
+`g1_v3/observacoes.py`, `g1_v3/runner.py`, `g1_v3/recompensas.py`, `g1_v3/metricas.py`, `g1_v3/testes/`.
+
+1. C1 (defeito, M3): `Curriculo.nivel_passou` devolve o nível 0 no fecho em que o subnível sobe para o último, porque o
+   `s` da célula ainda é o do subnível anterior (a subida zera só o `n_medidas`). O `_trava_dr` roda depois do `_sobe` no
+   mesmo fecho e liga a trava `portao0` (atrito e `com_caixa`) junto com a descida da laje a 0,55 m, antes de uma medida
+   nessa altura. Correção: no nível 0, o `nivel_passou` exige também `n_medidas > 0` da célula, além do `_passa` e do
+   último subnível. Nos outros níveis, nada muda (o contrato E6 de `test_balanceador_e.py:101` fica: logo depois da subida
+   de nível, o `nivel_passou` vale o nível novo).
+
+   ```python
+   c = self.celulas[i]
+   ok = self._passa(i) and self.subnivel(tarefa) == self._sub_max and (self._nivel[tarefa] > 0 or c.n_medidas > 0)
+   return self._nivel[tarefa] if ok else self._nivel[tarefa] - 1
+   ```
+
+   Teste: no `test_balanceador.py` do subnível (o `test_pegar_sobe_0_1_2...`, linha ~283), confira na iteração em que o
+   subnível chega a 2: `nivel_passou("PEGAR")` −1 e `_dr["portao0"]` False; e, depois da primeira medida no portão no
+   subnível 2, 0 e True.
+2. C2 (teste fraco, M5): nenhum teste confere os recomeços de `v3_h` e `v3_phi_melhor` na cadeia, porque os envs falsos
+   começam com h = 1. Escreva testes que começam com `v3_h` 0,3 e `v3_phi_melhor` 0,8 e conferem h = 1 e melhor Φ = 0
+   depois de cada recomeço que os envs falsos de `test_comando_*.py` alcançam (`_resample`, `troca` em `_alvos`,
+   `_abre_trecho`, `_perda`, `_abre_p0`, `_abre_botar`). Diga no relato quais não foi possível alcançar.
+3. C3 (teste fraco, M5): os casos da etapa 5 (P4 fechado fora do CARREGAR) e da etapa 9 (B4 fechado) em
+   `test_recompensas_e.py` (~255-256) usam `v3_h` = 1. Use `v3_h` 0,3 nesses casos e confira a renda 30 e 54 (h = 1).
+4. C4 (escala, M7): o σ do B4 é adimensional e, com a A9, abre em ~5 a 10; com a escala fixa 1 do `_FIXOS` ele entra no
+   crítico 5 a 10 vezes maior que os outros canais. Em `observacoes.privilegiados`, troque o σ por `torch.log1p(σ)`
+   (≈ σ nos alvos em metros, ~1,8 a 2,4 no B4). Corrija o comentário do `runner._FIXOS` ("σ em m"). Teste: o canal 5 do
+   `privilegiados` vale `log1p(v3_sigma)`.
+5. C5 (resíduos): o docstring do `progresso` (`recompensas.py:784`) e o da métrica `fracao_avisos` (`metricas.py:511`)
+   ainda descrevem o detector de pose; com a M6, o aviso é o fecho do P4 no PEGAR e o do B4 no BOTAR. Corrija os dois.
+
+Ficam como estão, registrados: `parte0/item1_phi.py` calcula a renda sem o h (análise da Parte 0, fora do treino); o
+`process_env_step` levanta KeyError sem `extras["v3_perdeu_agora"]` (a cadeia publica a chave em todo passo); a M1 contaria
+a perda duas vezes com `caixa_perdida_vira_andar` False (hoje True).
+
+Commit: `fix(v3): trava do DR no último subnível, σ no crítico e testes da M5`
