@@ -103,6 +103,9 @@ Arquivos: `g1_v3/comando.py`, `g1_v3/alvos.py`, `g1_v3/recompensas.py`, `g1_v3/k
    - Atualize os docstrings e comentários que descrevem o detector (`TabelaTrechos.por_detector`, `avanca_trecho`,
      `_abre_p0`, a classe `CadeiaCmd`, o comentário S5b) e o texto do `smoke.py` que cita `detecta_fim`.
    - O canal de alvo do ator no BOTAR continua zerado pelo latch (`observacoes.py:193`): não mude.
+   - Correção feita na T2 (05c1245): `alvos.detecta_fim`, `Detector.estavel_s`, `Detector.juntas_paradas` e os testes
+     `TestDetectaFim` ficam, porque o driver do robô (`pilota_v3.py:390`) usa a função. O treino não a chama mais. O
+     critério de fim do driver é o ponto aberto 1 do desenho.
 2. A9 (mãos ao lado do tronco no B4, spec de comportamento §4.5):
    - Knob novo `Alvos.tol_palmas_b4: float = Detector.tol_palma` (0,05 m), logo depois de `tol_tronco_b4_graus`.
    - `recompensas.distancia_do_alvo`: argumento novo `dpalmas_b4` (E,), a maior das duas distâncias
@@ -267,6 +270,10 @@ Arquivos: `g1_v3/observacoes.py`, `g1_v3/runner.py`, `g1_v3/algoritmo.py`, `g1_v
      perda da caixa.
 4. `comando.CadeiaCmd.compute`: depois de `self._perda(m)`, publique `env.extras["v3_perdeu_agora"] = env.v3_perdeu_agora`.
 5. `smoke.py`: as dimensões do crítico (`alvo_macro` 13, `privilegiados` 6) e o que mais citar o one-hot de 10.
+6. `smoke.py`, adendo da T2: as seções que forçam a pose de pé e esperam o `v3_aviso` pelo detector (a do PEGAR perto
+   da linha 787 e a `s28` do BOTAR) passam a esperar o aviso pelo fecho (M6). Ajuste cada uma para forçar o fecho
+   (`v3_p4_fechado` no PEGAR, `v3_b4_fechado` no BOTAR) ou para conferir que a pose sozinha não acaba o trecho.
+   Leia a seção antes e mantenha o que ela mede de resto.
 
 Testes:
 - `alvo_macro` com um env falso (`types.SimpleNamespace` com os buffers): cada caso da prioridade.
