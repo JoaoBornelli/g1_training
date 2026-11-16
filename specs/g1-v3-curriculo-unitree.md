@@ -286,3 +286,59 @@ Verificação do orquestrador depois da T3: suíte; contagem de funções ≤ 47
 (`--gpu-ids None`, `--agent.logger tensorboard`, `WANDB_MODE=disabled`); `grep -ci co-authored` = 0; revisão (opus, esforço
 médio). Na corrida do zero, olhar: `Metrics/twist/error_vel_yaw` abaixo de ~1,0 nas primeiras 300 its (erro de giro
 perto de 0,4 rad/s), depois `tempo_de_voo` acima de 0,1 s e `razao_marcha` perto de 0,47 até a it 800.
+
+## 7. Tarefa T4: fase do relógio no ator e nota pelo mínimo dos canais (dono, 16/11)
+
+Motivo: auditoria "a tarefa certa paga mais" (`/home/joaobornelli/workbench/projects/g1-treino-v3/auditoria-tarefa-certa-paga-mais.md`,
+§2 achados 1 e 4). O `passo` paga a fase de um relógio que o ator não vê: andar em fase rende 4,30/s, com fase aleatória
+3,81/s, parado 3,48/s, em antifase 3,40/s. A nota do segmento soma o linear e o giro meio a meio, e andar sem girar passa
+no portão nos níveis 0 a 2. Decisão do dono: a fase vai ao ator (reverte a decisão de 14/10; o robô real calcula a fase
+no laço da política, pelo tempo, sem sensor) e a nota passa a ser o mínimo dos dois canais.
+
+Arquivos: `g1_v3/knobs.py`, `g1_v3/observacoes.py`, `g1_v3/comando.py`, `pilota_v3.py`, `g1_v3/exporta_cena.py`,
+`specs/g1-v3-comportamento.md` (alvo do link no vault), `g1_v3/testes/`. As regras da §2 valem. Linha de base: commit
+`a89ea9b`, 476 funções. Meta: ≤ 476, nenhuma função nova.
+
+### 7.1 Fase no ator (item R1)
+
+1. `knobs.Contrato.blocos_ator`: entra `("fase", 2, 1.0, 5)` logo depois de `("comando", 3, 1.0, 5)`. O ator passa de
+   1447 para 1457 canais. Atualize os comentários que citam 1 447 (`knobs.py`, `dim_ator`).
+2. `observacoes.privilegiados(env, fase=False)` (a função existente ganha o parâmetro):
+   - `fase=True`: devolve (E,2) com o seno e o cosseno de 2π·`v3_fase_marcha`;
+   - `fase=False`: devolve (E,4) com `v3_marcha_on`, `v3_h`, a lacuna e `log1p(v3_sigma)` (o seno e o cosseno saem
+     daqui, porque o crítico passa a recebê-los pelo termo `fase`).
+   Reescreva o docstring: o termo `fase` vai ao ator e ao crítico; o `privilegiados` fica só no crítico.
+3. `observacoes.grupos`: a lista `nove` ganha `("fase", privilegiados, {"fase": True})` logo depois de `comando`. O termo
+   não tem ruído nem atraso (não entra em `ruido_obs` nem em `_ATRASO`), passa pelo normalizador e tem histórico 5 (vem
+   do `blocos_ator`). O crítico recebe o termo pela mesma lista; o `tarefa_critico` continua por último.
+4. `pilota_v3.monta_observacao(..., fase)`: entra o parâmetro `fase: float`, a fase do relógio em [0, 1). O dicionário
+   `valores` ganha `"fase": [sin(2π·fase), cos(2π·fase)]`. Atualize o docstring (1457 canais, o quadro com histórico
+   cresce 2 canais).
+5. Laço do `pilota_v3.main`: um contador de passos da política zera em todo `restaura` (onde o `hist` vira `None`) e
+   soma 1 antes de cada `monta_observacao`; `fase = (passos · dt_politica / periodo_marcha) mod 1`, com
+   `dt_politica = dt_fisica · decimacao` e `periodo_marcha` do knobs. É a mesma conta do env: o `_agora` do `twist` soma
+   dt antes de gravar a fase, então a primeira observação depois do reset tem fase dt/0,8.
+6. `exporta_cena.py`: a conferência contra o env passa `fase = v3_fase_marcha` do env 0 para `monta_observacao`. Atualize
+   os textos que citam 1447 e a lista dos blocos.
+
+### 7.2 Nota pelo mínimo dos canais (item R2)
+
+1. `comando.TwistV3`: `seg_nota` passa a (E,2), o linear e o giro, cada um com o seu núcleo, acumulados como hoje (com
+   `apos` e dt). No `_fecha`: `nota = (seg_nota / seg_dur[:, None].clamp(min=1e-6)).min(dim=1).values`. O resto do
+   `_fecha` não muda. Atualize o comentário do bloco.
+2. Enunciado (`specs/g1-v3-comportamento.md`, §6, linha do ANDAR): a nota é o mínimo do linear e do giro (cada um a
+   média do núcleo no segmento), e não a média dos dois.
+
+### 7.3 Testes
+
+- O ator tem 1457 canais (`dim_ator` e o cfg montado); o termo `fase` vem logo depois do `comando` e tem histórico 5.
+- `privilegiados(env, fase=True)` dá o seno e o cosseno certos para três fases (0, 0,25, 0,5); `fase=False` dá 4 canais.
+- `pilota_v3.monta_observacao` com a fase põe o seno e o cosseno na fatia do bloco `fase`; o teste de paridade do
+  `test_pilota.py` passa com a assinatura nova.
+- A nota do segmento: rastreio perfeito dá 1; parado com comando (0,5; 0; 0) dá exp(−1) ≈ 0,368 (antes ≈ 0,684); andar
+  certo no linear sem girar, com comando de giro 0,5 rad/s, dá exp(−1) ≈ 0,368; queda dá 0.
+- Atualize os testes que fixam 1447, a forma (E,6) do `privilegiados` e a nota pela média.
+
+Verificação do orquestrador depois da T4: suíte; contagem de funções ≤ 476; treino local de 2 its em CPU; `grep -ci
+co-authored` = 0; revisão (opus, esforço médio) da T4. Na corrida do zero, olhar também `acerto_relogio` acima de 0,55
+e subindo.
