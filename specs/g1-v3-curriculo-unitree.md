@@ -1,0 +1,230 @@
+# g1_v3: nível do ANDAR, entrada da fatia B e relógio de marcha pela receita da Unitree (dono, 16/11)
+
+Esta spec é o contrato do lote de 16/11. Ela registra as edições exatas. O motivo e os números de cada mudança estão no
+desenho `/home/joaobornelli/workbench/projects/g1-treino-v3/desenho-curriculo-andar-unitree.md` (fora do repo) e no
+inventário `/home/joaobornelli/workbench/projects/g1-treino-v3/inventario-limpo-bloco1-vs-v3.md`. Leia a seção da sua
+tarefa no desenho antes de editar.
+
+## 1. Decisões do dono (16/11)
+
+1. Relógio de marcha na forma da Unitree: período fixo de 0,8 s, sem recomeço, peso 0,5, fase fora do ator.
+2. Nível do ANDAR pela receita da Unitree, com as decisões P1 a P8 da §6 do desenho:
+   - P1: a nota do segmento usa o núcleo cru da Unitree;
+   - P2: a faixa começa em 0,5;
+   - P3: 50 iterações seguidas;
+   - P4: 10 % de comando parado;
+   - P5: a fatia B abre no nível 5 do ANDAR;
+   - P6: o `passo` perde o portão de velocidade;
+   - P7: o ANDAR tem piso de 0,30 dos envs;
+   - P8: a regra das iterações seguidas vale para as 4 tarefas.
+3. O subnível de 0,75 m do PEGAR e do BOTAR sai (anotação de 16/11 no `vault/_sistema/inbox.md`).
+4. O `altura_pe` fica como está.
+5. A próxima corrida é do zero. Checkpoint antigo não precisa carregar.
+
+## 2. Regras do lote (valem para toda tarefa)
+
+- Trabalhe só no worktree `/home/joaobornelli/workbench/projects/g1-treino-v3/g1_training`, branch `g1_v3`.
+- Commit local no fim da tarefa, com os arquivos da tarefa por caminho explícito. PROIBIDO: push, `gh`, qualquer
+  operação no remoto, `git stash`, `Co-Authored-By` e qualquer trailer de coautoria. Depois do commit, rode
+  `git log -1 --format=%B | grep -ci co-authored` e confirme 0.
+- Durante as edições, não rode teste nem import. Faça todas as edições da tarefa, confira com `git diff` contra esta
+  spec, e rode os testes uma vez, no fim. Não rode treino.
+- Comando dos testes: `.venv/bin/python -m unittest discover -s g1_v3/testes -t .`
+  A falha `test_mid360.TestMid360.test_primeira_direcao_bate_com_o_csv` é antiga (CSV fora do repo) e não conta.
+  Qualquer outra falha conta.
+- Um teste que fixa um valor ou um comportamento antigo desta spec é atualizado para o novo. Não enfraqueça um assert
+  para ele passar. Teste de função ou de célula apagada sai junto com ela.
+- Todo teste novo falha contra o código de antes da tarefa. Diga no relato como você conferiu (por leitura do caso).
+- Não mude nada fora do que a tarefa lista. Não refatore além do que a tarefa pede. Todo número novo mora em
+  `g1_v3/knobs.py`, com um comentário na linha: "16/11, <item>: <motivo curto>".
+- Antes de mexer num termo de recompensa, knob ou terminação, faça `grep` do nome em `vault/_sistema/por-termo.md` e leia
+  a linha. Se ela citar uma armadilha que esta spec não trata, pare e relate.
+- Regra do repo (`CLAUDE.md`): modifique antes de adicionar. Nenhuma função nova neste lote.
+- Ordem do passo no mjlab: física → terminações → recompensas → reset → comandos (`compute` da cadeia e do `twist`) →
+  eventos de intervalo → observações.
+- Relate no fim: arquivos mudados; contagem de funções do `g1_v3` sem testes antes → depois
+  (`grep -c "def " g1_v3/*.py`, somando os arquivos fora de `testes/`); comando de teste; as últimas 15 linhas da saída;
+  hash do commit; o que você não conseguiu cumprir.
+
+Linha de base: commit `0ca0827` (código igual ao `967f690`), 476 funções no `g1_v3` sem testes. Meta: ≤ 476.
+
+## 3. Tarefa T1: relógio de marcha na forma da Unitree (item R)
+
+Arquivos: `g1_v3/knobs.py`, `g1_v3/comando.py`, `g1_v3/recompensas.py`, `g1_v3/eventos.py`, `g1_v3/testes/`.
+
+Referência: `unitree_rl_lab`, termo `feet_gait` (nota de 13/11 no `vault/_sistema/inbox.md`): período 0,8 s, fase pelo
+tempo do episódio, pés defasados em 0 e 0,5, apoio com fase < 0,55, recompensa × (‖comando‖ > 0,1), peso 0,5, sem fase
+na observação do ator.
+
+1. `knobs.Comando`:
+   - saem `cadencia_base`, `cadencia_por_v` e `giro_para_v`;
+   - entram `periodo_marcha: float = 0.8` (período do relógio, s) e `limiar_marcha: float = 0.1` (‖comando‖ acima do
+     qual o relógio paga);
+   - `fase_apoio` fica 0,55.
+2. `knobs.Recompensa.passo`: 1.3 → 0.5 (peso do `feet_gait`; até 1,0/s nos dois pés).
+3. `comando.TwistV3._update_metrics`, bloco 5 (relógio):
+   - `on = cmd.norm(dim=1) > k.limiar_marcha` (norma do comando inteiro: vx, vy e wz);
+   - `env.v3_fase_marcha[:] = torch.remainder(self._agora / k.periodo_marcha, 1.0)`;
+   - `env.v3_marcha_on[:] = on`;
+   - saem o período pela velocidade e o recomeço no limiar;
+   - `soma_acerto`, `passos_on` e a métrica `acerto_relogio` ficam, com o `on` novo.
+   Atualize o comentário do bloco.
+4. `comando.TwistV3.reset`: saem as duas linhas que zeram `v3_fase_marcha` e `v3_marcha_on`. A fase vem do `_agora`, que
+   o reset já zera, e o `compute` dos comandos regrava os dois buffers antes das observações.
+5. `recompensas.n_passo(contato, fase, fase_apoio)`: sai o parâmetro `on`.
+   `apoio = fases < fase_apoio`; devolve `(contato == apoio).float()`. Atualize o docstring.
+6. `recompensas.passo`:
+   - `on = cmd.norm(dim=-1) > C.limiar_marcha`, com o comando do passo corrente;
+   - `acerto = n_passo(contato, env.v3_fase_marcha, C.fase_apoio)`;
+   - `env.v3_acerto_marcha[:] = acerto.mean(-1)`;
+   - devolve `_fim(env, tarefas, acerto.sum(-1) * on.float(), paga=True)`.
+   Saem o portão de velocidade (`g_lin`, `g_ang`, `portao`) e o apoio duplo pago com comando zero. Reescreva o docstring:
+   a forma é a do `feet_gait`; marchar no lugar paga até 1,0/s, e o nível do ANDAR (T2) não sobe sem rastreio.
+7. `eventos.empurrao`: sai a linha `env.v3_fase_marcha[env_ids] = 0.0`.
+8. Testes (`test_marcha_relogio.py`, `test_eventos_empurrao.py`, `test_recompensas.py` e outros que fixem o relógio velho):
+   - a fase vale `(t / 0,8) mod 1` para comando ligado e desligado, sem recomeço no limiar;
+   - o empurrão não muda a fase;
+   - o `passo` vale 0 com ‖comando‖ ≤ 0,1, e paga a soma dos acertos com ‖comando‖ > 0,1;
+   - o robô parado com comando de 0,5 m/s recebe o `passo` pelos acertos, sem portão;
+   - `n_passo` com os dois pés no chão acerta 0,55 de um ciclo, em média, por pé.
+
+## 4. Tarefa T2: nível do ANDAR, entrada da fatia B e subnível (itens A, B e S)
+
+Arquivos: `g1_v3/knobs.py`, `g1_v3/balanceador.py`, `g1_v3/comando.py`, `g1_v3/curriculo.py` (só docstring, se citar
+as células velhas), `specs/g1-v3-comportamento.md` (§2 e §6), `g1_v3/testes/`.
+
+### 4.1 Knobs
+
+1. `knobs.Comando`:
+   - sai `baixo`;
+   - entram `andar_inicio: float = 0.5` (teto inicial de frente, trás e lado no ANDAR, m/s),
+     `andar_giro_inicio: float = 0.5` (teto inicial do giro no ANDAR, rad/s), `andar_passo: float = 0.1` (quanto cada
+     nível soma aos tetos), `andar_parado: float = 0.10` (fração dos sorteios do ANDAR com comando zero) e
+     `sigma_nota: float = 0.5` (σ do núcleo da nota do segmento, o da Unitree);
+   - `frente_tetos`, `giro_tetos`, `tras_lado_teto_max`, `piso_velocidade`, `terreno_v_max` e `razao_portao` ficam
+     (o CARREGAR segue com eles; os tetos finais do ANDAR são `frente_tetos[-1]`, `tras_lado_teto_max` e
+     `giro_tetos[-1]`).
+2. `knobs.Balanceador`:
+   - sai `iters_min_nivel`;
+   - entram `iters_nivel: int = 50` (iterações seguidas no portão para subir um nível, nas 4 tarefas),
+     `portao_andar: float = 0.80` (portão da célula do ANDAR: nota média ≥ 0,8, o critério da Unitree),
+     `nivel_abre_b: int = 5` (nível do ANDAR que abre a fatia B), `piso_andar: float = 0.30` (fração mínima da fatia
+     ANDAR depois que a B abre) e `histerese_rampa: float = 0.70` (abaixo desta nota do ANDAR, o teto da rampa desce);
+   - `portao` 0,75 fica para as células das outras tarefas.
+3. `knobs.Niveis` (item S): `subnivel_extra` (0.20, 0.10, 0.0) → (0.10, 0.0); `subnivel_longe` (0.0, 0.10, 0.20) →
+   (0.10, 0.20); `subnivel_jitter` (0.0, 0.0, 1.0) → (0.0, 1.0). Comentário: "16/11: sai a laje de 0,75 m (no
+   model_2200 a caixa se apoia nela no P4)".
+
+### 4.2 Células do ANDAR (`balanceador.py`)
+
+1. `LAYOUT`: as células `reto`, `parado`, `baixo`, `giro_andando` e `giro_lugar` do ANDAR saem. Entra
+   `("ANDAR", "andar")` no começo. Fica `("ANDAR", "terreno")`. As do CARREGAR, PEGAR e BOTAR não mudam.
+2. `ABERTAS_NO_COMECO = (("ANDAR", "andar"),)`. `VELOCIDADE["ANDAR"] = ("andar",)`.
+3. `Curriculo.max_nivel["ANDAR"] = round((k_com.frente_tetos[-1] − k_com.andar_inicio) / k_com.andar_passo)` (= 10).
+   O do CARREGAR fica `len(k_com.frente_tetos) − 1`.
+4. Portão por tarefa: o portão de uma célula do ANDAR é `portao_andar`; o das outras, `portao`. Vale em `_passa`,
+   `_passa_media` e `_deficit` (e, por eles, nas frações). Sem função nova: um dicionário no `__init__`
+   (`{"ANDAR": k.portao_andar}`, com `.get(tarefa, k.portao)`) basta. Atualize os docstrings do módulo e de `Celula`.
+
+### 4.3 Regra de subida (`_sobe`, item A4 e P8)
+
+1. Sai a carência por tempo (`self.it − self._ult[t] < iters_min_nivel`) e sai o `_ult` inteiro (também no `_abre` e no
+   estado).
+2. Entra o contador `self._seguidas = dict.fromkeys(TAREFAS, 0)`. Em cada fecho, para cada tarefa:
+   - nível abaixo do máximo: `ok` = todas as células de `VELOCIDADE[t]` abertas e `_passa_media` delas;
+   - nível no máximo, tarefa em `CADEIA` e linha de terreno abaixo do máximo: `ok` = célula `terreno` aberta e
+     `_passa` dela;
+   - senão: `ok` = falso.
+   `_seguidas[t]` soma 1 com `ok` e volta a 0 sem `ok`. Com `_seguidas[t] ≥ iters_nivel`, a tarefa sobe como hoje
+   (subnível, nível ou linha de terreno), zera o `n_medidas` das células como hoje e zera `_seguidas[t]`.
+3. A carência da tarefa que abre tarde (A8 de 13/11) fica coberta: o contador da tarefa nova começa em 0.
+4. Atualize o comentário de ordem do `fecha_iteracao` e o docstring de `_sobe`.
+
+### 4.4 Entrada e fatia da B (`_abre`, `fracoes_fatias`, `fecha_iteracao`; itens B1 a B3)
+
+1. `_abre`: a fatia B (CARREGAR `reto` e PEGAR `pegar`) abre quando `self._nivel["ANDAR"] >= self.k.nivel_abre_b`.
+   Sai o portão pela média do `reto` e do `parado`. O resto do `_abre` (cadeias, terreno, fatia C) fica.
+   Efeito: a B abre no fecho seguinte ao da subida do ANDAR ao nível 5.
+2. Rampa condicionada: entra `self._rampa = [0, 0, 0]` (degraus da rampa de cada fatia). Em `fecha_iteracao`, depois
+   do laço que grava `_it_abertura` e antes de `_sobe`: para cada fatia f ∈ {1, 2} aberta, quando
+   `(self.it − self._it_abertura[f])` é múltiplo positivo de `rampa_fatia_its`:
+   - nota do ANDAR = `s` da célula `("ANDAR", "andar")`;
+   - nota ≥ `portao_andar`: `_rampa[f] += 1`;
+   - nota < `histerese_rampa`: `_rampa[f] = max(0, _rampa[f] − 1)`;
+   - entre os dois: nada muda.
+   Em `fracoes_fatias`, o teto vira `min(1.0, rampa_fatia_inicio + rampa_fatia_passo * self._rampa[f])`. O excedente
+   continua voltando ao ANDAR.
+3. Piso do ANDAR: em `fracoes_fatias`, depois do bloco da rampa, se a B ou a C está aberta e `out[0] < piso_andar`, a
+   falta (`piso_andar − out[0]`) sai das fatias abertas 1 e 2 na proporção das frações delas, e `out[0]` vira
+   `piso_andar`. A soma continua 1.
+4. `_trava_dr`: o `"vies"` liga quando a célula `("ANDAR", "andar")` passa no portão.
+5. `estado` e `carrega`: a chave `"ult"` vira `"seguidas"`; entra `"rampa": list(self._rampa)`. O `carrega` aceita
+   estado sem as chaves novas (`.get` com o padrão 0 e `[0, 0, 0]`).
+
+### 4.5 Sorteio e nota do ANDAR (`comando.py`, itens A1 a A3)
+
+1. `sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k)`: com `tarefa == "ANDAR"` (tipos `andar` e `terreno`):
+   - `frente = min(k.andar_inicio + k.andar_passo * nivel, k.frente_tetos[-1])`;
+   - `lado = min(k.andar_inicio + k.andar_passo * nivel, k.tras_lado_teto_max)`; `tras = lado`;
+   - `giro = min(k.andar_giro_inicio + k.andar_passo * nivel, k.giro_tetos[-1])`;
+   - no `terreno`: `frente` e `tras` com teto `k.terreno_v_max`;
+   - vx ~ U(−tras; frente), vy ~ U(−lado; lado), wz ~ U(−giro; giro), independentes, pelo gerador;
+   - com U < `k.andar_parado`, o comando inteiro vale zero.
+   O CARREGAR (`reto`, `giro_lugar`, `arco`, `terreno`) fica como hoje. Saem os ramos `parado` e `baixo` e o tipo
+   `giro_andando`. Atualize o docstring (o parâmetro `tarefa` passa a mudar a faixa).
+2. `TwistV3`: entram os buffers `seg_nota` (E,) e `seg_dur` (E,), zerados onde o `seg_proj` é zerado (`_abre` e fim do
+   `_fecha`).
+3. `TwistV3._update_metrics`, no bloco 4, depois de gravar `v_media_b`:
+   - `apos = (self._agora >= env.v3_ancora[:, 3]).float()`;
+   - `e_lin = (cmd[:, :2] − v_media_b[:, :2])²` somado nos dois eixos; `e_ang = (cmd[:, 2] − v_media_b[:, 2])²`;
+   - `seg_nota += 0.5 * (exp(−e_lin / σ²) + exp(−e_ang / σ²)) * apos * dt`, com σ = `k.sigma_nota`;
+   - `seg_dur += apos * dt`.
+   O canal sem comando entra no mesmo núcleo (c = 0): ficar parado vale 1, e a deriva cobra pelo erro.
+4. `TwistV3._fecha`:
+   - `nota = seg_nota / seg_dur.clamp(min=1e-6)` dos `ids`;
+   - `x = torch.where(seg_carrega, suc.float(), nota) * (~falha).float()` (o CARREGAR segue com o sucesso de hoje);
+   - um segmento sem caixa só registra com `seg_dur > 0` ou com `falha`
+     (`reg = (reg & ((seg_dur > 0) | seg_carrega)) | falha`);
+   - `env.v3_cur.registra(int(c), int(m.sum()), float(x[m].sum()))`.
+5. `Curriculo.registra(celula_id, n, soma)`: o terceiro argumento passa a ser a soma das notas (float; 0 ou 1 por
+   segmento nas tarefas com sucesso booleano). A EMA de `fecha_iteracao` não muda: `x = soma / n`. Atualize os
+   docstrings.
+
+### 4.6 Enunciado (`specs/g1-v3-comportamento.md`)
+
+1. §2, fase 0: 100 % dos envs andam. O comando do ANDAR é sorteado uniforme na faixa do nível (vx, vy e wz
+   independentes, 10 % parado). A faixa começa em 0,5 m/s e 0,5 rad/s e soma 0,1 por nível até os tetos (frente 1,5,
+   trás e lado 1,0, giro 1,0). A fase 0 termina quando o ANDAR chega ao nível 5; aí a B abre. Depois, o teto da B sobe
+   só com o ANDAR no portão, e o ANDAR fica com pelo menos 30 % dos envs.
+2. §6, linha do ANDAR e CARREGAR: no ANDAR, o nível controla a faixa do comando e o nível TERRENO; o sucesso é a nota
+   média do segmento pelo núcleo da Unitree (exp(−erro²/0,25), média do linear e do giro, 0 na queda), com portão 0,8;
+   o nível sobe com o portão por 50 iterações seguidas e não desce. O CARREGAR fica como está, com a mesma regra das
+   iterações seguidas.
+
+### 4.7 Testes
+
+Atualize os testes que fixam as células velhas do ANDAR, a carência por tempo e o subnível de três valores. Testes
+novos, todos com o `Curriculo` puro, sem simulador, salvo o último:
+
+1. Estátua: com a nota do ANDAR em 0,69 em todo fecho, o nível do ANDAR fica em 0 por 3000 fechos, e a B fica fechada.
+2. Nota 0,85 em todo fecho: o nível sobe a cada 50 fechos até 10. A B abre no fecho seguinte ao da subida ao nível 5.
+3. Contagem que zera: nota 0,85 por 40 fechos, 0,0 por 2 fechos, 0,85 depois. O nível não sobe no fecho 50; ele sobe
+   só depois de 50 fechos seguidos com `s ≥ 0,8`, contados da volta.
+4. PEGAR pela mesma regra: a célula `pegar` com `s ≥ 0,75` por 50 fechos seguidos sobe o subnível (de 0 para 1) e,
+   depois, o nível.
+5. Rampa e piso: com a B aberta, a B em `s = 0` e a nota do ANDAR 0,85, o teto da B sobe 0,02 a cada 12 fechos; com a
+   nota em 0,6, ele desce; a fração do ANDAR nunca fica abaixo de 0,30, e a soma das frações é 1.
+6. Sorteio do ANDAR (com gerador fixo): no nível 0, |vx|, |vy| ≤ 0,5 e |wz| ≤ 0,5; no nível 10, vx até 1,5, vy até 1,0
+   e wz até 1,0; ~10 % dos comandos zerados; no `terreno`, vx ≤ `terreno_v_max`.
+7. Nota do segmento (no padrão de env falso dos testes de comando): rastreio perfeito dá ~1; robô parado com comando
+   (0,5; 0; 0) depois da âncora dá (e⁻¹ + 1)/2 ≈ 0,684; queda dá 0.
+
+## 5. Verificação do lote (orquestrador)
+
+1. Suíte completa, com só a falha antiga do `test_mid360`.
+2. Contagem de funções do `g1_v3` sem testes: 476 → ≤ 476.
+3. Treino local de 2 its em CPU, 16 envs, com `--agent.logger tensorboard` e `WANDB_MODE=disabled`: sem erro nem NaN.
+4. `git log 0ca0827..HEAD --format=%B | grep -ci co-authored` = 0.
+5. Revisão (opus, esforço médio) do lote contra esta spec.
+6. Na corrida do zero, olhar: `Curriculum/v3/nivel_ANDAR` parado até `s_ANDAR_andar` passar de 0,8 e subindo no máximo
+   a cada 50 its; `frac_ANDAR` em 1,0 até o nível 5 e depois ≥ 0,30; `Metrics/twist/acerto_relogio` acima de 0,55.
