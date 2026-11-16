@@ -28,23 +28,25 @@ def _tau_max():
 
 
 class TestPasso(unittest.TestCase):
-    """13/11, M4: n_passo é o relógio do `feet_gait`. Pé E na `fase`, pé D na fase + 0,5; apoio com fase < 0,55."""
+    """16/11, R: n_passo é o relógio do `feet_gait`. Pé E na `fase`, pé D na fase + 0,5; apoio com fase < 0,55."""
 
-    def n(self, contato, fase=0.2, on=True):
-        return recompensas.n_passo(torch.tensor([contato]), t(fase), torch.tensor([on]), ATIVO.comando.fase_apoio)[0].tolist()
+    def n(self, contato, fase=0.2):
+        return recompensas.n_passo(torch.tensor([contato]), t(fase), ATIVO.comando.fase_apoio)[0].tolist()
 
-    def test_fase_02_com_comando_e_apoio_e_d_em_balanco(self):
+    def test_fase_02_e_apoio_e_d_em_balanco(self):
         # E: 0,2 < 0,55 apoio; D: 0,7 balanço
         self.assertEqual(self.n((True, False)), [1.0, 1.0])
         self.assertEqual(self.n((True, True)), [1.0, 0.0])
 
-    def test_sem_comando_os_dois_pes_em_apoio(self):
-        self.assertEqual(self.n((True, True), on=False), [1.0, 1.0])
-        self.assertEqual(self.n((False, True), on=False), [0.0, 1.0])
-
     def test_fase_070_inverte_os_papeis(self):
         # E: 0,7 balanço; D: 0,2 apoio
         self.assertEqual(self.n((False, True), fase=0.7), [1.0, 1.0])
+
+    def test_dois_pes_no_chao_acertam_055_do_ciclo_por_pe(self):
+        fases = torch.arange(1000, dtype=F) / 1000.0
+        acerto = recompensas.n_passo(torch.ones(1000, 2, dtype=torch.bool), fases, ATIVO.comando.fase_apoio)
+        for pe in (0, 1):
+            self.assertAlmostEqual(acerto[:, pe].mean().item(), 0.55, places=2)
 
 
 class TestVivo(unittest.TestCase):

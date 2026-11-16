@@ -71,11 +71,11 @@ def comprimento_do_passo(p_toque_w, p_apoio_w, c_w, p0_toque_b, p0_apoio_b, c_b)
     return ((p_toque_w - p_apoio_w) * c_w).sum(-1) - ((p0_toque_b - p0_apoio_b) * c_b).sum(-1)
 
 
-def n_passo(contato, fase, on, fase_apoio) -> torch.Tensor:
-    """(E,2) 1 onde o contato do pé bate com o relógio (13/11, M4; unitree_rl_lab `feet_gait`). Pé esquerdo na `fase`,
-    direito na fase + 0,5; apoio com fase < `fase_apoio`. Com `on` False (comando zero), os dois pés em apoio."""
+def n_passo(contato, fase, fase_apoio) -> torch.Tensor:
+    """(E,2) 1 onde o contato do pé bate com o relógio (unitree_rl_lab `feet_gait`). Pé esquerdo na `fase`, direito na
+    fase + 0,5; apoio com fase < `fase_apoio`. O comando não entra aqui: quem o lê é o `passo`."""
     fases = torch.stack([fase, torch.remainder(fase + 0.5, 1.0)], dim=-1)
-    apoio = (fases < fase_apoio) | ~on.unsqueeze(-1)
+    apoio = fases < fase_apoio
     return (contato == apoio).float()
 
 
@@ -573,25 +573,20 @@ def rastreio_angular(env, tarefas):
 
 
 def passo(env, tarefas):
-    """Marcha por relógio, na forma do `feet_gait` do unitree_rl_lab (13/11, M4). ANDAR e CARREGAR.
+    """Marcha por relógio, na forma do `feet_gait` do unitree_rl_lab (16/11, R). ANDAR e CARREGAR.
 
-    O relógio mora no `TwistV3._update_metrics` (fase por pé, pés defasados em meio ciclo, período pela velocidade
-    comandada). Cada pé paga 1 quando o contato bate com a fase. Sem comando, o relógio fica parado em apoio duplo e o
-    termo paga cada pé no chão. ⚠ Portão de velocidade (spec de comportamento §4.1): o termo vale × a fração da
-    velocidade comandada que o robô cumpre (média de 0,8 s), então a marcha no lugar não recebe o termo inteiro.
-    Sem comando o portão vale 1. A taxa de acerto, sem o portão, vai para `v3_acerto_marcha` (métrica `acerto_relogio`).
+    O relógio mora no `TwistV3._update_metrics`: período fixo de 0,8 s, fase pelo tempo do episódio, pés defasados em
+    meio ciclo, sem recomeço. Cada pé paga 1 quando o contato bate com a fase, e o termo vale × (‖comando‖ > limiar),
+    com o comando do passo corrente. ⚠ Não há portão de velocidade: marchar no lugar com comando paga até 1,0/s (peso
+    0,5 × 2 pés). Quem impede que isso sirva é o nível do ANDAR (T2), que não sobe sem rastreio. A taxa de acerto
+    vai para `v3_acerto_marcha` (métrica `acerto_relogio`).
     """
     cmd = env.command_manager.get_command("twist")
-    v = env.command_manager.get_term("twist").v_media_b
-    c_lin, c_ang = cmd[:, :2].norm(dim=-1), cmd[:, 2].abs()
-    lin, ang = c_lin >= C.limiar_canal, c_ang >= C.limiar_canal
+    on = cmd.norm(dim=-1) > C.limiar_marcha
     contato = env.scene["pes_chao"].data.found > 0  # (E,2)
-    acerto = n_passo(contato, env.v3_fase_marcha, lin | ang, C.fase_apoio)
-    g_lin = torch.clamp((v[:, :2] * cmd[:, :2]).sum(-1) / c_lin.pow(2).clamp(min=_EPS), 0.0, 1.0)
-    g_ang = torch.clamp(v[:, 2] * torch.sign(cmd[:, 2]) / c_ang.clamp(min=_EPS), 0.0, 1.0)
-    portao = torch.where(lin, g_lin, torch.where(ang, g_ang, torch.ones_like(g_lin)))
+    acerto = n_passo(contato, env.v3_fase_marcha, C.fase_apoio)
     env.v3_acerto_marcha[:] = acerto.mean(-1)
-    return _fim(env, tarefas, acerto.sum(-1) * portao, paga=True)
+    return _fim(env, tarefas, acerto.sum(-1) * on.float(), paga=True)
 
 
 def vivo(env, tarefas):
