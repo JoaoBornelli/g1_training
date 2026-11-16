@@ -262,9 +262,9 @@ pairar tombada paga zero.
 
 ### 5.2 Tarefas por passo: ANDAR, esperas e CARREGAR
 
-- Os termos da receita da Unitree pagam por passo (spec §19, §9.2), com dois desvios do dono
-  (05/10): o rastreio é normalizado pelo comando, para o parado receber zero em comando baixo, e
-  o termo da marcha paga o comprimento do passo no toque do pé, para o passo ter comprimento
+- Os termos da receita da Unitree pagam por passo (spec §19, §9.2). O rastreio é o da Unitree:
+  núcleo cru, velocidade instantânea, pesos 1,0 e 0,5 (dono, 16/11). O rastreio normalizado pelo
+  comando fica só no sinal de progresso do CARREGAR. Um desvio do dono (05/10): o termo da marcha paga o comprimento do passo no toque do pé, para o passo ter comprimento
   mínimo; o robô escolhe a cadência, sem relógio na observação (dono, 14/10). O desvio
   postural mira a pose de pé da IK: sem caixa no ANDAR, com caixa no CARREGAR (spec §6.3).
 - No CARREGAR, o pagamento por passo é multiplicado pela qualidade da caixa: no peito,
@@ -325,7 +325,7 @@ a não tentar o BOTAR. Com o ganho mantido, o que está em jogo nunca passa do q
 
 | sintoma de hoje | causa medida | o que a v3 muda |
 |---|---|---|
-| Não gira no lugar | ~3% da frota; |wz| abaixo do piso σ, estátua empata | fração pelo balanceador da fatia (até ~2/3 do ANDAR) e rastreio normalizado pelo comando: parado recebe zero em qualquer comando [A10] (spec §19, conflito 5) |
+| Não gira no lugar | ~3% da frota; |wz| abaixo do piso σ, estátua empata | fração pelo balanceador da fatia (até ~2/3 do ANDAR) e rastreio da Unitree: núcleo cru, velocidade instantânea, pesos 1,0 e 0,5 (dono, 16/11). O rastreio normalizado, que dava zero ao parado em qualquer comando [A10], fica só no sinal de progresso do CARREGAR; o problema do comando baixo (spec §19, conflito 5) volta a ficar em aberto para o refino |
 | A caixa tomba na pega | o braço gira a caixa ao erguer; o fecho aceitava 25°; pairar tombada pagava | nivelada é condição de todo alvo depois da pega; pairar paga zero |
 | Bota mal; não bota em laje baixa | o BOTAR só treinava quando a pega da C fechava; a laje herdava a do PEGAR | nível próprio do BOTAR; a pega da C usa a faixa dominada; postura da IK da altura |
 | Carrega agachado e estranho | a referência de forma presa na laje; nada media a pelve | P4 exige a pose de pé com caixa; no CARREGAR, o desvio postural e a altura da base da Unitree miram a pose de pé com caixa, e o rastreio paga vezes a qualidade da caixa |
@@ -424,7 +424,7 @@ Cada linha diz o mecanismo, quando ele age e se ele já está no desenho.
 |---|---|---|---|
 | De pé sem caixa, pose normal, sem agachar antes de pegar | o desvio postural da Unitree mira a pose de pé da IK sem caixa (pelve 0,79, joelho 0,16), parado e andando (spec §6.3). O potencial do PEGAR conta a partir da abertura: agachar na espera não adianta ganho [A21]. A espera tem duração do controlador, então não vira estátua paga [R17] | desde o começo | no desenho |
 | De pé com caixa, mãos na caixa | o P4 exige a pose de pé com caixa, a mesma para toda massa (spec §8.1). No CARREGAR, o desvio postural mira essa pose, e o rastreio paga vezes a qualidade da caixa. Os invariantes exigem as duas mãos | desde o começo | no desenho |
-| Andar normal, com e sem caixa | termos da receita da Unitree: rastreio normalizado, comprimento do passo (no lugar da marcha por fase, dono 14/10), altura do pé, escorrego do pé; o CARREGAR usa os mesmos termos de pé; o `giro_sem_gingado` saiu (spec §19) | desde o começo | no desenho |
+| Andar normal, com e sem caixa | termos da receita da Unitree: rastreio da Unitree (núcleo cru, velocidade instantânea, pesos 1,0 e 0,5; dono, 16/11), comprimento do passo (no lugar da marcha por fase, dono 14/10), altura do pé, escorrego do pé; o CARREGAR usa os mesmos termos de pé; o `giro_sem_gingado` saiu (spec §19) | desde o começo | no desenho |
 | Sem passo miúdo, em qualquer velocidade | o termo da marcha paga `min(L/L_alvo, 1)` no toque do pé, com `L_alvo = |v|·clamp(2·L_min/|v|, 0,8; 1,4)/2` (dono, 05/10; forma de 14/10, sem relógio na observação; spec §19, conflito 6). Substitui o `air_time` com duração mínima no refino | desde o começo | no desenho |
 | Andar e carregar no terreno | mapa de elevação na observação; nível TERRENO no ANDAR e no CARREGAR, com tetos menores com a caixa (dono, 09/10; spec §11.2) | depois dos níveis de velocidade | no desenho |
 | Caixa sem sacudir | penalidade pela aceleração linear e angular da caixa, em PEGAR, CARREGAR e BOTAR (e REORIENTAR quando entrar), a partir da diferença de velocidade entre passos de controle; a diferença de velocidade integra o choque e não sofre o aliasing da força [F37]. Medido 02/10 nos plays do 23250: no CARREGAR a 0,5 m/s, linear p50 2,9 e p90 4,8 m/s², angular p50 17 e p90 28 rad/s²; no PEGAR, linear p90 4,6–7,3 m/s², angular p90 23–45 rad/s² | refino (decidido pelo dono, 02/10) | no desenho; escala a calibrar com estes números |

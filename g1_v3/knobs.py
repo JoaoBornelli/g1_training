@@ -128,10 +128,6 @@ class Comando:  # S §7, §11.2, §19
     andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
     sigma_nota: float = 0.5  # 16/11, A1 (P1): σ do núcleo cru da nota do segmento, o da Unitree
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
-    # 11/11: fica 0,8. O lote do treino único testou 0,02 e a medida local reprovou: com ação zero o `rastreio_linear`
-    # foi de −0,24 para −0,70/s na célula reto e de −1,04 para −1,69/s na parado; com ação N(0,1), o `rastreio_angular`
-    # foi de −0,68 para −1,79/s. A média de 0,8 s faz o canal sem comando cobrar a deriva, e não a oscilação do corpo.
-    janela_media_s: float = 0.8  # S §19, conflito 5: média da velocidade (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     fase_apoio: float = 0.55  # 13/11, M4: fração do ciclo com o pé no chão (`feet_gait` do unitree_rl_lab)
     periodo_marcha: float = 0.8  # 16/11, R: período fixo do relógio de marcha (s), o `feet_gait` da Unitree
@@ -209,14 +205,14 @@ class Alvos:  # S §8.2; PD-23
 
 @dataclass(frozen=True)
 class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
-    rastreio_linear: float = 2.0  # S §9.2, §19: receita da Unitree; 11/11: era 1,0 (§4.1)
-    rastreio_angular: float = 2.0  # S §9.2, §19: receita da Unitree; 11/11: era 0,5 (§4.1)
+    rastreio_linear: float = 1.0  # 16/11, T3: pesos da Unitree; o 2,0 de 11/11 compensava a renda negativa do rastreio normalizado
+    rastreio_angular: float = 0.5  # 16/11, T3: pesos da Unitree; o 2,0 de 11/11 compensava a renda negativa do rastreio normalizado
     sigma_rastreio: float = 0.5  # S §19: σ do rastreio (receita da Unitree)
-    piso_rastreio: float = -1.0  # S §19, conflito 5: piso do rastreio normalizado
+    piso_rastreio: float = -1.0  # S §19, conflito 5: piso do rastreio normalizado; 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
     # ⚠ σ₀ do canal sem comando (dono, 15/10). Com σ 0,5, deslizar a 0,05 m/s custava 0,01.
-    sigma_zero_lin: float = 0.10  # PD-49: σ₀ do linear sem comando (m/s)
-    sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s)
-    sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): o σ₀ DESCE de 0,5 (restricao 0) a sigma_zero_ang (restricao 1)
+    sigma_zero_lin: float = 0.10  # PD-49: σ₀ do linear sem comando (m/s); 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
+    sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s); 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
+    sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): o σ₀ DESCE de 0,5 (restricao 0) a sigma_zero_ang (restricao 1); 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
     passo: float = 0.5  # 16/11, R: peso do `feet_gait` da Unitree (até 1,0/s nos dois pés); era 1,3 por pé
     L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); 13/11, M4: o treino não lê; só `parte0/item8_passo.py`
     fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|; 13/11, M4: o treino não lê; só `parte0/item8_passo.py`

@@ -636,10 +636,6 @@ class TwistV3(UniformVelocityCommand):
         self.soma_cmd_marcha = torch.zeros(n, device=dev)
         self.soma_acerto = torch.zeros(n, device=dev)  # 13/11, M4: Σ acerto do relógio e nº de passos com comando
         self.passos_on = torch.zeros(n, device=dev)
-        # média da base (vx, vy, wz) nos últimos `janela_media_s` (S §19, conflito 5); zera só no reset
-        self.v_media_b = torch.zeros(n, 3, device=dev)
-        self._hist = torch.zeros(n, round(self.k.janela_media_s / env.step_dt), 3, device=dev)
-        self._i = 0
         # relógio do episódio, próprio: o reset do mjlab zera episode_length_buf DEPOIS do command_manager.reset
         # (manager_based_rl_env.py:581-590; §6.4), por isso não se lê o episode_length_buf aqui
         self._agora = torch.zeros(n, device=dev)
@@ -759,14 +755,12 @@ class TwistV3(UniformVelocityCommand):
         soma = self.soma_cmd_marcha
         self.metrics["razao_marcha"][:] = torch.where(
             soma > 0.0, 1.0 - self.soma_erro_marcha / soma.clamp(min=1e-6), torch.zeros_like(soma))
-        self._hist[:, self._i] = torch.cat([vel, wz[:, None]], dim=1)
-        self._i = (self._i + 1) % self._hist.shape[1]
-        self.v_media_b = self._hist.mean(dim=1)
         # 16/11, A1: nota do segmento = média do núcleo cru da Unitree, exp(−erro²/σ²), do linear e do giro, desde a âncora.
-        # O canal sem comando entra com c = 0: ficar parado vale 1, e a deriva cobra pelo erro da média de 0,8 s
+        # O canal sem comando entra com c = 0: ficar parado vale 1, e a deriva cobra pelo erro. 16/11, T3: velocidade
+        # instantânea (`vel`, `wz` do bloco 2), a da Unitree; a média de 0,8 s anulava a torção da pelve
         apos = (self._agora >= env.v3_ancora[:, 3]).float()
-        e_lin = ((cmd[:, :2] - self.v_media_b[:, :2]) ** 2).sum(dim=1)
-        e_ang = (cmd[:, 2] - self.v_media_b[:, 2]) ** 2
+        e_lin = ((cmd[:, :2] - vel) ** 2).sum(dim=1)
+        e_ang = (cmd[:, 2] - wz) ** 2
         self.seg_nota += 0.5 * (torch.exp(-e_lin / k.sigma_nota ** 2) + torch.exp(-e_ang / k.sigma_nota ** 2)) * apos * dt
         self.seg_dur += apos * dt
         # 5. relógio de marcha (16/11, R: a forma do `feet_gait` da Unitree): roda depois das recompensas, então o
@@ -784,8 +778,6 @@ class TwistV3(UniformVelocityCommand):
         # snapshot da abertura (seg_cel, seg_carrega), e não os buffers vivos.
         time_out = self._env.termination_manager.time_outs[env_ids]
         self._fecha(env_ids, falha=~time_out)
-        self._hist[env_ids] = 0.0
-        self.v_media_b[env_ids] = 0.0
         self._agora[env_ids] = 0.0
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0

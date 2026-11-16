@@ -152,5 +152,45 @@ class TestLimiteJunta(unittest.TestCase):
         self.assertAlmostEqual(out.item(), 0.5, places=5)
 
 
+class TestRastreioUnitree(unittest.TestCase):
+    """T3 (16/11): `_rastreio` lê a velocidade instantânea da base. Núcleo cru da Unitree por padrão; `normalizado=True`
+    é a conta do sinal de progresso do CARREGAR."""
+
+    def _env(self, cmd, v_xy, wz):
+        dados = types.SimpleNamespace(root_link_lin_vel_b=t(*v_xy, 0.0).reshape(1, 3),
+                                      root_link_ang_vel_b=t(0.0, 0.0, wz).reshape(1, 3))
+        return types.SimpleNamespace(
+            command_manager=types.SimpleNamespace(get_command=lambda nome: t(*cmd).reshape(1, 3)),
+            scene={"robot": types.SimpleNamespace(data=dados)},
+            v3_cur=types.SimpleNamespace(restricao=lambda: 1.0))
+
+    def test_parado_com_comando_de_0_5_m_s(self):
+        env = self._env((0.5, 0.0, 0.0), (0.0, 0.0), 0.0)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, True)[0]), math.exp(-1), places=5)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, False)[0]), 1.0, places=5)
+
+    def test_comando_cumprido_vale_1(self):
+        env = self._env((0.5, 0.2, 0.3), (0.5, 0.2), 0.3)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, True)[0]), 1.0, places=5)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, False)[0]), 1.0, places=5)
+
+    def test_oscilacao_instantanea_do_giro_zera_o_termo_angular(self):
+        # ±1,65 rad/s em torno do comando 0,3: exp(−1,65²/0,25) ≈ 2e−5, nos dois sentidos (a média de 0,8 s dava 1)
+        for wz in (0.3 + 1.65, 0.3 - 1.65):
+            env = self._env((0.0, 0.0, 0.3), (0.0, 0.0), wz)
+            self.assertLess(float(recompensas._rastreio(env, False)[0]), 1e-3)
+
+    def test_normalizado_parado_com_comando_vale_0(self):
+        env = self._env((0.5, 0.0, 0.3), (0.0, 0.0), 0.0)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, True, normalizado=True)[0]), 0.0, places=5)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, False, normalizado=True)[0]), 0.0, places=5)
+
+    def test_normalizado_usa_a_velocidade_instantanea(self):
+        # cumprido: 1; erro de 0,3 m/s com comando 0,5: (exp(−0,09/0,25) − exp(−1)) / (1 − exp(−1)) do `rastreio_normalizado`
+        env = self._env((0.5, 0.0, 0.0), (0.2, 0.0), 0.0)
+        esperado = (math.exp(-0.09 / 0.25) - math.exp(-1)) / (1 - math.exp(-1))
+        self.assertAlmostEqual(float(recompensas._rastreio(env, True, normalizado=True)[0]), esperado, places=5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -80,7 +80,6 @@ def _twist(cmd, n=1):
     obj.soma_erro_marcha, obj.soma_cmd_marcha = torch.zeros(n), torch.zeros(n)
     obj.soma_acerto, obj.passos_on, obj.pose_ult = torch.zeros(n), torch.zeros(n), torch.zeros(n, 3)
     obj.metrics = {k: torch.zeros(n) for k in ("razao_marcha", "acerto_relogio", "eficiencia_min", "eficiencia_media", "segmentos")}
-    obj._hist, obj._i, obj.v_media_b = torch.zeros(n, 4, 3), 0, torch.zeros(n, 3)
     return obj
 
 
@@ -130,8 +129,8 @@ class RelogioDoTwist(unittest.TestCase):
 
 
 class NotaDoSegmento(unittest.TestCase):
-    # 16/11, A1: a nota do ANDAR é a média, depois da âncora, de (exp(−‖c_xy − v̄_xy‖²/σ²) + exp(−(c_z − ω̄_z)²/σ²)) / 2,
-    # com σ = 0,5 e a velocidade média de 0,8 s. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+    # 16/11, A1 e T3: a nota do ANDAR é a média, depois da âncora, de (exp(−‖c_xy − v_xy‖²/σ²) + exp(−(c_z − ω_z)²/σ²)) / 2,
+    # com σ = 0,5 e a velocidade instantânea da base. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
 
     def _nota(self, cmd, vel, falha=False):
         # devolve (a nota acumulada pelo `_update_metrics`, o que o `_fecha` registra para o segmento)
@@ -162,6 +161,17 @@ class NotaDoSegmento(unittest.TestCase):
         acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True)
         self.assertAlmostEqual(acumulada, 1.0, places=5)  # o segmento rastreou até cair
         self.assertEqual(registrada, 0.0)
+
+    def test_oscilacao_do_giro_baixa_a_nota(self):
+        # T3: o giro oscila ±1,65 rad/s em torno do comando (média igual ao comando, o que a média de 0,8 s escondia).
+        # O giro rende exp(−1,65²/0,25) ≈ 0, o linear (perfeito) rende 1: a nota cai de 1 para ≈ 0,5
+        obj = _twist((0.5, 0.0, 0.3))
+        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
+            for i in range(100):
+                obj.robot.data.root_link_ang_vel_b[:, 2] = 0.3 + (1.65 if i % 2 == 0 else -1.65)
+                obj._update_metrics()
+        self.assertAlmostEqual(float(obj.seg_nota[0] / obj.seg_dur[0]), 0.5, places=3)
 
 
 if __name__ == "__main__":

@@ -268,10 +268,10 @@ class RestricaoPeloProgresso(unittest.TestCase):
         for restricao, esperado in ((0.0, 0.5), (1.0, 0.15)):
             with self.subTest(restricao=restricao), mock.patch.object(recompensas.potencial, "rastreio_normalizado") as rast:
                 env = self._env(restricao)
-                env.command_manager = types.SimpleNamespace(
-                    get_command=lambda nome: torch.zeros(2, 3),
-                    get_term=lambda nome: types.SimpleNamespace(v_media_b=torch.zeros(2, 3)))
-                recompensas._rastreio(env, linear=False)
+                env.command_manager = types.SimpleNamespace(get_command=lambda nome: torch.zeros(2, 3))
+                env.scene = {"robot": types.SimpleNamespace(data=types.SimpleNamespace(
+                    root_link_lin_vel_b=torch.zeros(2, 3), root_link_ang_vel_b=torch.zeros(2, 3)))}
+                recompensas._rastreio(env, linear=False, normalizado=True)
                 self.assertAlmostEqual(float(rast.call_args.args[4]), esperado, places=9)
 
 if __name__ == "__main__":

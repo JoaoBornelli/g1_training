@@ -178,7 +178,7 @@ def _buffers_m5(n):
 
 def _sinal_m5(n):
     """Rastreio zero e qualidade larga 1 (caixa no alvo): o sinal do CARREGAR vale 1 e o h fica em 1."""
-    return mock.patch.multiple(recompensas, _rastreio=lambda e, linear: torch.zeros(n),
+    return mock.patch.multiple(recompensas, _rastreio=lambda e, linear, normalizado=False: torch.zeros(n),
                                _qualidade=lambda e: (torch.ones(n), torch.zeros(n)))
 
 
@@ -323,7 +323,8 @@ class TestEtapaDoProgresso(unittest.TestCase):
             get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]))
         r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
         with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(2)), \
-                mock.patch.object(recompensas, "_rastreio", lambda e, linear: r_lin if linear else r_ang), \
+                mock.patch.object(recompensas, "_rastreio",
+                                  lambda e, linear, normalizado=False: r_lin if linear else r_ang), \
                 mock.patch.object(recompensas, "_qualidade", lambda e: (torch.ones(2), torch.tensor([0.0, 0.20]))):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         passo = DT / R.tau_renda
