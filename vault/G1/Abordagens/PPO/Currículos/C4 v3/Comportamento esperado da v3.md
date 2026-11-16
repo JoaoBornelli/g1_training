@@ -51,12 +51,11 @@ refeito no Isaac Lab (dono, 09/10; enunciado §2 "Simulador"; spec §1, §16 Par
 
 ## 2. Fases do treino
 
-**Fase 0, locomoção sozinha.** 100% dos envs andam. As subtarefas do ANDAR abrem em ordem:
-reto nas quatro direções e parado, comando baixo, giro andando, giro no lugar; depois os níveis
-de velocidade e o nível TERRENO (spec §11.2). A fração de cada uma segue o balanceador descrito
-abaixo. A fase 0 termina quando o reto e o parado do ANDAR passam no portão (0,75 de sucesso,
-com o sucesso pela razão de deslocamento ≥ 0,50 [C1, C2]); aí a B abre (spec §11.1). O giro não
-trava a abertura.
+**Fase 0, locomoção sozinha.** 100% dos envs andam. O comando do ANDAR é sorteado uniforme na faixa do
+nível (vx, vy e wz independentes, 10% parado). A faixa começa em 0,5 m/s e 0,5 rad/s e soma 0,1 por nível
+até os tetos (frente 1,5, trás e lado 1,0, giro 1,0). A fase 0 termina quando o ANDAR chega ao nível 5; aí a
+B abre (spec §11.1). Depois, o teto da B sobe só com o ANDAR no portão, e o ANDAR fica com pelo menos 30%
+dos envs.
 
 **Fase 1, até o fim do treino.** A tarefa de cada env sai do balanceador de tarefas (abaixo) e
 fica com o env até o reset seguinte. A fração vale em ENVS, não em episódios: assim a fatia de
@@ -312,7 +311,7 @@ a não tentar o BOTAR. Com o ganho mantido, o que está em jogo nunca passa do q
 
 | tarefa | o nível controla | o sucesso que move o nível |
 |---|---|---|
-| ANDAR e CARREGAR | as subtarefas de comando, os níveis de velocidade e o nível TERRENO, pelo balanceador da fatia (§2) | razão entre o deslocamento projetado e o pedido, sobre o twist inteiro, ≥ 0,50, sem queda [P3, A11]; no TERRENO do CARREGAR, também a caixa a ≤ 15° e sem largar (spec §11.3) |
+| ANDAR e CARREGAR | no ANDAR, a faixa do comando e o nível TERRENO; no CARREGAR, as subtarefas de comando, os níveis de velocidade e o nível TERRENO, pelo balanceador da fatia (§2) | ANDAR: a nota média do segmento pelo núcleo da Unitree (exp(−erro²/0,25), média do linear e do giro, 0 na queda), com portão 0,8; o nível sobe com o portão por 50 iterações seguidas e não desce. CARREGAR: razão entre o deslocamento projetado e o pedido, sobre o twist inteiro, ≥ 0,50, sem queda [P3, A11], com a mesma regra das iterações seguidas; no TERRENO do CARREGAR, também a caixa a ≤ 15° e sem largar (spec §11.3) |
 | PEGAR | altura da laje da pega e massa juntas: (0,55 m; 1 kg) → (0,45; 2) → (0,30; 3) → (0,15; 4) → (0,04; 5) (dono, 05/10) | PEGAR completo e o trecho seguinte sem terminação |
 | BOTAR | altura da laje de destino (0,55 → 0,04 m); a massa vem da faixa já dominada pelo PEGAR (dono, 02/10) | BOTAR completo e o ANDAR parado final sem terminação |
 

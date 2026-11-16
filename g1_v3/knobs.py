@@ -121,7 +121,12 @@ class Comando:  # S §7, §11.2, §19
     tras_lado_teto_max: float = 1.0  # S §11.2: teto para trás e de lado (m/s)
     giro_tetos: tuple = (0.25, 0.5, 0.75, 1.0)  # S §11.2: tetos de giro (rad/s)
     piso_velocidade: float = 0.25  # S §11.2: "entre 0,25 e o teto"
-    baixo: tuple = (0.05, 0.25)  # S §19, conflito 5: subtarefa de comando baixo (m/s; rad/s)
+    # 16/11, A: nível do ANDAR pela receita da Unitree; o sorteio é uniforme na faixa do nível (a célula `baixo` saiu)
+    andar_inicio: float = 0.5  # 16/11, A2: teto inicial de frente, trás e lado no ANDAR (m/s); com 0,1 a estátua passa na nota
+    andar_giro_inicio: float = 0.5  # 16/11, A2: teto inicial do giro no ANDAR (rad/s), pelo mesmo motivo
+    andar_passo: float = 0.1  # 16/11, A2: quanto cada nível soma aos tetos do ANDAR (o passo da Unitree)
+    andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
+    sigma_nota: float = 0.5  # 16/11, A1 (P1): σ do núcleo cru da nota do segmento, o da Unitree
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
     # 11/11: fica 0,8. O lote do treino único testou 0,02 e a medida local reprovou: com ação zero o `rastreio_linear`
     # foi de −0,24 para −0,70/s na célula reto e de −1,04 para −1,69/s na parado; com ação N(0,1), o `rastreio_angular`
@@ -353,9 +358,13 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     piso_tarefa: float = 0.20  # S §11.1; PD-13: piso de fração por tarefa
     piso_sub: float = 0.10  # S §11.2; PD-13: piso de fração por subtarefa
     eps: float = 0.02  # S §11; PD-13: ε da fração de déficit
-    portao: float = 0.75  # S §11.3: portão de sucesso da célula
+    portao: float = 0.75  # S §11.3: portão de sucesso da célula (as tarefas fora do ANDAR)
+    portao_andar: float = 0.80  # 16/11, A4: portão da célula do ANDAR, a nota média ≥ 0,8 (o critério da Unitree)
     alfa: float = 0.05  # S §11; PD-13: taxa da EMA do sucesso
-    iters_min_nivel: int = 50  # PD-12: carência mínima entre subidas de nível (iterações)
+    iters_nivel: int = 50  # 16/11, A4 (P3, P8): iterações seguidas no portão para subir (nas 4 tarefas); ~1 episódio de 20 s
+    nivel_abre_b: int = 5  # 16/11, B1 (P5): nível do ANDAR que abre a fatia B; a 1,0 m/s o arrasto já não cumpre o rastreio
+    piso_andar: float = 0.30  # 16/11, B3 (P7): fração mínima da fatia ANDAR depois que a B abre (o piso do limpo)
+    histerese_rampa: float = 0.70  # 16/11, B2: abaixo desta nota do ANDAR o teto da rampa da fatia desce
     rampa_fatia_inicio: float = 0.05  # 11/11 (§5.3): teto da fração de uma fatia nova ao abrir
     rampa_fatia_passo: float = 0.02  # 11/11 (§5.3): quanto o teto da fatia sobe a cada rampa_fatia_its fechos
     rampa_fatia_its: int = 12  # 11/11 (§5.3): fechos de iteração por degrau da rampa da fatia
@@ -370,9 +379,10 @@ class Niveis:  # S §11.2
     botar: tuple = (0.55, 0.45, 0.30, 0.15, 0.04)  # S §11.2: topo por nível do BOTAR (m)
     topo_min_c: float = 0.30  # S §7; fatia C: o topo sorteado nunca fica abaixo disto (m), com o PEGAR no nível 4
     # 13/11, M3: subníveis do nível 0 do PEGAR e do BOTAR (laje alta primeiro); o último é o nível 0 de antes
-    subnivel_extra: tuple = (0.20, 0.10, 0.0)  # 13/11, M3: m acima do topo do nível 0 (0,75, 0,65 e 0,55 m de topo)
-    subnivel_longe: tuple = (0.0, 0.10, 0.20)  # 13/11, M3: teto do `longe` do destino (m); o passo à frente cresce por subnível
-    subnivel_jitter: tuple = (0.0, 0.0, 1.0)  # 13/11, M3: fração da `faixa_recuo` na base da pega; sem jitter com a laje alta
+    # 16/11: sai a laje de 0,75 m (no model_2200 a caixa se apoia nela no P4); ficam 0,65 e 0,55 m de topo
+    subnivel_extra: tuple = (0.10, 0.0)  # 13/11, M3: m acima do topo do nível 0
+    subnivel_longe: tuple = (0.10, 0.20)  # 13/11, M3: teto do `longe` do destino (m); o passo à frente cresce por subnível
+    subnivel_jitter: tuple = (0.0, 1.0)  # 13/11, M3: fração da `faixa_recuo` na base da pega; sem jitter com a laje alta
 
 
 @dataclass(frozen=True)

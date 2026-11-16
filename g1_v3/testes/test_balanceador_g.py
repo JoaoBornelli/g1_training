@@ -17,8 +17,8 @@ B = ATIVO.balanceador
 N = ATIVO.niveis
 COM = ATIVO.comando
 TER = ATIVO.terreno
-SEM_CARENCIA = dataclasses.replace(B, iters_min_nivel=10 ** 6)  # nenhum nível sobe sozinho
-SEM_ESPERA = dataclasses.replace(B, iters_min_nivel=0)  # a linha de terreno pode subir a cada fecho
+SEM_CARENCIA = dataclasses.replace(B, iters_nivel=10 ** 6)  # nenhum nível sobe sozinho
+SEM_ESPERA = dataclasses.replace(B, iters_nivel=1)  # a linha de terreno pode subir a cada fecho
 MAX_CARREGAR = balanceador.Curriculo(SEM_CARENCIA, N, COM, TER).max_nivel["CARREGAR"]
 TETO_LINHA = max(v for _n, v in TER.linha_max_carregar)  # 9 (PD-20)
 ANDAR, FATIA_B = 0, 1

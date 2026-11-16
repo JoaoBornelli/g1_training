@@ -109,26 +109,31 @@ def _giro(n, lo, hi, g):  # ±U[lo; hi] (sinal sorteado por env)
 
 
 def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Tensor:
-    """(n,3) de (vx, vy, wz). `tarefa` não muda a faixa: o `tipo` já diz o que anda (o parâmetro fica na §6.3)."""
+    """(n,3) de (vx, vy, wz). ANDAR (tipos `andar` e `terreno`, 16/11): uniforme e independente na faixa do nível, vx em
+    U(−trás; frente), vy em U(−lado; lado), wz em U(−giro; giro), com `andar_parado` dos sorteios zerados. Fora do ANDAR
+    `tarefa` não muda a faixa: o `tipo` já diz o que anda (CARREGAR: `reto`, `giro_lugar`, `arco`, `terreno`)."""
+    v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
+    if tarefa == "ANDAR":
+        lado = min(k.andar_inicio + k.andar_passo * nivel, k.tras_lado_teto_max)
+        frente = min(k.andar_inicio + k.andar_passo * nivel, k.frente_tetos[-1])
+        giro = min(k.andar_giro_inicio + k.andar_passo * nivel, k.giro_tetos[-1])
+        tras = lado
+        if tipo == "terreno":  # PD-12: o terreno usa o teto de `terreno_v_max` para frente e para trás
+            frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
+        v[:, 0] = -tras + (frente + tras) * _u(n, gerador)
+        v[:, 1] = lado * (2.0 * _u(n, gerador) - 1.0)
+        v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
+        v[_u(n, gerador) < k.andar_parado] = 0.0
+        return v
     frente = k.frente_tetos[nivel]
     tras = min(frente, k.tras_lado_teto_max)
     giro = k.giro_tetos[min(nivel, 3)]
     if tipo == "terreno":  # PD-12: o terreno usa o reto do nível, com teto de `terreno_v_max`
         frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
-    v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
-    if tipo == "parado":
-        return v
-    if tipo == "baixo":  # S §19, conflito 5: metade linear, metade giro no lugar
-        lin = _anda(n, k.baixo[0], k.baixo[1], k.baixo[1], gerador)
-        gir = _giro(n, k.baixo[0], k.baixo[1], gerador)
-        metade = _u(n, gerador) < 0.5
-        v[:, :2] = torch.where(metade[:, None], lin, torch.zeros_like(lin))
-        v[:, 2] = torch.where(metade, torch.zeros_like(gir), gir)
-        return v
-    # reto/terreno: só linear; giro_andando/arco: linear + giro; giro_lugar: só giro (linear 0, §11.2)
-    if tipo in ("reto", "terreno", "giro_andando", "arco"):
+    # reto/terreno: só linear; arco: linear + giro; giro_lugar: só giro (linear 0, §11.2)
+    if tipo in ("reto", "terreno", "arco"):
         v[:, :2] = _anda(n, k.piso_velocidade, frente, tras, gerador)
-    if tipo in ("giro_andando", "arco", "giro_lugar"):
+    if tipo in ("arco", "giro_lugar"):
         v[:, 2] = _giro(n, k.piso_velocidade, giro, gerador)
     return v
 
@@ -644,6 +649,8 @@ class TwistV3(UniformVelocityCommand):
         self.seg_carrega = torch.zeros(n, dtype=torch.bool, device=dev)
         self.seg_proj = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ(v·ĉ)dt, Σ(ω·sinal)dt
         self.seg_int = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ|c|dt, Σ|wz|dt
+        self.seg_nota = torch.zeros(n, device=dev)  # 16/11, A1: Σ núcleo da Unitree · dt depois da âncora
+        self.seg_dur = torch.zeros(n, device=dev)  # 16/11, A1: Σ dt depois da âncora
         self.t_ab = torch.zeros(n, device=dev)  # instante da abertura do segmento (base da âncora)
         self.ancora_feita = torch.zeros(n, dtype=torch.bool, device=dev)
         self.seg_visto = self.command_counter.clone()
@@ -661,6 +668,8 @@ class TwistV3(UniformVelocityCommand):
         self.seg_visto[ids] = self.command_counter[ids]
         self.seg_proj[ids] = 0.0
         self.seg_int[ids] = 0.0
+        self.seg_nota[ids] = 0.0
+        self.seg_dur[ids] = 0.0
         self.ancora_feita[ids] = False
         env.v3_incl_max_seg[ids] = 0.0  # G3: a inclinação máxima do segmento começa de zero
 
@@ -685,12 +694,15 @@ class TwistV3(UniformVelocityCommand):
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
             terreno, k,
             deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, env.v3_cur.restricao(), 1))
-        suc = suc & ~falha
-        reg = reg | falha
+        # 16/11, A1: o ANDAR registra a nota média do segmento (núcleo da Unitree, 0 na queda); as tarefas com caixa seguem
+        # com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda
+        nota = self.seg_nota[ids] / self.seg_dur[ids].clamp(min=1e-6)
+        x = torch.where(self.seg_carrega[ids], suc.float(), nota) * (~falha).float()
+        reg = (reg & ((self.seg_dur[ids] > 0) | self.seg_carrega[ids])) | falha
         cel = self.seg_cel[ids]
         for c in cel[reg & (cel >= 0)].unique().tolist():  # uma chamada por célula (registra é escalar)
             m = reg & (cel == c)
-            env.v3_cur.registra(int(c), int(m.sum()), int((m & suc).sum()))
+            env.v3_cur.registra(int(c), int(m.sum()), float(x[m].sum()))
         # eficiência por segmento (diagnóstico do §6.7): Σ(v·ĉ)/Σ|c| do linear, só com comando de pelo menos
         # `pedido_min_segmento` (ruído do denominador)
         ped = self.seg_int[ids, 0]
@@ -703,6 +715,8 @@ class TwistV3(UniformVelocityCommand):
         self.metrics["segmentos"][ids] = n + vale.float()
         self.seg_proj[ids] = 0.0
         self.seg_int[ids] = 0.0
+        self.seg_nota[ids] = 0.0
+        self.seg_dur[ids] = 0.0
 
     def _update_metrics(self) -> None:
         env, k = self._env, self.k
@@ -748,6 +762,13 @@ class TwistV3(UniformVelocityCommand):
         self._hist[:, self._i] = torch.cat([vel, wz[:, None]], dim=1)
         self._i = (self._i + 1) % self._hist.shape[1]
         self.v_media_b = self._hist.mean(dim=1)
+        # 16/11, A1: nota do segmento = média do núcleo cru da Unitree, exp(−erro²/σ²), do linear e do giro, desde a âncora.
+        # O canal sem comando entra com c = 0: ficar parado vale 1, e a deriva cobra pelo erro da média de 0,8 s
+        apos = (self._agora >= env.v3_ancora[:, 3]).float()
+        e_lin = ((cmd[:, :2] - self.v_media_b[:, :2]) ** 2).sum(dim=1)
+        e_ang = (cmd[:, 2] - self.v_media_b[:, 2]) ** 2
+        self.seg_nota += 0.5 * (torch.exp(-e_lin / k.sigma_nota ** 2) + torch.exp(-e_ang / k.sigma_nota ** 2)) * apos * dt
+        self.seg_dur += apos * dt
         # 5. relógio de marcha (16/11, R: a forma do `feet_gait` da Unitree): roda depois das recompensas, então o
         # `passo` do passo t lê a fase do passo t − 1. A fase é o tempo do episódio sobre o período fixo, sem recomeço
         # no limiar nem no empurrão; `on` (‖comando‖ > limiar) só diz se o termo paga.

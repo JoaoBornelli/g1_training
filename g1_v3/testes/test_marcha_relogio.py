@@ -1,6 +1,8 @@
-"""Testes da marcha por relógio (16/11, R: forma do `feet_gait` da Unitree): o termo `passo` e o relógio do `TwistV3`.
+"""Testes da marcha por relógio (16/11, R: forma do `feet_gait` da Unitree): o termo `passo` e o relógio do `TwistV3`; e da
+nota do segmento do ANDAR (16/11, A1), que o mesmo `_update_metrics` acumula.
 Env falso com `types.SimpleNamespace`, como os vizinhos. O `_update_metrics` do fabricante fica fora (mock).
 """
+import math
 import types
 import unittest
 from unittest import mock
@@ -60,7 +62,8 @@ def _twist(cmd, n=1):
     env = types.SimpleNamespace(
         step_dt=DT, v3_fase_marcha=torch.zeros(n), v3_marcha_on=torch.zeros(n, dtype=torch.bool),
         v3_acerto_marcha=torch.ones(n), v3_t_empurrao=torch.full((n,), float("-inf")), v3_ancora=torch.zeros(n, 4),
-        v3_incl_max_seg=torch.zeros(n),
+        v3_incl_max_seg=torch.zeros(n), v3_perdeu=torch.zeros(n, dtype=torch.bool),
+        v3_cur=types.SimpleNamespace(id_celula=lambda tarefa, tipo: 1, restricao=lambda: 1.0, registra=mock.Mock()),
         scene={"box": types.SimpleNamespace(data=types.SimpleNamespace(
             root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(n, 1)))})
     obj = comando.TwistV3.__new__(comando.TwistV3)
@@ -72,9 +75,11 @@ def _twist(cmd, n=1):
     obj._agora, obj.t_ab, obj.ancora_feita = torch.zeros(n), torch.zeros(n), torch.zeros(n, dtype=torch.bool)
     obj.command_counter, obj.seg_visto = torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.long)
     obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
+    obj.seg_nota, obj.seg_dur = torch.zeros(n), torch.zeros(n)
+    obj.seg_cmd, obj.seg_cel, obj.seg_carrega = obj.vel_command_b.clone(), torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.bool)
     obj.soma_erro_marcha, obj.soma_cmd_marcha = torch.zeros(n), torch.zeros(n)
     obj.soma_acerto, obj.passos_on, obj.pose_ult = torch.zeros(n), torch.zeros(n), torch.zeros(n, 3)
-    obj.metrics = {"razao_marcha": torch.zeros(n), "acerto_relogio": torch.zeros(n)}
+    obj.metrics = {k: torch.zeros(n) for k in ("razao_marcha", "acerto_relogio", "eficiencia_min", "eficiencia_media", "segmentos")}
     obj._hist, obj._i, obj.v_media_b = torch.zeros(n, 4, 3), 0, torch.zeros(n, 3)
     return obj
 
@@ -122,6 +127,41 @@ class RelogioDoTwist(unittest.TestCase):
         obj.vel_command_b[:] = 0.0
         _passos_do_relogio(obj, 1)  # sem comando: não entra na média
         self.assertAlmostEqual(float(obj.metrics["acerto_relogio"][0]), 0.5, places=6)
+
+
+class NotaDoSegmento(unittest.TestCase):
+    # 16/11, A1: a nota do ANDAR é a média, depois da âncora, de (exp(−‖c_xy − v̄_xy‖²/σ²) + exp(−(c_z − ω̄_z)²/σ²)) / 2,
+    # com σ = 0,5 e a velocidade média de 0,8 s. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+
+    def _nota(self, cmd, vel, falha=False):
+        # devolve (a nota acumulada pelo `_update_metrics`, o que o `_fecha` registra para o segmento)
+        obj = _twist(cmd)
+        obj.robot.data.root_link_lin_vel_b[:] = torch.tensor(vel[:2] + (0.0,))
+        obj.robot.data.root_link_ang_vel_b[:, 2] = vel[2]
+        _passos_do_relogio(obj, 100)
+        acumulada = float(obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6))
+        obj._fecha(torch.tensor([0]), torch.tensor([falha]))
+        registra = obj._env.v3_cur.registra
+        registra.assert_called_once()
+        celula, n, soma = registra.call_args.args
+        self.assertEqual((celula, n), (0, 1))
+        return acumulada, float(soma)
+
+    def test_rastreio_perfeito_da_nota_1(self):
+        acumulada, registrada = self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.3))
+        self.assertAlmostEqual(acumulada, 1.0, places=5)
+        self.assertAlmostEqual(registrada, 1.0, places=5)
+
+    def test_robo_parado_com_comando_de_0_5_m_s_da_684(self):
+        # linear: exp(−0,25/0,25) = e⁻¹; giro (comando 0, parado): 1 → (e⁻¹ + 1)/2 ≈ 0,684
+        acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0))
+        self.assertAlmostEqual(acumulada, (math.exp(-1) + 1) / 2, places=5)
+        self.assertAlmostEqual(registrada, (math.exp(-1) + 1) / 2, places=5)
+
+    def test_queda_da_nota_0_mesmo_com_rastreio_perfeito_acumulado(self):
+        acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True)
+        self.assertAlmostEqual(acumulada, 1.0, places=5)  # o segmento rastreou até cair
+        self.assertEqual(registrada, 0.0)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 
 Dois balanceadores: o de fatias (ANDAR, B, C; S §11.1) e o de células dentro de cada tarefa (S §11.2),
 sobre a tabela de abertura da §6.3 e as células de PD-12. Os knobs entram como argumento (PD-43).
+16/11: o ANDAR tem uma célula de velocidade (`andar`) e a nota dela é a média do núcleo da Unitree no segmento
+(0 a 1); o portão dela é `portao_andar`, o das outras tarefas é `portao` (sucesso 0 ou 1 por segmento). O nível sobe
+com o portão por `iters_nivel` iterações seguidas, nas 4 tarefas.
 O estado vai ao checkpoint em tipos do Python, no formato de g1_limpo/runner.py:47-61.
 """
 from __future__ import annotations
@@ -13,14 +16,13 @@ import torch
 
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 # ordem de abertura (§6.3): o celula_id é o índice nesta lista
-LAYOUT = (("ANDAR", "reto"), ("ANDAR", "parado"), ("ANDAR", "baixo"), ("ANDAR", "giro_andando"),
-          ("ANDAR", "giro_lugar"), ("ANDAR", "terreno"),
+LAYOUT = (("ANDAR", "andar"), ("ANDAR", "terreno"),
           ("CARREGAR", "reto"), ("CARREGAR", "giro_lugar"), ("CARREGAR", "arco"), ("CARREGAR", "terreno"),
           ("PEGAR", "pegar"), ("BOTAR", "botar"))
 _POS = {lay: i for i, lay in enumerate(LAYOUT)}
-ABERTAS_NO_COMECO = (("ANDAR", "reto"), ("ANDAR", "parado"))  # S §11.1: só o ANDAR abre no começo
+ABERTAS_NO_COMECO = (("ANDAR", "andar"),)  # S §11.1: só o ANDAR abre no começo
 # células de velocidade: o nível sobe quando todas estão abertas e no portão
-VELOCIDADE = {"ANDAR": ("reto", "parado", "baixo", "giro_andando", "giro_lugar"),
+VELOCIDADE = {"ANDAR": ("andar",),
               "CARREGAR": ("reto", "giro_lugar", "arco"), "PEGAR": ("pegar",), "BOTAR": ("botar",)}
 CADEIA = ("ANDAR", "CARREGAR")  # tarefas com cadeia de velocidade e célula de terreno (S §11.2)
 FATIA_DE = {"ANDAR": 0, "PEGAR": 1, "CARREGAR": 1, "BOTAR": 2}  # ANDAR, B, C (PD-14)
@@ -46,10 +48,10 @@ def no_degrau(ini, fim, d, degraus):
 @dataclasses.dataclass
 class Celula:
     tarefa: str        # "ANDAR" | "PEGAR" | "CARREGAR" | "BOTAR"
-    tipo: str          # ANDAR: "reto","parado","baixo","giro_andando","giro_lugar","terreno";
+    tipo: str          # ANDAR: "andar","terreno";
                        # CARREGAR: "reto","giro_lugar","arco","terreno"; PEGAR: "pegar"; BOTAR: "botar"
     aberta: bool
-    s: float           # EMA do sucesso (PD-13)
+    s: float           # EMA da nota da célula (PD-13): sucesso 0 ou 1 por segmento; no ANDAR, a nota do núcleo da Unitree
     n_medidas: int
 
 
@@ -59,8 +61,10 @@ class Curriculo:
     def __init__(self, k_bal, k_niv, k_com, k_ter, k_dr=None):
         self.k = k_bal
         self.k_dr = k_dr  # DR (§6.8); sem ele, `dr()` devolve {}
-        # ⚠ ANDAR e CARREGAR têm 5 níveis de velocidade (`frente_tetos`); PEGAR e BOTAR, as tabelas de Niveis
-        self.max_nivel = {"ANDAR": len(k_com.frente_tetos) - 1, "CARREGAR": len(k_com.frente_tetos) - 1,
+        # ⚠ PEGAR e BOTAR têm os níveis das tabelas de Niveis
+        # 16/11: o ANDAR sobe de `andar_inicio` aos tetos finais em passos de `andar_passo` (10 níveis); o CARREGAR segue a tabela
+        self.max_nivel = {"ANDAR": round((k_com.frente_tetos[-1] - k_com.andar_inicio) / k_com.andar_passo),
+                          "CARREGAR": len(k_com.frente_tetos) - 1,
                           "PEGAR": len(k_niv.pegar) - 1, "BOTAR": len(k_niv.botar) - 1}
         # linha de terreno (PD-20): ANDAR até linhas − 1; CARREGAR até a maior linha_max_carregar (as colunas
         # com cap menor param no env, pelo min da coluna)
@@ -75,17 +79,19 @@ class Curriculo:
         # 13/11, M3: subnível do nível 0 do PEGAR e do BOTAR (laje alta primeiro). O índice do nível não muda com ele
         self._sub = {"PEGAR": 0, "BOTAR": 0}
         self._sub_max = len(k_niv.subnivel_extra) - 1
-        # ⚠ a carência conta desde it = 0 para a 1ª subida (PD-12): o ANDAR conta desde a iteração 0; as tarefas que
-        # abrem depois contam da abertura (`_abre`; 13/11, A8; antes, a primeira medida da célula, com 1 ou 2
-        # episódios, subia o nível sem carência). `_ult` vai no estado
-        self._ult = dict.fromkeys(TAREFAS, 0)
+        # 16/11, A4 e P8: iterações seguidas no portão de cada tarefa (a carência por tempo saiu). Uma tarefa que abre
+        # tarde começa em 0. Vai no estado
+        self._seguidas = dict.fromkeys(TAREFAS, 0)
+        self._portao = {t: k_bal.portao_andar if t == "ANDAR" else k_bal.portao for t in TAREFAS}
         self._degrau = dict.fromkeys(TAREFAS, 0)
         self._cont = dict.fromkeys(TAREFAS, 0)
         # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
-        # "vies": o ANDAR passou no portão (reto e parado); "subida": o PEGAR ou o CARREGAR já subiu de nível
+        # "vies": a célula `andar` do ANDAR passou no portão; "subida": o PEGAR ou o CARREGAR já subiu de nível
         self._dr = {"portao0": False, "vies": False, "subida": False}
         # rampa da fatia (§5.3): o fecho em que cada fatia abriu (None = fechada); o ANDAR abre na iteração 0
         self._it_abertura = [0, None, None]
+        # 16/11, B2: degraus da rampa de cada fatia; sobe com a nota do ANDAR no portão, desce abaixo da histerese
+        self._rampa = [0, 0, 0]
 
     # --- consultas internas ---------------------------------------------------------------------
 
@@ -96,12 +102,12 @@ class Curriculo:
         self.celulas[_POS[(t, tp)]].aberta = True
 
     def _passa(self, i):
-        return self.celulas[i].s >= self.k.portao
+        return self.celulas[i].s >= self._portao[self.celulas[i].tarefa]
 
     def _passa_media(self, ids):
         # 11/11: a média das células no portão. O portão conjuntivo (todas ≥ portão ao mesmo tempo) nunca abriu
-        # em 13 TensorBoards; o refino (`_conta_refino`) já usava a média.
-        return bool(ids) and sum(self.celulas[i].s for i in ids) / len(ids) >= self.k.portao
+        # em 13 TensorBoards; o refino (`_conta_refino`) já usava a média. Os `ids` são de uma tarefa só.
+        return bool(ids) and sum(self.celulas[i].s for i in ids) / len(ids) >= self._portao[self.celulas[ids[0]].tarefa]
 
     def _de(self, t):
         return [i for i, c in enumerate(self.celulas) if c.tarefa == t]
@@ -110,19 +116,22 @@ class Curriculo:
         return [i for i in self._de(t) if self.celulas[i].aberta]
 
     def _deficit(self, ids):
-        return deficit(torch.tensor([self.celulas[i].s for i in ids], dtype=torch.float64), self.k.portao)
+        return deficit(torch.tensor([self.celulas[i].s for i in ids], dtype=torch.float64),
+                       torch.tensor([self._portao[self.celulas[i].tarefa] for i in ids], dtype=torch.float64))
 
     # --- registro e fecho da iteração -----------------------------------------------------------
 
-    def registra(self, celula_id: int, n: int, n_sucesso: int) -> None:
+    def registra(self, celula_id: int, n: int, soma: float) -> None:
+        # `soma`: a soma das notas dos `n` segmentos (0 ou 1 por segmento nas tarefas com sucesso booleano)
         self._acum_n[celula_id] += n
-        self._acum_suc[celula_id] += n_sucesso
+        self._acum_suc[celula_id] += soma
 
     def fecha_iteracao(self) -> None:
         # ⚠ ordem do fecho (os testes fixam): 1) EMA com o que a iteração registrou; 2) contador do refino,
         # ANTES das subidas, para que a célula recém-subida (s velho, n_medidas = 0) não conte no nível novo;
-        # 3) aberturas (B e C, cadeias, terreno); 4) subidas de nível; 5) travas do DR (com o s já atualizado).
-        # EMA (PD-13), uma atualização por iteração: com n > 0, x = n_sucesso/n; se n_medidas = 0, s = x;
+        # 3) aberturas (B e C, cadeias, terreno); 4) rampa das fatias (com a nota do ANDAR do fecho); 5) subidas de nível
+        # (a contagem de iterações seguidas no portão); 6) travas do DR (com o s já atualizado).
+        # EMA (PD-13), uma atualização por iteração: com n > 0, x = soma/n; se n_medidas = 0, s = x;
         # senão s += alfa·(x − s). n = 0 não muda s. s começa em 0.
         # Subir de nível zera n_medidas das células da tarefa: a EMA recomeça na 1ª medida depois da subida.
         self.it += 1
@@ -138,24 +147,32 @@ class Curriculo:
         for f in (1, 2):
             if self._it_abertura[f] is None and any(c.aberta and FATIA_DE[c.tarefa] == f for c in self.celulas):
                 self._it_abertura[f] = self.it
+        nota = self.celulas[_POS[("ANDAR", "andar")]].s
+        for f in (1, 2):
+            d = 0 if self._it_abertura[f] is None else self.it - self._it_abertura[f]
+            if d > 0 and d % self.k.rampa_fatia_its == 0:
+                if nota >= self.k.portao_andar:
+                    self._rampa[f] += 1
+                elif nota < self.k.histerese_rampa:
+                    self._rampa[f] = max(0, self._rampa[f] - 1)
         self._sobe()
         self._trava_dr()
 
     def _trava_dr(self) -> None:
-        # §6.8: as travas do DR só ligam. Desde 11/11 a fatia B abre pela média e o "vies" exige o reto e o parado no portão: o "vies" pode ligar depois da fatia B
+        # §6.8: as travas do DR só ligam. 16/11: a fatia B abre pelo nível do ANDAR e o "vies" liga com a célula `andar`
+        # no portão: ele pode ligar antes ou depois da fatia B
         self._dr["portao0"] = self._dr["portao0"] or self.nivel_passou("PEGAR") >= 0
-        self._dr["vies"] = self._dr["vies"] or (self._passa(_POS[("ANDAR", "reto")]) and
-                                                self._passa(_POS[("ANDAR", "parado")]))
+        self._dr["vies"] = self._dr["vies"] or self._passa(_POS[("ANDAR", "andar")])
         self._dr["subida"] = self._dr["subida"] or self._nivel["PEGAR"] + self._nivel["CARREGAR"] > 0
 
     def _abre(self) -> None:
         # S §11.1 e §11.2 (tabela da §6.3). Um passo por fecho e por cadeia: a célula nova entra com s = 0,
         # então não passa no mesmo fecho e não abre a seguinte.
-        andar_reto, andar_parado = _POS[("ANDAR", "reto")], _POS[("ANDAR", "parado")]
-        if not self._aberta("CARREGAR", "reto") and self._passa_media([andar_reto, andar_parado]):
+        # 16/11, B1: a fatia B abre quando o ANDAR chega ao nível `nivel_abre_b` (a subida sai no `_sobe` do fecho
+        # anterior, então a B abre no fecho seguinte)
+        if not self._aberta("CARREGAR", "reto") and self._nivel["ANDAR"] >= self.k.nivel_abre_b:
             self._abre_cel("CARREGAR", "reto")  # fatia B: o CARREGAR reto e o PEGAR nível 0 abrem juntos
             self._abre_cel("PEGAR", "pegar")
-            self._ult["PEGAR"] = self._ult["CARREGAR"] = self.it  # 13/11, A8: a carência conta da abertura
         for t in CADEIA:
             abertas = self._abertos(t)
             fechadas = [tp for tp in VELOCIDADE[t] if not self._aberta(t, tp)]
@@ -176,7 +193,6 @@ class Curriculo:
         # roda antes de `_sobe` no mesmo fecho.
         if not self._aberta("BOTAR", "botar") and self._passa(_POS[("PEGAR", "pegar")]):
             self._abre_cel("BOTAR", "botar")
-            self._ult["BOTAR"] = self.it  # 13/11, A8
 
     def _conta_refino(self, t: str) -> None:
         # S §11.5 e §6.9: o último nível aberto e a média das células abertas da tarefa ≥ portão por
@@ -195,28 +211,33 @@ class Curriculo:
             self._cont[t] = 0
 
     def _sobe(self) -> None:
-        # PD-12 e S §11.2: nível k+1 quando todas as células de velocidade estão abertas e no portão, e já
-        # passaram iters_min_nivel its desde a última subida da tarefa.
+        # 16/11, A4 e P8: a tarefa sobe depois de `iters_nivel` fechos seguidos no portão; um fecho abaixo zera a contagem.
+        # No nível abaixo do máximo, `ok` é: todas as células de velocidade abertas e a média no portão (PD-12, S §11.2).
+        # No máximo, numa tarefa de cadeia com a linha de terreno abaixo do teto: a célula `terreno` aberta e no portão.
+        # O que sobe: o subnível (13/11, M3: só PEGAR e BOTAR no nível 0), o nível ou a linha de terreno.
         for t in TAREFAS:
-            if self.it - self._ult[t] < self.k.iters_min_nivel:
-                continue
+            ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
+            ter = _POS.get((t, "terreno"))
             if self._nivel[t] < self.max_nivel[t]:
-                ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
-                if all(self.celulas[i].aberta for i in ids) and self._passa_media(ids):
-                    if self.subnivel(t) < self._sub_max:  # 13/11, M3: só PEGAR e BOTAR no nível 0 têm subnível abaixo do último
-                        self._sub[t] += 1
-                    else:
-                        self._nivel[t] += 1
-                    self._ult[t] = self.it
-                    for i in self._de(t):
-                        self.celulas[i].n_medidas = 0
+                ok = all(self.celulas[i].aberta for i in ids) and self._passa_media(ids)
             elif t in CADEIA and self._nivel_ter[t] < self._max_ter[t]:
-                # linha de terreno: a célula `terreno` aberta e no portão; a mesma carência das subidas
-                ter = _POS[(t, "terreno")]
-                if self.celulas[ter].aberta and self._passa(ter):
-                    self._nivel_ter[t] += 1
-                    self._ult[t] = self.it
-                    self.celulas[ter].n_medidas = 0
+                ok = self.celulas[ter].aberta and self._passa(ter)
+            else:
+                ok = False
+            self._seguidas[t] = self._seguidas[t] + 1 if ok else 0
+            if self._seguidas[t] < self.k.iters_nivel:
+                continue
+            self._seguidas[t] = 0
+            if self._nivel[t] == self.max_nivel[t]:
+                self._nivel_ter[t] += 1
+                self.celulas[ter].n_medidas = 0
+                continue
+            if self.subnivel(t) < self._sub_max:
+                self._sub[t] += 1
+            else:
+                self._nivel[t] += 1
+            for i in self._de(t):
+                self.celulas[i].n_medidas = 0
 
     # --- consultas do env -----------------------------------------------------------------------
 
@@ -232,11 +253,14 @@ class Curriculo:
         out[torch.tensor(abertas)] = fracoes(d, self.k.piso_tarefa, self.k.eps)
         for f in (1, 2):
             if self._it_abertura[f] is not None:
-                teto = min(1.0, self.k.rampa_fatia_inicio
-                           + self.k.rampa_fatia_passo * ((self.it - self._it_abertura[f]) // self.k.rampa_fatia_its))
+                teto = min(1.0, self.k.rampa_fatia_inicio + self.k.rampa_fatia_passo * self._rampa[f])
                 excesso = max(0.0, float(out[f]) - teto)
                 out[f] -= excesso
                 out[0] += excesso  # o excedente volta para o ANDAR
+        if len(abertas) > 1 and out[0] < self.k.piso_andar:
+            # 16/11, B3: com a B ou a C aberta, o ANDAR fica com `piso_andar`; a falta sai de B e C na proporção delas
+            out[1:] -= (self.k.piso_andar - out[0]) * out[1:] / out[1:].sum()
+            out[0] = self.k.piso_andar
         return out
 
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]:
@@ -339,10 +363,11 @@ class Curriculo:
             "it": self.it,
             "celulas": [{"aberta": c.aberta, "s": c.s, "n": c.n_medidas} for c in self.celulas],
             "acum": [[n, s] for n, s in zip(self._acum_n, self._acum_suc)],
-            "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "ult": self._ult[t],
+            "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "seguidas": self._seguidas[t],
                             "degrau": self._degrau[t], "cont": self._cont[t], "sub": self.subnivel(t)} for t in TAREFAS},
             "dr": dict(self._dr),
             "it_abertura": list(self._it_abertura),
+            "rampa": list(self._rampa),
         }
 
     def carrega(self, estado: dict) -> None:
@@ -354,8 +379,9 @@ class Curriculo:
         for t in TAREFAS:
             d = estado["tarefas"][t]
             self._nivel[t], self._nivel_ter[t] = d["nivel"], d["nivel_ter"]
-            self._ult[t], self._degrau[t], self._cont[t] = d["ult"], d["degrau"], d["cont"]
+            self._seguidas[t], self._degrau[t], self._cont[t] = d.get("seguidas", 0), d["degrau"], d["cont"]
             if t in self._sub:
                 self._sub[t] = d.get("sub", self._sub_max)  # estado sem a chave: vale o último subnível
         self._dr = dict(estado["dr"])
         self._it_abertura = list(estado.get("it_abertura", [0, None, None]))
+        self._rampa = list(estado.get("rampa", [0, 0, 0]))

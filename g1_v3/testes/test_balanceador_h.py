@@ -81,7 +81,8 @@ class TestDegrauGlobal(unittest.TestCase):
 class TestRestricao(unittest.TestCase):
 
     def test_restricao_e_o_menor_nivel_relativo_entre_as_quatro(self):
-        # 11/11 (§2): restricao = min de nível/max_nivel; 0 enquanto alguma tarefa está no nível 0
+        # 11/11 (§2): restricao = min de nível/max_nivel; 0 enquanto alguma tarefa está no nível 0. 16/11: o ANDAR tem
+        # max_nivel 10, as outras 4
         def com_niveis(niveis):
             cur = novo()
             for t, n in zip(TAREFAS, niveis):
@@ -89,8 +90,9 @@ class TestRestricao(unittest.TestCase):
             return cur
         self.assertEqual(novo().restricao(), 0.0)
         self.assertEqual(com_niveis((1, 1, 1, 0)).restricao(), 0.0)
-        self.assertAlmostEqual(com_niveis((1, 1, 1, 1)).restricao(), 0.25, places=TOL)
-        self.assertAlmostEqual(com_niveis((4, 4, 4, 4)).restricao(), 1.0, places=TOL)
+        self.assertAlmostEqual(com_niveis((1, 1, 1, 1)).restricao(), 0.1, places=TOL)  # o ANDAR: 1/10
+        self.assertAlmostEqual(com_niveis((4, 4, 4, 4)).restricao(), 0.4, places=TOL)  # o ANDAR: 4/10
+        self.assertAlmostEqual(com_niveis((10, 4, 4, 4)).restricao(), 1.0, places=TOL)
 
 
 class TestDrDoRefino(unittest.TestCase):
@@ -116,7 +118,7 @@ class TestDrDoRefino(unittest.TestCase):
         # §12.4 H1: g = 2 com as travas e restricao 1 (níveis no último): atraso_max 2 (abaixo de degrau_atraso_refino = 3)
         cur = com_degraus((2, 2, 2, 2), subida=True, portao0=True)
         for t in cur._nivel:
-            cur._nivel[t] = 4
+            cur._nivel[t] = cur.max_nivel[t]
         self.assertEqual(cur.dr()["atraso_max"], 2)
 
     def test_g3_com_travas(self):

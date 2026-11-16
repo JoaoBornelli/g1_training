@@ -16,7 +16,7 @@ N = 100_000  # amostras: o erro de 25 ± 1% fica em ~7σ
 CPU = "cpu"
 
 
-def amostra(tipo, nivel, tarefa="ANDAR", seed=0):
+def amostra(tipo, nivel, tarefa="CARREGAR", seed=0):
     g = torch.Generator().manual_seed(seed)
     return comando.sorteia_velocidade(tipo, nivel, tarefa, N, g, K)
 
@@ -49,7 +49,7 @@ def segmento(cmd, iproj, icmd, dpos, drum, tf, ta, perdeu=False, carregar=False)
 class SorteiaVelocidadeTest(unittest.TestCase):
 
     def test_reto_nivel_2_modulos_e_quatro_direcoes(self):
-        # nível 2 → frente_tetos[2] = 1,0 para frente (11/11: era 0,75), e min(1,0; 1,0) = 1,0 para trás e de lado (S §11.2)
+        # CARREGAR: nível 2 → frente_tetos[2] = 1,0 para frente (11/11: era 0,75), e min(1,0; 1,0) = 1,0 para trás e de lado (S §11.2)
         v = amostra("reto", 2)
         self.assertTrue(bool((v[:, 2] == 0).all()))  # reto não gira
         modulo = v[:, :2].norm(dim=1)
@@ -66,14 +66,41 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         v = amostra("giro_lugar", 2)
         self.assertTrue(bool((v[:, :2] == 0).all()))
 
-    def test_baixo_fica_entre_0_05_e_0_25(self):
-        # metade linear (U[0,05; 0,25] em 4 direções), metade giro no lugar (±U[0,05; 0,25]) (D3)
-        v = amostra("baixo", 0)
-        lin = v[:, :2].norm(dim=1)
-        w = v[:, 2].abs()
-        so_linear = (lin > 0) & (w == 0) & (lin >= 0.05 - 1e-6) & (lin <= 0.25 + 1e-6)
-        so_giro = (lin == 0) & (w >= 0.05 - 1e-6) & (w <= 0.25 + 1e-6)
-        self.assertTrue(bool((so_linear | so_giro).all()))
+    def test_andar_nivel_0_fica_em_0_5_com_10_por_cento_parado(self):
+        # 16/11, A3: vx, vy e wz uniformes e independentes em ±0,5 (o nível 0 do ANDAR começa em 0,5), 10 % zerados
+        v = amostra("andar", 0, "ANDAR")
+        self.assertLessEqual(float(v[:, 0].abs().max()), K.andar_inicio + 1e-6)
+        self.assertLessEqual(float(v[:, 1].abs().max()), K.andar_inicio + 1e-6)
+        self.assertLessEqual(float(v[:, 2].abs().max()), K.andar_giro_inicio + 1e-6)
+        self.assertGreater(float(v[:, 0].max()), 0.49)  # a faixa é usada até o teto, nos dois sentidos
+        self.assertLess(float(v[:, 0].min()), -0.49)
+        parado = (v == 0).all(dim=1).float().mean()
+        self.assertAlmostEqual(float(parado), K.andar_parado, delta=0.01)
+        # independentes: um canal ligado não liga os outros; o giro anda junto com o linear
+        ativo = ~(v == 0).all(dim=1)
+        self.assertGreater(float(((v[:, 2] != 0) & (v[:, :2].norm(dim=1) > 0.1))[ativo].float().mean()), 0.5)
+
+    def test_andar_nivel_10_vai_aos_tetos_do_dono(self):
+        # frente 1,5, trás e lado 1,0, giro 1,0 (16/11, A2); vx desce só até −1,0
+        v = amostra("andar", 10, "ANDAR")
+        self.assertAlmostEqual(float(v[:, 0].max()), 1.5, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 0].min()), -1.0, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 1].abs().max()), 1.0, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 2].abs().max()), 1.0, delta=0.01)
+        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+
+    def test_andar_terreno_limita_vx_a_terreno_v_max(self):
+        v = amostra("terreno", 10, "ANDAR")
+        self.assertLessEqual(float(v[:, 0].max()), K.terreno_v_max + 1e-6)
+        self.assertGreater(float(v[:, 0].max()), K.terreno_v_max - 0.01)
+        self.assertGreaterEqual(float(v[:, 0].min()), -K.terreno_v_max - 1e-6)
+        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+
+    def test_andar_sobe_0_1_por_nivel(self):
+        # cada nível soma `andar_passo` ao teto: no nível 3, frente 0,8 e giro 0,8
+        v = amostra("andar", 3, "ANDAR")
+        self.assertAlmostEqual(float(v[:, 0].max()), 0.8, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 2].abs().max()), 0.8, delta=0.01)
 
 
 class CadeiaDeTrechosTest(unittest.TestCase):

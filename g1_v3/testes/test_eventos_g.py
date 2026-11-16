@@ -202,7 +202,7 @@ class BasePegaComRumo(unittest.TestCase):
         self.assertLessEqual(abs(yaw), 0.2 + TOL)
 
     def test_subnivel_0_do_pegar_tira_o_jitter_do_recuo(self):
-        # 13/11, M3: com a laje de 0,75 m (subnível 0) o recuo é exato, sem a faixa_recuo
+        # 13/11, M3: com a laje de 0,65 m (subnível 0; 16/11: sai a de 0,75 m) o recuo é exato, sem a faixa_recuo
         n = 200
         env = env_falso([eventos.B] * n, recuo=0.6)
         env.v3_cur.subnivel = lambda tarefa: 0

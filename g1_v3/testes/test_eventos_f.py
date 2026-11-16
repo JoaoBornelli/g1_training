@@ -58,15 +58,13 @@ class SorteioDestino(unittest.TestCase):
         self.assertGreater(topo.max().item(), 0.9 * NIV.botar[0])
 
     def test_subniveis_do_botar_fixam_o_topo_e_o_teto_do_longe(self):
-        # 13/11, M3: subnível 0 -> longe 0 e topo 0,75 fixo; subnível 1 -> longe até 0,10 e topo 0,65; o último é o de hoje.
-        theta, y, longe, topo = sorteia(0, subnivel=0)
-        self.assertEqual(longe.abs().max().item(), 0.0)
-        self.assertTrue(torch.allclose(topo, torch.full_like(topo, NIV.botar[0] + 0.20)))
-        self.assertAlmostEqual(topo[0].item(), 0.75, places=9)
-        _, _, longe, topo = sorteia(0, subnivel=1)
+        # 13/11, M3; 16/11 (sai a laje de 0,75 m): subnível 0 -> longe até 0,10 e topo 0,65 fixo; o último (1) é o de hoje.
+        _, _, longe, topo = sorteia(0, subnivel=0)
         self.assertLessEqual(longe.max().item(), 0.10 + 1e-9)
         self.assertGreater(longe.max().item(), 0.09)
-        self.assertTrue(torch.allclose(topo, torch.full_like(topo, 0.65)))
+        self.assertTrue(torch.allclose(topo, torch.full_like(topo, NIV.botar[0] + 0.10)))
+        self.assertAlmostEqual(topo[0].item(), 0.65, places=9)
+        self.assertEqual(ULTIMO, 1)
         _, _, longe, topo = sorteia(0, subnivel=ULTIMO)
         self.assertGreater(longe.max().item(), 0.18)
         self.assertLessEqual(topo.max().item(), NIV.botar[0] + 1e-6)

@@ -1,10 +1,11 @@
 """Testes de g1_v3/balanceador.py (B0 do plano, §6.3; S §11.1, §11.2; PD-12, PD-13). Escritos antes do código.
 
-Convenções (§6.3): `celula_id` é o índice em `Curriculo.celulas`, na ordem da B3 (ANDAR 0..5, CARREGAR 6..9,
-PEGAR 10, BOTAR 11). A EMA: n > 0 → x = n_sucesso/n; com n_medidas = 0, s = x; senão s += α(x − s); s começa
-em 0. `registra` com n = 10 e n_sucesso = 10 é sucesso total na iteração; `fecha` chama `fecha_iteracao`.
-A carência de subida (`iters_min_nivel`) é 50 its; nos casos de fatia e de célula ela é desligada com
-`dataclasses.replace`, para o teste não depender dela.
+Convenções (§6.3): `celula_id` é o índice em `Curriculo.celulas`, na ordem da B3 (ANDAR 0..1, CARREGAR 2..5,
+PEGAR 6, BOTAR 7). A EMA: n > 0 → x = soma/n; com n_medidas = 0, s = x; senão s += α(x − s); s começa
+em 0. `registra` com n = 10 e soma = 10 é sucesso total na iteração; `fecha` chama `fecha_iteracao`.
+16/11: a tarefa sobe depois de `iters_nivel` (50) fechos seguidos no portão; nos casos de fatia e de célula a subida
+é desligada com `dataclasses.replace`, para o teste não depender dela. A fatia B abre com o ANDAR no nível
+`nivel_abre_b` (5): `novo(andar=NIVEL_B)` põe o ANDAR nesse nível pelo estado.
 """
 import dataclasses
 import math
@@ -20,20 +21,23 @@ N = ATIVO.niveis
 COM = ATIVO.comando
 TER = ATIVO.terreno
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
-PORTAO = B.portao  # 0,75 (S §11.2)
+PORTAO = B.portao  # 0,75 (S §11.2): as tarefas fora do ANDAR
+PORTAO_ANDAR = B.portao_andar  # 0,80 (16/11, A4)
 ALFA = B.alfa      # 0,05 (PD-13)
-SEM_CARENCIA = dataclasses.replace(B, iters_min_nivel=10 ** 6)
+NIVEL_B = B.nivel_abre_b  # 5 (16/11, B1)
+SEM_CARENCIA = dataclasses.replace(B, iters_nivel=10 ** 6)
 
 
-def novo(k_bal=B, sub_final=True):
+def novo(k_bal=B, sub_final=True, andar=0):
     # 13/11, M3: por padrão o PEGAR e o BOTAR já estão no último subnível (o nível 0 de antes); os testes do
-    # subnível passam `sub_final=False`
+    # subnível passam `sub_final=False`. 16/11: `andar` é o nível do ANDAR; com `NIVEL_B` a fatia B abre no 1º fecho
     cur = balanceador.Curriculo(k_bal, N, COM, TER)
+    est = cur.estado()
     if sub_final:
-        est = cur.estado()
         for t in ("PEGAR", "BOTAR"):
             est["tarefas"][t]["sub"] = len(N.subnivel_extra) - 1
-        cur.carrega(est)
+    est["tarefas"]["ANDAR"]["nivel"] = andar
+    cur.carrega(est)
     return cur
 
 
@@ -45,11 +49,12 @@ def cid(cur, tarefa, tipo):
     raise AssertionError(f"célula {tarefa}/{tipo} não existe")
 
 
-def fecha(cur, falha=()):
-    # sucesso total em toda célula aberta; as de `falha` registram sucesso 0 (n = 10)
+def fecha(cur, falha=(), notas=None):
+    # sucesso total em toda célula aberta; as de `falha` registram 0 (n = 10); `notas` dá a nota (0 a 1) por id de célula
+    notas = notas or {}
     for i, c in enumerate(cur.celulas):
         if c.aberta:
-            cur.registra(i, 10, 0 if i in falha else 10)
+            cur.registra(i, 10, 10 * notas.get(i, 0.0 if i in falha else 1.0))
     cur.fecha_iteracao()
 
 
@@ -62,39 +67,30 @@ def so_tipos_python(v):
     return isinstance(v, (int, float, bool, str, type(None)))
 
 
-class TestCarenciaDaTarefaNova(unittest.TestCase):
+class TestContagemDaTarefaNova(unittest.TestCase):
 
-    def test_pegar_conta_a_carencia_da_abertura_da_fatia_b(self):
-        # 13/11, A8: a fatia B abre na it 61 (> iters_min_nivel); o PEGAR, com sucesso total desde a 1ª medida, só sobe
-        # de nível na it 61 + iters_min_nivel. Antes, `_ult` valia 0 e a 1ª medida (it 62) subia o nível sem carência.
-        cur = novo()
-        cur.it = B.iters_min_nivel + 10
-        for tp in ("reto", "parado"):
-            cid_ = cid(cur, "ANDAR", tp)
-            cur.celulas[cid_].s, cur.celulas[cid_].n_medidas = 1.0, 1
-        cur.fecha_iteracao()
-        abriu = cur.it
-        self.assertGreater(abriu, B.iters_min_nivel)
-        self.assertTrue(cur.celulas[cid(cur, "PEGAR", "pegar")].aberta)
-        self.assertEqual((cur._ult["PEGAR"], cur._ult["CARREGAR"]), (abriu, abriu))
+    def test_pegar_conta_as_50_seguidas_da_abertura_da_fatia_b(self):
+        # 16/11, A4 (cobre o A8 de 13/11): a fatia B abre no 1º fecho com o ANDAR no nível 5; o PEGAR, com sucesso total
+        # desde a 1ª medida, só sobe depois de 50 fechos seguidos medidos. A contagem da tarefa nova começa em 0.
+        cur = novo(andar=NIVEL_B)
         pegar = cid(cur, "PEGAR", "pegar")
-        while cur.it < abriu + B.iters_min_nivel - 1:
-            cur.registra(pegar, 10, 10)
-            cur.fecha_iteracao()
-            self.assertEqual(cur.nivel("PEGAR"), 0, f"it {cur.it}")
-        cur.registra(pegar, 10, 10)
-        cur.fecha_iteracao()
+        fecha(cur)
+        self.assertTrue(cur.celulas[pegar].aberta)
+        self.assertEqual(cur._seguidas["PEGAR"], 0)
+        for k in range(2, 2 + B.iters_nivel - 1):
+            fecha(cur)
+            self.assertEqual(cur.nivel("PEGAR"), 0, f"fecho {k}")
+        fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)
 
-    def test_botar_conta_a_carencia_da_abertura_da_fatia_c(self):
-        # 13/11, A8: a fatia C abre quando o PEGAR passa no portão; `_ult` do BOTAR vale essa iteração
-        cur = novo()
-        cur.it = B.iters_min_nivel + 10
+    def test_botar_abre_com_o_pegar_no_portao_e_conta_da_abertura(self):
+        # a fatia C abre quando o PEGAR passa no portão; a contagem do BOTAR começa em 0 na abertura
+        cur = novo(andar=NIVEL_B)
         cur._abre_cel("PEGAR", "pegar")
         cur.celulas[cid(cur, "PEGAR", "pegar")].s = 1.0
         cur.fecha_iteracao()
         self.assertTrue(cur.celulas[cid(cur, "BOTAR", "botar")].aberta)
-        self.assertEqual(cur._ult["BOTAR"], cur.it)
+        self.assertEqual(cur._seguidas["BOTAR"], 0)
 
 
 class TestFracoes(unittest.TestCase):
@@ -134,65 +130,95 @@ class TestAberturaInicial(unittest.TestCase):
 
 class TestAberturaDeFatiaB(unittest.TestCase):
 
-    def test_B_so_com_reto_e_parado_no_portao_e_baixo_junto(self):
-        # S §11.1 e 11/11 (§5.1): a B abre quando a média de reto e parado do ANDAR passa no portão (0,75). A
-        # célula seguinte (baixo) abre pela média das abertas do ANDAR: o mesmo momento aqui.
-        cur = novo(SEM_CARENCIA)
-        reto, parado = cid(cur, "ANDAR", "reto"), cid(cur, "ANDAR", "parado")
-        baixo = cid(cur, "ANDAR", "baixo")
-        # fecha 1: reto passa (s = 1 na primeira medida), parado não (s = 0)
-        fecha(cur, falha={parado})
-        self.assertGreaterEqual(cur.celulas[reto].s, PORTAO)
-        self.assertLess(cur.celulas[parado].s, PORTAO)
+    def test_B_abre_no_fecho_seguinte_ao_nivel_5_do_andar(self):
+        # 16/11, B1: a B abre quando o ANDAR chega ao nível `nivel_abre_b`, no fecho seguinte ao da subida. Com a nota
+        # do ANDAR em 0,85 em todo fecho o nível sobe no fecho 50·k; o nível 5 sai no fecho 250 e a B abre no 251.
+        cur = novo()
+        andar = cid(cur, "ANDAR", "andar")
+        for k in range(1, 252):
+            fecha(cur, notas={andar: 0.85})
+            self.assertEqual(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta, k >= 251, f"fecho {k}")
+            self.assertEqual(cur.celulas[cid(cur, "PEGAR", "pegar")].aberta, k >= 251, f"fecho {k}")
+        self.assertEqual(cur.nivel("ANDAR"), NIVEL_B)
+
+    def test_media_alta_sem_o_nivel_nao_abre_a_fatia_b(self):
+        # a B não abre pelo `s` do ANDAR: com a nota em 1,0 e o nível abaixo de 5, a CARREGAR reto fica fechada
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B - 1)
+        for _ in range(20):
+            fecha(cur)
+        self.assertFalse(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta)
         self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
-        self.assertFalse(cur.celulas[baixo].aberta)
-        primeiro = None
-        for k in range(2, 80):
-            fecha(cur)
-            passam = (cur.celulas[reto].s + cur.celulas[parado].s) / 2 >= PORTAO
-            aberta_b = cur.fracoes_fatias()[1].item() > 0
-            self.assertEqual(aberta_b, passam, f"fecha {k}: a B abriu fora do critério")
-            self.assertEqual(cur.celulas[baixo].aberta, passam, f"fecha {k}: baixo fora do critério")
-            if aberta_b:
-                primeiro = k
-                break
-        # parado sobe 1 − 0,95^j depois da 1ª medida (j = fechas depois da 1ª). A média (1 + parado) / 2 ≥ 0,75
-        # pede parado ≥ 0,5: j = 14, então a B abre no 15º fecho.
-        esperado = 1 + math.ceil(math.log(1 - (2 * PORTAO - 1)) / math.log(1 - ALFA))
-        self.assertEqual(primeiro, esperado)
 
-    def test_media_das_celulas_abre_a_fatia_b(self):
-        # 11/11 (§5.1): a B abre pela média de reto e parado no portão. Com reto 0,60 e parado 0,95, a média
-        # é 0,775 e abre; com parado 0,80, a média é 0,70 e não abre.
-        for parado, abre in ((0.95, True), (0.80, False)):
-            with self.subTest(parado=parado):
-                cur = novo(SEM_CARENCIA)
-                cur.celulas[cid(cur, "ANDAR", "reto")].s = 0.60
-                cur.celulas[cid(cur, "ANDAR", "parado")].s = parado
-                cur.fecha_iteracao()
-                self.assertEqual(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta, abre)
+    def test_rampa_sobe_0_02_a_cada_12_fechos_com_a_nota_do_andar_no_portao(self):
+        # 16/11, B2: a B entra com teto 0,05; com a B em s = 0 (déficit alto, o teto corta) e a nota do ANDAR em 0,85,
+        # o teto sobe 0,02 a cada `rampa_fatia_its` fechos, contados da abertura. A soma continua 1.
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
+        andar = cid(cur, "ANDAR", "andar")
+        notas = {andar: 0.85, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
+        fecha(cur, notas=notas)  # o fecho 1 abre a B
+        abriu = cur.it
+        for _ in range(60):
+            fecha(cur, notas=notas)
+            degraus = (cur.it - abriu) // B.rampa_fatia_its
+            f = cur.fracoes_fatias()
+            self.assertAlmostEqual(f[1].item(), B.rampa_fatia_inicio + B.rampa_fatia_passo * degraus, msg=f"fecho {cur.it}")
+            self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
 
-    def test_rampa_da_fatia_b_entra_com_teto_e_sobe_por_degrau(self):
-        # 11/11 (§5.3): a B entra com fração ≤ rampa_fatia_inicio (0,05) e o teto sobe rampa_fatia_passo (0,02) a
-        # cada rampa_fatia_its (12) fechos. Sem medida, o s das células nascidas em 0 fica em 0: o déficit da B
-        # é 0,75 e a fração sem a rampa passa de 0,5. O excedente vai para o ANDAR, então a soma continua 1.
-        cur = novo(SEM_CARENCIA)
-        while cur.fracoes_fatias()[1].item() == 0:
-            fecha(cur)
-        self.assertAlmostEqual(cur.fracoes_fatias()[1].item(), 0.05)
-        self.assertAlmostEqual(cur.fracoes_fatias()[0].item(), 0.95)
-        self.assertAlmostEqual(cur.fracoes_fatias()[2].item(), 0.0)
-        self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
-        for _ in range(B.rampa_fatia_its):
-            cur.fecha_iteracao()
-        self.assertAlmostEqual(cur.fracoes_fatias()[1].item(), 0.07)
-        self.assertAlmostEqual(cur.fracoes_fatias()[0].item(), 0.93)
-        self.assertAlmostEqual(cur.fracoes_fatias().sum().item(), 1.0, delta=1e-9)
+    def test_rampa_desce_com_a_nota_do_andar_abaixo_de_0_70(self):
+        # 16/11, B2 e B3: com a nota do ANDAR em 0,6 o teto desce 0,02 a cada 12 fechos (histerese: entre 0,7 e 0,8 nada
+        # muda); a fração do ANDAR nunca fica abaixo de `piso_andar`
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
+        andar = cid(cur, "ANDAR", "andar")
+        b_zero = {cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
+        fecha(cur, notas={andar: 0.85, **b_zero})
+        for _ in range(3 * B.rampa_fatia_its):
+            fecha(cur, notas={andar: 0.85, **b_zero})
+        pico = cur.fracoes_fatias()[1].item()
+        self.assertAlmostEqual(pico, B.rampa_fatia_inicio + 3 * B.rampa_fatia_passo)
+        anterior = pico
+        for _ in range(8 * B.rampa_fatia_its):
+            fecha(cur, notas={andar: 0.6, **b_zero})
+            f = cur.fracoes_fatias()
+            self.assertLessEqual(f[1].item(), anterior + 1e-9, f"fecho {cur.it}: o teto subiu")
+            self.assertGreaterEqual(f[0].item(), B.piso_andar - 1e-9)
+            self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
+            anterior = f[1].item()
+        self.assertAlmostEqual(anterior, B.rampa_fatia_inicio)  # voltou ao piso da rampa (degrau 0)
+
+    def test_entre_0_70_e_0_80_o_teto_nao_muda(self):
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
+        andar = cid(cur, "ANDAR", "andar")
+        notas = {andar: 0.75, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
+        for _ in range(60):
+            fecha(cur, notas=notas)
+        self.assertEqual(cur._rampa, [0, 0, 0])
+
+    def test_piso_do_andar_tira_a_falta_da_B_e_da_C_na_proporcao(self):
+        # 16/11, B3: com a rampa solta (degrau 40: teto 0,85), o déficit dá à B 0,785 e deixa o ANDAR em 0,215. O piso
+        # põe o ANDAR em 0,30 e a falta sai da B. Com a C aberta, sai de B e C na proporção delas.
+        for abre_c in (False, True):
+            with self.subTest(abre_c=abre_c):
+                cur = novo()
+                est = cur.estado()
+                abertas = [("ANDAR", "andar"), ("CARREGAR", "reto"), ("PEGAR", "pegar")] + ([("BOTAR", "botar")] if abre_c else [])
+                for tarefa, tipo in abertas:
+                    est["celulas"][cid(cur, tarefa, tipo)]["aberta"] = True
+                est["celulas"][cid(cur, "ANDAR", "andar")]["s"] = 0.85
+                est["it_abertura"] = [0, 1, 1 if abre_c else None]
+                est["rampa"] = [0, 40, 40]
+                cur.carrega(est)
+                f = cur.fracoes_fatias()
+                self.assertAlmostEqual(f[0].item(), B.piso_andar, delta=1e-9)
+                self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
+                if abre_c:
+                    self.assertAlmostEqual(f[1].item(), f[2].item(), delta=1e-9)
+                else:
+                    self.assertAlmostEqual(f[1].item(), 1.0 - B.piso_andar, delta=1e-9)
 
     def test_fracao_da_fatia_c_entra_com_teto_no_fecho_da_abertura(self):
         # 11/11 (§5.3): a C entra com fração 0,05, o mesmo teto da B. A 1ª medida do PEGAR (s = 1, célula
         # nascida em 0 e medida no fecho seguinte) abre a C; com 3 fatias abertas, o piso dá 0,20 e o teto corta.
-        cur = novo(SEM_CARENCIA)
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
         while cur.fracoes_fatias()[1].item() == 0:  # abre a B
             fecha(cur)
         fecha(cur)
@@ -205,7 +231,7 @@ class TestAberturaDeFatiaC(unittest.TestCase):
     def test_C_so_com_pegar_nivel_0_no_portao(self):
         # §11.1 e §11.2: a C abre quando o PEGAR nível 0 passa no portão (0,75). Sem carência, para o
         # nível não subir e mudar o critério no meio do caminho.
-        cur = novo(SEM_CARENCIA)
+        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
         pegar = cid(cur, "PEGAR", "pegar")
         while cur.fracoes_fatias()[1].item() == 0:  # abre a B com sucesso total
             fecha(cur)
@@ -230,9 +256,9 @@ class TestAberturaDeFatiaC(unittest.TestCase):
 class TestSubidaDeNivel(unittest.TestCase):
 
     def test_primeira_subida_so_depois_de_50_its(self):
-        # PD-12: "mínimo de 50 its entre subidas": a 1ª subida do PEGAR conta desde a abertura da fatia B (fecha 1;
-        # 13/11, A8; o ANDAR conta desde it = 0).
-        cur = novo()
+        # 16/11, A4: 50 fechos seguidos no portão. O PEGAR conta desde a abertura da fatia B (fecho 1) e é medido
+        # a partir do fecho 2: a subida sai no fecho 51.
+        cur = novo(andar=NIVEL_B)
         for k in range(1, 51):
             fecha(cur)
             self.assertEqual(cur.nivel("PEGAR"), 0, f"subiu cedo, fecha {k}")
@@ -241,9 +267,9 @@ class TestSubidaDeNivel(unittest.TestCase):
 
     def test_EMA_recomeca_na_primeira_medida_depois_da_subida(self):
         # PD-12/§6.3: depois da subida, a 1ª medida dá s = x (não o EMA do s antigo).
-        cur = novo()
+        cur = novo(andar=NIVEL_B)
         pegar = cid(cur, "PEGAR", "pegar")
-        for _ in range(51):  # a fatia B abre na fecha 1 (13/11, A8); a subida sai na 51
+        for _ in range(51):  # a fatia B abre na fecha 1; a subida sai na 51
             fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)
         fecha(cur, falha={pegar})  # 1ª medida depois da subida: x = 0
@@ -252,25 +278,91 @@ class TestSubidaDeNivel(unittest.TestCase):
         self.assertAlmostEqual(cur.celulas[pegar].s, ALFA, places=9)
 
     def test_proxima_subida_espera_mais_50_its(self):
-        # Carência de 50 its entre subidas: nível = min((it − 1) // 50, 4) com sucesso total (a fatia B abre na it 1).
-        cur = novo()
+        # 50 fechos seguidos entre subidas: nível = min((it − 1) // 50, 4) com sucesso total (a fatia B abre na it 1).
+        cur = novo(andar=NIVEL_B)
         for k in range(1, 202):
             fecha(cur)
             self.assertEqual(cur.nivel("PEGAR"), min((k - 1) // 50, 4), f"fecha {k}")
 
     def test_nivel_sobe_pela_media_das_velocidades_mesmo_com_uma_em_0_70(self):
-        # 11/11 (§5.1): a subida exige a média das células de velocidade no portão, não todas: (0,70 + 4·0,80) / 5 = 0,78
-        cur = novo(dataclasses.replace(B, iters_min_nivel=0))
-        for tp in balanceador.VELOCIDADE["ANDAR"]:
-            c = cur.celulas[cid(cur, "ANDAR", tp)]
+        # 11/11 (§5.1): a subida exige a média das células de velocidade no portão, não todas: (0,70 + 2·0,80) / 3 = 0,767
+        # no CARREGAR (o ANDAR tem uma célula de velocidade só)
+        cur = novo(dataclasses.replace(B, iters_nivel=1))
+        for tp in balanceador.VELOCIDADE["CARREGAR"]:
+            c = cur.celulas[cid(cur, "CARREGAR", tp)]
             c.aberta, c.s = True, 0.80
-        cur.celulas[cid(cur, "ANDAR", "reto")].s = 0.70
+        cur.celulas[cid(cur, "CARREGAR", "reto")].s = 0.70
         cur.fecha_iteracao()
-        self.assertEqual(cur.nivel("ANDAR"), 1)
+        self.assertEqual(cur.nivel("CARREGAR"), 1)
+
+    def test_estatua_com_nota_abaixo_do_portao_do_andar_nao_sobe_o_nivel_e_a_B_fica_fechada(self):
+        # 16/11, A1 e A4: a estátua com faixa de 0,5 tira 0,69 no núcleo da Unitree, abaixo do portão 0,80. O nível do
+        # ANDAR fica em 0 por 3000 fechos e a B fica fechada. Com 0,79 (acima do portão 0,75 das outras tarefas) também.
+        for nota in (0.69, 0.79):
+            with self.subTest(nota=nota):
+                cur = novo()
+                andar = cid(cur, "ANDAR", "andar")
+                for _ in range(3000):
+                    fecha(cur, notas={andar: nota})
+                self.assertEqual(cur.nivel("ANDAR"), 0)
+                self.assertEqual(cur._seguidas["ANDAR"], 0)
+                self.assertFalse(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta)
+                self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
+
+    def test_nota_0_85_sobe_o_nivel_a_cada_50_fechos_ate_10(self):
+        # 16/11, A4: a cada 50 fechos seguidos com s ≥ 0,8 o nível sobe 1, até o máximo (10); depois fica
+        cur = novo()
+        andar = cid(cur, "ANDAR", "andar")
+        self.assertEqual(cur.max_nivel["ANDAR"], 10)
+        for k in range(1, 701):
+            fecha(cur, notas={andar: 0.85})
+            self.assertEqual(cur.nivel("ANDAR"), min(k // 50, 10), f"fecho {k}")
+
+    def test_contagem_zera_com_uma_queda_e_conta_da_volta(self):
+        # 16/11, A4: nota 0,85 por 40 fechos, 0,0 por 2, 0,85 depois. No fecho 50 o nível não sobe; ele sobe só
+        # depois de 50 fechos seguidos com s ≥ 0,8, contados da volta (a EMA leva alguns fechos para voltar a 0,8)
+        cur = novo()
+        andar = cid(cur, "ANDAR", "andar")
+        for _ in range(40):
+            fecha(cur, notas={andar: 0.85})
+        for _ in range(2):
+            fecha(cur, notas={andar: 0.0})
+        self.assertLess(cur.celulas[andar].s, PORTAO_ANDAR)
+        seguidas = 0
+        while cur.nivel("ANDAR") == 0:
+            fecha(cur, notas={andar: 0.85})
+            seguidas = seguidas + 1 if cur.celulas[andar].s >= PORTAO_ANDAR else 0
+            self.assertLess(cur.it, 200, "o nível não subiu")
+            if cur.it == 50:
+                self.assertEqual(cur.nivel("ANDAR"), 0)
+        self.assertEqual(seguidas, B.iters_nivel)
+        self.assertGreater(cur.it, 50 + 1)
+
+    def test_pegar_sobe_pela_mesma_regra_com_portao_0_75_o_subnivel_e_depois_o_nivel(self):
+        # 16/11, P8: o PEGAR com s = 0,76 (≥ 0,75, abaixo de 0,80) por 50 fechos seguidos sobe o subnível (0 → 1) e,
+        # depois de mais 50, o nível
+        cur = novo(sub_final=False, andar=NIVEL_B)
+        pegar = cid(cur, "PEGAR", "pegar")
+        fecha(cur)  # o fecho 1 abre a B
+        for k in range(2, 51):
+            cur.registra(pegar, 100, 76)
+            cur.fecha_iteracao()
+            self.assertEqual(cur.subnivel("PEGAR"), 0, f"fecho {k}")
+        cur.registra(pegar, 100, 76)
+        cur.fecha_iteracao()  # fecho 51: 50 fechos medidos
+        self.assertEqual((cur.subnivel("PEGAR"), cur.nivel("PEGAR")), (1, 0))
+        for k in range(52, 101):
+            cur.registra(pegar, 100, 76)
+            cur.fecha_iteracao()
+            self.assertEqual(cur.nivel("PEGAR"), 0, f"fecho {k}")
+        cur.registra(pegar, 100, 76)
+        cur.fecha_iteracao()  # fecho 101
+        self.assertEqual(cur.nivel("PEGAR"), 1)
 
 
 class TestSubnivel(unittest.TestCase):
-    # 13/11, M3: o nível 0 do PEGAR e do BOTAR tem 3 subníveis; o índice do nível só sobe depois do último
+    # 13/11, M3; 16/11: o nível 0 do PEGAR e do BOTAR tem 2 subníveis (sai a laje de 0,75 m); o índice do nível só sobe
+    # depois do último
 
     def sobe_ate(self, cur, tarefa, sub, limite=400):
         # fecha com sucesso total até o subnível da tarefa valer `sub`; devolve o it da subida
@@ -280,52 +372,47 @@ class TestSubnivel(unittest.TestCase):
                 return cur.it
         raise AssertionError("o subnível não subiu")
 
-    def test_pegar_sobe_0_1_2_com_carencia_e_o_nivel_fica_0(self):
-        cur = novo(sub_final=False)
+    def test_pegar_sobe_0_1_com_50_seguidas_e_o_nivel_fica_0(self):
+        cur = novo(sub_final=False, andar=NIVEL_B)
         self.assertEqual(cur.subnivel("PEGAR"), 0)
         self.assertEqual(cur.nivel_passou("PEGAR"), -1)
-        it1 = self.sobe_ate(cur, "PEGAR", 1)
-        self.assertEqual(cur.nivel("PEGAR"), 0)
-        self.assertEqual(cur.nivel_passou("PEGAR"), -1)
-        self.assertEqual(cur._ult["PEGAR"], it1)  # a subida grava `_ult`
-        self.assertEqual(cur.celulas[cid(cur, "PEGAR", "pegar")].n_medidas, 0)  # e zera n_medidas
-        it2 = self.sobe_ate(cur, "PEGAR", 2)
-        self.assertEqual(it2 - it1, B.iters_min_nivel)  # a carência entre as subidas
+        self.sobe_ate(cur, "PEGAR", 1)
         self.assertEqual(cur.nivel("PEGAR"), 0)
         # C1: no fecho da subida o `s` ainda é o do subnível anterior (no portão), mas sem medida nova o nível 0 não
         # passou e a trava do DR (atrito, `com_caixa`) fica desligada
         self.assertEqual(cur.nivel_passou("PEGAR"), -1)
         self.assertFalse(cur._dr["portao0"])
+        self.assertEqual(cur.celulas[cid(cur, "PEGAR", "pegar")].n_medidas, 0)  # a subida zera n_medidas
         fecha(cur)  # a primeira medida no último subnível, com s no portão: o nível 0 passou
         self.assertEqual(cur.nivel_passou("PEGAR"), 0)
         self.assertTrue(cur._dr["portao0"])
-        for _ in range(B.iters_min_nivel):
+        for _ in range(B.iters_nivel - 2):
             fecha(cur)
+            self.assertEqual(cur.nivel("PEGAR"), 0)
+        fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)
-        self.assertEqual(cur.subnivel("PEGAR"), 2)
+        self.assertEqual(cur.subnivel("PEGAR"), 1)
 
     def test_botar_tem_o_mesmo_caminho_e_as_outras_tarefas_valem_o_ultimo(self):
-        cur = novo(sub_final=False)
+        cur = novo(sub_final=False, andar=NIVEL_B)
         self.assertEqual(cur.subnivel("BOTAR"), 0)
-        self.assertEqual(cur.subnivel("ANDAR"), 2)
-        self.assertEqual(cur.subnivel("CARREGAR"), 2)
+        self.assertEqual(cur.subnivel("ANDAR"), 1)
+        self.assertEqual(cur.subnivel("CARREGAR"), 1)
         self.sobe_ate(cur, "BOTAR", 1)
         self.assertEqual(cur.nivel("BOTAR"), 0)
         self.assertEqual(cur.nivel_passou("BOTAR"), -1)
-        self.sobe_ate(cur, "BOTAR", 2)
-        self.assertEqual(cur.nivel("BOTAR"), 0)
         fecha(cur)
         self.assertEqual(cur.nivel_passou("BOTAR"), 0)
 
     def test_a_fatia_c_abre_no_subnivel_0_do_pegar(self):
-        cur = novo(sub_final=False)
+        cur = novo(sub_final=False, andar=NIVEL_B)
         for _ in range(3):
             fecha(cur)
         self.assertEqual(cur.subnivel("PEGAR"), 0)
         self.assertTrue(cur.celulas[cid(cur, "BOTAR", "botar")].aberta)
 
     def test_estado_leva_o_subnivel_e_estado_antigo_vale_o_ultimo(self):
-        cur = novo(sub_final=False)
+        cur = novo(sub_final=False, andar=NIVEL_B)
         self.sobe_ate(cur, "PEGAR", 1)
         est = cur.estado()
         self.assertEqual((est["tarefas"]["PEGAR"]["sub"], est["tarefas"]["BOTAR"]["sub"]), (1, 0))
@@ -337,20 +424,21 @@ class TestSubnivel(unittest.TestCase):
         for t in TAREFAS:
             del est["tarefas"][t]["sub"]
         cur2.carrega(est)
-        self.assertEqual((cur2.subnivel("PEGAR"), cur2.subnivel("BOTAR")), (2, 2))
+        self.assertEqual((cur2.subnivel("PEGAR"), cur2.subnivel("BOTAR")), (1, 1))
 
 
 class TestRetomada(unittest.TestCase):
 
     def test_carregado_20_its_depois_de_uma_subida_espera_mais_30(self):
-        # §6.3: a subida em 51 (13/11, A8); carregado em 70, o próximo nível sai em 101 (50 its depois da subida),
-        # e não em 121. O estado é restaurado com `carrega`, e o contador `it` vem junto.
-        cur = novo()
+        # §6.3: a subida em 51; carregado em 70, o próximo nível sai em 101 (50 fechos seguidos depois da subida),
+        # e não em 121. O estado é restaurado com `carrega`, e o contador `it` e a contagem `seguidas` vêm junto.
+        cur = novo(andar=NIVEL_B)
         for _ in range(70):
             fecha(cur)
         self.assertEqual(cur.nivel("PEGAR"), 1)
         estado = cur.estado()
         self.assertTrue(so_tipos_python(estado))
+        self.assertEqual(estado["tarefas"]["PEGAR"]["seguidas"], 19)
         cur2 = novo()
         cur2.carrega(estado)
         self.assertEqual(cur2.estado(), estado)
@@ -360,7 +448,7 @@ class TestRetomada(unittest.TestCase):
             fecha(cur2)
             self.assertEqual(cur2.nivel("PEGAR"), cur.nivel("PEGAR"), f"fecha {k}")
             if k == 100:
-                self.assertEqual(cur2.nivel("PEGAR"), 1, "retomada recomeçou a carência")
+                self.assertEqual(cur2.nivel("PEGAR"), 1, "retomada recomeçou a contagem")
         self.assertEqual(cur2.nivel("PEGAR"), 2)
 
 
@@ -369,7 +457,7 @@ class TestRefino(unittest.TestCase):
     def test_refino_so_depois_do_ultimo_nivel_e_100_its_no_portao_e_nunca_desce(self):
         # §6.3 / S §11.5: o refino começa com o último nível aberto (PEGAR 4, em it 201; 13/11, A8) e 100 its
         # seguidas no portão. Depois, falhar não faz o degrau descer.
-        cur = novo()
+        cur = novo(andar=NIVEL_B)
         pegar = cid(cur, "PEGAR", "pegar")
         for _ in range(201):
             fecha(cur)
@@ -394,7 +482,7 @@ class TestNivelDeTerreno(unittest.TestCase):
         # B3 e §6.3 (29/10): a linha do gerador sobe dentro da célula `terreno`, pela regra dos níveis;
         # teto 12 no ANDAR (linhas − 1) e 9 no CARREGAR (o maior `linha_max_carregar`, PD-20). O refino
         # do ANDAR espera o último nível de terreno.
-        cur = novo()
+        cur = novo(andar=NIVEL_B)
         teto_andar = TER.linhas - 1
         teto_carregar = max(v for _nome, v in TER.linha_max_carregar)
         ter_andar = cid(cur, "ANDAR", "terreno")
@@ -415,7 +503,7 @@ class TestNivelDeTerreno(unittest.TestCase):
         self.assertEqual(cur.nivel_terreno("ANDAR"), teto_andar)
         self.assertEqual(cur.nivel_terreno("CARREGAR"), teto_carregar)
         for a, b in zip(historico, historico[1:]):
-            self.assertGreaterEqual(b - a, B.iters_min_nivel, "subida de terreno sem carência")
+            self.assertGreaterEqual(b - a, B.iters_nivel, "subida de terreno sem as 50 seguidas")
         self.assertGreaterEqual(cur.degrau("ANDAR"), 1)  # com sucesso total, o refino chega
 
 
@@ -451,11 +539,12 @@ class TestSorteioSemTerreno(unittest.TestCase):
 class TestIdCelula(unittest.TestCase):
 
     def test_id_do_terreno_de_cada_tarefa_e_do_reto_do_carregar(self):
-        # §6.3: ANDAR 0..5 (terreno = 5), CARREGAR 6..9 (reto = 6, terreno = 9)
+        # §6.3 (16/11): ANDAR 0..1 (andar = 0, terreno = 1), CARREGAR 2..5 (reto = 2, terreno = 5)
         cur = novo()
-        self.assertEqual(cur.id_celula("ANDAR", "terreno"), 5)
-        self.assertEqual(cur.id_celula("CARREGAR", "terreno"), 9)
-        self.assertEqual(cur.id_celula("CARREGAR", "reto"), 6)
+        self.assertEqual(cur.id_celula("ANDAR", "andar"), 0)
+        self.assertEqual(cur.id_celula("ANDAR", "terreno"), 1)
+        self.assertEqual(cur.id_celula("CARREGAR", "terreno"), 5)
+        self.assertEqual(cur.id_celula("CARREGAR", "reto"), 2)
         self.assertEqual(cur.celulas[cur.id_celula("CARREGAR", "terreno")].tipo, "terreno")
 
 
@@ -498,8 +587,8 @@ class TestEstado(unittest.TestCase):
 
     def test_it_abertura_vai_ao_estado_e_volta_no_carrega(self):
         # 11/11 (§5.3): a rampa precisa do fecho em que cada fatia abriu; o estado leva isso ao checkpoint
-        c = novo()
-        fecha(c)  # a B abre no 1º fecho, com sucesso total
+        c = novo(andar=NIVEL_B)
+        fecha(c)  # a B abre no 1º fecho, com o ANDAR no nível 5
         self.assertEqual(c.estado()["it_abertura"], [0, 1, None])
         c2 = novo()
         c2.carrega(c.estado())
@@ -513,6 +602,25 @@ class TestEstado(unittest.TestCase):
         del est["it_abertura"]
         c.carrega(est)
         self.assertEqual(c.estado()["it_abertura"], [0, None, None])
+
+    def test_rampa_e_seguidas_vao_ao_estado_e_estado_sem_elas_carrega_o_padrao(self):
+        # 16/11: o estado leva os degraus da rampa e a contagem de fechos seguidos; sem as chaves valem 0
+        c = novo(SEM_CARENCIA, andar=NIVEL_B)
+        for _ in range(40):
+            fecha(c, notas={cid(c, "ANDAR", "andar"): 0.85, cid(c, "CARREGAR", "reto"): 0.0, cid(c, "PEGAR", "pegar"): 0.0})
+        est = c.estado()
+        self.assertEqual(est["rampa"], [0, 3, 0])
+        self.assertGreater(est["tarefas"]["ANDAR"]["seguidas"], 0)
+        self.assertTrue(so_tipos_python(est))
+        c2 = novo()
+        c2.carrega(est)
+        self.assertEqual(c2.estado(), est)
+        del est["rampa"]
+        for t in TAREFAS:
+            del est["tarefas"][t]["seguidas"]
+        c2.carrega(est)
+        self.assertEqual(c2.estado()["rampa"], [0, 0, 0])
+        self.assertEqual([c2.estado()["tarefas"][t]["seguidas"] for t in TAREFAS], [0, 0, 0, 0])
 
 
 if __name__ == "__main__":

@@ -24,11 +24,12 @@ TOL = 1e-9
 
 
 def novo(k_dr=DRK):
-    # 13/11, M3: PEGAR e BOTAR já no último subnível (o nível 0 de antes)
+    # 13/11, M3: PEGAR e BOTAR já no último subnível (o nível 0 de antes). 16/11: o ANDAR já no nível que abre a fatia B
     cur = balanceador.Curriculo(B, N, COM, TER, k_dr=k_dr)
     est = cur.estado()
     for t in ("PEGAR", "BOTAR"):
         est["tarefas"][t]["sub"] = len(N.subnivel_extra) - 1
+    est["tarefas"]["ANDAR"]["nivel"] = B.nivel_abre_b
     cur.carrega(est)
     return cur
 
@@ -41,11 +42,12 @@ def cid(cur, tarefa, tipo):
     raise AssertionError(f"célula {tarefa}/{tipo} não existe")
 
 
-def fecha(cur, falha=()):
-    # sucesso total em toda célula aberta; as de `falha` registram sucesso 0 (n = 10)
+def fecha(cur, falha=(), notas=None):
+    # sucesso total em toda célula aberta; as de `falha` registram sucesso 0 (n = 10); `notas`: nota (0 a 1) por id
+    notas = notas or {}
     for i, c in enumerate(cur.celulas):
         if c.aberta:
-            cur.registra(i, 10, 0 if i in falha else 10)
+            cur.registra(i, 10, 10 * notas.get(i, 0.0 if i in falha else 1.0))
     cur.fecha_iteracao()
 
 
@@ -123,19 +125,15 @@ class TestPortaoDoPegarNivel0(unittest.TestCase):
         self.assertTrue(depois["atrito_laje"])
         self.assertEqual(depois["atraso_max"], 0)  # restricao 0: nenhum nível subiu ainda
 
-    def test_vies_imu_liga_com_reto_e_parado_do_andar(self):
-        # E6, §6.3 (docstring de `dr`): "vies_imu" liga com reto e parado do ANDAR no portão, no mesmo fecho que
-        # abre a fatia B
-        cur = novo()
-        reto, parado = cid(cur, "ANDAR", "reto"), cid(cur, "ANDAR", "parado")
-        antes = None
-        for _ in range(20):
-            antes = cur.dr()
-            fecha(cur)
-            if cur.celulas[reto].s >= B.portao and cur.celulas[parado].s >= B.portao:
-                break
-        self.assertFalse(antes["vies_imu"])
-        self.assertTrue(cur.dr()["vies_imu"])
+    def test_vies_imu_liga_com_a_celula_andar_no_portao_de_0_80(self):
+        # 16/11 (A6): "vies_imu" liga com a célula `andar` do ANDAR no portão do ANDAR (0,80). Com 0,79 (acima do 0,75
+        # das outras tarefas) fica desligado; com 0,81 liga
+        for nota, liga in ((0.79, False), (0.81, True)):
+            with self.subTest(nota=nota):
+                cur = novo()
+                for _ in range(5):
+                    fecha(cur, notas={cid(cur, "ANDAR", "andar"): nota})
+                self.assertEqual(cur.dr()["vies_imu"], liga)
 
     def test_forca_caixa_e_rfi_ligam_na_primeira_subida_de_nivel(self):
         # E6, §6.3 (docstring de `dr`): "forca_caixa" e "rfi" ligam na primeira subida de nível do PEGAR ou do
@@ -168,11 +166,12 @@ class TestAtrasoPelaRestricao(unittest.TestCase):
 
     def test_atraso_max_segue_a_restricao_com_teto_ceil_de_2(self):
         # 11/11 (§2): com o degrau global 0, o teto do atraso é ceil(atraso_portao[1] · restricao): 0, 1, 1, 2, 2
+        # 16/11: o ANDAR tem 10 níveis; o nível dele entra na mesma fração (nivel/4 do máximo)
         for nivel, esperado in ((0, 0), (1, 1), (2, 1), (3, 2), (4, 2)):
             with self.subTest(nivel=nivel):
                 cur = novo()
                 for t in cur._nivel:
-                    cur._nivel[t] = nivel
+                    cur._nivel[t] = nivel * cur.max_nivel[t] // 4
                 self.assertEqual(cur.dr()["atraso_max"], esperado)
 
 

@@ -68,6 +68,7 @@ def _twist_falso(env, n=1):
     obj.command_counter = torch.zeros(n, dtype=torch.long)
     obj.seg_proj = torch.zeros(n, 2)
     obj.seg_int = torch.zeros(n, 2)
+    obj.seg_nota, obj.seg_dur = torch.zeros(n), torch.zeros(n)
     obj.ancora_feita = torch.zeros(n, dtype=torch.bool)
     obj.t_ab = torch.zeros(n)
     return obj
@@ -131,10 +132,11 @@ class FechoDoSegmentoNoTerreno(unittest.TestCase):
         registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 1)
 
     def test_parado_com_deriva_de_020_m_passa_so_com_restricao_zero(self):
-        # comando zero, deriva 0,20 m, rumo 0: o limite desce de 0,25 m (restricao 0) a 0,10 m (restricao 1)
-        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, False, restricao=0.0, parado=True)
+        # comando zero, deriva 0,20 m, rumo 0: o limite desce de 0,25 m (restricao 0) a 0,10 m (restricao 1). 16/11: só as
+        # tarefas com caixa registram o sucesso do núcleo (o ANDAR registra a nota)
+        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, True, restricao=0.0, parado=True)
         registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 1)
-        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, False, restricao=1.0, parado=True)
+        registra = self._fecha(0.0, CARREGAR_TERRENO + 4, True, restricao=1.0, parado=True)
         registra.assert_called_once_with(CARREGAR_TERRENO + 4, 1, 0)
 
 
