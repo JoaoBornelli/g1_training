@@ -1,7 +1,8 @@
 """Mede a deriva de posição e de rumo por segmento de comando de uma política treinada da v3.
 
-Responde: por que `ANDAR parado` e `ANDAR reto` ficam abaixo do portão? Cada segmento fechado grava dpos, rumo com
-sinal, tempo desde a âncora e quais canais (linear, giro) reprovaram, nas condições do treino.
+Responde: por que o ANDAR fica abaixo do portão? Cada segmento fechado grava dpos, rumo com sinal, tempo desde a
+âncora e os canais da nota (linear e giro, núcleo médio desde a âncora), nas condições do treino. 16/11, T5 em estudo:
+grava também o giro pelo ω_z médio do segmento, para comparar a nota de hoje com a nota que a T5 daria.
 
 Uso:
     python -m g1_v3.mede_deriva --checkpoint CAMINHO/model_N.pt [--num-envs 1024] [--passos 3000] [--amostra]
@@ -19,6 +20,7 @@ import numpy as np
 import torch
 
 import g1_v3.tarefa as tarefa  # registra a task
+from g1_v3 import balanceador
 from g1_v3.comando import sucesso_do_segmento
 from g1_v3.env_cfg import make_env_cfg
 from g1_v3.runner import RunnerV3
@@ -53,6 +55,7 @@ twist = env.unwrapped.command_manager.get_term("twist")
 k = twist.k
 fecha_original = twist._fecha
 linhas = []  # um dict de tensores (em CPU) por chamada de `_fecha`
+wz_soma = torch.zeros(env.unwrapped.num_envs, device=args.device)  # Σ ω_z·dt desde a âncora, por env (giro da T5)
 
 
 def fecha_medindo(ids, falha):
@@ -65,17 +68,25 @@ def fecha_medindo(ids, falha):
     # mesmos argumentos do `_fecha`
     reg, suc = sucesso_do_segmento(
         twist.seg_cmd[ids], twist.seg_proj[ids], twist.seg_int[ids], dpos, rumo.abs(), twist._agora[ids], ancora[:, 3],
-        env_.v3_perdeu[ids], twist.seg_carrega[ids], env_.v3_incl_max_seg[ids], terreno, k)
+        env_.v3_perdeu[ids], twist.seg_carrega[ids], env_.v3_incl_max_seg[ids], terreno, k,
+        deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, cur.restricao(), 1))
     cmd = twist.seg_cmd[ids]
-    razao = twist.seg_proj[ids] / twist.seg_int[ids].clamp(min=1e-6)
-    ativo_lin = cmd[:, :2].norm(dim=1) >= k.limiar_canal
-    ativo_giro = cmd[:, 2].abs() >= k.limiar_canal
-    ok_lin = torch.where(ativo_lin, razao[:, 0] >= k.razao_portao, dpos < k.deriva_pos_m)
-    ok_giro = torch.where(ativo_giro, razao[:, 1] >= k.razao_portao, rumo.abs() < k.deriva_rumo_rad)
+    # os canais da nota que o `_fecha` registra e o giro da T5: o núcleo do ω_z médio do segmento, que ignora o balanço
+    # da pelve dentro da passada
+    dur = twist.seg_dur[ids].clamp(min=1e-6)
+    nota = twist.seg_nota[ids] / dur[:, None]
+    wz_med = wz_soma[ids] / dur
+    wz_soma[ids] = 0.0
+    giro_t5 = torch.exp(-(cmd[:, 2] - wz_med) ** 2 / k.sigma_nota ** 2)
+    carrega, ok = twist.seg_carrega[ids], (~falha).float()
     linhas.append({
         "cel": cel, "vx": cmd[:, 0], "vy": cmd[:, 1], "wz": cmd[:, 2], "dpos": dpos, "rumo": rumo,
-        "t_ancora": twist._agora[ids] - ancora[:, 3], "reg": reg | falha, "suc": suc & ~falha,
-        "ok_lin": ok_lin, "ok_giro": ok_giro, "falha": falha.clone(), "razao_lin": razao[:, 0],
+        "t_ancora": twist._agora[ids] - ancora[:, 3], "falha": falha.clone(),
+        "reg": (reg & ((twist.seg_dur[ids] > 0) | carrega)) | falha,  # o registro do `_fecha`
+        "nota_lin": nota[:, 0], "nota_giro": nota[:, 1], "wz_med": wz_med, "giro_t5": giro_t5,
+        # o x que o `_fecha` registra hoje e o x com o giro da T5 (a tarefa com caixa segue com o sucesso)
+        "x_hoje": torch.where(carrega, suc.float(), nota.min(dim=1).values) * ok,
+        "x_t5": torch.where(carrega, suc.float(), torch.minimum(nota[:, 0], giro_t5)) * ok,
     })
     fecha_original(ids, falha)
 
@@ -87,6 +98,9 @@ with torch.inference_mode():
     for _ in range(args.passos):
         acao = policy(obs, stochastic_output=args.amostra)
         obs, _, _, _ = env.step(acao)
+        # o ω_z do passo entra no segmento corrente depois da âncora, como o `seg_nota` (o reset e o fecho vêm antes, no step)
+        apos = twist._agora >= env.unwrapped.v3_ancora[:, 3]
+        wz_soma += twist.robot.data.root_link_ang_vel_b[:, 2] * apos * env.unwrapped.step_dt
 
 d = {n: torch.cat([l[n] for l in linhas]).float().cpu().numpy() for n in linhas[0]}
 nome_cel = np.array([nomes[int(c)] if c >= 0 else "sem célula" for c in d["cel"]])
@@ -101,7 +115,7 @@ m = (d["reg"] > 0) & (nome_cel != "sem célula")
 d = {n: v[m] for n, v in d.items()}
 nome_cel = nome_cel[m]
 arumo = np.abs(d["rumo"])
-ok_lin, ok_giro, suc = d["ok_lin"] > 0, d["ok_giro"] > 0, d["suc"] > 0
+p = cur.k.portao_andar
 com_t = d["t_ancora"] > 0  # os percentis de taxa só valem com âncora feita (t ≤ 0: fechou antes da âncora)
 t = np.where(com_t, d["t_ancora"], np.nan)
 q = lambda x, p: float(np.percentile(x, p)) if len(x) else float("nan")
@@ -109,15 +123,17 @@ q = lambda x, p: float(np.percentile(x, p)) if len(x) else float("nan")
 celulas = sorted(set(nome_cel))
 print(f"política: {'amostrada' if args.amostra else 'média'}; passos={args.passos}; envs={args.num_envs}; "
       f"segmentos registrados={len(nome_cel)}")
-cab = ["celula", "n", "sucesso", "%rep_lin", "%rep_giro", "|rumo|p50", "|rumo|p90", "dpos p50", "dpos p90",
-       "|rumo|/t p50", "|rumo|/t p90", "dpos/t p50", "dpos/t p90", "viés rumo/t"]
+cab = ["celula", "n", "nota hoje", "nota T5", "%seg≥portão hoje", "%seg≥portão T5", "lin", "giro", "giro T5",
+       "|rumo|p50", "|rumo|p90", "dpos p50", "dpos p90", "|rumo|/t p50", "|rumo|/t p90", "dpos/t p50", "dpos/t p90",
+       "viés rumo/t"]
 print(" | ".join(cab))
 for cel in celulas:
     g = nome_cel == cel
     gt = g & com_t
     rv, pv = arumo[gt] / t[gt], d["dpos"][gt] / t[gt]
     vies = float(np.mean(d["rumo"][gt] / t[gt])) if gt.any() else float("nan")
-    v = [cel, int(g.sum()), suc[g].mean(), 100 * (~ok_lin[g]).mean(), 100 * (~ok_giro[g]).mean(),
+    v = [cel, int(g.sum()), d["x_hoje"][g].mean(), d["x_t5"][g].mean(), 100 * (d["x_hoje"][g] >= p).mean(),
+         100 * (d["x_t5"][g] >= p).mean(), d["nota_lin"][g].mean(), d["nota_giro"][g].mean(), d["giro_t5"][g].mean(),
          q(arumo[g], 50), q(arumo[g], 90), q(d["dpos"][g], 50), q(d["dpos"][g], 90),
          q(rv, 50), q(rv, 90), q(pv, 50), q(pv, 90), vies]
     print(" | ".join(x if isinstance(x, str) else str(x) if isinstance(x, int) else f"{x:.3f}" for x in v))
@@ -126,12 +142,13 @@ if celulas:
     fig, ax = plt.subplots(len(celulas), 2, figsize=(10, 2.6 * len(celulas)), squeeze=False)
     for i, cel in enumerate(celulas):
         g = nome_cel == cel
-        ax[i, 0].hist(arumo[g], bins=40, color="tab:blue")
-        ax[i, 0].axvline(k.deriva_rumo_rad, color="red")
-        ax[i, 0].set_title(f"{cel}: |rumo| (rad), n={int(g.sum())}", fontsize=9)
-        ax[i, 1].hist(d["dpos"][g], bins=40, color="tab:green")
-        ax[i, 1].axvline(k.deriva_pos_m, color="red")
-        ax[i, 1].set_title(f"{cel}: dpos (m)", fontsize=9)
+        for j, (a, b, ra, rb, tit) in enumerate([("x_hoje", "x_t5", "hoje", "T5", "nota do segmento"),
+                                                 ("nota_giro", "giro_t5", "giro hoje", "giro T5", "canal do giro")]):
+            ax[i, j].hist(d[a][g], bins=40, range=(0, 1), alpha=0.6, label=ra)
+            ax[i, j].hist(d[b][g], bins=40, range=(0, 1), alpha=0.6, label=rb)
+            ax[i, j].axvline(p, color="red")
+            ax[i, j].legend(fontsize=8)
+            ax[i, j].set_title(f"{cel}: {tit}, n={int(g.sum())}", fontsize=9)
     fig.tight_layout()
-    fig.savefig(saida / "deriva.png", dpi=110)
+    fig.savefig(saida / "nota.png", dpi=110)
 print(f"saída em {saida.resolve()}")
