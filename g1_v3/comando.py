@@ -645,7 +645,7 @@ class TwistV3(UniformVelocityCommand):
         self.seg_carrega = torch.zeros(n, dtype=torch.bool, device=dev)
         self.seg_proj = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ(v·ĉ)dt, Σ(ω·sinal)dt
         self.seg_int = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ|c|dt, Σ|wz|dt
-        self.seg_nota = torch.zeros(n, device=dev)  # 16/11, A1: Σ núcleo da Unitree · dt depois da âncora
+        self.seg_nota = torch.zeros(n, 2, device=dev)  # 16/11, A1 e T4: [linear, giro], Σ núcleo da Unitree · dt depois da âncora
         self.seg_dur = torch.zeros(n, device=dev)  # 16/11, A1: Σ dt depois da âncora
         self.t_ab = torch.zeros(n, device=dev)  # instante da abertura do segmento (base da âncora)
         self.ancora_feita = torch.zeros(n, dtype=torch.bool, device=dev)
@@ -690,9 +690,10 @@ class TwistV3(UniformVelocityCommand):
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
             terreno, k,
             deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, env.v3_cur.restricao(), 1))
-        # 16/11, A1: o ANDAR registra a nota média do segmento (núcleo da Unitree, 0 na queda); as tarefas com caixa seguem
-        # com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda
-        nota = self.seg_nota[ids] / self.seg_dur[ids].clamp(min=1e-6)
+        # 16/11, A1 e T4: o ANDAR registra o mínimo, entre o linear e o giro, da média do núcleo no segmento (0 na queda);
+        # as tarefas com caixa seguem com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser
+        # que acabe em queda
+        nota = (self.seg_nota[ids] / self.seg_dur[ids, None].clamp(min=1e-6)).min(dim=1).values
         x = torch.where(self.seg_carrega[ids], suc.float(), nota) * (~falha).float()
         reg = (reg & ((self.seg_dur[ids] > 0) | self.seg_carrega[ids])) | falha
         cel = self.seg_cel[ids]
@@ -755,13 +756,14 @@ class TwistV3(UniformVelocityCommand):
         soma = self.soma_cmd_marcha
         self.metrics["razao_marcha"][:] = torch.where(
             soma > 0.0, 1.0 - self.soma_erro_marcha / soma.clamp(min=1e-6), torch.zeros_like(soma))
-        # 16/11, A1: nota do segmento = média do núcleo cru da Unitree, exp(−erro²/σ²), do linear e do giro, desde a âncora.
+        # 16/11, A1: nota do segmento = núcleo cru da Unitree, exp(−erro²/σ²), de cada canal, linear e giro, desde a âncora.
         # O canal sem comando entra com c = 0: ficar parado vale 1, e a deriva cobra pelo erro. 16/11, T3: velocidade
-        # instantânea (`vel`, `wz` do bloco 2), a da Unitree; a média de 0,8 s anulava a torção da pelve
+        # instantânea (`vel`, `wz` do bloco 2), a da Unitree; a média de 0,8 s anulava a torção da pelve. 16/11, T4: os dois
+        # canais ficam separados e o `_fecha` toma o mínimo; com a média, andar sem girar passava no portão nos níveis 0 a 2
         apos = (self._agora >= env.v3_ancora[:, 3]).float()
         e_lin = ((cmd[:, :2] - vel) ** 2).sum(dim=1)
         e_ang = (cmd[:, 2] - wz) ** 2
-        self.seg_nota += 0.5 * (torch.exp(-e_lin / k.sigma_nota ** 2) + torch.exp(-e_ang / k.sigma_nota ** 2)) * apos * dt
+        self.seg_nota += torch.exp(-torch.stack([e_lin, e_ang], dim=1) / k.sigma_nota ** 2) * (apos * dt)[:, None]
         self.seg_dur += apos * dt
         # 5. relógio de marcha (16/11, R: a forma do `feet_gait` da Unitree): roda depois das recompensas, então o
         # `passo` do passo t lê a fase do passo t − 1. A fase é o tempo do episódio sobre o período fixo, sem recomeço

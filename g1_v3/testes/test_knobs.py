@@ -24,8 +24,11 @@ RAIZ = Path(__file__).resolve().parents[2]
 class TestKnobs(unittest.TestCase):
 
     def test_dim_ator(self):
-        # I §2.1: 1 447 números por passo (o contrato do ator no robô real).
-        self.assertEqual(dim_ator(), 1447)
+        # I §2.1: 1 457 números por passo (o contrato do ator no robô real; 16/11, T4: o bloco `fase` soma 10).
+        self.assertEqual(dim_ator(), 1457)
+        blocos = [b[0] for b in Contrato().blocos_ator]
+        self.assertEqual(blocos[blocos.index("comando") + 1], "fase")
+        self.assertEqual(dict((n, (c, h)) for n, c, _e, h in Contrato().blocos_ator)["fase"], (2, 5))
 
     def test_juntas_e_tarefas(self):
         # I §2.2: 29 juntas, na ordem dos motores do SDK.

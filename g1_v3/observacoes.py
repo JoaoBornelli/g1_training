@@ -4,6 +4,7 @@
 entra SEMPRE por último, e nos dois grupos na mesma ordem. Exceção do crítico: `tarefa_critico` fica por último
 (o `PPOPorTarefa` lê as 6 últimas colunas), e o termo novo entra antes dele. Inserir no meio desloca o peso da
 primeira camada em silêncio. O teste `test_ordem_dos_termos_do_ator_e_do_critico` trava a ordem da §6.5.
+Exceção de 16/11 (T4): o `fase` entra logo depois do `comando`, no ator e no crítico; o layout muda e a corrida é do zero.
 
 ⚠ O mjlab cria o `DelayBuffer` com a capacidade do cfg (`observation_manager.py:465-475`): por isso os cinco
 termos com atraso nascem com `delay_max_lag` 3, e o evento `atraso` (D7) define o teto inicial como `atraso_inicio[1]`, que vale 0 desde 11/11, no startup.
@@ -294,18 +295,23 @@ def alvo_macro(env: ManagerBasedRlEnv) -> torch.Tensor:
     return torch.nn.functional.one_hot(slot, num_classes=N_ALVO_MACRO).float()
 
 
-def privilegiados(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Estado da recompensa que o ator não vê, só no crítico (E,6; 13/11, M7): seno e cosseno da fase do relógio de
-    marcha (M4), relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
+def privilegiados(env: ManagerBasedRlEnv, fase: bool = False) -> torch.Tensor:
+    """Termo `fase` do ator e do crítico (E,2) ou `privilegiados` só do crítico (E,4; 13/11, M7; 16/11, T4).
+
+    `fase=True`: seno e cosseno da fase do relógio de marcha (`v3_fase_marcha`). O ator o vê, como o `feet_gait` da
+    Unitree, porque o `passo` paga a fase e o ator não podia saber qual pé apoiar; o robô real a calcula pelo tempo.
+    `fase=False`: relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
 
     ⚠ O σ entra como log1p(σ) (C4): nos alvos em metros vale ≈ σ, mas o do B4 é adimensional e abre em ~5 a 10; sem o
     log ele entraria no crítico 5 a 10 vezes maior que os outros canais (escala fixa 1).
 
     ⚠ Lacuna = relu(melhor Φ − Φ): o Φ é −1 sem alvo (sentinela), e o `clamp` o trata como 0. Sem ruído (§6.5).
     """
-    ang = 2 * torch.pi * env.v3_fase_marcha
+    if fase:
+        ang = 2 * torch.pi * env.v3_fase_marcha
+        return torch.stack([ang.sin(), ang.cos()], dim=-1)
     lacuna = torch.relu(env.v3_phi_melhor - env.v3_phi.clamp(min=0.0))
-    return torch.stack([ang.sin(), ang.cos(), env.v3_marcha_on.float(), env.v3_h, lacuna, torch.log1p(env.v3_sigma)], dim=-1)
+    return torch.stack([env.v3_marcha_on.float(), env.v3_h, lacuna, torch.log1p(env.v3_sigma)], dim=-1)
 
 
 def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:
@@ -353,7 +359,7 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
 
     Escala e histórico vêm do `Contrato.blocos_ator` (I §2.1); ruído e capacidade do atraso, de `DR` (§6.5).
     Com `Percepcao.ligada` False, o `mapa` sai dos dois grupos e os outros ficam na mesma ordem.
-    O crítico usa os mesmos nove termos do ator, sem ruído e sem atraso, e depois os canais privilegiados.
+    O crítico usa os mesmos termos do ator (o `fase` incluído), sem ruído e sem atraso, e depois os canais privilegiados.
     """
     escala = {n: e for n, _c, e, _h in k.contrato.blocos_ator}
     historico = {n: h for n, _c, _e, h in k.contrato.blocos_ator}
@@ -380,6 +386,7 @@ def grupos(k: Knobs) -> dict[str, ObservationGroupCfg]:
         ("giro_base", giro_base, {}),
         ("gravidade", gravidade, {}),
         ("comando", mdp_env.generated_commands, {"command_name": "twist"}),
+        ("fase", privilegiados, {"fase": True}),  # 16/11, T4: a fase do relógio vai ao ator; sem ruído nem atraso
         ("juntas", mdp_env.joint_pos_rel, {"biased": True}),
         ("vel_juntas", mdp_env.joint_vel_rel, {}),
         ("acao", mdp_env.last_action, {}),

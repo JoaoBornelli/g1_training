@@ -22,8 +22,8 @@ from g1_v3.knobs import ATIVO, TAREFAS, Contrato
 
 RAIZ = Path(__file__).resolve().parents[2]
 CONTRATO = Contrato()
-DIM_ATOR = 1447
-DIM_QUADRO = 113
+DIM_ATOR = 1457
+DIM_QUADRO = 115
 HISTORICO = 5
 
 NQ, NV, NCORPOS = 40, 40, 3
@@ -70,15 +70,17 @@ def _entradas(semente: int) -> dict:
         "anterior": rng.standard_normal(29),
         "caixa": rng.standard_normal(11),
         "mapa": rng.standard_normal(882),
+        "fase": float(rng.uniform()),
     }
 
 
 def _chama(d, c, e, hist):
-    return PILOTA.monta_observacao(d, c, e["twist"], e["tarefa"], e["anterior"], e["caixa"], e["mapa"], hist)
+    return PILOTA.monta_observacao(d, c, e["twist"], e["tarefa"], e["anterior"], e["caixa"], e["mapa"], hist,
+                                  e["fase"])
 
 
 def _blocos(obs: np.ndarray) -> dict[str, np.ndarray]:
-    """Fatia o vetor de 1447 pelos blocos de `Contrato.blocos_ator`: bloco com histórico ocupa canais × 5."""
+    """Fatia o vetor de 1457 pelos blocos de `Contrato.blocos_ator`: bloco com histórico ocupa canais × 5."""
     saida, i = {}, 0
     for nome, canais, _escala, historico in CONTRATO.blocos_ator:
         n = canais * max(historico, 1)
@@ -96,6 +98,7 @@ def _quadro_esperado(d, c, e) -> dict[str, np.ndarray]:
         "giro_base": d.sensordata[ADR_ANG:ADR_ANG + 3],
         "gravidade": np.array([0.0, 0.0, -1.0]),
         "comando": e["twist"],
+        "fase": np.array([np.sin(2 * np.pi * e["fase"]), np.cos(2 * np.pi * e["fase"])]),
         "juntas": d.qpos[c["ids_junta_qpos"]] - c["q_default"],
         "vel_juntas": d.qvel[c["ids_junta_qvel"]] - c["qd_default"],
         "acao": e["anterior"],
@@ -190,6 +193,17 @@ class TestPilota(unittest.TestCase):
             linhas = _blocos(obs2)[nome].reshape(HISTORICO, -1)
             np.testing.assert_allclose(linhas[-1], novo[nome], rtol=0, atol=1e-12, err_msg=f"{nome}: último")
             np.testing.assert_allclose(linhas[0], antigo[nome], rtol=0, atol=1e-12, err_msg=f"{nome}: primeiro")
+
+    def test_fase_entra_como_seno_e_cosseno_no_bloco_fase_logo_depois_do_comando(self):
+        # T4: com a fase 0,25 o quadro atual do bloco `fase` é (sen 90°, cos 90°) = (1, 0)
+        d, c = _cena_falsa(13)
+        e = _entradas(14)
+        e["fase"] = 0.25
+        obs, _ = _chama(d, c, e, None)
+        nomes = [nome for nome, *_ in CONTRATO.blocos_ator]
+        self.assertEqual(nomes[nomes.index("comando") + 1], "fase")
+        quadro = _blocos(obs)["fase"].reshape(HISTORICO, 2)[-1]
+        np.testing.assert_allclose(quadro, [1.0, 0.0], atol=1e-12)
 
     def test_mapa_sai_igual_a_entrada(self):
         d, c = _cena_falsa(11)

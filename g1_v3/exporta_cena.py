@@ -46,8 +46,8 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `meia_aresta` | f64 () | m; meia aresta nominal, lida do `geom_size` do modelo |
 | `decimation` | int64 () | passos de física por passo da política (4) |
 | `physics_dt` | f64 () | s; passo de física (0,005) |
-| `dim_obs` | int64 () | 1447 |
-| `escala_obs` | f64 (1447,) | escala de cada canal do ator, já expandida pelo histórico (conferida contra o cfg) |
+| `dim_obs` | int64 () | 1457 |
+| `escala_obs` | f64 (1457,) | escala de cada canal do ator, já expandida pelo histórico (conferida contra o cfg) |
 | `envelope_treino` | f64 (3,) | [vx, vy, wz] máximos do twist: m/s, m/s, rad/s |
 | `qpos_inicial` | f64 (nq,) | estado inicial do reset (`exporta`) |
 | `qvel_inicial` | f64 (nv,) | idem |
@@ -74,7 +74,7 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `dt` | float | s; `physics_dt · decimation` = 0,02 |
 | `dt_fisica`, `decimacao` | float, int | `Contrato.dt_fisica` (0,005), `Contrato.decimacao` (4) |
 | `blocos_ator` | list[dict] | um dict por bloco, na ordem: `{"nome", "canais", "escala", "historico", "dim"}`; `dim` = canais × max(historico, 1) |
-| `dim_ator` | int | 1447 |
+| `dim_ator` | int | 1457 |
 | `tarefas` | list[str] (6) | `knobs.TAREFAS`; a ordem é o índice do one-hot |
 | `alvos` | list[str] (9) | `knobs.ALVOS`; só para o log |
 | `mapa` | dict | `{"celula_m": 0.10, "n_recorte": 21, "n_interno": 51, "altura_clip": 1.0, "canais": 882, "ordem": "..."}` |
@@ -93,12 +93,13 @@ monta_observacao(
     anterior: np.ndarray,      # (29,) f64: ação do passo anterior, CRUA (sem escala nem offset)
     caixa: np.ndarray,         # (11,) f64: canais atuais da caixa (zeros na fase D)
     mapa: np.ndarray,          # (882,) f64: FiltroDeElevacao.recorte(): 441 alturas, depois 441 confianças
-    hist: np.ndarray | None,   # (5, 113) f64: histórico já ESCALADO, linha 0 = mais antigo; None = 1º passo
+    hist: np.ndarray | None,   # (5, 115) f64: histórico já ESCALADO, linha 0 = mais antigo; None = 1º passo
+    fase: float,               # fase do relógio de marcha em [0, 1): (passos · 0,02 / periodo_marcha) mod 1
 ) -> tuple[np.ndarray, np.ndarray]:
-    # devolve (obs (1447,) f64, hist novo (5, 113) f64)
+    # devolve (obs (1457,) f64, hist novo (5, 115) f64)
 ```
 
-- Quadro de 113 canais, na ordem: `giro_base`(3), `gravidade`(3), `comando`(3), `juntas`(29), `vel_juntas`(29),
+- Quadro de 115 canais, na ordem: `giro_base`(3), `gravidade`(3), `comando`(3), `fase`(2, seno e cosseno de 2π·fase), `juntas`(29), `vel_juntas`(29),
   `acao`(29), `tarefa`(6, one-hot), `caixa`(11). Cada canal é multiplicado pela escala do bloco ANTES de entrar
   no histórico (pipeline do mjlab: compute → noise → clip → scale → delay → history).
 - `hist is None` (primeiro passo depois do reset): preenche as 5 linhas com o quadro atual, como o
@@ -106,8 +107,8 @@ monta_observacao(
 - Histórico: o mjlab faz `buffer.reshape(E, -1)` com buffer (E, 5, C) em ordem CRONOLÓGICA, o MAIS ANTIGO
   PRIMEIRO (`circular_buffer.py:162-175`). Logo, para cada bloco com histórico, o trecho de 5·C valores é
   `[t−4 (C); t−3 (C); t−2 (C); t−1 (C); t0 (C)]`: o mais NOVO é o ÚLTIMO C do bloco.
-- Ordem do vetor de 1447: os 9 blocos de `Contrato.blocos_ator` (`giro_base` 15, `gravidade` 15, `comando` 15,
-  `juntas` 145, `vel_juntas` 145, `acao` 145, `tarefa` 30, `caixa` 55, `mapa` 882). `mapa` não tem histórico e
+- Ordem do vetor de 1457: os 10 blocos de `Contrato.blocos_ator` (`giro_base` 15, `gravidade` 15, `comando` 15,
+  `fase` 10, `juntas` 145, `vel_juntas` 145, `acao` 145, `tarefa` 30, `caixa` 55, `mapa` 882). `mapa` não tem histórico e
   entra com o quadro atual, sem escala (escala 1,0).
 - `anterior` entra CRU: `acao` do mjlab é `action_manager.action`, sem escala. Quem escala é o alvo do PD.
 
@@ -115,9 +116,9 @@ monta_observacao(
 
 - Por passo, lê do env: `twist` = `command_manager.get_command("twist")`; `anterior` = `action_manager.action`;
   `tarefa` = `env.v3_tarefa[0]`; `caixa` = os últimos 11 canais do bloco `caixa` da observação do env (o quadro
-  atual); `mapa` = o bloco `mapa` da observação do env. Zera `hist` quando o env reinicia (`reset_buf`).
-- Compara, bloco a bloco, os 9 blocos de `observation_manager.compute()["actor"]` com a saída do pilota, Δmax < tol.
-- ⚠ `caixa` e `mapa` vêm do env, então o bloco é IGUAL POR CONSTRUÇÃO. A paridade prova os outros 7 blocos e a
+  atual); `mapa` = o bloco `mapa` da observação do env; `fase` = `v3_fase_marcha[0]`. Zera `hist` quando o env reinicia (`reset_buf`).
+- Compara, bloco a bloco, os 10 blocos de `observation_manager.compute()["actor"]` com a saída do pilota, Δmax < tol.
+- ⚠ `caixa` e `mapa` vêm do env, então o bloco é IGUAL POR CONSTRUÇÃO. A paridade prova os outros 8 blocos e a
   ordem e o histórico.
 - Extra: `ctrl` (o mapa junta→atuador contra `d.ctrl`), como no g1_limpo, fora do passo de reset.
 
@@ -166,7 +167,7 @@ def _np(x) -> np.ndarray:
 
 
 def _fatias(c) -> dict[str, slice]:
-    """Fatia de cada bloco do ator no vetor de 1447 (ordem de `Contrato.blocos_ator`; bloco com histórico ocupa canais × H)."""
+    """Fatia de cada bloco do ator no vetor de 1457 (ordem de `Contrato.blocos_ator`; bloco com histórico ocupa canais × H)."""
     saida, i = {}, 0
     for nome, canais, _escala, hist in c.blocos_ator:
         n = canais * max(hist, 1)
@@ -307,7 +308,7 @@ def _mapa_atuador(m: mujoco.MjModel, joint_ids: np.ndarray, alvo_ids: np.ndarray
 
 
 def _escala_por_canal(env) -> np.ndarray:
-    """A escala de cada canal do ator, já expandida pelo histórico (1447,). Confere contra `Contrato.blocos_ator`.
+    """A escala de cada canal do ator, já expandida pelo histórico (1457,). Confere contra `Contrato.blocos_ator`.
 
     ⚠ Não suponha 1,0: a escala de `giro_base` é 0,2 e a de `vel_juntas` 0,05. Ler do cfg é o que mantém o
     contrato verdadeiro depois de uma mudança do knobs.
@@ -543,7 +544,7 @@ def _compara_mapas(mapa_pilota: np.ndarray, mapa_env: np.ndarray, limiar: float)
 
 
 def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) -> bool:
-    """O PORTÃO. Compara os 9 blocos do ator do env com os do `pilota_v3.monta_observacao`, e o `ctrl`.
+    """O PORTÃO. Compara os 10 blocos do ator do env com os do `pilota_v3.monta_observacao`, e o `ctrl`.
 
     ⚠ Ruído desligado pelo `play=True` (`enable_corruption` do ator). Sem `encoder_bias` e sem atraso de observação
     (`constroi_env`). Sem ruído, a conta do pilota tem de bater com a do env a `tol`.
@@ -603,7 +604,7 @@ def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) ->
 
         nosso, hist = pilota.monta_observacao(
             d, dados, twist, tarefa, anterior,
-            obs_env[fat["caixa"]][-canais["caixa"]:], mapa_env, hist)
+            obs_env[fat["caixa"]][-canais["caixa"]:], mapa_env, hist, float(_np(env.v3_fase_marcha)[0]))
         nosso = np.asarray(nosso, dtype=np.float64)
         if nosso.shape != (dim_ator(c),):
             raise AssertionError(f"monta_observacao devolveu forma {nosso.shape}, esperado ({dim_ator(c)},)")

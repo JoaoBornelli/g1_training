@@ -34,7 +34,7 @@ TETOS_CARREGAR = (
 )
 
 # §6.5, na ordem do dict. Termos de fases futuras ainda não existem; o teste checa só o que existe.
-ATOR = ("giro_base", "gravidade", "comando", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa")
+ATOR = ("giro_base", "gravidade", "comando", "fase", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa")
 CRITICO = ATOR + ("vel_lin_base", "caixa_verdade", "alvo_verdade", "alvo_macro", "referencia", "niveis",
                   "degrau", "massa", "forca_caixa", "privilegiados", "tarefa_critico")
 RECOMPENSAS = ("rastreio_linear", "rastreio_angular", "passo", "vivo", "altura_pe", "escorrego", "vz",
@@ -184,6 +184,18 @@ class TestEnvCfg(unittest.TestCase):
         cfg = env_cfg.make_env_cfg()
         self.assertEqual(list(cfg.observations["actor"].terms), list(ATOR))
         self.assertEqual(list(cfg.observations["critic"].terms), list(CRITICO))
+
+    def test_fase_vai_ao_ator_e_ao_critico_com_historico_5_sem_ruido_nem_atraso(self):
+        # 16/11, T4: o termo `fase` (privilegiados com fase=True) vem logo depois do `comando`; o `tarefa_critico` fica último
+        cfg = env_cfg.make_env_cfg()
+        for grupo in ("actor", "critic"):
+            termo = cfg.observations[grupo].terms["fase"]
+            self.assertEqual(termo.params, {"fase": True}, grupo)
+            self.assertEqual(termo.history_length, 5, grupo)
+            self.assertIsNone(termo.noise, grupo)
+            self.assertEqual(termo.func.__name__, "privilegiados", grupo)
+        self.assertEqual(cfg.observations["actor"].terms["fase"].delay_max_lag, 0)
+        self.assertEqual(list(cfg.observations["critic"].terms)[-1], "tarefa_critico")
 
     def test_comandos_cadeia_e_twist(self):
         self.assertEqual(list(env_cfg.make_env_cfg().commands), ["cadeia", "twist"])

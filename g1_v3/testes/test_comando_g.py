@@ -68,7 +68,7 @@ def _twist_falso(env, n=1):
     obj.command_counter = torch.zeros(n, dtype=torch.long)
     obj.seg_proj = torch.zeros(n, 2)
     obj.seg_int = torch.zeros(n, 2)
-    obj.seg_nota, obj.seg_dur = torch.zeros(n), torch.zeros(n)
+    obj.seg_nota, obj.seg_dur = torch.zeros(n, 2), torch.zeros(n)
     obj.ancora_feita = torch.zeros(n, dtype=torch.bool)
     obj.t_ab = torch.zeros(n)
     return obj

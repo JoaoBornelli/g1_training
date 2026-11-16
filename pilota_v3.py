@@ -57,7 +57,7 @@ _PL = _carrega("g1v3_percepcao", "g1_v3/percepcao_lidar.py")
 _CONTRATO = _K.Contrato()   # I §2.1: blocos do ator, escalas, histórico
 _KN = _K.ATIVO             # os números do lidar, da odometria e das referências (knobs.Knobs)
 TAREFAS = _K.TAREFAS        # one-hot de 6 canais; a ordem é o índice (I §2.2)
-DIM_ATOR = _K.dim_ator()    # 1 447 canais por passo
+DIM_ATOR = _K.dim_ator()    # 1 457 canais por passo
 _ANDAR = TAREFAS.index("ANDAR")
 _PEGAR = TAREFAS.index("PEGAR")
 _BOTAR = TAREFAS.index("BOTAR")
@@ -66,17 +66,17 @@ _HIST = _CONTRATO.historico                       # 5 passos por bloco com hist�
 # Sem acerto, o raio vale 100 m: fora do alcance útil de 6 m, como em `pontos_no_frame_do_mapa`.
 _SEM_ACERTO = 100.0
 
-# Blocos com histórico formam o quadro de 113 canais (ordem do knobs). O único bloco sem histórico é o
+# Blocos com histórico formam o quadro de 115 canais (ordem do knobs). O único bloco sem histórico é o
 # `mapa`, que entra com o quadro atual e escala 1,0 (I §2.1).
 _QUADRO = [(n, ch, es) for n, ch, es, h in _CONTRATO.blocos_ator if h > 0]
-_N_QUADRO = sum(ch for _, ch, _ in _QUADRO)       # 113
+_N_QUADRO = sum(ch for _, ch, _ in _QUADRO)       # 115
 _ESC_QUADRO = np.concatenate([np.full(ch, es) for _, ch, es in _QUADRO])
 _FATIA: dict[str, tuple[int, int]] = {}
 _ini = 0
 for _nome, _ch, _ in _QUADRO:
     _FATIA[_nome] = (_ini, _ini + _ch)
     _ini += _ch
-assert _N_QUADRO == 113, f"o quadro do histórico tem {_N_QUADRO} canais, esperado 113 (I §2.1)"
+assert _N_QUADRO == 115, f"o quadro do histórico tem {_N_QUADRO} canais, esperado 115 (I §2.1)"
 
 # Tarefas que o teclado manda. REORIENTAR e LEVANTAR existem no one-hot como canais reservados, sem env (§6.3):
 # por isso só estas quatro têm tecla.
@@ -410,10 +410,11 @@ def monta_observacao(
     caixa: np.ndarray,
     mapa: np.ndarray,
     hist: np.ndarray | None,
+    fase: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """A observação do ator (1 447 canais) e o histórico novo. Assinatura do contrato do `exporta_cena.py`.
+    """A observação do ator (1 457 canais) e o histórico novo. Assinatura do contrato do `exporta_cena.py`.
 
-    Devolve `(obs (1447,), hist novo (5, 113))`. Ordem dos blocos: `Contrato.blocos_ator` (I §2.1).
+    Devolve `(obs (1457,), hist novo (5, 115))`. Ordem dos blocos: `Contrato.blocos_ator` (I §2.1).
     `hist` é o histórico JÁ ESCALADO, linha 0 = a mais antiga; `None` = primeiro passo depois do reset, e
     o histórico é preenchido com o quadro atual (o `CircularBuffer.append` do mjlab).
 
@@ -424,6 +425,9 @@ def monta_observacao(
 
     ⚠ `anterior` entra CRU (sem escala e sem offset): é a `action_manager.action` do mjlab. Quem escala é o
     alvo do PD (`q_default_acao + escala_acao · a`), no laço.
+
+    ⚠ `fase` é a fase do relógio de marcha em [0, 1): `(passos · dt_política / periodo_marcha) mod 1`, com os passos
+    contados desde o último reset. O ator a vê como seno e cosseno (bloco `fase`; 16/11, T4), como o env.
 
     ⚠ `caixa` e `mapa` entram como ENTRADA: a caixa vem do `Visao.passo`; o mapa, do `Percepcao.passo`.
     """
@@ -440,6 +444,7 @@ def monta_observacao(
         "gravidade": gira_inverso(base_q, np.array([0.0, 0.0, -1.0])),
         # Twist pedido: vx, vy, wz no frame da base.
         "comando": np.asarray(twist, dtype=np.float64),
+        "fase": np.array([np.sin(2 * np.pi * fase), np.cos(2 * np.pi * fase)]),
         # ⚠ Relativas ao default: `q − q_default` e `qd − qd_default` (o `joint_pos_rel` do mjlab).
         "juntas": d.qpos[ids_q] - np.asarray(c["q_default"], dtype=np.float64),
         "vel_juntas": d.qvel[ids_v] - np.asarray(c["qd_default"], dtype=np.float64),
@@ -779,6 +784,8 @@ def main() -> None:
     restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
+    passos = 0  # passos da política desde o reset: a fase do relógio sai daqui, como o `_agora` do env
+    periodo_marcha = _KN.comando.periodo_marcha
 
     print(f"[pilota_v3] cena {args.cena}  checkpoint iter={ator.iteracao}  "
           f"dt={dt * 1000:.0f} ms  decimation={decimation}  dim_obs={int(c['dim_obs'])}")
@@ -796,6 +803,7 @@ def main() -> None:
                 restaura(m, d, c, percepcao, visao)
                 acao[:] = 0.0
                 hist = None
+                passos = 0
                 piloto.twist[:] = 0.0
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
@@ -807,7 +815,9 @@ def main() -> None:
             mapa = percepcao.passo(m, d)
             # ⚠ A ORDEM: a caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
             caixa = visao.passo(m, d, piloto.tarefa)
-            obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist)
+            passos += 1  # o env soma dt antes de gravar a fase: a 1ª observação depois do reset tem fase dt/0,8
+            fase = (passos * dt / periodo_marcha) % 1.0
+            obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist, fase)
             acao = ator(obs)
 
             # ⚠ SEM CLAMP NOSSO: os atuadores são servos de posição com `ctrlrange`, e o MuJoCo satura.

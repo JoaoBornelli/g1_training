@@ -55,9 +55,9 @@ class Contrato:  # I §2, §3; S §6.3, §19.1
     decimacao: int = 4  # I §3: passo da política 0,02 s
     historico: int = 5  # I §2.1: histórico por bloco
     # (nome, canais por passo, escala, histórico) na ordem do vetor do ator
-    blocos_ator: tuple = (  # I §2.1 (1 447 números)
+    blocos_ator: tuple = (  # I §2.1 (1 457 números; 16/11, T4: o `fase` entra depois do `comando`, 1 447 antes)
         ("giro_base", 3, 0.2, 5), ("gravidade", 3, 1.0, 5),
-        ("comando", 3, 1.0, 5), ("juntas", 29, 1.0, 5),
+        ("comando", 3, 1.0, 5), ("fase", 2, 1.0, 5), ("juntas", 29, 1.0, 5),
         ("vel_juntas", 29, 0.05, 5), ("acao", 29, 1.0, 5),
         ("tarefa", 6, 1.0, 5), ("caixa", 11, 1.0, 5), ("mapa", 882, 1.0, 0),
     )
@@ -525,7 +525,7 @@ ATIVO = Knobs()
 TAU_MAX = tuple(next(v for rx, v in ATIVO.recompensa.tau_max if re.fullmatch(rx, j)) for j in JUNTAS)
 
 
-def dim_ator(c: Contrato = Contrato()) -> int:  # I §2.1: 1 447 números por passo
+def dim_ator(c: Contrato = Contrato()) -> int:  # I §2.1: 1 457 números por passo (16/11, T4: com o `fase`)
     # canais × histórico; o bloco sem histórico (mapa, 0) entra uma vez
     return sum(canais * max(hist, 1) for _nome, canais, _escala, hist in c.blocos_ator)
 

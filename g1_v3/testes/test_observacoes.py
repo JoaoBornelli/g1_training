@@ -18,7 +18,7 @@ from g1_v3.alvos import Referencias
 from g1_v3.percepcao_lidar import FiltroDeElevacao
 from g1_v3.knobs import ALVOS, ATIVO, TAREFAS, caminho
 
-ATOR = ["giro_base", "gravidade", "comando", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa"]  # §6.5
+ATOR = ["giro_base", "gravidade", "comando", "fase", "juntas", "vel_juntas", "acao", "tarefa", "caixa", "mapa"]  # §6.5
 CRITICO = ATOR + ["vel_lin_base", "caixa_verdade", "alvo_verdade", "alvo_macro", "referencia",
                   "niveis", "degrau", "massa", "forca_caixa", "privilegiados",  # M7 (13/11)
                   "tarefa_critico"]  # §6.5, o último é o grupo de D9
@@ -70,18 +70,26 @@ class ObservacoesTest(unittest.TestCase):
             self.assertEqual(out.sum(-1).tolist(), [1.0] * len(acesas))
             self.assertEqual(out.argmax(-1).tolist(), acesas)
 
-    def test_privilegiados_tem_6_colunas_na_ordem_do_termo(self):
-        fase = torch.tensor([0.0, 0.25])
+    def test_privilegiados_tem_4_colunas_na_ordem_do_termo(self):
         env = types.SimpleNamespace(
-            v3_fase_marcha=fase, v3_marcha_on=torch.tensor([False, True]), v3_h=torch.tensor([1.0, 0.4]),
-            v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]), v3_sigma=torch.tensor([0.3, 8.0]))
+            v3_fase_marcha=torch.tensor([0.0, 0.25]), v3_marcha_on=torch.tensor([False, True]),
+            v3_h=torch.tensor([1.0, 0.4]), v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]),
+            v3_sigma=torch.tensor([0.3, 8.0]))
         out = observacoes.privilegiados(env)
-        self.assertEqual(out.shape, (2, 6))
-        esperado = torch.tensor([[0.0, 1.0, 0.0, 1.0, 0.5, math.log1p(0.3)],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
-                                 [1.0, 0.0, 1.0, 0.4, 0.0, math.log1p(8.0)]])  # Φ acima do melhor: lacuna 0
+        self.assertEqual(out.shape, (2, 4))
+        esperado = torch.tensor([[0.0, 1.0, 0.5, math.log1p(0.3)],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
+                                 [1.0, 0.4, 0.0, math.log1p(8.0)]])  # Φ acima do melhor: lacuna 0
         self.assertTrue(torch.allclose(out, esperado, atol=1e-6), f"{out}")
-        # C4: o canal 5 é log1p(σ): o σ adimensional do B4 (8) entra em ~2,2, e não em 8
-        self.assertTrue(torch.allclose(out[:, 5], torch.log1p(env.v3_sigma), atol=1e-6))
+        # C4: o canal 3 é log1p(σ): o σ adimensional do B4 (8) entra em ~2,2, e não em 8
+        self.assertTrue(torch.allclose(out[:, 3], torch.log1p(env.v3_sigma), atol=1e-6))
+
+    def test_privilegiados_com_fase_da_o_seno_e_o_cosseno_de_2_pi_fase(self):
+        # T4: fase 0, 0,25 e 0,5 → (0, 1), (1, 0), (0, −1); o `fase=True` lê só o `v3_fase_marcha`
+        env = types.SimpleNamespace(v3_fase_marcha=torch.tensor([0.0, 0.25, 0.5]))
+        out = observacoes.privilegiados(env, fase=True)
+        self.assertEqual(out.shape, (3, 2))
+        esperado = torch.tensor([[0.0, 1.0], [1.0, 0.0], [0.0, -1.0]])
+        self.assertTrue(torch.allclose(out, esperado, atol=1e-6), f"{out}")
 
     def test_ordem_dos_termos_do_ator_e_do_critico(self):
         grupos = observacoes.grupos(ATIVO)

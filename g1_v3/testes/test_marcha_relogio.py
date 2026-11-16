@@ -75,7 +75,7 @@ def _twist(cmd, n=1):
     obj._agora, obj.t_ab, obj.ancora_feita = torch.zeros(n), torch.zeros(n), torch.zeros(n, dtype=torch.bool)
     obj.command_counter, obj.seg_visto = torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.long)
     obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
-    obj.seg_nota, obj.seg_dur = torch.zeros(n), torch.zeros(n)
+    obj.seg_nota, obj.seg_dur = torch.zeros(n, 2), torch.zeros(n)
     obj.seg_cmd, obj.seg_cel, obj.seg_carrega = obj.vel_command_b.clone(), torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.bool)
     obj.soma_erro_marcha, obj.soma_cmd_marcha = torch.zeros(n), torch.zeros(n)
     obj.soma_acerto, obj.passos_on, obj.pose_ult = torch.zeros(n), torch.zeros(n), torch.zeros(n, 3)
@@ -129,8 +129,9 @@ class RelogioDoTwist(unittest.TestCase):
 
 
 class NotaDoSegmento(unittest.TestCase):
-    # 16/11, A1 e T3: a nota do ANDAR é a média, depois da âncora, de (exp(−‖c_xy − v_xy‖²/σ²) + exp(−(c_z − ω_z)²/σ²)) / 2,
-    # com σ = 0,5 e a velocidade instantânea da base. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+    # 16/11, A1, T3 e T4: a nota do ANDAR é o MÍNIMO de dois canais, cada um a média, depois da âncora, do núcleo:
+    # linear exp(−‖c_xy − v_xy‖²/σ²) e giro exp(−(c_z − ω_z)²/σ²), com σ = 0,5 e a velocidade instantânea da base.
+    # 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
 
     def _nota(self, cmd, vel, falha=False):
         # devolve (a nota acumulada pelo `_update_metrics`, o que o `_fecha` registra para o segmento)
@@ -138,7 +139,7 @@ class NotaDoSegmento(unittest.TestCase):
         obj.robot.data.root_link_lin_vel_b[:] = torch.tensor(vel[:2] + (0.0,))
         obj.robot.data.root_link_ang_vel_b[:, 2] = vel[2]
         _passos_do_relogio(obj, 100)
-        acumulada = float(obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6))
+        acumulada = float((obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6)).min())
         obj._fecha(torch.tensor([0]), torch.tensor([falha]))
         registra = obj._env.v3_cur.registra
         registra.assert_called_once()
@@ -151,11 +152,18 @@ class NotaDoSegmento(unittest.TestCase):
         self.assertAlmostEqual(acumulada, 1.0, places=5)
         self.assertAlmostEqual(registrada, 1.0, places=5)
 
-    def test_robo_parado_com_comando_de_0_5_m_s_da_684(self):
-        # linear: exp(−0,25/0,25) = e⁻¹; giro (comando 0, parado): 1 → (e⁻¹ + 1)/2 ≈ 0,684
+    def test_robo_parado_com_comando_de_0_5_m_s_da_exp_menos_1(self):
+        # linear: exp(−0,25/0,25) = e⁻¹; giro (comando 0, parado): 1 → o mínimo é e⁻¹ ≈ 0,368 (pela média dava 0,684)
         acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0))
-        self.assertAlmostEqual(acumulada, (math.exp(-1) + 1) / 2, places=5)
-        self.assertAlmostEqual(registrada, (math.exp(-1) + 1) / 2, places=5)
+        self.assertAlmostEqual(acumulada, math.exp(-1), places=5)
+        self.assertAlmostEqual(registrada, math.exp(-1), places=5)
+
+    def test_andar_certo_no_linear_sem_girar_com_comando_de_giro_0_5_da_exp_menos_1(self):
+        # T4: o linear rende 1, o giro (comando 0,5 rad/s, ω = 0) rende exp(−0,25/0,25) = e⁻¹: o mínimo é e⁻¹.
+        # Pela média, a nota seria 0,684 e passaria o portão de 0,8 só com esse erro pequeno de giro nos níveis baixos
+        acumulada, registrada = self._nota((0.5, 0.0, 0.5), (0.5, 0.0, 0.0))
+        self.assertAlmostEqual(acumulada, math.exp(-1), places=5)
+        self.assertAlmostEqual(registrada, math.exp(-1), places=5)
 
     def test_queda_da_nota_0_mesmo_com_rastreio_perfeito_acumulado(self):
         acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True)
@@ -164,14 +172,14 @@ class NotaDoSegmento(unittest.TestCase):
 
     def test_oscilacao_do_giro_baixa_a_nota(self):
         # T3: o giro oscila ±1,65 rad/s em torno do comando (média igual ao comando, o que a média de 0,8 s escondia).
-        # O giro rende exp(−1,65²/0,25) ≈ 0, o linear (perfeito) rende 1: a nota cai de 1 para ≈ 0,5
+        # O giro rende exp(−1,65²/0,25) ≈ 0, o linear (perfeito) rende 1: a nota (o mínimo) cai de 1 para ≈ 0
         obj = _twist((0.5, 0.0, 0.3))
         obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
         with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
             for i in range(100):
                 obj.robot.data.root_link_ang_vel_b[:, 2] = 0.3 + (1.65 if i % 2 == 0 else -1.65)
                 obj._update_metrics()
-        self.assertAlmostEqual(float(obj.seg_nota[0] / obj.seg_dur[0]), 0.5, places=3)
+        self.assertAlmostEqual(float((obj.seg_nota[0] / obj.seg_dur[0]).min()), 0.0, places=3)
 
 
 if __name__ == "__main__":
