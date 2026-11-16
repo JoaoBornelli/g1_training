@@ -228,3 +228,61 @@ novos, todos com o `Curriculo` puro, sem simulador, salvo o último:
 5. Revisão (opus, esforço médio) do lote contra esta spec.
 6. Na corrida do zero, olhar: `Curriculum/v3/nivel_ANDAR` parado até `s_ANDAR_andar` passar de 0,8 e subindo no máximo
    a cada 50 its; `frac_ANDAR` em 1,0 até o nível 5 e depois ≥ 0,30; `Metrics/twist/acerto_relogio` acima de 0,55.
+
+## 6. Tarefa T3: rastreio da Unitree, com velocidade instantânea (dono, 16/11)
+
+Motivo (inbox do vault, 16/11, corrida unitree1): a nota do ANDAR parou em 0,75 a 0,78, e o robô desliza torcendo a
+pelve. O erro instantâneo de giro é ~7 vezes o de um robô parado (`error_vel_yaw` 4,13 → ~1,65 rad/s), em todas as
+corridas da v3. O rastreio e a nota leem a média de 0,8 s, que anula a torção. A Unitree e o g1_limpo usam a velocidade
+instantânea. Decisões do dono: rastreio igual ao da Unitree (núcleo cru, velocidade instantânea), pesos 1,0 e 0,5;
+o `vivo` fica 1,0; o sinal de progresso do CARREGAR (M5) fica normalizado.
+
+Arquivos: `g1_v3/knobs.py`, `g1_v3/recompensas.py`, `g1_v3/comando.py`, `specs/g1-v3-comportamento.md` (alvo do link no
+vault), `g1_v3/testes/`. As regras da §2 valem. Linha de base: commit `3b4ab10`, 476 funções. Meta: ≤ 476, nenhuma
+função nova.
+
+1. `knobs.Recompensa`:
+   - `rastreio_linear`: 2.0 → 1.0; `rastreio_angular`: 2.0 → 0.5. Comentário: "16/11, T3: pesos da Unitree; o 2,0 de
+     11/11 compensava a renda negativa do rastreio normalizado".
+   - `sigma_rastreio` fica 0,5.
+   - `piso_rastreio`, `sigma_zero_lin`, `sigma_zero_ang` e `sigma_zero_ang_inicio` ficam. Atualize o comentário de cada
+     um: só o sinal de progresso do CARREGAR (M5) os usa.
+2. `knobs.Comando`: sai `janela_media_s`.
+3. `recompensas._rastreio(env, linear, normalizado=False)` (a função existente ganha o parâmetro):
+   - velocidade instantânea da base, no frame da base, como o comando: `v_xy = robot.data.root_link_lin_vel_b[:, :2]`,
+     `wz = robot.data.root_link_ang_vel_b[:, 2]`, com `robot = env.scene["robot"]`;
+   - `normalizado=False` (rastreio da Unitree): linear `exp(−‖cmd_xy − v_xy‖² / σ²)`; angular `exp(−(cmd_z − wz)² / σ²)`;
+     σ = `R.sigma_rastreio`. O canal sem comando entra no mesmo núcleo (c = 0);
+   - `normalizado=True`: a conta de hoje (`potencial.rastreio_normalizado`, com o σ₀ e o piso), com a velocidade
+     instantânea no lugar da média.
+   Reescreva o docstring.
+4. `recompensas.rastreio_linear`, `rastreio_angular` e `_rastreio_com_qualidade`: chamam `_rastreio(env, linear)` (forma
+   da Unitree). A qualidade do CARREGAR (E4) segue escalando a parte positiva. Reescreva os docstrings (não citam mais
+   o rastreio normalizado nem o σ₀).
+5. `recompensas.progresso` (sinal do CARREGAR, M5): `r_lin, r_ang = _rastreio(env, True, normalizado=True),
+   _rastreio(env, False, normalizado=True)`. O resto da conta do sinal não muda.
+6. `comando.TwistV3`:
+   - saem `self.v_media_b`, `self._hist` e `self._i` do `__init__`, as três linhas que os atualizam no `_update_metrics`
+     e as duas que os zeram no `reset`;
+   - a nota do segmento (bloco "16/11, A1") usa `vel` e `wz`, a velocidade instantânea que o bloco 2 já lê:
+     `e_lin = ((cmd[:, :2] − vel) ** 2).sum(dim=1)`, `e_ang = (cmd[:, 2] − wz) ** 2`. Atualize o comentário (sem "média
+     de 0,8 s").
+   Confira com `grep` que nada mais em `g1_v3/` e em `pilota_v3.py` lê `v_media_b` ou `janela_media_s`.
+7. Enunciado (`specs/g1-v3-comportamento.md`): nas três linhas que citam o rastreio normalizado do ANDAR (§5.2, a linha
+   "Não gira no lugar" da §7 e a linha "Andar normal" da §10), troque pela forma da Unitree: núcleo cru, velocidade
+   instantânea, pesos 1,0 e 0,5 (dono, 16/11). Registre que o rastreio normalizado fica só no sinal de progresso do
+   CARREGAR, e que o problema do comando baixo (conflito 5) volta a ficar em aberto para o refino.
+8. Testes:
+   - o rastreio da Unitree: robô parado com comando (0,5; 0; 0) recebe exp(−1) no linear e 1 no giro; com o comando
+     cumprido, 1; a oscilação instantânea da velocidade de giro (±1,65 rad/s em torno do comando) baixa o termo angular
+     para perto de 0 (o caso que a média de 0,8 s escondia);
+   - o `normalizado=True` dá o valor de hoje com a velocidade instantânea (parado com comando dá 0);
+   - a nota do segmento com a velocidade instantânea: rastreio perfeito dá 1; parado com (0,5; 0; 0) dá ≈ 0,684; queda
+     dá 0; a oscilação do giro baixa a nota;
+   - os pesos 1,0 e 0,5 no cfg montado (`test_cfg` ou equivalente);
+   - atualize os testes que fixam o rastreio normalizado no termo de recompensa, o `v_media_b` ou a janela.
+
+Verificação do orquestrador depois da T3: suíte; contagem de funções ≤ 476; treino local de 2 its em CPU
+(`--gpu-ids None`, `--agent.logger tensorboard`, `WANDB_MODE=disabled`); `grep -ci co-authored` = 0; revisão (opus, esforço
+médio). Na corrida do zero, olhar: `Metrics/twist/error_vel_yaw` abaixo de ~1,0 nas primeiras 300 its (erro de giro
+perto de 0,4 rad/s), depois `tempo_de_voo` acima de 0,1 s e `razao_marcha` perto de 0,47 até a it 800.
