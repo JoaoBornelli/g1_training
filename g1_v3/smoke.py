@@ -127,7 +127,7 @@ def s01_cfg_e_registro():
     check("load_env_cfg devolve o cfg da task", load_env_cfg(tarefa.TASK_ID) is not None)
 
 
-def s02_env_nasce_com_1447_canais():
+def s02_env_nasce_com_1457_canais():
     from g1_v3.knobs import dim_ator
 
     env = _abre_env(4)
@@ -136,7 +136,7 @@ def s02_env_nasce_com_1447_canais():
         check("env em CPU", str(env.device) == "cpu", str(env.device))
         check("4 mundos", env.num_envs == 4, str(env.num_envs))
         n = obs["actor"].shape[-1]
-        check("ator com 1 447 canais (I §2.1)", n == 1447 == dim_ator(), f"{n}")
+        check("ator com 1 457 canais (I §2.1; fase no ator, T4 de 16/11)", n == 1457 == dim_ator(), f"{n}")
     finally:
         env.close()
 
@@ -159,7 +159,7 @@ def s03_blocos_e_historico():
                 iguais = all(torch.equal(v[:, 0], v[:, i]) for i in range(1, hist))
                 check(f"{nome}: os {hist} lugares do histórico iguais depois do reset", iguais)
             off += tam
-        check("soma dos blocos = 1 447", off == 1447, str(off))
+        check("soma dos blocos = 1 457", off == 1457, str(off))
     finally:
         env.close()
 
@@ -870,11 +870,11 @@ def s23_tamanho_do_critico_confere_com_6_5():
     env = _abre_env(4)
     try:
         obs, _ = env.reset()
-        # §6.5: os nove do ator com o mesmo histórico (1 447), mais vel_lin_base (3×5), caixa_verdade (7),
+        # §6.5: os dez do ator com o mesmo histórico (1 457), mais vel_lin_base (3×5), caixa_verdade (7),
         # alvo_verdade (3), alvo_macro (13; M7), referencia (8), niveis (4), degrau (1), massa (1), forca_caixa (1),
-        # privilegiados (6; M7), tarefa_critico (6). Total: 1 512.
-        esperado = dim_ator() + 3 * 5 + 7 + 3 + 13 + 8 + 4 + 1 + 1 + 1 + 6 + 6
-        check("crítico = 1 447 do ator + 65 de §6.5 e da M7 (= 1 512)", obs["critic"].shape[-1] == esperado,
+        # privilegiados (4; M7, sem a fase desde a T4 de 16/11), tarefa_critico (6). Total: 1 520.
+        esperado = dim_ator() + 3 * 5 + 7 + 3 + 13 + 8 + 4 + 1 + 1 + 1 + 4 + 6
+        check("crítico = 1 457 do ator + 63 de §6.5 e da M7 (= 1 520)", obs["critic"].shape[-1] == esperado,
               f"{obs['critic'].shape[-1]} != {esperado}")
     finally:
         env.close()
@@ -1554,7 +1554,7 @@ def s39_odometria_anda_com_a_base():
 
 SECOES = (
     ("1 cfg monta e a task registra", s01_cfg_e_registro),
-    ("2 env de 4 mundos em CPU, ator com 1 447 canais", s02_env_nasce_com_1447_canais),
+    ("2 env de 4 mundos em CPU, ator com 1 457 canais", s02_env_nasce_com_1457_canais),
     ("3 blocos do ator e histórico depois do reset", s03_blocos_e_historico),
     ("4 ação zero → alvo do PD; kp e kd do modelo", s04_pd_e_acao_zero),
     ("5 trocar _local_directions muda as distâncias", s05_mapa_troca_local_directions),

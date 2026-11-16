@@ -354,6 +354,7 @@ def main() -> None:
     restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
+    passos = 0  # passos da política desde o restaura: a fase do relógio sai daqui, como no pilota_v3.main
     cima_b = EZ.copy()            # eixo da caixa que aponta para cima, no frame dela
     linhas: list[dict] = []
 
@@ -399,7 +400,10 @@ def main() -> None:
                     mapa = percepcao.passo(m, d)
                     # ⚠ A caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
                     caixa = visao.passo(m, d, piloto.tarefa)
-                    obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist)
+                    passos += 1  # o env soma dt antes de gravar a fase (T4 de 16/11)
+                    fase_relogio = (passos * dt / pv._KN.comando.periodo_marcha) % 1.0
+                    obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist,
+                                                 fase_relogio)
                     acao = ator(obs)
                     d.ctrl[ids_atuador] = q_default_acao + escala_acao * acao
                     for _ in range(decimation):
