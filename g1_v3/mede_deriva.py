@@ -2,7 +2,9 @@
 
 Responde: por que o ANDAR fica abaixo do portão? Cada segmento fechado grava dpos, rumo com sinal, tempo desde a
 âncora e os canais da nota (linear e giro), nas condições do treino. 17/11, T5: o giro da nota é o núcleo do erro médio de
-ω_z no segmento.
+ω_z no segmento. 17/11: o `s` do treino ficou ~0,13 abaixo da nota medida aqui; o script imprime também a EMA do
+balanceador (que roda junto, com os mesmos registros), o `x` de cada fecho de iteração e o núcleo linear de todos os
+passos (o `rastreio_linear` do TB, sem o peso), com os episódios fora de fase como no treino.
 
 Uso:
     python -m g1_v3.mede_deriva --checkpoint CAMINHO/model_N.pt [--num-envs 1024] [--passos 3000] [--amostra]
@@ -86,12 +88,22 @@ def fecha_medindo(ids, falha):
 
 
 twist._fecha = fecha_medindo
+# como o treino (`init_at_random_ep_len=True`, mjlab/scripts/train.py:176): episódios fora de fase entre os envs
+env.episode_length_buf = torch.randint_like(env.episode_length_buf, high=int(env.max_episode_length))
+andar = cur.celulas[cur.id_celula("ANDAR", "andar")]
+s0, s_ant, n_ant, xs, soma_lin = andar.s, andar.s, andar.n_medidas, [], 0.0
 
 with torch.inference_mode():
     obs = env.get_observations()
     for _ in range(args.passos):
         acao = policy(obs, stochastic_output=args.amostra)
         obs, _, _, _ = env.step(acao)
+        # o `x` do fecho sai da própria EMA: s_novo = s_ant + alfa·(x − s_ant)
+        if andar.n_medidas != n_ant:
+            xs.append(s_ant + (andar.s - s_ant) / cur.k.alfa)
+        s_ant, n_ant = andar.s, andar.n_medidas
+        erro2 = ((twist.vel_command_b[:, :2] - twist.robot.data.root_link_lin_vel_b[:, :2]) ** 2).sum(dim=1)
+        soma_lin += torch.exp(-erro2 / k.sigma_nota ** 2).mean().item()  # σ 0,5, o mesmo do `rastreio_linear`
 
 d = {n: torch.cat([l[n] for l in linhas]).float().cpu().numpy() for n in linhas[0]}
 nome_cel = np.array([nomes[int(c)] if c >= 0 else "sem célula" for c in d["cel"]])
@@ -141,4 +153,8 @@ if celulas:
             ax[i, j].set_title(f"{cel}: {tit}, n={int(g.sum())}", fontsize=9)
     fig.tight_layout()
     fig.savefig(saida / "nota.png", dpi=110)
+xs = np.array(xs)
+print(f"EMA do ANDAR andar: s {s0:.3f} → {andar.s:.3f}; fechos com medida {len(xs)}; x por fecho: média "
+      f"{xs.mean() if len(xs) else float('nan'):.3f}, p10 {q(xs, 10):.3f}, p50 {q(xs, 50):.3f}, p90 {q(xs, 90):.3f}")
+print(f"núcleo linear em todos os passos (o `rastreio_linear` do TB, sem o peso): {soma_lin / args.passos:.3f}")
 print(f"saída em {saida.resolve()}")
