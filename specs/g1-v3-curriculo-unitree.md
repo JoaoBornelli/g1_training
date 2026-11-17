@@ -342,3 +342,71 @@ Arquivos: `g1_v3/knobs.py`, `g1_v3/observacoes.py`, `g1_v3/comando.py`, `pilota_
 Verificação do orquestrador depois da T4: suíte; contagem de funções ≤ 476; treino local de 2 its em CPU; `grep -ci
 co-authored` = 0; revisão (opus, esforço médio) da T4. Na corrida do zero, olhar também `acerto_relogio` acima de 0,55
 e subindo.
+
+## 8. Tarefa T5: giro da nota pelo erro médio do segmento (dono, 17/11)
+
+Motivo: medida no pod com `g1_v3/mede_deriva.py` (checkpoint da it 2250 da unitree2, 128 envs, 3000 passos, ação
+amostrada, 1173 segmentos do ANDAR). O canal linear dá 0,886. O canal do giro instantâneo dá 0,701, e o giro pelo ω_z
+médio do segmento dá 0,956. A nota (o mínimo) dá 0,700, com 1 % dos segmentos ≥ 0,8; com o giro pelo erro médio, ela dá
+0,877, com 90 % dos segmentos ≥ 0,8. O erro de giro instantâneo é o balanço da pelve dentro da passada (período 0,8 s):
+com ele, o portão exige a pelve quase sem rotação (±2,5° por passada), e o nível do ANDAR não sai do 0 (s 0,616 na it
+2600). Decisão do dono: o canal do giro da nota mede o giro do segmento (o erro médio de ω_z depois da âncora); o canal
+linear continua com o núcleo instantâneo. A recompensa não muda: o `rastreio_angular` continua a cobrar o giro
+instantâneo (T3), então a torção da pelve continua a custar na recompensa.
+
+Arquivos: `g1_v3/comando.py`, `g1_v3/mede_deriva.py`, `specs/g1-v3-comportamento.md` (link; o arquivo real é
+`vault/G1/Abordagens/PPO/Currículos/C4 v3/Comportamento esperado da v3.md`), `g1_v3/testes/test_marcha_relogio.py`.
+As regras da §2 valem, com "17/11, T5" nos comentários novos. Nenhum knob novo: σ continua `Comando.sigma_nota`.
+Linha de base: commit `14d017b`, 476 funções no `g1_v3` sem testes. Meta: ≤ 476, nenhuma função nova.
+
+### 8.1 Nota do segmento (`comando.TwistV3`)
+
+1. `_update_metrics`, bloco da nota (hoje `e_lin`, `e_ang` e `self.seg_nota += torch.exp(...)`):
+   - coluna 0 do `seg_nota`: igual a hoje, exp(−‖c_xy − v_xy‖²/σ²)·apos·dt;
+   - coluna 1 do `seg_nota`: o erro de giro com sinal, sem núcleo, (c_z − ω_z)·apos·dt;
+   - `seg_dur` não muda. `cmd`, `vel` e `wz` continuam os do bloco 2 (instantâneos).
+2. `_fecha`: `media = seg_nota[ids] / seg_dur[ids, None].clamp(min=1e-6)`; linear = `media[:, 0]`;
+   giro = exp(−`media[:, 1]`²/σ²), com σ = `k.sigma_nota`; `nota` = mínimo(linear, giro). O resto do `_fecha` não muda
+   (`x`, `reg`, `registra`, eficiência, zeragem).
+3. Comentários: a linha do `seg_nota` no `__init__` diz [linear: Σ núcleo·dt; giro: Σ (c_z − ω_z)·dt], depois da âncora.
+   O comentário do bloco da nota e o do `_fecha` dizem a regra nova e o motivo curto: o balanço da pelve dentro da passada
+   se anula na média do segmento; a recompensa continua a cobrar o giro instantâneo.
+
+### 8.2 Script de medida (`g1_v3/mede_deriva.py`)
+
+Com a T5, as colunas de estudo da T5 repetem o portão. O script volta a medir só a regra do `_fecha`:
+1. Saem o `wz_soma` (declaração, acúmulo no laço e zeragem), o `wz_med`, o `giro_t5` e o `x_t5`.
+2. No `fecha_medindo`: `media` como no `_fecha`; grava `nota_lin` = `media[:, 0]`, `nota_giro` = exp(−`media[:, 1]`²/σ²),
+   `erro_giro` = `media[:, 1]` (rad/s, com sinal) e `x` = where(carrega, sucesso, mínimo(`nota_lin`, `nota_giro`))·(1 − falha).
+3. Tabela: as colunas "nota hoje", "nota T5", "%seg≥portão hoje", "%seg≥portão T5", "lin", "giro" e "giro T5" viram
+   "nota", "%seg≥portão", "lin" e "giro". As colunas de deriva (`|rumo|`, `dpos`, viés) não mudam.
+4. Gráfico `nota.png`: por célula, o painel 0 é o histograma de `x` e o painel 1 sobrepõe os histogramas de `nota_lin` e
+   `nota_giro`; os dois com a linha do portão.
+5. Docstring: a frase "16/11, T5 em estudo: ..." vira "17/11, T5: o giro da nota é o núcleo do erro médio de ω_z no
+   segmento".
+
+### 8.3 Enunciado (`specs/g1-v3-comportamento.md`, §6, linha "ANDAR e CARREGAR")
+
+O trecho "o mínimo entre o linear e o giro, cada um a média do núcleo no segmento, e não a média dos dois [T4, 16/11]"
+passa a "o mínimo entre o linear (a média do núcleo no segmento) e o giro (o núcleo do erro médio de giro no segmento, que
+ignora o balanço da pelve dentro da passada), e não a média dos dois [T4, 16/11; T5, 17/11]".
+
+### 8.4 Testes (`g1_v3/testes/test_marcha_relogio.py`, classe `NotaDoSegmento`)
+
+- Comentário da classe: a regra nova (linear pela média do núcleo; giro pelo núcleo do erro médio).
+- O helper `_nota` calcula `acumulada` pela regra nova: mínimo(média do canal 0, exp(−(média do canal 1)²/0,25)).
+- Os casos com velocidade constante ficam com os valores de hoje: rastreio perfeito dá 1; parado com comando
+  (0,5; 0; 0) dá e⁻¹; andar certo no linear sem girar, com comando de giro 0,5 rad/s, dá e⁻¹; queda registra 0.
+- `test_oscilacao_do_giro_baixa_a_nota` sai. No lugar entram dois casos, os dois com `obj.t_ab[:] = -10.0` antes dos
+  passos, para que os 100 passos contem depois da âncora (número par de passos), linear perfeito (v_x = 0,5) e comando
+  (0,5; 0; 0,3), conferidos pelo valor registrado (`_fecha` e o mock do `registra`):
+  - `test_balanco_do_giro_em_torno_do_comando_nao_baixa_a_nota`: ω_z = 0,3 ± 1,65 alternado → registra 1,0 (places=5).
+    No código de antes, registra ≈ 0;
+  - `test_vies_de_giro_com_balanco_cobra_pelo_erro_medio`: ω_z = 0,5 ± 1,65 alternado (erro médio −0,2) → registra
+    exp(−0,16) ≈ 0,8521 (places=3). No código de antes, registra ≈ 0.
+- Não mexa nos testes do `rastreio_angular` da recompensa (`test_recompensas*.py`): a recompensa continua instantânea.
+
+Verificação do orquestrador depois da T5: suíte; contagem de funções ≤ 476; fumaça do `mede_deriva.py` em CPU (8 envs,
+400 passos); treino local de 2 its em CPU; `grep -ci co-authored` = 0; revisão (opus, esforço médio) da T5. Na retomada
+(RETOMA = 1 a partir da it 2600), olhar `s_ANDAR_andar` acima de 0,8 em ~60 its e `nivel_ANDAR` subindo depois de 50 its
+seguidas no portão; `error_vel_yaw` e `rastreio_angular` não devem piorar.
