@@ -172,6 +172,21 @@ class NotaDoSegmento(unittest.TestCase):
         self.assertAlmostEqual(acumulada, 1.0, places=5)  # o segmento rastreou até cair
         self.assertEqual(registrada, 0.0)
 
+    def test_empurrao_depois_da_ancora_nao_tira_o_registro(self):
+        # 17/11, T6: o empurrão leva a âncora a 3,4 s, à frente do relógio (2,02 s). Pela regra antiga, o segmento
+        # fechava antes da âncora e não registrava; pela nota, registra os 0,5 s depois da âncora de antes do empurrão.
+        obj = _twist((0.5, 0.0, 0.0))
+        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        _passos_do_relogio(obj, 100)
+        obj._env.v3_t_empurrao[:] = 1.9
+        _passos_do_relogio(obj, 1)
+        obj._fecha(torch.tensor([0]), torch.tensor([False]))
+        registra = obj._env.v3_cur.registra
+        registra.assert_called_once()
+        celula, n, soma = registra.call_args.args
+        self.assertEqual((celula, n), (0, 1))
+        self.assertAlmostEqual(float(soma), 1.0, places=5)
+
     def test_balanco_do_giro_em_torno_do_comando_nao_baixa_a_nota(self):
         # ω̄ = c_z = 0,3: erro médio zero, o giro rende 1; o linear (perfeito) rende 1. Pelo núcleo instantâneo, dava ≈ 0.
         # `t_ab` em −10 põe a âncora (1,5 s) antes dos 100 passos, e 100 é par: a oscilação fecha a média em zero

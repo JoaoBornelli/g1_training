@@ -198,7 +198,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
     if not play:  # ⚠ no play saem o empurrão e as DR do refino: a corrida é a cadeia, o robô é nominal (P24)
         eventos_["empurrao"] = EventTermCfg(
             func=eventos.empurrao, mode="interval",
-            interval_range_s=(k.dr.periodo_empurrao_s, k.dr.periodo_empurrao_s),
+            interval_range_s=k.dr.periodo_empurrao_s,  # 17/11, T6: sorteado por env
             params={"velocity_range": {"x": (-k.dr.empurrao, k.dr.empurrao),
                                        "y": (-k.dr.empurrao, k.dr.empurrao)}})
         # H (P3, P4, P15): passo, depois do comando, nos 4 subpassos. A força é mascarada dentro da classe.

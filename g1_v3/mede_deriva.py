@@ -79,7 +79,7 @@ def fecha_medindo(ids, falha):
     linhas.append({
         "cel": cel, "vx": cmd[:, 0], "vy": cmd[:, 1], "wz": cmd[:, 2], "dpos": dpos, "rumo": rumo,
         "t_ancora": twist._agora[ids] - ancora[:, 3], "falha": falha.clone(),
-        "reg": (reg & ((twist.seg_dur[ids] > 0) | carrega)) | falha,  # o registro do `_fecha`
+        "reg": torch.where(carrega, reg, twist.seg_dur[ids] > 0) | falha,  # o registro do `_fecha` (17/11, T6)
         "nota_lin": media[:, 0], "nota_giro": giro, "erro_giro": media[:, 1],
         # o x que o `_fecha` registra (a tarefa com caixa segue com o sucesso)
         "x": torch.where(carrega, suc.float(), torch.minimum(media[:, 0], giro)) * ok,

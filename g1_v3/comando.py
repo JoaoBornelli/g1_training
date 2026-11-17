@@ -693,12 +693,14 @@ class TwistV3(UniformVelocityCommand):
         # 16/11, A1 e T4; 17/11, T5: o ANDAR registra o mínimo de dois canais (0 na queda). O linear é a média do núcleo no
         # segmento. O giro é o núcleo do erro médio de ω_z no segmento: o balanço da pelve dentro da passada se anula na média,
         # e a recompensa (`rastreio_angular`) segue a cobrar o giro instantâneo (T3). As tarefas com caixa seguem com o
-        # sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda
+        # sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda.
+        # 17/11, T6: o ANDAR não usa a regra da âncora do `sucesso_do_segmento`: depois de cada empurrão só as
+        # quedas registravam, e a EMA tomava zeros
         media = self.seg_nota[ids] / self.seg_dur[ids, None].clamp(min=1e-6)
         giro = torch.exp(-media[:, 1] ** 2 / k.sigma_nota ** 2)
         nota = torch.minimum(media[:, 0], giro)
         x = torch.where(self.seg_carrega[ids], suc.float(), nota) * (~falha).float()
-        reg = (reg & ((self.seg_dur[ids] > 0) | self.seg_carrega[ids])) | falha
+        reg = torch.where(self.seg_carrega[ids], reg, self.seg_dur[ids] > 0) | falha
         cel = self.seg_cel[ids]
         for c in cel[reg & (cel >= 0)].unique().tolist():  # uma chamada por célula (registra é escalar)
             m = reg & (cel == c)

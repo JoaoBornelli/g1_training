@@ -470,7 +470,7 @@ class DR:  # S §12, DR §5; PD-24; §6.8 (quando: startup, reset, intervalo, po
     # §6.5 (29/10: sai do observacoes.py): ruído do ator, ± antes da escala; a capacidade do atraso é atraso_refino[1]
     ruido_obs: tuple = (("giro_base", 0.2), ("gravidade", 0.05), ("juntas", 0.01), ("vel_juntas", 1.5))
     empurrao: float = 0.5  # §6.8 intervalo: empurrão em x e y (m/s, ±)
-    periodo_empurrao_s: float = 5.0  # §6.8 intervalo: a cada 5 s
+    periodo_empurrao_s: tuple = (3.0, 7.0)  # 17/11, T6: sorteado por env, média 5 s (a da Unitree); o fixo punha todos no mesmo passo
     vies_imu_giro: float = 0.05  # §6.8 ANDAR no portão: viés do giro da base (rad/s)
     vies_imu_incl_graus: float = 1.0  # §6.8 ANDAR no portão: inclinação fixa do IMU (graus)
     atrito_pad: tuple = (0.6, 1.0)  # §6.8 PEGAR no portão; PD-46: atrito dos pads de palma

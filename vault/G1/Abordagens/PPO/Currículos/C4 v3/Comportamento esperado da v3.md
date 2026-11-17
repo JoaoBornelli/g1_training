@@ -431,7 +431,7 @@ Cada linha diz o mecanismo, quando ele age e se ele já está no desenho.
 | Lado de cima para cima | caixa nivelada é invariante de P2 a B2, e a caixa apoiada fica parada de B2 a B4 (30° → 15° no refino); tombo pelo eixo de cima [C22]; orientação com gradiente de 0 a 180° [C23]; vertical do mundo no BOTAR [C25]; qualidade do CARREGAR | desde o começo | no desenho |
 | Sem correr | freio por nível na manipulação [C8]; a duração dos trechos por passo é do controlador, então terminar antes não compra passos; a renda congelada, que dava a pressa, sai [S1] | desde o começo | no desenho |
 | Sem demorar | o desconto γ 0,99 (horizonte ~2 s) faz o progresso de agora valer mais; PEGAR e BOTAR que não fecham nos 20 s não contam sucesso, e o balanceador manda mais envs para eles. O equilíbrio entre o desconto e o freio se mede no ponto de operação | desde o começo | no desenho; calibrar |
-| Resistir a empurrões | empurrão da Unitree, ±0,5 m/s a cada 5 s, em todas as tarefas; fora do play (spec §12) | desde o começo | no desenho |
+| Resistir a empurrões | empurrão da Unitree, ±0,5 m/s a cada 3 a 7 s, sorteado por env [T6, 17/11], em todas as tarefas; fora do play (spec §12) | desde o começo | no desenho |
 
 ### 10.1 Comportamentos novos (propostas)
 

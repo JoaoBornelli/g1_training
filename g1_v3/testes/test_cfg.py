@@ -294,6 +294,12 @@ class TestEnvCfg(unittest.TestCase):
         self.assertEqual(tuple(params["cooldown_s"]), ATIVO.dr.forca_caixa_periodo_s)
         self.assertEqual(tuple(params["asset_cfg"].body_names), ("box",))
 
+    def test_empurrao_sorteia_o_intervalo_entre_3_e_7_s(self):
+        # 17/11, T6: intervalo sorteado por env; o fixo (5, 5) deixava todos os envs empurrados no mesmo passo
+        intervalo = env_cfg.make_env_cfg().events["empurrao"].interval_range_s
+        self.assertEqual(tuple(intervalo), ATIVO.dr.periodo_empurrao_s)
+        self.assertLess(intervalo[0], intervalo[1])
+
     def test_play_sem_as_cinco_dr_do_refino_e_sem_empurrao(self):
         # P24: o play mostra o robô nominal, como o exportador e o driver.
         eventos_ = env_cfg.make_env_cfg(play=True).events
