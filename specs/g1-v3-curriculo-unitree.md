@@ -410,3 +410,64 @@ Verificação do orquestrador depois da T5: suíte; contagem de funções ≤ 47
 400 passos); treino local de 2 its em CPU; `grep -ci co-authored` = 0; revisão (opus, esforço médio) da T5. Na retomada
 (RETOMA = 1 a partir da it 2600), olhar `s_ANDAR_andar` acima de 0,8 em ~60 its e `nivel_ANDAR` subindo depois de 50 its
 seguidas no portão; `error_vel_yaw` e `rastreio_angular` não devem piorar.
+
+## 9. Tarefa T6: registro da nota do ANDAR sem a regra do instante da âncora e empurrão com intervalo sorteado (dono, 17/11)
+
+Motivo: com a T5, o `s_ANDAR_andar` do treino parou em 0,72 a 0,75, e a medida dava 0,879 por segmento. No TB do treino,
+o `x` de cada iteração tirado da EMA (x = s_ant + Δs/0,05) tem p50 0,851, mas 15,7 % das iterações têm x ≈ 0; a média
+(0,716) é o `s`. Antes da T5 era igual: p50 0,636, 16 % de zeros, `s` 0,60. As iterações com x ≈ 0 voltam a cada 251
+passos (concentração de fase 0,95 nas duas corridas), o período do empurrão (5 s). Duas causas juntas:
+1. O empurrão chega a todos os envs no mesmo passo. O `event_manager` do mjlab só reinicia o relógio de intervalo dos
+   termos que são classe (`mjlab/managers/event_manager.py:226`); o `eventos.empurrao` é função, então o relógio corre do
+   início do treino, igual em todos os envs, e o intervalo fixo (5, 5) o mantém em fase para sempre.
+2. O empurrão leva a âncora 1,5 s à frente, e o `sucesso_do_segmento` só registra o segmento que fecha depois da âncora
+   (`registra = t_fecho >= t_ancora`, PD-15). A queda registra sempre (`| falha` no `_fecha`). Por 1,5 s depois de cada
+   empurrão, nenhum segmento normal registra; com 4096 envs, essas iterações só têm quedas, x = 0, e a EMA, que pesa cada
+   iteração igual, toma o zero.
+Decisão do dono: o empurrão deixa de ser um relógio de 5 s, e o ANDAR registra pela nota, sem a regra do instante da
+âncora. A nota já exclui o trecho do empurrão, porque só soma os passos depois da âncora (`apos`).
+
+Arquivos: `g1_v3/knobs.py`, `g1_v3/env_cfg.py`, `g1_v3/comando.py`, `g1_v3/mede_deriva.py`,
+`specs/g1-v3-comportamento.md` (link; o arquivo real é `vault/G1/Abordagens/PPO/Currículos/C4 v3/Comportamento esperado
+da v3.md`), `g1_v3/testes/test_marcha_relogio.py`, `g1_v3/testes/test_cfg.py`. As regras da §2 valem, com "17/11, T6"
+nos comentários novos. Linha de base: commit desta seção, 476 funções no `g1_v3` sem testes. Meta: ≤ 476, nenhuma função
+nova.
+
+### 9.1 Registro do ANDAR (`comando.TwistV3._fecha`)
+
+1. A linha `reg = (reg & ((self.seg_dur[ids] > 0) | self.seg_carrega[ids])) | falha` passa a
+   `reg = torch.where(self.seg_carrega[ids], reg, self.seg_dur[ids] > 0) | falha`.
+   - ANDAR: registra o segmento com tempo depois da âncora (`seg_dur > 0`) ou que acaba em queda.
+   - Tarefas com caixa: igual a hoje (`reg` do `sucesso_do_segmento`, ou a queda).
+2. `sucesso_do_segmento` não muda: as tarefas com caixa seguem a PD-15.
+3. Comentário do bloco: a regra nova e o motivo curto (depois de cada empurrão, só as quedas registravam, e a EMA tomava
+   zeros).
+
+### 9.2 Empurrão com intervalo sorteado (`knobs.DR`, `env_cfg`)
+
+1. `DR.periodo_empurrao_s: float = 5.0` passa a `periodo_empurrao_s: tuple = (3.0, 7.0)`, com o comentário: intervalo
+   sorteado por env, média de 5 s (a da Unitree); o relógio de um termo de intervalo que é função não reinicia no reset
+   do episódio (`mjlab/managers/event_manager.py:226`), e o intervalo fixo deixava todos os envs empurrados no mesmo
+   passo.
+2. `env_cfg.py`: `interval_range_s=k.dr.periodo_empurrao_s`.
+
+### 9.3 Script de medida (`g1_v3/mede_deriva.py`)
+
+A coluna `reg` espelha a regra nova do `_fecha`: `torch.where(carrega, reg, seg_dur > 0) | falha`.
+
+### 9.4 Enunciado (`specs/g1-v3-comportamento.md`)
+
+Na linha "Resistir a empurrões", "±0,5 m/s a cada 5 s" passa a "±0,5 m/s a cada 3 a 7 s, sorteado por env [T6, 17/11]".
+
+### 9.5 Testes
+
+- `test_marcha_relogio.py`, classe `NotaDoSegmento`, caso novo `test_empurrao_depois_da_ancora_nao_tira_o_registro`:
+  comando (0,5; 0; 0) e rastreio perfeito; 100 passos (0,5 s depois da âncora); depois `obj._env.v3_t_empurrao[:] = 1.9`
+  e mais 1 passo (a âncora vai a 3,4 s, à frente do relógio); `_fecha` sem queda registra 1 segmento com nota 1,0
+  (places=5). No código de antes, `t_fecho < t_ancora` e o `registra` não é chamado.
+- `test_cfg.py`: o evento `empurrao` do cfg de treino tem `interval_range_s == knobs.ATIVO.dr.periodo_empurrao_s`, com o
+  limite de baixo menor que o de cima. No código de antes, o intervalo é (5, 5).
+
+Verificação do orquestrador depois da T6: suíte; contagem de funções ≤ 476; fumaça do `mede_deriva.py` em CPU; treino
+local de 2 its em CPU; `grep -ci co-authored` = 0; revisão (opus, esforço médio). Na retomada (RETOMA = 1), olhar
+`s_ANDAR_andar` acima de 0,8 e `nivel_ANDAR` subindo; o `x` por iteração tirado da EMA sem iterações em zero.
