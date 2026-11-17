@@ -471,3 +471,41 @@ Na linha "Resistir a empurrões", "±0,5 m/s a cada 5 s" passa a "±0,5 m/s a ca
 Verificação do orquestrador depois da T6: suíte; contagem de funções ≤ 476; fumaça do `mede_deriva.py` em CPU; treino
 local de 2 its em CPU; `grep -ci co-authored` = 0; revisão (opus, esforço médio). Na retomada (RETOMA = 1), olhar
 `s_ANDAR_andar` acima de 0,8 e `nivel_ANDAR` subindo; o `x` por iteração tirado da EMA sem iterações em zero.
+
+## 10. Tarefa T7: comando do ANDAR sorteado na elipse dos tetos (dono, 17/11)
+
+Motivo: com a T6, a medida e o treino batem (x por fecho 0,780 na medida, 0,763 no TB), e o nível 4 parou em x ≈ 0,76.
+No `segmentos.csv` do `mede_deriva` (checkpoint da it 5605, nível 4, 5329 segmentos), a `nota_lin` cai com a velocidade
+total |v| = |(vx, vy)|: 0,91 a 0,93 até 0,3 m/s, 0,872 de 0,3 a 0,6, 0,765 de 0,6 a 0,9 e 0,583 de 0,9 a 1,27. A faixa
+acima de 0,9 só existe na diagonal: o sorteio põe vx e vy independentes em ±teto (quadrado), e a diagonal passa do teto
+em até 41 %; ela é 18 % dos segmentos. Decisão do dono: o (vx, vy) do ANDAR passa a ser uniforme na elipse dos tetos. Os
+tetos de cada eixo não mudam (frente 1,5, trás e lado 1,0); só saem os cantos da diagonal. Sem os segmentos com
+|v| > 0,9, a `nota_lin` média do nível 4 seria ~0,838 (estimativa pelos mesmos segmentos).
+
+Arquivos: `g1_v3/comando.py`, `g1_v3/testes/test_comando.py`, `specs/g1-v3-comportamento.md` (link; o arquivo real é
+`vault/G1/Abordagens/PPO/Currículos/C4 v3/Comportamento esperado da v3.md`). Comentários novos com "17/11, T7". Meta:
+nenhuma função nova.
+
+### 10.1 Sorteio (`comando.sorteia_velocidade`, ramo do ANDAR)
+
+1. As linhas `v[:, 0] = -tras + (frente + tras) * U` e `v[:, 1] = lado * (2U − 1)` passam a:
+   - r = √U e ângulo θ ~ U(−π/2; π/2): ponto uniforme na meia-unidade de disco com x ≥ 0;
+   - semieixo x = `frente` com chance frente/(frente + tras), senão −`tras` (chance pela área de cada meia elipse);
+   - vx = semieixo x · r · cos θ; vy = `lado` · r · sen θ.
+2. O wz, o `andar_parado` e o teto do `terreno` não mudam. O CARREGAR não muda.
+3. O docstring diz "vx e vy uniformes na elipse dos tetos, wz independente".
+
+### 10.2 Enunciado (`specs/g1-v3-comportamento.md`, §2, fase 0)
+
+"(vx, vy e wz independentes, 10% parado)" passa a "((vx, vy) uniforme na elipse dos tetos e wz independente, 10%
+parado) [T7, 17/11]".
+
+### 10.3 Testes (`test_comando.py`)
+
+- Caso novo `test_andar_sorteia_vx_vy_na_elipse_dos_tetos`, no nível 10: com os envs ativos, (vx/semieixo)² + vy²/lado²
+  ≤ 1; a fração com esse valor ≤ 0,5 fica em 0,5 ± 0,01 (uniforme na área); a fração com vx > 0 fica em
+  frente/(frente + tras) = 0,6 ± 0,01. No código de antes, o máximo chega a 2.
+- O comentário do `test_andar_nivel_0_fica_em_0_5_com_10_por_cento_parado` muda para o disco; os asserts não mudam.
+
+Verificação do orquestrador: suíte; nenhuma função nova; `grep -ci co-authored` = 0. Na retomada (RETOMA = 1), olhar o
+`s_ANDAR_andar` subir acima de 0,8 no nível 4 e o `nivel_ANDAR` chegar a 5.
