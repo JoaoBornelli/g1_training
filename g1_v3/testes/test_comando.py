@@ -67,7 +67,8 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         self.assertTrue(bool((v[:, :2] == 0).all()))
 
     def test_andar_nivel_0_fica_em_0_5_com_10_por_cento_parado(self):
-        # 16/11, A3: vx, vy e wz uniformes e independentes em ±0,5 (o nível 0 do ANDAR começa em 0,5), 10 % zerados
+        # 16/11, A3: o nível 0 do ANDAR começa em 0,5, 10 % zerados; 17/11, T7: (vx, vy) no disco de raio 0,5 e wz
+        # independente em ±0,5
         v = amostra("andar", 0, "ANDAR")
         self.assertLessEqual(float(v[:, 0].abs().max()), K.andar_inicio + 1e-6)
         self.assertLessEqual(float(v[:, 1].abs().max()), K.andar_inicio + 1e-6)
@@ -88,6 +89,18 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         self.assertAlmostEqual(float(v[:, 1].abs().max()), 1.0, delta=0.01)
         self.assertAlmostEqual(float(v[:, 2].abs().max()), 1.0, delta=0.01)
         self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+
+    def test_andar_sorteia_vx_vy_na_elipse_dos_tetos(self):
+        # 17/11, T7: (vx, vy) uniforme na elipse dos tetos; no quadrado de antes, (vx/semieixo)² + (vy/lado)² chegava a 2
+        v = amostra("andar", 10, "ANDAR")
+        ativo = ~(v == 0).all(dim=1)
+        vx, vy = v[ativo, 0], v[ativo, 1]
+        frente, tras = K.frente_tetos[-1], K.tras_lado_teto_max
+        rho2 = (vx / torch.where(vx > 0, frente, tras)) ** 2 + (vy / K.tras_lado_teto_max) ** 2
+        self.assertLessEqual(float(rho2.max()), 1.0 + 1e-5)
+        # uniforme na área: metade da elipse fica em rho² ≤ 0,5; a frente tem frente/(frente+tras) da área
+        self.assertAlmostEqual(float((rho2 <= 0.5).float().mean()), 0.5, delta=0.01)
+        self.assertAlmostEqual(float((vx > 0).float().mean()), frente / (frente + tras), delta=0.01)
 
     def test_andar_terreno_limita_vx_a_terreno_v_max(self):
         v = amostra("terreno", 10, "ANDAR")

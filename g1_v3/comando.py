@@ -109,8 +109,9 @@ def _giro(n, lo, hi, g):  # ±U[lo; hi] (sinal sorteado por env)
 
 
 def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Tensor:
-    """(n,3) de (vx, vy, wz). ANDAR (tipos `andar` e `terreno`, 16/11): uniforme e independente na faixa do nível, vx em
-    U(−trás; frente), vy em U(−lado; lado), wz em U(−giro; giro), com `andar_parado` dos sorteios zerados. Fora do ANDAR
+    """(n,3) de (vx, vy, wz). ANDAR (tipos `andar` e `terreno`, 16/11): (vx, vy) uniforme na elipse dos tetos do nível
+    (semieixo x `frente` ou `tras`, semieixo y `lado`; 17/11, T7), wz independente em U(−giro; giro), com `andar_parado`
+    dos sorteios zerados. Fora do ANDAR
     `tarefa` não muda a faixa: o `tipo` já diz o que anda (CARREGAR: `reto`, `giro_lugar`, `arco`, `terreno`)."""
     v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
     if tarefa == "ANDAR":
@@ -120,8 +121,13 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
         tras = lado
         if tipo == "terreno":  # PD-12: o terreno usa o teto de `terreno_v_max` para frente e para trás
             frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
-        v[:, 0] = -tras + (frente + tras) * _u(n, gerador)
-        v[:, 1] = lado * (2.0 * _u(n, gerador) - 1.0)
+        # 17/11, T7: elipse, e não o quadrado de vx e vy independentes: no quadrado a diagonal passava do teto em até 41 %,
+        # e no nível 4 a nota linear caía a 0,58 com |v| > 0,9 (`segmentos.csv` do checkpoint da it 5605). Ponto uniforme
+        # na meia unidade de disco com x ≥ 0 (raio √U); a meia elipse da frente sai com chance pela área, frente/(frente+tras)
+        r, ang = _u(n, gerador).sqrt(), torch.pi * (_u(n, gerador) - 0.5)
+        semi_x = -tras + (frente + tras) * (_u(n, gerador) * (frente + tras) < frente).float()
+        v[:, 0] = semi_x * r * torch.cos(ang)
+        v[:, 1] = lado * r * torch.sin(ang)
         v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
         v[_u(n, gerador) < k.andar_parado] = 0.0
         return v
