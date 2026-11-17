@@ -129,8 +129,9 @@ class RelogioDoTwist(unittest.TestCase):
 
 
 class NotaDoSegmento(unittest.TestCase):
-    # 16/11, A1, T3 e T4: a nota do ANDAR é o MÍNIMO de dois canais, cada um a média, depois da âncora, do núcleo:
-    # linear exp(−‖c_xy − v_xy‖²/σ²) e giro exp(−(c_z − ω_z)²/σ²), com σ = 0,5 e a velocidade instantânea da base.
+    # 16/11, A1, T3 e T4; 17/11, T5: a nota do ANDAR é o MÍNIMO de dois canais, depois da âncora. Linear: o núcleo médio
+    # exp(−‖c_xy − v_xy‖²/σ²), com a velocidade instantânea da base. Giro: o núcleo do erro médio, exp(−(média de c_z − ω_z)²/σ²),
+    # que ignora o balanço da pelve dentro da passada. σ = 0,5.
     # 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
 
     def _nota(self, cmd, vel, falha=False):
@@ -139,7 +140,8 @@ class NotaDoSegmento(unittest.TestCase):
         obj.robot.data.root_link_lin_vel_b[:] = torch.tensor(vel[:2] + (0.0,))
         obj.robot.data.root_link_ang_vel_b[:, 2] = vel[2]
         _passos_do_relogio(obj, 100)
-        acumulada = float((obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6)).min())
+        media = obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6)
+        acumulada = min(float(media[0]), math.exp(-float(media[1]) ** 2 / C.sigma_nota ** 2))
         obj._fecha(torch.tensor([0]), torch.tensor([falha]))
         registra = obj._env.v3_cur.registra
         registra.assert_called_once()
@@ -170,16 +172,35 @@ class NotaDoSegmento(unittest.TestCase):
         self.assertAlmostEqual(acumulada, 1.0, places=5)  # o segmento rastreou até cair
         self.assertEqual(registrada, 0.0)
 
-    def test_oscilacao_do_giro_baixa_a_nota(self):
-        # T3: o giro oscila ±1,65 rad/s em torno do comando (média igual ao comando, o que a média de 0,8 s escondia).
-        # O giro rende exp(−1,65²/0,25) ≈ 0, o linear (perfeito) rende 1: a nota (o mínimo) cai de 1 para ≈ 0
+    def test_balanco_do_giro_em_torno_do_comando_nao_baixa_a_nota(self):
+        # ω̄ = c_z = 0,3: erro médio zero, o giro rende 1; o linear (perfeito) rende 1. Pelo núcleo instantâneo, dava ≈ 0.
+        # `t_ab` em −10 põe a âncora (1,5 s) antes dos 100 passos, e 100 é par: a oscilação fecha a média em zero
         obj = _twist((0.5, 0.0, 0.3))
         obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        obj.t_ab[:] = -10.0
         with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
             for i in range(100):
                 obj.robot.data.root_link_ang_vel_b[:, 2] = 0.3 + (1.65 if i % 2 == 0 else -1.65)
                 obj._update_metrics()
-        self.assertAlmostEqual(float((obj.seg_nota[0] / obj.seg_dur[0]).min()), 0.0, places=3)
+        obj._fecha(torch.tensor([0]), torch.tensor([False]))
+        registra = obj._env.v3_cur.registra
+        registra.assert_called_once()
+        self.assertAlmostEqual(float(registra.call_args.args[2]), 1.0, places=5)
+
+    def test_vies_de_giro_com_balanco_cobra_pelo_erro_medio(self):
+        # ω̄ = 0,5 e c_z = 0,3: erro médio −0,2, o giro rende exp(−0,04/0,25) = exp(−0,16) ≈ 0,8521; o linear rende 1
+        # `t_ab` em −10, como no teste anterior: os 100 passos contam depois da âncora
+        obj = _twist((0.5, 0.0, 0.3))
+        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        obj.t_ab[:] = -10.0
+        with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
+            for i in range(100):
+                obj.robot.data.root_link_ang_vel_b[:, 2] = 0.5 + (1.65 if i % 2 == 0 else -1.65)
+                obj._update_metrics()
+        obj._fecha(torch.tensor([0]), torch.tensor([False]))
+        registra = obj._env.v3_cur.registra
+        registra.assert_called_once()
+        self.assertAlmostEqual(float(registra.call_args.args[2]), math.exp(-0.16), places=3)
 
 
 if __name__ == "__main__":
