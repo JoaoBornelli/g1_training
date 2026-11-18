@@ -54,7 +54,12 @@ MESA_POR_GRUPO = (("corpo_prateleira", "contato_tronco"), ("palma_prateleira", "
 # lista: roçar não termina; escorar termina.
 
 _PAD_HALF = (0.035, 0.008, 0.045)  # laje fina, cobre a palma (g1_limpo/cena.py:90)
-_PALM_DZ = 0.015  # offset ao longo da normal da palma
+# 18/11, T11a: a face da almofada da palma fica a _PALM_DZ + _PAD_HALF[1] = 0,040 do eixo da mão, 0,5 cm à frente da
+# cápsula do punho (`*_wrist_collision`, raio 0,035). Com 0,015 a face ficava a 0,023: a mão plana encostava o punho e
+# a almofada parava a 1,2 cm da caixa. Os dedos da malha `*_rubber_hand` ficam de 0,039 a 0,045. `knobs.Alvos.palma_face`
+# é esta mesma soma (teste em `test_alvos.py`).
+_PALM_DZ = 0.032  # centro da almofada da palma ao longo da normal da palma (m)
+_DORSO_DZ = 0.015  # centro da almofada do dorso (m): não mudou na T11a
 _PALM_X = 0.10  # ao longo da mão, na região da palma
 # ⚠ O sinal de dz das palmas é o do CÓDIGO (g1_limpo/cena.py:add_pads_de_palma), não o do comentário
 # da fonte: o pad de palma da direita sai em +dz e o da esquerda em −dz. O comentário estava errado.
@@ -147,7 +152,7 @@ def add_pads_de_palma(spec: mujoco.MjSpec, c: Cena) -> mujoco.MjSpec:
     ):
         hand_body = spec.site(site_name).parent
         _add_pad(hand_body, palm_pad, sinal * _PALM_DZ, 3, c.pad_atrito, (0.1, 0.6, 0.1, 0.6))
-        _add_pad(hand_body, back_pad, -sinal * _PALM_DZ, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4))
+        _add_pad(hand_body, back_pad, -sinal * _DORSO_DZ, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4))
     return spec
 
 

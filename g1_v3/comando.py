@@ -432,7 +432,7 @@ class CadeiaCmd(CommandTerm):
                             d_caixa_p4, d_pelve_p4, inv, A) & pega
         if botar.any():  # BOTAR (B1..B4); o B4 da caixa perdida cai aqui com `inv` = 1 (o `desl` zerado)
             dif = m["caixa_p"] - recompensas.alvo_da_caixa_w(env, idx)
-            # F9 S3: a palma mede da face, a + palma_face (o sítio da palma encostada já está a palma_face da face)
+            # F9 S3: a palma mede da face, a + palma_face (o sítio da palma com a almofada encostada fica a palma_face da face; T11a)
             afasta = (m["palmas_c"].abs() - (a + A.palma_face)[:, None, None]).amax(-1)
             ok = ok | ok_agora_botar(idx, dif[:, :2].norm(dim=-1), dif.norm(dim=-1), m["apoio_N"], m["peso_N"], afasta,
                                      m["apoio"], m["v_caixa"], m["pelve"] - ref.pelve_de_pe, m["tronco_graus"], m["dpalmas"],

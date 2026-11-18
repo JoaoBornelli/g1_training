@@ -128,22 +128,40 @@ class TestInclinacaoDaCaixa(unittest.TestCase):
 class TestPalmasAlvoCaixa(unittest.TestCase):
 
     def test_P0_com_a_010(self):
-        # S §8.2: P0 = (−(a + p0_frente), ±(a + palma_face), 0) = (−0,15; ±0,135; 0).
+        # S §8.2 e T11a: P0 = (−(a + p0_frente), ±(a + palma_face + folga_p1), 0) = (−0,15; ±0,160; 0).
         out = alvos.palmas_alvo_caixa(torch.tensor([IDX["P0"]]), torch.tensor([0.10], dtype=T), K_AL)
         self.assertEqual(tuple(out.shape), (1, 2, 3))
         for p in out[0].tolist():
             self.assertAlmostEqual(p[0], -0.15, delta=1e-6)
-            self.assertAlmostEqual(abs(p[1]), 0.135, delta=1e-6)
+            self.assertAlmostEqual(abs(p[1]), 0.160, delta=1e-6)
             self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
         self.assertLess(out[0, 0, 1].item() * out[0, 1, 1].item(), 0.0)  # uma palma de cada lado
 
     def test_B3_com_a_010(self):
-        # S §8.2: B3 = (0, ±(a + palma_face + b3_afasta), 0) = (0; ±0,185; 0).
+        # S §8.2: B3 = (0, ±(a + palma_face + b3_afasta), 0) = (0; ±0,190; 0).
         out = alvos.palmas_alvo_caixa(torch.tensor([IDX["B3"]]), torch.tensor([0.10], dtype=T), K_AL)
         for p in out[0].tolist():
             self.assertAlmostEqual(p[0], 0.0, delta=1e-6)
-            self.assertAlmostEqual(abs(p[1]), 0.185, delta=1e-6)
+            self.assertAlmostEqual(abs(p[1]), 0.190, delta=1e-6)
             self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
+
+    def test_P1_ao_lado_da_face_e_P2_encostado(self):
+        # 18/11, T11a: P1 = (0; ±(a + palma_face + folga_p1); 0) = (0; ±0,160; 0), sem tocar; P2 = (0; ±(a + palma_face); 0)
+        # = (0; ±0,140; 0), a almofada na face. Antes os dois tinham o mesmo ponto, a 0,035 da face.
+        for nome, y in (("P1", 0.160), ("P2", 0.140)):
+            with self.subTest(alvo=nome):
+                out = alvos.palmas_alvo_caixa(torch.tensor([IDX[nome]]), torch.tensor([0.10], dtype=T), K_AL)
+                for p in out[0].tolist():
+                    self.assertAlmostEqual(p[0], 0.0, delta=1e-6)
+                    self.assertAlmostEqual(abs(p[1]), y, delta=1e-6)
+                    self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
+
+    def test_palma_face_e_a_face_da_almofada_a_frente_do_punho(self):
+        # 18/11, T11a: o alvo sai da geometria. `palma_face` = centro + meia espessura da almofada da palma, e esse valor
+        # passa do raio da cápsula `*_wrist_collision` do g1.xml (0,035): com a mão plana, a almofada toca antes do punho.
+        from g1_v3 import cena
+        self.assertAlmostEqual(K_AL.palma_face, cena._PALM_DZ + cena._PAD_HALF[1], delta=1e-9)
+        self.assertGreater(K_AL.palma_face, 0.035)
 
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
         # §6.3: P3, P4, B1, B2 e B4 não usam as palmas; devolvem 0, nunca NaN (§6.6).

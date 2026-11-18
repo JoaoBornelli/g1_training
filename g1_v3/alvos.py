@@ -138,13 +138,14 @@ def inclinacao_da_caixa(quat_caixa_w):
 def palmas_alvo_caixa(indice, a, k):
     """Palmas-alvo (E,2,3) no frame da caixa (S §8.2). Palma 0 = +y (esquerda), palma 1 = −y.
 
-    P0: x = −(a + p0_frente), y = ±(a + palma_face); P1 e P2: x = 0; B3: y afastado por b3_afasta.
+    P0: x = −(a + p0_frente); P1 e P2: x = 0. y = ±(a + palma_face + folga): folga_p1 no P0 e no P1 (ao lado da face,
+    sem tocar), 0 no P2 (a almofada encostada; 18/11, T11a: o P1 e o P2 tinham o mesmo ponto) e b3_afasta no B3.
     ⚠ Alvos sem uso (P3, P4, B1, B2, B4) devolvem 0, nunca NaN (§6.6): o termo os zera pela máscara.
     """
     usa = (indice == P0) | (indice == P1) | (indice == P2) | (indice == B3)
     zero = torch.zeros_like(a)
     x = torch.where(indice == P0, -(a + k.p0_frente), zero)
-    y = a + k.palma_face + (indice == B3).to(a) * k.b3_afasta
+    y = a + k.palma_face + ((indice == P0) | (indice == P1)).to(a) * k.folga_p1 + (indice == B3).to(a) * k.b3_afasta
     lado = a.new_tensor([1.0, -1.0])
     x2 = x.unsqueeze(1).expand(-1, 2)
     y2 = y.unsqueeze(1) * lado
