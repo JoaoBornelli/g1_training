@@ -614,3 +614,96 @@ Fmin > 5 N no P3 acima de 50 % (hoje 11 %); deriva da caixa p50 abaixo de 3 cm (
 
 **Aberto (não entra na T10).** O `sigma_palmas` não tem medida. O custo da perda da caixa soma −4,8 por perda no
 retorno (240 × 0,02 s). A recarga do h lê o pico do Φ.
+
+## 14. Tarefa T11: a mão alcança a caixa e o P2 paga o que o fecho dele testa (dono, 18/11)
+
+**Regra (dono).** A mão tem de tocar a caixa. O braço e o tronco também podem tocar. A almofada (`*_palm_pad`) é a
+superfície de contato da mão na simulação.
+
+**Medidas (model_10600 e model_10850, T10).**
+- P2: 232 visitas e 0 fechos; as duas almofadas tocam em 9 % do tempo, em sequências de 1 a 3 passos (máximo 9).
+- O site das palmas fica a 3,6 a 4,1 cm da face lateral (mediana); o alvo é 3,5 cm. Nessa faixa a almofada toca em
+  25 a 35 % do tempo; com o site de 1,5 a 3,0 cm, em 70 a 80 %.
+- Geometria: a face da almofada fica a 2,3 cm do eixo da mão (`_PALM_DZ` + meia espessura); a cápsula do punho
+  (`*_wrist_collision`) tem raio 3,5 cm. Com a mão plana, o punho toca e a almofada fica a 1,2 cm da face. O 0,035 do
+  `palma_face` veio do gerador de IK, que o escolheu para o punho encostar (`g1_limpo/ik/gera_botar.py:54-60`).
+- A malha da mão (`left_rubber_hand`) tem os dedos de 3,9 a 4,5 cm do eixo, do lado da palma; a cápsula da mão do
+  fabricante (`left_hand_collision`, apagada pelo `add_pads_de_palma`) alcança de 3,5 a 5,5 cm.
+- Força nas duas faces laterais, de qualquer peça do robô: 23 % do tempo do P2, mediana da menor força 16,8 N, maior
+  sequência 14 passos. O punho já alcança a caixa e o contato dele também é curto.
+- Renda no P2 depois de 2 s: 3,02/s sem palma, 3,44/s com as duas. As conquistas não pagam no P2.
+
+**Causa.** O fecho do P2 testa o contato das duas almofadas. A almofada fica atrás do punho e não alcança a caixa com
+a mão plana; o alvo das palmas é a distância do punho, e não a da almofada; e nenhum termo do P2 paga o contato.
+
+A tarefa tem duas partes, em commits separados.
+
+### 14.1 T11a: a almofada na profundidade da mão e o alvo saído da geometria
+
+**Mudança.**
+- `cena.py`: `_PALM_DZ` = 0,032 (era 0,015): a face da almofada da palma fica a 0,040 do eixo, 0,5 cm à frente da
+  cápsula do punho. A almofada do dorso fica onde está: constante nova `_DORSO_DZ` = 0,015, usada só na chamada do
+  `back_pad` em `add_pads_de_palma`. `_PAD_HALF` e `_PALM_X` não mudam (a massa e a posição ao longo da mão ficam).
+- `knobs.Alvos`: `palma_face` = 0,040 (era 0,035): a distância do site à face com a almofada encostada. Knob novo
+  `folga_p1` = 0,02 (m): a folga da almofada à face no P0 e no P1.
+- `alvos.palmas_alvo_caixa`: `y` = `a + palma_face + folga_p1` no P0 e no P1 (ao lado da face, sem tocar);
+  `a + palma_face` no P2 (encostada); `a + palma_face + b3_afasta` no B3 (como hoje). O `x` e o `z` não mudam.
+- `comando.py`: só o comentário da linha do `afasta` (o B3 continua a medir de `a + palma_face`).
+- Nenhuma recompensa, portão, fecho ou tempo muda. A `q_palmas` continua a medir do alvo do P2, que agora é a mão
+  encostada. Observações e formato do checkpoint não mudam.
+- Contagem de funções de `g1_v3/*.py`: 477 → 477.
+
+**Testes.**
+- `test_alvos.py`: com `a` = 0,10, P0 = (−0,15; ±0,160; 0), P1 = (0; ±0,160; 0), P2 = (0; ±0,140; 0),
+  B3 = (0; ±0,190; 0).
+- Teste novo, de geometria: `Alvos.palma_face` = `cena._PALM_DZ + cena._PAD_HALF[1]`, e esse valor é maior que 0,035,
+  o raio da cápsula `left_wrist_collision` do `g1.xml`. Falha se alguém mover a almofada sem mover o alvo.
+- Os testes que leem `A.palma_face` (`test_comando_e.py`, `test_recompensas_f.py`) seguem pela fórmula.
+
+**Efeitos fora do PEGAR (conferir na coleta).**
+- CARREGAR e BOTAR usam as mesmas mãos. Com a caixa presa, cada site fica 0,5 cm mais longe do centro da caixa. O
+  detector de "PEGAR concluído" tem 5 cm de tolerância nas palmas.
+- A cena exportada do `pilota_v3` precisa de nova exportação (`python -m g1_v3.exporta_cena --saida ...`).
+- As tabelas de IK (`g1_limpo/ik/`, `FOLGA_PALMA` = 0,035) não mudam nesta tarefa.
+
+**O que olhar, SEM treino.** Coleta do model_10850 com a cena nova (`coleta.py`, colunas `cont_E`, `cont_D`,
+`folga_E`, `folga_D`, `site_E_y`, `site_D_y`).
+- Previsão: as duas almofadas na caixa em 20 % do tempo do P2 ou mais (hoje 9 %). O contato segue curto.
+- Se ficar abaixo de 15 %: a geometria não era o que impedia a mão de tocar; a T11b não entra antes de nova medida.
+- Conferir também: a velocidade da caixa no P2 (hoje p50 0,10 m/s) e as perdas da caixa.
+
+### 14.2 T11b: as conquistas pagam também no P2
+
+**Regra da cadeia.** Em toda etapa, a variável que o fecho testa tem um termo de recompensa dentro da etapa.
+
+**Mudança.**
+- `recompensas.progresso`: a máscara `mantem` passa a incluir o P2. As conquistas somam em P2, P3, P4, B1 e B2 e no
+  CARREGAR com o P4 fechado (a §13 dizia P3, P4, B1 e B2).
+- Nenhum termo, portão ou knob novo. `renda_conquista` segue em 2,0.
+- Contagem de funções: 477 → 477.
+
+**Números.**
+- Segurar com 16,8 N no P2 paga 0 hoje e passa a pagar `2·tanh(16,8/20,4)` = 1,35/s pela `q_pega`.
+- Regra de 09/11 (todo fecho sobe a renda): P1 → P2, o máximo do P1 é 6 + 3 = 9 e a abertura do P2 dá no mínimo
+  12 + 3·0,54 = 13,6. P2 → P3, o máximo do P2 é 12 + 3 + 4 = 19 e a abertura do P3 dá no mínimo 18 + 3·0,54 = 19,6,
+  com as conquistas em 0; no fecho real as conquistas são as mesmas dos dois lados.
+- O limite `renda_conquista` < 2,3 (fecho B2 → B3) não muda.
+
+**Testes.**
+- `test_conquistas_so_somam_onde_a_pega_tem_de_continuar`: o caso do P2 paga 12 + 4 = 16; o P1 e o B3 seguem sem
+  as conquistas.
+- `test_todo_fecho_sobe_a_renda_com_as_conquistas`: entram os fechos P1 → P2 e P2 → P3 com as conquistas cheias do
+  lado de antes.
+
+**O que olhar, COM treino.** Retomada do model_10850 com a T11a e a T11b; coleta ~500 its depois.
+- Previsão: as duas almofadas na caixa em 50 % do tempo do P2 ou mais; o P2 fecha em 30 % das visitas ou mais.
+- Se a previsão falha e a modulação do contato pela fase do relógio segue igual (hoje 21 % contra 4 % de contato
+  duplo entre faixas da fase): a causa do toque curto é o ritmo dos braços; o passo seguinte é o teste da fase.
+- Guarda do ANDAR: o `s_ANDAR_andar` de volta ao valor de antes da retomada em até 400 its.
+
+**Ordem.** T11a → push → coleta sem treino no pod → leitura → T11b → push → retomada com `RETOMA = 1`.
+
+**Aberto (não entra na T11).** A posição da almofada ao longo da mão (0,065 a 0,135; os dedos da malha ficam de 0,14
+a 0,18). O relógio do fecho que zera e o invariante de deslocamento que exige o valor exato 1. A fase do relógio de
+marcha no PEGAR. A recompensa da pega em uma etapa só (`design_draft.md` do projeto, opção 3), que só entra se o P3
+ou o P4 pararem depois da T11.
