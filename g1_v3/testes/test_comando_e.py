@@ -23,7 +23,7 @@ DT = ATIVO.contrato.decimacao * ATIVO.contrato.dt_fisica  # 0,02 s, passo da pol
 INCL_LIM = A.incl_inicio_graus  # 30°: limite de inclinação do P3 (S §8.2)
 DELTA_INCL = A.delta_incl_graus  # 15°: tolerância da rampa de inclinação
 # tempo de permanência por alvo, na ordem de ALVOS. A §6.2 só dá tempo a P4, B2, B3 e B4; P0–P3 e B1 ficam em 0
-TEMPOS = torch.tensor([0, 0, 0, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
+TEMPOS = torch.tensor([0, 0, A.tempo_p2, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
 
 
 def estado(indice, d_palmas=0.2, contatos=(False, False), apoio=True, incl=45.0, d_caixa=0.5, d_pelve=0.5,
@@ -193,6 +193,23 @@ class TestOkAgoraPegar(unittest.TestCase):
                 break
         self.assertEqual(visitados, [P0, P1, P2, P3, P4, B1])
         self.assertEqual(passos_em_p4, 25)  # tempo_p4 = 0,5 s = 25 passos de 0,02 s
+
+    def test_p2_exige_o_contato_das_duas_palmas_por_tempo_p2(self):
+        # 18/11, T10: um passo de toque (o do model_9150) não fecha o P2; fecha depois de tempo_p2 seguidos (0,3 s = 15
+        # passos), e um passo com uma palma fora zera o relógio
+        idx, rel = torch.tensor([P2], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
+        idx, rel, _ = alvos.avanca(idx, ok(fase(P2)), rel, DT, TEMPOS)
+        self.assertEqual(int(idx), P2)
+        passos = 1
+        while int(idx) == P2:
+            idx, rel, _ = alvos.avanca(idx, ok(fase(P2)), rel, DT, TEMPOS)
+            passos += 1
+        self.assertEqual(passos, round(A.tempo_p2 / DT))
+        idx, rel = torch.tensor([P2], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
+        for _ in range(5):
+            idx, rel, _ = alvos.avanca(idx, ok(fase(P2)), rel, DT, TEMPOS)
+        idx, rel, _ = alvos.avanca(idx, torch.tensor([False]), rel, DT, TEMPOS)
+        self.assertEqual((int(idx), rel.item()), (P2, 0.0))
 
     def test_p3_exige_a_caixa_levantada_por_tempo_p3(self):
         # 18/11, T8: sem contato com a laje mas sem subir (o toque do model_8150), o P3 não fecha; com a subida de

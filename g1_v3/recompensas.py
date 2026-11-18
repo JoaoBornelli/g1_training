@@ -281,12 +281,12 @@ def phi_do_alvo(indice, d, sigma, fator, portoes: dict) -> torch.Tensor:
     return torch.where(indice >= 0, phi, torch.zeros_like(phi))
 
 
-def n_progresso(phi, etapa, w_phi, w_etapa, h) -> torch.Tensor:
-    """Renda por segundo: w_etapa·etapa·h + w_phi·Φ. Cresce com o tempo parado no alvo, como os custos (que são por
+def n_progresso(phi, etapa, w_phi, w_etapa, h, conquistas, w_c) -> torch.Tensor:
+    """Renda por segundo: w_etapa·etapa·h + w_phi·Φ + w_c·conquistas (18/11, T10: a soma das conquistas mantidas). Cresce com o tempo parado no alvo, como os custos (que são por
     segundo); o termo antigo (diferença de Φ + prêmio por avanço) pagava um valor fixo e o robô parava na frente da caixa.
     13/11, M5: o h em [0, 1] só multiplica a parte da etapa e cai sem progresso (`n_pressa`): parado no P4, a renda de
     ~25/s pagava mais que fechar. O Φ fica fora do h para o gradiente do alvo não sumir; o fecho sobe a renda em ≥ 3/s."""
-    return w_etapa * etapa * h + w_phi * phi
+    return w_etapa * etapa * h + w_phi * phi + w_c * conquistas
 
 
 def n_pressa(h, ganho, dt, tau, recarga) -> torch.Tensor:
@@ -501,8 +501,10 @@ def _recuo_ref(env, indice):
 
 
 def _phi_env(env, indice, sigma):
-    """Φ (E,) do alvo `indice` no estado corrente, pelos núcleos (E4; −1 → 0). `indice` pode ser o alvo velho no
-    passo do avanço (D1), e `sigma` é o σ dele (S3, 29/10): posições e referências saem do próprio índice passado."""
+    """(Φ (E,), conquistas (E,2)) do alvo `indice` no estado corrente, pelos núcleos (E4; −1 → Φ 0). `indice` pode ser o
+    alvo velho no passo do avanço (D1), e `sigma` é o σ dele (S3, 29/10): posições e referências saem do próprio índice.
+    18/11, T10: conquistas = [palmas nas faces, pega firme], cada uma em [0, 1] e sem máscara de etapa (o `progresso`
+    decide onde somam). A pega firme saiu dos portões do Φ: lá ela zerava o Φ inteiro com uma palma fora da caixa."""
     robo, caixa = env.scene["robot"], env.scene["box"]
     a, ref = env.v3_meia, env.v3_ref
     caixa_w, quat = caixa.data.root_link_pos_w, caixa.data.root_link_quat_w
@@ -536,12 +538,14 @@ def _phi_env(env, indice, sigma):
     f_pega = R.margem_pega * env.v3_massa * float(-env.sim.mj_model.opt.gravity[2]) / (2.0 * ATIVO.dr.atrito_pad[0])
     maos = torch.tanh(potencial.custo_aperto(
         *forcas_por_face(faces.normal, faces.force, faces.found > 0, R_caixa), f_pega))
+    d_faces = (palmas_c - alvos.palmas_alvo_caixa(torch.full_like(indice, alvos.P2), a, K)).norm(dim=-1).mean(-1)
+    conquistas = torch.stack([1 - torch.tanh(d_faces / (K.largura_tanh * R.sigma_palmas)), maos], dim=-1)
     portoes = portoes_do_alvo(
         indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), desloc_apoio,
-        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), maos,
+        torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), torch.ones_like(maos),
         torch.relu(incl_torso(env) - torch.rad2deg(ref_do[:, 7])), (rec - _recuo_ref(env, indice)).abs(),
         torch.relu(K.faixa_com - margem_com(com, cantos)), dois, a, K)
-    return phi_do_alvo(indice, d, sigma, fator, portoes)
+    return phi_do_alvo(indice, d, sigma, fator, portoes), conquistas
 
 
 def _qualidade(env):
@@ -773,7 +777,8 @@ def contato_fora(env, tarefas):
 
 
 def progresso(env, tarefas):
-    """Renda por segundo: `renda_etapa`·etapa·h + `renda_phi`·Φ pago (proposta-renda-em-escada.md). A etapa sobe com a
+    """Renda por segundo: `renda_etapa`·etapa·h + `renda_phi`·Φ pago + `renda_conquista`·conquistas (18/11, T10: palmas
+    nas faces e pega firme, somadas em P3, P4, B1, B2 e no CARREGAR com o P4 fechado; 0 sem a caixa). A etapa sobe com a
     cadeia. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
 
     | condição (nesta precedência)                              | etapa | Φ pago    |
@@ -796,7 +801,7 @@ def progresso(env, tarefas):
     h = 1: o robô não muda a duração desses trechos. Os buffers recomeçam em `comando.py` (reset, troca de alvo, abertura de
     trecho, perda). Lê o que os comandos gravaram no passo anterior."""
     idx = env.v3_alvo_idx
-    phi_alvo = _phi_env(env, idx, env.v3_sigma)  # 0 onde idx < 0
+    phi_alvo, conquistas = _phi_env(env, idx, env.v3_sigma)  # Φ: 0 onde idx < 0
     p4_fechado, b4_fechado = env.v3_p4_fechado, env.v3_b4_fechado
     sem_caixa = env.v3_perdeu | (~p4_fechado & (env.v3_tarefa != TAREFAS.index("PEGAR")))
     fecho_p4 = p4_fechado & (idx < _B1)
@@ -816,8 +821,10 @@ def progresso(env, tarefas):
     env.v3_h[:] = torch.where(com_alvo, h_alvo, torch.where(carrega, h_carga, env.v3_h))
     env.v3_phi_melhor[:] = torch.where(com_alvo, torch.maximum(env.v3_phi_melhor, phi_alvo), env.v3_phi_melhor)
     h_ef = torch.where(com_alvo | carrega, env.v3_h, torch.ones_like(env.v3_h))
+    mantem = ~sem_caixa & ~b4_fechado & (fecho_p4 | _em(idx, _CAIXA_ALVO))  # 18/11, T10: onde a pega tem de continuar
     r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi,
-                    R.renda_etapa, h_ef)
+                    R.renda_etapa, h_ef, torch.where(mantem, conquistas.sum(-1), torch.zeros_like(phi_alvo)),
+                    R.renda_conquista)
     env.v3_phi[:] = torch.where(idx >= 0, phi_alvo, torch.full_like(phi_alvo, -1.0))
     return _fim(env, tarefas, r)
 

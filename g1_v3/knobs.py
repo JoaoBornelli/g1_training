@@ -174,6 +174,9 @@ class Alvos:  # S §8.2; PD-23
     tempo_p3: float = 0.3  # tempo de permanência em P3 (s)
     b1_alto: float = 0.05  # S §8.2: B1, altura acima da soltura (m)
     tol_palma: float = 0.03  # S §8.2: tolerância da palma (m)
+    # 18/11, T10: o P2 fechava com um passo de toque; no model_9150 só 1 % dos envs tinha as duas palmas na caixa no 1º
+    # passo do P3. O fecho exige o contato das duas palmas por tempo_p2
+    tempo_p2: float = 0.3  # tempo de permanência em P2 (s)
     tol_caixa_p4: float = 0.05  # S §8.2: tolerância da caixa em P4 (m)
     tol_pelve_p4: float = 0.03  # S §8.2: tolerância da pelve em P4 (m)
     tempo_p4: float = 0.5  # S §8.2: tempo de permanência em P4 (s)
@@ -312,6 +315,11 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
     renda_phi: float = 3.0
     renda_etapa: float = 6.0
+    # 18/11, T10: conquistas mantidas (palmas nas faces e pega firme), somadas de P3 a B2 e no CARREGAR. Como portão, a
+    # pega zerava o Φ inteiro com uma palma fora (model_9150: 71 a 78 % dos passos do P3 sem palma na caixa, Φ 0,03).
+    # renda_conquista < 2,3: o fecho do B2 perde as duas e a abertura do B3 tem de pagar mais (42 + 3·0,54 > 36 + 3 + 2·w)
+    renda_conquista: float = 2.0
+    sigma_palmas: float = 0.08  # escala da distância das palmas às faces (m); q = 1 − tanh(d / (largura_tanh·σ)); sem medida
     # 13/11, M5: a renda da etapa (6·etapa·h) cai com τ = 3 s sem progresso do Φ; cada ganho de Φ sobre o melhor da etapa recarrega h
     # (5 × o ganho: 0,2 de Φ devolve h a 1). Sem isso a renda de 25/s no P4 parado pagava mais que fechar (renda congelada).
     tau_renda: float = 3.0

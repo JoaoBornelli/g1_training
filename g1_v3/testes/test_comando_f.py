@@ -20,7 +20,7 @@ B_IDX = (B1, B2, B3, B4)
 DT = ATIVO.contrato.decimacao * ATIVO.contrato.dt_fisica  # 0,02 s, passo da política
 V_PARADA_B3 = 0.05  # PD-39 (Alvos.v_parada_b3, a criar na F1)
 # tempo de permanência por alvo, na ordem de ALVOS (mesma tabela da E3): P0..P3 e B1 = 0
-TEMPOS = torch.tensor([0, 0, 0, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
+TEMPOS = torch.tensor([0, 0, A.tempo_p2, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
 
 
 def ok(indice, d_horiz=0.0, d_caixa=0.0, apoio=10.0, peso=10.0, afasta=(0.20, 0.20), apoiada=True,

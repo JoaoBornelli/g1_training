@@ -132,22 +132,32 @@ class F9PortaoDoTronco(unittest.TestCase):
                 mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)), \
                 mock.patch.object(recompensas, "distancia_do_alvo", return_value=torch.zeros(1)), \
                 mock.patch.object(recompensas, "portoes_do_alvo", side_effect=espia):
-            recompensas._phi_env(env, env.v3_alvo_idx, env.v3_sigma)
-        return espiado["g"]
+            _, conquistas = recompensas._phi_env(env, env.v3_alvo_idx, env.v3_sigma)
+        return {**espiado["g"], "pega": conquistas[:, 1], "palmas": conquistas[:, 0]}
 
     def test_maos_paga_a_firmeza_da_pega_pelo_peso(self):
         # 11/11: maos = tanh(min F / F_pega), F_pega = margem_pega · m·g / (2μ), μ = DR.atrito_pad[0]. Com 1 kg e 20 N
         # por palma: F_pega = 2,5 · 9,81 / 1,2 = 20,44 N → tanh(0,9786) = 0,7526. Com 5 kg a mesma força vale 5× menos
         # no argumento: tanh(0,1957) = 0,1933. Sem força vale 0; fora de P2–B2 vale 1.
-        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0)["maos"].item(), 0.7526, delta=1e-3)
-        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0, massa=5.0)["maos"].item(), 0.1933, delta=1e-3)
-        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 0.0)
+        # 18/11, T10: a firmeza é a conquista `pega`; o portão `maos` do Φ vale 1 em todo alvo
+        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0)["pega"].item(), 0.7526, delta=1e-3)
+        self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0, massa=5.0)["pega"].item(), 0.1933, delta=1e-3)
+        self.assertEqual(self._portoes(P3, 0.0, 0.0)["pega"].item(), 0.0)
+        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 1.0)
         self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
 
+    def test_conquista_das_palmas_pela_distancia_as_faces(self):
+        # 18/11, T10: palmas no centro da caixa de meia aresta 0,10: 0,135 m de cada face-alvo (a + palma_face).
+        # q = 1 − tanh(0,135 / (2 · 0,08)) = 0,3131, em qualquer alvo (o `progresso` decide onde soma)
+        esperado = 1 - math.tanh((0.1 + A.palma_face) / (A.largura_tanh * R.sigma_palmas))
+        for alvo in (0, P3):
+            self.assertAlmostEqual(self._portoes(alvo, 0.0, 0.0)["palmas"].item(), esperado, places=5)
+
     def test_maos_nao_zera_o_phi_do_p2_sem_forca(self):
-        # 13/11, A1: o P2 sai do portão `maos` (a palma é puxada à face até o contato); o P3 continua exigindo a força
+        # 13/11, A1: o P2 sai do portão `maos` (a palma é puxada à face até o contato). 18/11, T10: o P3 também; sem
+        # força o Φ do P3 não vai a 0
         self.assertEqual(self._portoes(2, 0.0, 0.0)["maos"].item(), 1.0)
-        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 0.0)
+        self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 1.0)
 
     def test_tronco_vertical_com_ik_de_30_graus_da_portao_1(self):
         # F9 P2: tronco vertical (0°) com a IK em 30° está do lado livre: o portão vale 1 (hoje, |0 − 30| dá 0)

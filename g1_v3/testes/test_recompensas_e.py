@@ -185,9 +185,25 @@ def _sinal_m5(n):
 class TestProgresso(unittest.TestCase):
     """Núcleo da renda por segundo: w_etapa·etapa·h + w_phi·Φ, com os pesos do knob (3,0 e 6,0), valores à mão."""
 
-    def _n(self, phi, etapa, h=1.0):
-        return float(recompensas.n_progresso(torch.tensor([phi]), torch.tensor([float(etapa)]),
-                                             R.renda_phi, R.renda_etapa, torch.tensor([h]))[0])
+    def _n(self, phi, etapa, h=1.0, conquistas=0.0):
+        return float(recompensas.n_progresso(torch.tensor([phi]), torch.tensor([float(etapa)]), R.renda_phi,
+                                             R.renda_etapa, torch.tensor([h]), torch.tensor([conquistas]),
+                                             R.renda_conquista)[0])
+
+    def test_conquistas_somam_fora_do_h(self):
+        # 18/11, T10: 6·n·h + 3·Φ + 2·conquistas, com n = 3, h = 0,5, Φ = 0 e as duas conquistas cheias: 9 + 0 + 4
+        self.assertAlmostEqual(self._n(0.0, 3, h=0.5, conquistas=2.0), 13.0, places=5)
+
+    def test_todo_fecho_sobe_a_renda_com_as_conquistas(self):
+        # 18/11, T10 (a regra de 09/11): a abertura da etapa seguinte (h = 1, Φ de abertura 0,538) paga mais que o máximo
+        # da atual (h = 1, Φ = 1, conquistas cheias). (etapa, Φ pago?, conquistas) de P2 a B4; o CARREGAR não paga Φ
+        phi0 = 1 - math.tanh(1 / K.largura_tanh)
+        cadeia = [(2, True, 0.0), (3, True, 2.0), (4, True, 2.0), (5, False, 2.0), (5, True, 2.0), (6, True, 2.0),
+                  (7, True, 0.0), (8, True, 0.0)]
+        for (n0, phi_a, c0), (n1, phi_b, c1) in zip(cadeia, cadeia[1:]):
+            maximo = self._n(1.0 if phi_a else 0.0, n0, conquistas=c0)
+            abertura = self._n(phi0 if phi_b else 0.0, n1, conquistas=c1)
+            self.assertGreater(abertura, maximo, f"fecho da etapa {n0} para a {n1}")
 
     def test_h_so_multiplica_a_etapa(self):
         # 13/11, M5: 6·n·h + 3·Φ, com n = 5, h = 0,5 e Φ = 0,4: 15 + 1,2
@@ -277,12 +293,33 @@ class TestEtapaDoProgresso(unittest.TestCase):
             **{**_buffers_m5(n), "v3_h": torch.tensor([c[8] if len(c) > 8 else 1.0 for c in self.CASOS])})
         phi = col(5, torch.float32)
         with mock.patch.object(recompensas, "_phi_env",
-                               lambda e, indice, sigma: torch.where(indice >= 0, phi, torch.zeros_like(phi))), \
+                               lambda e, indice, sigma: (torch.where(indice >= 0, phi, torch.zeros_like(phi)),
+                                                         torch.zeros(n, 2))), \
                 _sinal_m5(n):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         for i, c in enumerate(self.CASOS):
             self.assertAlmostEqual(float(r[i]), c[6], places=5, msg=str(c))
             self.assertAlmostEqual(float(env.v3_phi[i]), c[7], places=5, msg=str(c))
+
+    def test_conquistas_so_somam_onde_a_pega_tem_de_continuar(self):
+        # 18/11, T10: com Φ 0 e as duas conquistas em 1, cada caso paga 6·n (h = 1) mais 2·2 só em P3, P4, B1, B2 e no
+        # CARREGAR com o P4 fechado. (alvo, tarefa, perdeu, b4_fechado, p4_fechado, renda)
+        casos = [(2, "PEGAR", False, False, False, 12.0), (3, "PEGAR", False, False, False, 22.0),
+                 (4, "PEGAR", False, False, False, 28.0), (4, "CARREGAR", False, False, True, 34.0),
+                 (5, "BOTAR", False, False, True, 34.0), (6, "BOTAR", False, False, True, 40.0),
+                 (7, "BOTAR", False, False, True, 42.0), (-1, "CARREGAR", False, False, False, 0.0),
+                 (3, "ANDAR", True, False, False, 0.0), (-1, "ANDAR", False, True, True, 54.0)]
+        n = len(casos)
+        col = lambda i, dtype: torch.tensor([c[i] for c in casos], dtype=dtype)
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in casos]),
+            v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
+            v3_sigma=torch.ones(n), v3_phi=torch.zeros(n), **{**_buffers_m5(n), "v3_h": torch.ones(n)})
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.zeros(n), torch.ones(n, 2))), \
+                _sinal_m5(n), mock.patch.object(recompensas, "n_pressa", lambda h, ganho, dt, tau, rec: h):
+            r = recompensas.progresso(env, TODAS_TAREFAS)
+        for i, c in enumerate(casos):
+            self.assertAlmostEqual(float(r[i]), c[5], places=4, msg=str(c))
 
     def test_tarefa_fora_da_mascara_paga_zero(self):
         env = types.SimpleNamespace(
@@ -290,7 +327,8 @@ class TestEtapaDoProgresso(unittest.TestCase):
             v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_b4_fechado=torch.zeros(1, dtype=torch.bool),
             v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
             **_buffers_m5(1))
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(1)), _sinal_m5(1):
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(1), torch.zeros(1, 2))), \
+                _sinal_m5(1):
             r = recompensas.progresso(env, ("ANDAR",))
         self.assertEqual(float(r[0]), 0.0)
 
@@ -303,7 +341,7 @@ class TestEtapaDoProgresso(unittest.TestCase):
             v3_p4_fechado=torch.zeros(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
             **{**_buffers_m5(2), "v3_h": torch.tensor([0.8, 0.8]), "v3_phi_melhor": torch.tensor([0.5, 0.1])})
         phi = torch.tensor([0.3, 0.6])
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: phi), _sinal_m5(2):
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (phi, torch.zeros(2, 2))), _sinal_m5(2):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         self.assertAlmostEqual(float(env.v3_h[0]), 0.8 * math.exp(-DT / R.tau_renda), places=5)
         self.assertAlmostEqual(float(env.v3_h[1]), 1.0, places=5)
@@ -322,7 +360,7 @@ class TestEtapaDoProgresso(unittest.TestCase):
         env.command_manager = types.SimpleNamespace(
             get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]))
         r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: torch.ones(2)), \
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(2), torch.zeros(2, 2))), \
                 mock.patch.object(recompensas, "_rastreio",
                                   lambda e, linear, normalizado=False: r_lin if linear else r_ang), \
                 mock.patch.object(recompensas, "_qualidade", lambda e: (torch.ones(2), torch.tensor([0.0, 0.20]))):

@@ -34,7 +34,7 @@ FATIA_ANDAR, FATIA_B, FATIA_C = 0, 1, 2
 _EPS = 1e-6
 A, T, CENA = ATIVO.alvos, ATIVO.terminacao, ATIVO.cena
 # Tempo de permanência por alvo, na ordem de ALVOS (S §8.2): só P4, B2, B3 e B4 têm tempo.
-_TEMPOS = (0.0, 0.0, 0.0, A.tempo_p3, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
+_TEMPOS = (0.0, 0.0, A.tempo_p2, A.tempo_p3, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
 
 
 # --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------

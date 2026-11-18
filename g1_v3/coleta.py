@@ -78,7 +78,7 @@ with torch.inference_mode():
     for _ in range(args.passos):
         # estado ANTES da ação
         m, d = cadeia._mede(), robo.data
-        phi = recompensas._phi_env(u, u.v3_alvo_idx, u.v3_sigma)  # o mesmo Φ do progresso, no alvo corrente
+        phi, conq = recompensas._phi_env(u, u.v3_alvo_idx, u.v3_sigma)  # o mesmo Φ do progresso, no alvo corrente
         faces = u.scene["caixa_faces"].data
         f_esq, f_dir = recompensas.forcas_por_face(
             faces.normal, faces.force, faces.found > 0,
@@ -97,7 +97,7 @@ with torch.inference_mode():
             "apoio": m["apoio"], "apoio_N": m["apoio_N"], "sobre_laje": m["sobre"],
             "contatos": m["contatos"].float().sum(-1), "F_esq": f_esq, "F_dir": f_dir,
             "F_total": u.scene[CAIXA_ROBO].data.force.norm(dim=-1).sum(-1),
-            "d": cap["d"], "sigma": cap["sigma"], "phi": phi,
+            "d": cap["d"], "sigma": cap["sigma"], "phi": phi, "q_palmas": conq[:, 0], "q_pega": conq[:, 1],
             **{f"p_{n}": cap[n] for n in ("desloc", "incl", "maos", "tronco", "recuo", "com")},
             "h_renda": u.v3_h, "phi_melhor": u.v3_phi_melhor, "relogio_alvo": u.v3_relogio_alvo,
             "e_p4_frente": e_p4[:, 0], "e_p4_lado": e_p4[:, 1], "e_p4_z": e_p4[:, 2],
