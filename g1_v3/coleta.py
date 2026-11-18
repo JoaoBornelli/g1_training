@@ -22,14 +22,14 @@ import numpy as np
 import torch
 
 import g1_v3.tarefa as tarefa  # registra a task
-from g1_v3 import alvos, recompensas
+from g1_v3 import alvos, cena, recompensas
 from g1_v3.alvos import P4
 from g1_v3.env_cfg import make_env_cfg
 from g1_v3.metricas import CAIXA_ROBO
 from g1_v3.runner import RunnerV3
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
-from mjlab.utils.lab_api.math import quat_apply_inverse
+from mjlab.utils.lab_api.math import matrix_from_quat, quat_apply_inverse
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--checkpoint", required=True)
@@ -72,6 +72,11 @@ u.episode_length_buf = torch.randint_like(u.episode_length_buf, high=int(u.max_e
 cadeia, twist = u.command_manager.get_term("cadeia"), u.command_manager.get_term("twist")
 robo, rm, tm = u.scene["robot"], u.reward_manager, u.termination_manager
 xs, ids, rews, terms = [], [], [], []
+# 18/11: as almofadas das palmas (E, D) e os 8 cantos de uma almofada no frame do geom: a folga até a face da caixa
+pads = robo.find_geoms(cena.PALM_PAD_GEOMS, preserve_order=True)[0]
+cantos = torch.tensor([[a, b, c] for a in (-1.0, 1.0) for b in (-1.0, 1.0) for c in (-1.0, 1.0)], device=u.device) \
+    * torch.tensor(cena._PAD_HALF, device=u.device)
+lado = torch.tensor([1.0, -1.0], device=u.device)  # palma E na face +y, palma D na face −y (`alvos.palmas_alvo_caixa`)
 
 with torch.inference_mode():
     obs = env.get_observations()
@@ -80,9 +85,16 @@ with torch.inference_mode():
         m, d = cadeia._mede(), robo.data
         phi, conq = recompensas._phi_env(u, u.v3_alvo_idx, u.v3_sigma)  # o mesmo Φ do progresso, no alvo corrente
         faces = u.scene["caixa_faces"].data
-        f_esq, f_dir = recompensas.forcas_por_face(
-            faces.normal, faces.force, faces.found > 0,
-            alvos.frame_da_caixa(u.scene["box"].data.root_link_quat_w, d.heading_w))
+        R_cx = alvos.frame_da_caixa(u.scene["box"].data.root_link_quat_w, d.heading_w)
+        f_esq, f_dir = recompensas.forcas_por_face(faces.normal, faces.force, faces.found > 0, R_cx)
+        # almofada no frame da caixa: o centro (E,2,3) e a folga (E,2) = o canto mais perto do plano da face lateral
+        # (> 0: a almofada inteira está fora do plano da face; ≤ 0: um canto passou do plano)
+        pad_p = d.geom_pos_w[:, pads]
+        cantos_w = pad_p[:, :, None] + torch.einsum("ekij,cj->ekci", matrix_from_quat(d.geom_quat_w[:, pads]), cantos)
+        pad_c = torch.einsum("eji,ekj->eki", R_cx, pad_p - m["caixa_p"][:, None])
+        folga = (torch.einsum("eji,ekcj->ekci", R_cx, cantos_w - m["caixa_p"][:, None, None])[..., 1] * lado[:, None]).amin(-1) \
+            - u.v3_meia[:, None]
+        site_y = m["palmas_c"][..., 1] * lado - u.v3_meia[:, None]  # o site até a face lateral (o alvo do P2 é palma_face)
         caixa_b = quat_apply_inverse(m["base_q"], m["caixa_p"] - m["base_p"])
         e_p4 = quat_apply_inverse(m["base_q"], m["caixa_p"] - recompensas.alvo_da_caixa_w(u, torch.full_like(u.v3_alvo_idx, P4)))
         cmd = u.command_manager.get_command("twist")
@@ -97,6 +109,9 @@ with torch.inference_mode():
             "apoio": m["apoio"], "apoio_N": m["apoio_N"], "sobre_laje": m["sobre"],
             "contatos": m["contatos"].float().sum(-1), "F_esq": f_esq, "F_dir": f_dir,
             "F_total": u.scene[CAIXA_ROBO].data.force.norm(dim=-1).sum(-1),
+            "cont_E": m["contatos"][:, 0], "cont_D": m["contatos"][:, 1], "folga_E": folga[:, 0], "folga_D": folga[:, 1],
+            "site_E_y": site_y[:, 0], "site_D_y": site_y[:, 1], "pad_E_x": pad_c[:, 0, 0], "pad_E_z": pad_c[:, 0, 2],
+            "pad_D_x": pad_c[:, 1, 0], "pad_D_z": pad_c[:, 1, 2], "fase": u.v3_fase_marcha, "degrau": u.v3_degrau,
             "d": cap["d"], "sigma": cap["sigma"], "phi": phi, "q_palmas": conq[:, 0], "q_pega": conq[:, 1],
             **{f"p_{n}": cap[n] for n in ("desloc", "incl", "maos", "tronco", "recuo", "com")},
             "h_renda": u.v3_h, "phi_melhor": u.v3_phi_melhor, "relogio_alvo": u.v3_relogio_alvo,
