@@ -149,55 +149,42 @@ class TestAberturaDeFatiaB(unittest.TestCase):
         self.assertFalse(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta)
         self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
 
-    def test_rampa_sobe_0_02_a_cada_12_fechos_com_a_nota_do_andar_no_portao(self):
-        # 16/11, B2: a B entra com teto 0,05; com a B em s = 0 (déficit alto, o teto corta) e a nota do ANDAR em 0,85,
-        # o teto sobe 0,02 a cada `rampa_fatia_its` fechos, contados da abertura. A soma continua 1.
-        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
-        andar = cid(cur, "ANDAR", "andar")
-        notas = {andar: 0.85, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
-        fecha(cur, notas=notas)  # o fecho 1 abre a B
-        abriu = cur.it
-        for _ in range(60):
-            fecha(cur, notas=notas)
-            degraus = (cur.it - abriu) // B.rampa_fatia_its
-            f = cur.fracoes_fatias()
-            self.assertAlmostEqual(f[1].item(), B.rampa_fatia_inicio + B.rampa_fatia_passo * degraus, msg=f"fecho {cur.it}")
-            self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
+    def test_rampa_sobe_0_02_a_cada_12_fechos_sem_olhar_a_nota_do_andar(self):
+        # 18/11, T9: a B entra com teto 0,05 e o teto sobe 0,02 a cada `rampa_fatia_its` fechos, contados da abertura.
+        # A nota do ANDAR não entra: 0,85 (no portão), 0,75 e 0,60 dão a mesma rampa. A soma continua 1.
+        for nota in (0.85, 0.75, 0.60):
+            with self.subTest(nota=nota):
+                cur = novo(SEM_CARENCIA, andar=NIVEL_B)
+                notas = {cid(cur, "ANDAR", "andar"): nota, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
+                fecha(cur, notas=notas)  # o fecho 1 abre a B
+                abriu = cur.it
+                for _ in range(60):
+                    fecha(cur, notas=notas)
+                    degraus = (cur.it - abriu) // B.rampa_fatia_its
+                    f = cur.fracoes_fatias()
+                    self.assertAlmostEqual(f[1].item(), B.rampa_fatia_inicio + B.rampa_fatia_passo * degraus, msg=f"fecho {cur.it}")
+                    self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
 
-    def test_rampa_desce_com_a_nota_do_andar_abaixo_de_0_70(self):
-        # 16/11, B2 e B3: com a nota do ANDAR em 0,6 o teto desce 0,02 a cada 12 fechos (histerese: entre 0,7 e 0,8 nada
-        # muda); a fração do ANDAR nunca fica abaixo de `piso_andar`
+    def test_rampa_para_na_parte_igual_e_nao_desce(self):
+        # 18/11, T9: a B sobe até 1/2 e fica lá, com a nota do ANDAR em 0,60 e a B em s = 0 o tempo todo
         cur = novo(SEM_CARENCIA, andar=NIVEL_B)
-        andar = cid(cur, "ANDAR", "andar")
-        b_zero = {cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
-        fecha(cur, notas={andar: 0.85, **b_zero})
-        for _ in range(3 * B.rampa_fatia_its):
-            fecha(cur, notas={andar: 0.85, **b_zero})
-        pico = cur.fracoes_fatias()[1].item()
-        self.assertAlmostEqual(pico, B.rampa_fatia_inicio + 3 * B.rampa_fatia_passo)
-        anterior = pico
-        for _ in range(8 * B.rampa_fatia_its):
-            fecha(cur, notas={andar: 0.6, **b_zero})
+        notas = {cid(cur, "ANDAR", "andar"): 0.6, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
+        anterior = 0.0
+        for _ in range(40 * B.rampa_fatia_its):
+            fecha(cur, notas=notas)
             f = cur.fracoes_fatias()
-            self.assertLessEqual(f[1].item(), anterior + 1e-9, f"fecho {cur.it}: o teto subiu")
-            self.assertGreaterEqual(f[0].item(), B.piso_andar - 1e-9)
-            self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
+            self.assertGreaterEqual(f[1].item(), anterior - 1e-9, f"fecho {cur.it}: a fração da B desceu")
+            self.assertLessEqual(f[1].item(), 0.5 + 1e-9)
             anterior = f[1].item()
-        self.assertAlmostEqual(anterior, B.rampa_fatia_inicio)  # voltou ao piso da rampa (degrau 0)
+        self.assertAlmostEqual(anterior, 0.5, delta=1e-9)
 
-    def test_entre_0_70_e_0_80_o_teto_nao_muda(self):
-        cur = novo(SEM_CARENCIA, andar=NIVEL_B)
-        andar = cid(cur, "ANDAR", "andar")
-        notas = {andar: 0.75, cid(cur, "CARREGAR", "reto"): 0.0, cid(cur, "PEGAR", "pegar"): 0.0}
-        for _ in range(60):
-            fecha(cur, notas=notas)
-        self.assertEqual(cur._rampa, [0, 0, 0])
-
-    def test_piso_do_andar_tira_a_falta_da_B_e_da_C_na_proporcao(self):
-        # 16/11, B3: com a rampa solta (degrau 40: teto 0,85), o déficit dá à B 0,785 e deixa o ANDAR em 0,215. O piso
-        # põe o ANDAR em 0,30 e a falta sai da B. Com a C aberta, sai de B e C na proporção delas.
-        for abre_c in (False, True):
-            with self.subTest(abre_c=abre_c):
+    def test_fatias_abertas_dividem_igual_e_a_nova_tira_das_outras_em_partes_iguais(self):
+        # 18/11, T9: com a rampa no fim, 2 fatias dão 1/2 cada e 3 dão 1/3 cada, com qualquer nota. Com a C no começo
+        # da rampa (teto 0,05), o ANDAR e a B dividem o resto: 0,475 cada.
+        casos = (((0, 40, 0), False, (0.5, 0.5, 0.0)), ((0, 40, 40), True, (1 / 3, 1 / 3, 1 / 3)),
+                 ((0, 40, 0), True, (0.475, 0.475, 0.05)))
+        for rampa, abre_c, esperado in casos:
+            with self.subTest(rampa=rampa, abre_c=abre_c):
                 cur = novo()
                 est = cur.estado()
                 abertas = [("ANDAR", "andar"), ("CARREGAR", "reto"), ("PEGAR", "pegar")] + ([("BOTAR", "botar")] if abre_c else [])
@@ -205,15 +192,10 @@ class TestAberturaDeFatiaB(unittest.TestCase):
                     est["celulas"][cid(cur, tarefa, tipo)]["aberta"] = True
                 est["celulas"][cid(cur, "ANDAR", "andar")]["s"] = 0.85
                 est["it_abertura"] = [0, 1, 1 if abre_c else None]
-                est["rampa"] = [0, 40, 40]
+                est["rampa"] = list(rampa)
                 cur.carrega(est)
-                f = cur.fracoes_fatias()
-                self.assertAlmostEqual(f[0].item(), B.piso_andar, delta=1e-9)
-                self.assertAlmostEqual(f.sum().item(), 1.0, delta=1e-9)
-                if abre_c:
-                    self.assertAlmostEqual(f[1].item(), f[2].item(), delta=1e-9)
-                else:
-                    self.assertAlmostEqual(f[1].item(), 1.0 - B.piso_andar, delta=1e-9)
+                for v, e in zip(cur.fracoes_fatias().tolist(), esperado):
+                    self.assertAlmostEqual(v, e, delta=1e-9)
 
     def test_fracao_da_fatia_c_entra_com_teto_no_fecho_da_abertura(self):
         # 11/11 (§5.3): a C entra com fração 0,05, o mesmo teto da B. A 1ª medida do PEGAR (s = 1, célula

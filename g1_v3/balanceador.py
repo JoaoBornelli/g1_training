@@ -90,7 +90,7 @@ class Curriculo:
         self._dr = {"portao0": False, "vies": False, "subida": False}
         # rampa da fatia (§5.3): o fecho em que cada fatia abriu (None = fechada); o ANDAR abre na iteração 0
         self._it_abertura = [0, None, None]
-        # 16/11, B2: degraus da rampa de cada fatia; sobe com a nota do ANDAR no portão, desce abaixo da histerese
+        # degraus da rampa de cada fatia. 18/11, T9: sobe um a cada `rampa_fatia_its` fechos e não desce
         self._rampa = [0, 0, 0]
 
     # --- consultas internas ---------------------------------------------------------------------
@@ -129,7 +129,7 @@ class Curriculo:
     def fecha_iteracao(self) -> None:
         # ⚠ ordem do fecho (os testes fixam): 1) EMA com o que a iteração registrou; 2) contador do refino,
         # ANTES das subidas, para que a célula recém-subida (s velho, n_medidas = 0) não conte no nível novo;
-        # 3) aberturas (B e C, cadeias, terreno); 4) rampa das fatias (com a nota do ANDAR do fecho); 5) subidas de nível
+        # 3) aberturas (B e C, cadeias, terreno); 4) rampa das fatias (por tempo); 5) subidas de nível
         # (a contagem de iterações seguidas no portão); 6) travas do DR (com o s já atualizado).
         # EMA (PD-13), uma atualização por iteração: com n > 0, x = soma/n; se n_medidas = 0, s = x;
         # senão s += alfa·(x − s). n = 0 não muda s. s começa em 0.
@@ -147,14 +147,11 @@ class Curriculo:
         for f in (1, 2):
             if self._it_abertura[f] is None and any(c.aberta and FATIA_DE[c.tarefa] == f for c in self.celulas):
                 self._it_abertura[f] = self.it
-        nota = self.celulas[_POS[("ANDAR", "andar")]].s
         for f in (1, 2):
+            # 18/11, T9: a rampa sobe só por tempo e não desce; a nota do ANDAR saiu dela
             d = 0 if self._it_abertura[f] is None else self.it - self._it_abertura[f]
             if d > 0 and d % self.k.rampa_fatia_its == 0:
-                if nota >= self.k.portao_andar:
-                    self._rampa[f] += 1
-                elif nota < self.k.histerese_rampa:
-                    self._rampa[f] = max(0, self._rampa[f] - 1)
+                self._rampa[f] += 1
         self._sobe()
         self._trava_dr()
 
@@ -242,25 +239,16 @@ class Curriculo:
     # --- consultas do env -----------------------------------------------------------------------
 
     def fracoes_fatias(self) -> torch.Tensor:
-        # S §11.1: média dos déficits das células abertas de cada fatia; fatia fechada = 0
+        # 18/11, T9: cada fatia aberta recebe a mesma parte; o déficit saiu daqui (ele prendia a B e a C à nota do ANDAR).
+        # A fatia nova entra pela rampa: o teto dela começa em `rampa_fatia_inicio` e sobe um passo por degrau. O que o
+        # teto corta volta em partes iguais às fatias de teto maior (o ANDAR não tem teto). Fatia fechada = 0
         out = torch.zeros(3, dtype=torch.float64)
-        grupos = {f: [i for i, c in enumerate(self.celulas) if c.aberta and FATIA_DE[c.tarefa] == f]
-                  for f in range(3)}
-        abertas = [f for f in range(3) if grupos[f]]
-        if not abertas:
-            return out
-        d = torch.stack([self._deficit(grupos[f]).mean() for f in abertas])
-        out[torch.tensor(abertas)] = fracoes(d, self.k.piso_tarefa, self.k.eps)
-        for f in (1, 2):
-            if self._it_abertura[f] is not None:
-                teto = min(1.0, self.k.rampa_fatia_inicio + self.k.rampa_fatia_passo * self._rampa[f])
-                excesso = max(0.0, float(out[f]) - teto)
-                out[f] -= excesso
-                out[0] += excesso  # o excedente volta para o ANDAR
-        if len(abertas) > 1 and out[0] < self.k.piso_andar:
-            # 16/11, B3: com a B ou a C aberta, o ANDAR fica com `piso_andar`; a falta sai de B e C na proporção delas
-            out[1:] -= (self.k.piso_andar - out[0]) * out[1:] / out[1:].sum()
-            out[0] = self.k.piso_andar
+        abertas = [f for f in range(3) if any(c.aberta and FATIA_DE[c.tarefa] == f for c in self.celulas)]
+        teto = {f: 1.0 if f == 0 else self.k.rampa_fatia_inicio + self.k.rampa_fatia_passo * self._rampa[f] for f in abertas}
+        resto = 1.0
+        for j, f in enumerate(sorted(abertas, key=teto.get)):
+            out[f] = min(teto[f], resto / (len(abertas) - j))
+            resto -= float(out[f])
         return out
 
     def fracoes_celulas(self, tarefa: str) -> tuple[list[int], torch.Tensor]:

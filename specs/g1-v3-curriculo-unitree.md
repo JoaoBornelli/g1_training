@@ -532,3 +532,33 @@ pega firme; `forca_robo_caixa` sobe. Se o `phi_P3` não subir em ~1000 its, o gr
 **Aberto (não entra na T8).** O sucesso do segmento do CARREGAR (`sucesso_do_segmento`) só exige `~perdeu`: com a
 caixa deixada na laje depois do fecho do P4 e o robô a < `v_solta` (1,2 m/s), o segmento conta como sucesso.
 
+## 12. Tarefa T9: fatias em partes iguais e rampa só por tempo (dono, 18/11)
+
+**Estado medido (model_8150).** `rampa` = [0, 6, 0]: o teto da B estava em 0,17, 3900 its depois da abertura (it 4222).
+Na retomada com a T8 o João viu `frac_ANDAR` = 0,95: o teto voltou a 0,05.
+
+**Causa.** O teto da B só subia com a nota do ANDAR ≥ 0,80 e descia com ela < 0,70 (§4.4, itens B2 e B3). O ANDAR sobe
+de nível ao ficar 50 its no portão, e no nível novo a nota cai. A B só ganhava envs nessas 50 its e os devolvia a cada
+nível novo. A regra veio do g1_limpo, onde o ANDAR era fácil; na v3 os últimos níveis do ANDAR são difíceis.
+
+**Decisão do dono.** Aprender o básico de uma tarefa abre a seguinte; depois os refinos rodam em paralelo, com os envs
+divididos em partes iguais. A fração de uma fatia não depende mais da nota de outra.
+
+**Mudança.** Revoga os itens 2 e 3 da §4.4.
+- `fracoes_fatias`: cada fatia aberta recebe 1/n (2 fatias: 1/2; 3 fatias: 1/3). O déficit sai da conta das fatias; a
+  conta das células dentro da tarefa (`fracoes_celulas`) não muda.
+- Rampa: a fatia nova entra com teto `rampa_fatia_inicio` (0,05) e o teto sobe `rampa_fatia_passo` (0,02) a cada
+  `rampa_fatia_its` (12) fechos, sem condição e sem descida. O que o teto corta volta em partes iguais às fatias de
+  teto maior.
+- Saem os knobs `piso_andar` e `histerese_rampa`. O estado do checkpoint não muda de formato (`rampa`, `it_abertura`).
+- A abertura não muda: a B no nível `nivel_abre_b` (5) do ANDAR, a C com o PEGAR nível 0 no portão.
+- Contagem de funções do `balanceador.py`: 34 → 34.
+
+**O episódio da fatia.** A fatia B é uma cadeia num episódio só: espera, PEGAR, CARREGAR. A C é a cadeia inteira até o
+BOTAR. Não existe sorteio de tarefa dentro da fatia: com a B em 1/2, o PEGAR começa em metade dos envs.
+
+**Retomada do model_8150 (simulada no `Curriculo`).** `frac_B` 0,17 na retomada, 0,31 depois de 80 fechos e 0,50
+depois de 200.
+
+**O que olhar no TB.** `Curriculum/frac_B` sobe 0,02 a cada 12 its até 0,50. `s_ANDAR_andar` no nível 6: se cair muito
+com 50 % dos envs, o custo da divisão igual aparece aqui.

@@ -54,8 +54,8 @@ refeito no Isaac Lab (dono, 09/10; enunciado §2 "Simulador"; spec §1, §16 Par
 **Fase 0, locomoção sozinha.** 100% dos envs andam. O comando do ANDAR é sorteado uniforme na faixa do
 nível ((vx, vy) uniforme na elipse dos tetos e wz independente, 10% parado) [T7, 17/11]. A faixa começa em 0,5 m/s e 0,5 rad/s e soma 0,1 por nível
 até os tetos (frente 1,5, trás e lado 1,0, giro 1,0). A fase 0 termina quando o ANDAR chega ao nível 5; aí a
-B abre (spec §11.1). Depois, o teto da B sobe só com o ANDAR no portão, e o ANDAR fica com pelo menos 30%
-dos envs.
+B abre (spec §11.1). Depois, as fatias abertas dividem os envs em partes iguais; a fatia nova entra com 5% e
+ganha 2% a cada 12 iterações até a parte dela, sem olhar a nota do ANDAR [T9, 18/11].
 
 **Fase 1, até o fim do treino.** A tarefa de cada env sai do balanceador de tarefas (abaixo) e
 fica com o env até o reset seguinte. A fração vale em ENVS, não em episódios: assim a fatia de
