@@ -562,3 +562,55 @@ depois de 200.
 
 **O que olhar no TB.** `Curriculum/frac_B` sobe 0,02 a cada 12 its até 0,50. `s_ANDAR_andar` no nível 6: se cair muito
 com 50 % dos envs, o custo da divisão igual aparece aqui.
+
+## 13. Tarefa T10: conquistas mantidas na renda da cadeia e fecho do P2 com tempo (dono, 18/11)
+
+**Medida (model_9150, T8 + T9, `g1_v3/coleta.py`, ação amostrada, 386 episódios da fatia B).** 198 visitas ao P3 e 0
+fechos. No 1º passo do P3, 1 % dos envs tem as duas palmas na caixa; de 0,1 s em diante, 71 a 78 % dos passos sem
+nenhuma palma. Portão `maos` médio 0,08; Φ médio 0,03. Apertar firme (Fmin > 20 N) paga +1,0 por s sobre não apertar.
+A caixa deriva 8 cm (p50) na horizontal; 27 das 46 perdas saem do P3.
+
+**Causa.** (1) O P2 fecha com um passo de contato das duas palmas (tempo 0): o robô toca, recebe o prêmio de entrada
+do P3 (~54) e tira as mãos. (2) O portão `maos` multiplica o Φ de P3 a B2: com uma palma fora o Φ vale 0, e nenhum
+termo puxa a palma de volta.
+
+**Regra (dono).** Uma conquista é um estado que exige ação contínua e que as etapas seguintes ainda precisam. Ela
+paga uma renda própria, somada, enquanto vale. O prêmio de avanço (`renda_etapa`·n·h) não muda.
+
+**Fórmula.** `r = renda_etapa·n·h + renda_phi·Φ_n + renda_conquista·(q_palmas + q_pega)`
+- `Φ_n`: como hoje, com o portão `maos` em 1 (os portões `desloc`, `incl`, `tronco`, `recuo` e `com` não mudam).
+- `q_palmas = 1 − tanh(d_palmas / (largura_tanh·sigma_palmas))`; `d_palmas` = média da distância das duas palmas a
+  `alvos.palmas_alvo_caixa(P2, a, k)`, no frame da caixa.
+- `q_pega = tanh(min(F_esq, F_dir) / F_pega)`: a expressão que hoje alimenta o portão `maos` no `_phi_env`.
+- As conquistas somam nas etapas P3, P4, B1 e B2 e no CARREGAR com o P4 fechado. Valem 0 nas outras, depois da perda
+  da caixa e no CARREGAR sem o P4 fechado.
+
+**Mudança.**
+- `recompensas._phi_env`: devolve `(Φ, conquistas)`, com `conquistas` (E,) = `q_palmas + q_pega`; passa 1 no
+  argumento `maos` de `portoes_do_alvo`.
+- `recompensas.n_progresso`: recebe `conquistas` e `w_c`; devolve `w_etapa·etapa·h + w_phi·Φ + w_c·conquistas`.
+- `recompensas.progresso`: zera as conquistas fora das etapas acima e as passa ao `n_progresso`. O h, a recarga e o
+  `v3_phi` não mudam.
+- `recompensas.portoes_do_alvo`: não muda. A cadeia continua a passar contatos/2 no `maos` do invariante.
+- `comando._TEMPOS`: a posição do P2 vira `A.tempo_p2`.
+- Knobs novos: `Recompensa.renda_conquista` = 2,0; `Recompensa.sigma_palmas` = 0,08 (m); `Alvos.tempo_p2` = 0,3 (s).
+- `coleta.py`: lê o par e grava as colunas `q_palmas` e `q_pega`.
+- Contagem de funções de `g1_v3/*.py`: 477 → 477. Observações e formato do checkpoint não mudam.
+
+**Limite do peso.** O fecho do B2 perde as duas conquistas. Para a abertura do B3 pagar mais que o máximo do B2 (a
+regra de 09/11), `renda_conquista` < 2,3: `42 + 3·0,54 > 36 + 3 + 2·w_c`.
+
+**Testes.**
+- `progresso` no P3 com Φ = 0 e conquistas = 2 paga `18·h + 4`; no P2 e no B3 as conquistas não entram.
+- CARREGAR com o P4 fechado soma as conquistas; depois da perda não soma.
+- Os 7 fechos de P2 → P3 a B3 → B4: abertura (h = 1, Φ = 0,54) > máximo anterior (h = 1, Φ = 1, conquistas cheias),
+  com os knobs do repo.
+- `_phi_env` no P3 com uma palma fora: o Φ não vai a 0 e `q_palmas` cai.
+- O P2 só fecha depois de `tempo_p2` de contato das duas palmas.
+- Os testes que trocam `_phi_env` por um Φ fixo passam a devolver o par.
+
+**O que olhar.** Coleta ~1000 its depois da retomada: passos do P3 sem palma na caixa abaixo de 30 % (hoje 71 a 78 %);
+Fmin > 5 N no P3 acima de 50 % (hoje 11 %); deriva da caixa p50 abaixo de 3 cm (hoje 8 cm); fechos do P3 acima de 0.
+
+**Aberto (não entra na T10).** O `sigma_palmas` não tem medida. O custo da perda da caixa soma −4,8 por perda no
+retorno (240 × 0,02 s). A recarga do h lê o pico do Φ.
