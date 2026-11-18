@@ -23,17 +23,18 @@ DT = ATIVO.contrato.decimacao * ATIVO.contrato.dt_fisica  # 0,02 s, passo da pol
 INCL_LIM = A.incl_inicio_graus  # 30°: limite de inclinação do P3 (S §8.2)
 DELTA_INCL = A.delta_incl_graus  # 15°: tolerância da rampa de inclinação
 # tempo de permanência por alvo, na ordem de ALVOS. A §6.2 só dá tempo a P4, B2, B3 e B4; P0–P3 e B1 ficam em 0
-TEMPOS = torch.tensor([0, 0, 0, 0, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
+TEMPOS = torch.tensor([0, 0, 0, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
 
 
 def estado(indice, d_palmas=0.2, contatos=(False, False), apoio=True, incl=45.0, d_caixa=0.5, d_pelve=0.5,
-           invariantes=1.0):
+           invariantes=1.0, subida=0.0):
     # Um passo sintético (E = 1). Por padrão nenhuma condição de alvo vale, para o caso trocar só a sua.
     return dict(indice=torch.tensor([indice], dtype=torch.long),
                 d_palmas=torch.full((1, 2), float(d_palmas)),
                 contatos=torch.tensor([list(contatos)], dtype=torch.bool),
                 apoio=torch.tensor([apoio], dtype=torch.bool),
                 incl=torch.tensor([float(incl)]),
+                subida=torch.tensor([float(subida)]),
                 d_caixa=torch.tensor([float(d_caixa)]),
                 d_pelve=torch.tensor([float(d_pelve)]),
                 invariantes=torch.tensor([float(invariantes)]))
@@ -46,12 +47,12 @@ def fase(i):
     if i == P2:
         return estado(i, contatos=(True, True))
     if i == P3:
-        return estado(i, apoio=False, incl=10.0)
-    return estado(i, d_caixa=0.01, d_pelve=0.01)  # P4
+        return estado(i, apoio=False, incl=10.0, subida=A.p3_alto)
+    return estado(i, apoio=False, d_caixa=0.01, d_pelve=0.01)  # P4
 
 
 def ok(s):
-    return ok_agora_pegar(s["indice"], s["d_palmas"], s["contatos"], s["apoio"], s["incl"], INCL_LIM,
+    return ok_agora_pegar(s["indice"], s["d_palmas"], s["contatos"], s["apoio"], s["incl"], INCL_LIM, s["subida"],
                           s["d_caixa"], s["d_pelve"], s["invariantes"], A)
 
 
@@ -72,7 +73,7 @@ def _env_falso(idx, tarefa=comando.PEGAR):
     z, b = torch.zeros(1), torch.zeros(1, dtype=torch.bool)
     return types.SimpleNamespace(
         v3_alvo_idx=torch.tensor([idx], dtype=torch.long), v3_tarefa=torch.tensor([tarefa], dtype=torch.long),
-        v3_meia=torch.tensor([0.1]), v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(1),
+        v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(1),
                                                                   pelve_de_pe=0.0),
         v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
@@ -97,7 +98,7 @@ def _medidas():
     return dict(h=z, pelve=z, base_p=torch.zeros(1, 3), base_q=torch.tensor([[1.0, 0, 0, 0]]), caixa_p=torch.zeros(1, 3),
                 palmas_w=torch.zeros(1, 2, 3), palmas_c=torch.zeros(1, 2, 3), contatos=torch.ones(1, 2, dtype=torch.bool),
                 apoio=torch.ones(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
-                v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=z.clone())
+                v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=z.clone(), h_caixa=z.clone())
 
 
 class TestCadeiaComEnvFalso(unittest.TestCase):
@@ -193,12 +194,32 @@ class TestOkAgoraPegar(unittest.TestCase):
         self.assertEqual(visitados, [P0, P1, P2, P3, P4, B1])
         self.assertEqual(passos_em_p4, 25)  # tempo_p4 = 0,5 s = 25 passos de 0,02 s
 
+    def test_p3_exige_a_caixa_levantada_por_tempo_p3(self):
+        # 18/11, T8: sem contato com a laje mas sem subir (o toque do model_8150), o P3 não fecha; com a subida de
+        # p3_alto − tol ele fecha, e só depois de tempo_p3 seguidos (0,3 s = 15 passos)
+        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, subida=0.004)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, subida=A.p3_alto - A.tol_caixa_p3 - 0.001)).item())
+        self.assertTrue(ok(estado(P3, apoio=False, incl=10.0, subida=A.p3_alto - A.tol_caixa_p3 + 0.001)).item())
+        self.assertFalse(ok(estado(P3, apoio=True, incl=10.0, subida=A.p3_alto)).item())
+        idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
+        passos = 0
+        while int(idx) == P3:
+            idx, rel, _ = alvos.avanca(idx, ok(fase(P3)), rel, DT, TEMPOS)
+            passos += 1
+        self.assertEqual(passos, round(A.tempo_p3 / DT))
+        # um passo de volta à laje no meio zera o relógio
+        idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
+        for _ in range(5):
+            idx, rel, _ = alvos.avanca(idx, ok(fase(P3)), rel, DT, TEMPOS)
+        idx, rel, _ = alvos.avanca(idx, ok(estado(P3, apoio=True, incl=10.0, subida=A.p3_alto)), rel, DT, TEMPOS)
+        self.assertEqual((int(idx), rel.item()), (P3, 0.0))
+
     def test_p3_nao_avanca_com_a_caixa_a_40_graus(self):
         # E3, linha "Teste": não avança no P3 com a caixa a 40°, porque o invariante incl = rampa(40°) = 1/3 < 1
         # (limite de 30°). O invariante é incl · maos, com maos = 1 (duas palmas em contato).
         contatos = torch.tensor([[True, True]])
         inv = potencial.rampa(torch.tensor([40.0]), INCL_LIM, DELTA_INCL) * contatos.sum(-1) / 2
-        s = estado(P3, apoio=False, incl=40.0, contatos=(True, True), invariantes=inv.item())
+        s = estado(P3, apoio=False, incl=40.0, contatos=(True, True), invariantes=inv.item(), subida=A.p3_alto)
         self.assertFalse(ok(s).item())
         idx, _, avancou = alvos.avanca(s["indice"], ok(s), torch.zeros(1, dtype=torch.float64), DT, TEMPOS)
         self.assertEqual(int(idx), P3)
@@ -208,8 +229,10 @@ class TestOkAgoraPegar(unittest.TestCase):
         # E3, §6.3 e S §8.2: `ok_agora` exige invariantes == 1. Com uma palma fora do contato, maos = 0,5 e o P3
         # trava, embora o degrau (sem apoio, 10° ≤ 30°) esteja certo.
         inv = potencial.rampa(torch.tensor([10.0]), INCL_LIM, DELTA_INCL) * torch.tensor([[True, False]]).sum(-1) / 2
-        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, False), invariantes=inv.item())).item())
-        self.assertTrue(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, True), invariantes=1.0)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, False), invariantes=inv.item(),
+                               subida=A.p3_alto)).item())
+        self.assertTrue(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, True), invariantes=1.0,
+                              subida=A.p3_alto)).item())
 
     def test_p0_e_p1_exigem_as_duas_palmas_no_alvo(self):
         # E3, linha "Teste" (P0, P1: as duas palmas a ≤ 3 cm): uma palma a 4 cm já trava
@@ -227,8 +250,10 @@ class TestOkAgoraPegar(unittest.TestCase):
 
     def test_p4_exige_caixa_e_pelve_dentro_da_tolerancia(self):
         # E3, linha "Teste" (P4: caixa a ≤ 5 cm e pelve a ≤ 3 cm): cada uma, fora do limite, trava
-        self.assertFalse(ok(estado(P4, d_caixa=0.06, d_pelve=0.01)).item())
-        self.assertFalse(ok(estado(P4, d_caixa=0.01, d_pelve=0.04)).item())
+        self.assertFalse(ok(estado(P4, apoio=False, d_caixa=0.06, d_pelve=0.01)).item())
+        self.assertFalse(ok(estado(P4, apoio=False, d_caixa=0.01, d_pelve=0.04)).item())
+        # 18/11, T8: com a caixa apoiada na laje o P4 não fecha
+        self.assertFalse(ok(estado(P4, apoio=True, d_caixa=0.01, d_pelve=0.01)).item())
         self.assertTrue(ok(fase(P4)).item())
 
     def test_p4_zera_o_relogio_quando_a_condicao_cai(self):
@@ -237,7 +262,7 @@ class TestOkAgoraPegar(unittest.TestCase):
         rel = torch.zeros(1, dtype=torch.float64)
         for _ in range(10):
             idx, rel, _ = alvos.avanca(idx, ok(fase(P4)), rel, DT, TEMPOS)
-        idx, rel, avancou = alvos.avanca(idx, ok(estado(P4, d_caixa=0.2)), rel, DT, TEMPOS)
+        idx, rel, avancou = alvos.avanca(idx, ok(estado(P4, apoio=False, d_caixa=0.2)), rel, DT, TEMPOS)
         self.assertEqual(rel.item(), 0.0)
         self.assertEqual(int(idx), P4)
         self.assertFalse(avancou.item())
@@ -365,7 +390,7 @@ def _cadeia_de_trechos(n=1):
                                 degrau=lambda nome: 0, restricao=lambda: 1.0)
     cur.registra = lambda celula, num, suc: cur.registros.append((num, suc))
     env = types.SimpleNamespace(
-        device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), scene={}, step_dt=DT,
+        device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), v3_topo=torch.zeros(n), scene={}, step_dt=DT,
         v3_fatia=torch.full((n,), comando.FATIA_B, dtype=torch.long),
         v3_tarefa=torch.full((n,), comando.ANDAR, dtype=torch.long), v3_trecho=torch.zeros(n, dtype=torch.long),
         v3_alvo_idx=torch.full((n,), -1, dtype=torch.long), v3_phi=z(), v3_h=torch.ones(n), v3_phi_melhor=z(), v3_relogio_alvo=z(),

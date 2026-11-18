@@ -509,3 +509,26 @@ parado) [T7, 17/11]".
 
 Verificação do orquestrador: suíte; nenhuma função nova; `grep -ci co-authored` = 0. Na retomada (RETOMA = 1), olhar o
 `s_ANDAR_andar` subir acima de 0,8 no nível 4 e o `nivel_ANDAR` chegar a 5.
+
+## 11. Tarefa T8: o P3 só fecha com a caixa levantada (dono, 18/11)
+
+**Medida (model_8150, `g1_v3/coleta.py`, 256 envs × 3000 passos, ação média e amostrada).** Em 369 fechos do P3, o
+fundo da caixa estava a 0–4 mm da laje (p50 0,000 m). A maior altura da visita inteira (P3 + P4) foi p50 1,2–1,6 cm e
+p99 3,3 cm; nenhuma passou de 5 cm. O P4 abria com a caixa na laje e a renda da etapa (24·h por s, τ 3 s) pagava
+~72 por visita com o robô parado. `s_PEGAR` = 0 em 3904 medidas.
+
+**Causa.** O fecho do P3 era `~apoio & incl`, com tempo 0: um passo de 0,02 s sem contato caixa × laje bastava, sem
+altura. O enunciado pede "a caixa 5 cm acima da laje, nivelada, sem apoio" (Comportamento esperado, tabela dos alvos).
+
+**Mudança.**
+- `ok_agora_pegar` recebe `subida` (fundo da caixa sobre o topo da laje, pela verdade: `h_caixa − meia − v3_topo`).
+  P3: `~apoio & incl & subida ≥ p3_alto − tol_caixa_p3`. P4: a condição antiga `& ~apoio`.
+- `_TEMPOS[P3]` = `tempo_p3`. Knobs novos em `Alvos`: `tol_caixa_p3` = 0,02 m e `tempo_p3` = 0,3 s.
+- Contagem de funções: 472 → 472. Testes: `test_p3_exige_a_caixa_levantada_por_tempo_p3` e o caso do P4 apoiado.
+
+**O que olhar no TB.** `Episodio/tempo_P3` sobe (o P3 deixa de fechar no toque); `Episodio/phi_P3` deve subir com a
+pega firme; `forca_robo_caixa` sobe. Se o `phi_P3` não subir em ~1000 its, o gradiente do P3 não basta.
+
+**Aberto (não entra na T8).** O sucesso do segmento do CARREGAR (`sucesso_do_segmento`) só exige `~perdeu`: com a
+caixa deixada na laje depois do fecho do P4 e o robô a < `v_solta` (1,2 m/s), o segmento conta como sucesso.
+

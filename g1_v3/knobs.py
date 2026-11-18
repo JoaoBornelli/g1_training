@@ -168,6 +168,10 @@ class Alvos:  # S §8.2; PD-23
     p0_frente: float = 0.05  # S §8.2: P0, avanço à frente da caixa (m)
     palma_face: float = 0.035  # S §8.2: palma à face da caixa (m)
     p3_alto: float = 0.05  # S §8.2: P3, altura acima da pega (m)
+    # 18/11, T8: o P3 fechava com um passo sem contato caixa × laje (0,02 s) e sem altura; no model_8150 a caixa subiu
+    # no máximo 3 cm em 369 fechos e o P4 abria com ela na laje. O fecho exige a subida ≥ p3_alto − tol por tempo_p3
+    tol_caixa_p3: float = 0.02  # tolerância da subida da caixa no P3 (m)
+    tempo_p3: float = 0.3  # tempo de permanência em P3 (s)
     b1_alto: float = 0.05  # S §8.2: B1, altura acima da soltura (m)
     tol_palma: float = 0.03  # S §8.2: tolerância da palma (m)
     tol_caixa_p4: float = 0.05  # S §8.2: tolerância da caixa em P4 (m)

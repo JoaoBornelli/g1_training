@@ -34,19 +34,21 @@ FATIA_ANDAR, FATIA_B, FATIA_C = 0, 1, 2
 _EPS = 1e-6
 A, T, CENA = ATIVO.alvos, ATIVO.terminacao, ATIVO.cena
 # Tempo de permanência por alvo, na ordem de ALVOS (S §8.2): só P4, B2, B3 e B4 têm tempo.
-_TEMPOS = (0.0, 0.0, 0.0, 0.0, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
+_TEMPOS = (0.0, 0.0, 0.0, A.tempo_p3, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
 
 
 # --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------
 
-def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus, d_caixa_p4, d_pelve_p4,
+def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus, subida, d_caixa_p4, d_pelve_p4,
                    invariantes, k) -> torch.Tensor:
     """(E,) bool: a condição de cada alvo de PEGAR, `& (invariantes == 1)` (S §8.2: o invariante impede o avanço).
-    ⚠ B1..B4 e −1 dão False. Os B vêm de `ok_agora_botar` (F1), na cadeia, e não por esta condição."""
+    ⚠ B1..B4 e −1 dão False. Os B vêm de `ok_agora_botar` (F1), na cadeia, e não por esta condição.
+    18/11, T8: `subida` (E,) m = fundo da caixa sobre o topo da laje da pega. O P3 exige a caixa fora da laje E levantada
+    (subida ≥ p3_alto − tol_caixa_p3); o P4 também exige a caixa fora da laje."""
     p01 = (d_palmas <= k.tol_palma).all(-1)
     p2 = contatos.all(-1)
-    p3 = ~apoio & (incl_graus <= incl_lim_graus)
-    p4 = (d_caixa_p4 <= k.tol_caixa_p4) & (d_pelve_p4 <= k.tol_pelve_p4)
+    p3 = ~apoio & (incl_graus <= incl_lim_graus) & (subida >= k.p3_alto - k.tol_caixa_p3)
+    p4 = (d_caixa_p4 <= k.tol_caixa_p4) & (d_pelve_p4 <= k.tol_pelve_p4) & ~apoio
     ok = (((indice == P0) | (indice == P1)) & p01) | ((indice == P2) & p2) | ((indice == P3) & p3) \
         | ((indice == P4) & p4)
     return ok & (invariantes == 1.0)
@@ -426,6 +428,7 @@ class CadeiaCmd(CommandTerm):
         d_pelve_p4 = (m["h"] - ref.pelve_com_caixa(a)).abs()
         pega = (tar == PEGAR) & ~env.v3_p4_fechado
         ok = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], recompensas.incl_lim(env),
+                            m["h_caixa"] - a - env.v3_topo,  # fundo da caixa sobre a laje (verdade, não a estimada)
                             d_caixa_p4, d_pelve_p4, inv, A) & pega
         if botar.any():  # BOTAR (B1..B4); o B4 da caixa perdida cai aqui com `inv` = 1 (o `desl` zerado)
             dif = m["caixa_p"] - recompensas.alvo_da_caixa_w(env, idx)

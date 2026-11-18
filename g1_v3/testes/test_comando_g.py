@@ -165,7 +165,7 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
         z = torch.zeros(1)
         env = types.SimpleNamespace(
             v3_alvo_idx=torch.tensor([B4]), v3_tarefa=torch.tensor([comando.ANDAR]),
-            v3_perdeu=torch.tensor([True]), v3_meia=torch.tensor([0.1]), v3_ref=_ref_falsa(),
+            v3_perdeu=torch.tensor([True]), v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=_ref_falsa(),
             v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_pegou=torch.zeros(1, dtype=torch.bool),
             v3_b4_fechado=torch.zeros(1, dtype=torch.bool), v3_avancou=torch.zeros(1, dtype=torch.bool),
             v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
@@ -174,7 +174,8 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
         m = dict(h=torch.full((1,), 0.50), pelve=torch.full((1,), 0.90), caixa_p=torch.zeros(1, 3),
                  palmas_c=torch.zeros(1, 2, 3), contatos=torch.zeros(1, 2, dtype=torch.bool),
                  apoio=torch.zeros(1, dtype=torch.bool), incl_graus=z, tronco_graus=z,
-                 v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=torch.full((1,), 0.07))
+                 v_caixa=torch.zeros(1, 3), apoio_N=z.clone(), peso_N=torch.ones(1), dpalmas=torch.full((1,), 0.07),
+                 h_caixa=z.clone())
         obj = _cadeia_falsa(env)
         ok_todos = dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))
         with mock.patch.object(comando, "ok_agora_botar", return_value=torch.zeros(1, dtype=torch.bool)) as botar, \
