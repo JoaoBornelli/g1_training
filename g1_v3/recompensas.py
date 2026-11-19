@@ -504,7 +504,7 @@ def _phi_env(env, indice, sigma):
     """(Φ (E,), conquistas (E,2)) do alvo `indice` no estado corrente, pelos núcleos (E4; −1 → Φ 0). `indice` pode ser o
     alvo velho no passo do avanço (D1), e `sigma` é o σ dele (S3, 29/10): posições e referências saem do próprio índice.
     18/11, T10: conquistas = [palmas nas faces, pega firme], cada uma em [0, 1] e sem máscara de etapa (o `progresso`
-    decide onde somam). A pega firme saiu dos portões do Φ: lá ela zerava o Φ inteiro com uma palma fora da caixa."""
+    decide onde somam; T11b: no P2 ele multiplica a pega firme pelo contato das almofadas). A pega firme saiu dos portões do Φ: lá ela zerava o Φ inteiro com uma palma fora da caixa."""
     robo, caixa = env.scene["robot"], env.scene["box"]
     a, ref = env.v3_meia, env.v3_ref
     caixa_w, quat = caixa.data.root_link_pos_w, caixa.data.root_link_quat_w
@@ -778,8 +778,9 @@ def contato_fora(env, tarefas):
 
 def progresso(env, tarefas):
     """Renda por segundo: `renda_etapa`·etapa·h + `renda_phi`·Φ pago + `renda_conquista`·conquistas (18/11, T10: palmas
-    nas faces e pega firme, somadas em P3, P4, B1, B2 e no CARREGAR com o P4 fechado; 0 sem a caixa). A etapa sobe com a
-    cadeia. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
+    nas faces e pega firme, somadas em P3, P4, B1, B2 e no CARREGAR com o P4 fechado; 0 sem a caixa. 18/11, T11b: somam
+    também no P2, e nele a pega firme entra vezes a fração das almofadas na caixa, a régua do fecho do P2: o aperto só com
+    o punho não paga). A etapa sobe com a cadeia. Índices de alvo: P0..P4 = 0..4, B1..B4 = 5..8, −1 = sem alvo.
 
     | condição (nesta precedência)                              | etapa | Φ pago    |
     | `v3_perdeu`                                               | 0     | 0         |
@@ -821,9 +822,14 @@ def progresso(env, tarefas):
     env.v3_h[:] = torch.where(com_alvo, h_alvo, torch.where(carrega, h_carga, env.v3_h))
     env.v3_phi_melhor[:] = torch.where(com_alvo, torch.maximum(env.v3_phi_melhor, phi_alvo), env.v3_phi_melhor)
     h_ef = torch.where(com_alvo | carrega, env.v3_h, torch.ones_like(env.v3_h))
-    mantem = ~sem_caixa & ~b4_fechado & (fecho_p4 | _em(idx, _CAIXA_ALVO))  # 18/11, T10: onde a pega tem de continuar
+    # 18/11, T10: onde a pega tem de continuar. T11b: e no P2, onde o fecho testa o contato das duas almofadas e nenhum
+    # termo o pagava (model_10850: 3,02/s sem palma e 3,44/s com as duas). `_CAIXA_ALVO` não muda: outros termos o leem
+    no_p2 = idx == alvos.P2
+    mantem = ~sem_caixa & ~b4_fechado & (fecho_p4 | _em(idx, _CAIXA_ALVO) | no_p2)
+    almofadas = torch.where(no_p2, _contato_palmas(env).float().mean(-1), torch.ones_like(phi_alvo))
     r = n_progresso(torch.where(paga_phi, phi_alvo, torch.zeros_like(phi_alvo)), etapa.float(), R.renda_phi,
-                    R.renda_etapa, h_ef, torch.where(mantem, conquistas.sum(-1), torch.zeros_like(phi_alvo)),
+                    R.renda_etapa, h_ef,
+                    torch.where(mantem, conquistas[:, 0] + conquistas[:, 1] * almofadas, torch.zeros_like(phi_alvo)),
                     R.renda_conquista)
     env.v3_phi[:] = torch.where(idx >= 0, phi_alvo, torch.full_like(phi_alvo, -1.0))
     return _fim(env, tarefas, r)
