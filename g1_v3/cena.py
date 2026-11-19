@@ -141,27 +141,25 @@ def add_pads_de_palma(spec: mujoco.MjSpec, c: Cena) -> mujoco.MjSpec:
     modelo = spec.copy().compile()
     dado = mujoco.MjData(modelo)
     mujoco.mj_forward(modelo, dado)
-    # (site, pad de palma, pad de dorso, sinal da normal da palma)
-    for site_name, palm_pad, back_pad, sinal in (
-        ("left_palm", "left_palm_pad", "left_hand_back_pad", -1.0),
-        ("right_palm", "right_palm_pad", "right_hand_back_pad", +1.0),
-    ):
-        hand_body = spec.site(site_name).parent
-        id_site = modelo.site(site_name).id
+    # (lado, sinal da normal da palma)
+    for lado, sinal in (("left", -1.0), ("right", +1.0)):
+        hand_body = spec.site(f"{lado}_palm").parent
+        id_site = modelo.site(f"{lado}_palm").id
         id_corpo = modelo.site_bodyid[id_site]
         rot, pos = dado.xmat[id_corpo].reshape(3, 3), dado.xpos[id_corpo]
         normal = rot[:, 1] * sinal
-        # as malhas do corpo da mão (a visual `*_rubber_hand`), no frame do mundo em qpos0
-        verts = []
-        for g in np.flatnonzero((modelo.geom_bodyid == id_corpo) & (modelo.geom_type == mujoco.mjtGeom.mjGEOM_MESH)):
-            ini = modelo.mesh_vertadr[modelo.geom_dataid[g]]
-            malha = modelo.mesh_vert[ini:ini + modelo.mesh_vertnum[modelo.geom_dataid[g]]]
-            verts.append(malha @ dado.geom_xmat[g].reshape(3, 3).T + dado.geom_xpos[g])
-        verts = np.concatenate(verts)
+        # 19/11, T12: só a malha `*_rubber_hand`. O corpo da mão também leva a malha `*_wrist_yaw_link`: com ela o casco
+        # da palma crescia 59 % e cobria o punho do lado da palma (o punho contava como palma). Os geoms visuais não
+        # têm nome; a malha tem.
+        id_malha = modelo.mesh(f"{lado}_rubber_hand").id
+        g = np.flatnonzero((modelo.geom_dataid == id_malha) & (modelo.geom_type == mujoco.mjtGeom.mjGEOM_MESH))[0]
+        ini = modelo.mesh_vertadr[id_malha]
+        malha = modelo.mesh_vert[ini:ini + modelo.mesh_vertnum[id_malha]]
+        verts = malha @ dado.geom_xmat[g].reshape(3, 3).T + dado.geom_xpos[g]  # no frame do mundo em qpos0
         proj = (verts - dado.site_xpos[id_site]) @ normal  # ≥ 0: palma; ≤ 0: dorso
         for nome, corte, condim, atrito, rgba in (
-            (palm_pad, proj >= 0, 3, c.pad_atrito, (0.1, 0.6, 0.1, 0.6)),
-            (back_pad, proj <= 0, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4)),
+            (f"{lado}_palm_pad", proj >= 0, 3, c.pad_atrito, (0.1, 0.6, 0.1, 0.6)),
+            (f"{lado}_hand_back_pad", proj <= 0, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4)),
         ):
             vb = (verts[corte] - pos) @ rot  # no frame do corpo da mão
             casco = vb[ConvexHull(vb).vertices]

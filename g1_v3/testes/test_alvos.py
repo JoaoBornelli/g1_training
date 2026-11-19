@@ -192,6 +192,25 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
                 self.assertAlmostEqual(alcance_pad, K_AL.palma_face, delta=1e-3)
                 self.assertGreater(alcance_pad, alcance_punho + 0.005)  # margem acima de 5 mm sobre o punho
                 self.assertLessEqual(((vertices(dorso) - sitio.xpos) @ normal).max(), 1e-6)  # o dorso, do outro lado
+                # 19/11, T12: os dois cascos ficam dentro da caixa envolvente da malha `*_rubber_hand`. Com as outras
+                # malhas do corpo (a `*_wrist_yaw_link`), o casco da palma cobria o punho e o punho contava como palma.
+                id_malha = modelo.mesh(f"{lado}_rubber_hand").id
+                mao = vertices(modelo.geom([g for g in range(modelo.ngeom) if modelo.geom_dataid[g] == id_malha
+                                            and modelo.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH][0]))
+                for casco in (vertices(pad), vertices(dorso)):
+                    self.assertTrue((casco >= mao.min(0) - 1e-6).all() and (casco <= mao.max(0) + 1e-6).all())
+
+    def test_casco_da_mao_chega_ao_modelo_com_no_maximo_64_vertices(self):
+        # 19/11, T12: o `maxhullvert` 64 chega ao modelo compilado: o grafo de colisão (o casco que o MuJoCo usa no
+        # contato) de cada almofada tem no máximo 64 vértices. O casco cheio da malha tem mais de mil.
+        from g1_v3 import cena
+        from mjlab.asset_zoo.robots.unitree_g1.g1_constants import get_spec
+        modelo = cena.add_pads_de_palma(get_spec(), ATIVO.cena).compile()
+        for nome in ("left_palm_pad", "left_hand_back_pad", "right_palm_pad", "right_hand_back_pad"):
+            with self.subTest(geom=nome):
+                malha = modelo.geom_dataid[modelo.geom(nome).id]
+                self.assertGreaterEqual(modelo.mesh_graphadr[malha], 0)
+                self.assertLessEqual(modelo.mesh_graph[modelo.mesh_graphadr[malha]], 64)
 
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
         # §6.3: P3, P4, B1, B2 e B4 não usam as palmas; devolvem 0, nunca NaN (§6.6).
