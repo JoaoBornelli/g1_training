@@ -427,7 +427,7 @@ def monta_observacao(
     alvo do PD (`q_default_acao + escala_acao · a`), no laço.
 
     ⚠ `fase` é a fase do relógio de marcha em [0, 1): `(passos · dt_política / periodo_marcha) mod 1`, com os passos
-    contados desde o último reset. O ator a vê como seno e cosseno (bloco `fase`; 16/11, T4), como o env.
+    com comando contados desde o último reset (19/11, T12). O ator a vê como seno e cosseno (bloco `fase`; 16/11, T4), como o env.
 
     ⚠ `caixa` e `mapa` entram como ENTRADA: a caixa vem do `Visao.passo`; o mapa, do `Percepcao.passo`.
     """
@@ -784,7 +784,8 @@ def main() -> None:
     restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
-    passos = 0  # passos da política desde o reset: a fase do relógio sai daqui, como o `_agora` do env
+    passos = 0  # passos da política com comando desde o reset: a fase do relógio sai daqui, como o `_fase_t` do env
+    andou_ant = False  # o twist do passo anterior passou do limiar (o env soma a fase com o comando que a política viu)
     periodo_marcha = _KN.comando.periodo_marcha
 
     print(f"[pilota_v3] cena {args.cena}  checkpoint iter={ator.iteracao}  "
@@ -804,6 +805,7 @@ def main() -> None:
                 acao[:] = 0.0
                 hist = None
                 passos = 0
+                andou_ant = False
                 piloto.twist[:] = 0.0
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
@@ -815,8 +817,11 @@ def main() -> None:
             mapa = percepcao.passo(m, d)
             # ⚠ A ORDEM: a caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
             caixa = visao.passo(m, d, piloto.tarefa)
-            passos += 1  # o env soma dt antes de gravar a fase: a 1ª observação depois do reset tem fase dt/0,8
+            # 19/11, T12: o env soma dt à fase só com comando, e a fase do passo t entra na observação de t + 1; por
+            # isso soma-se o twist do passo ANTERIOR
+            passos += andou_ant
             fase = (passos * dt / periodo_marcha) % 1.0
+            andou_ant = np.linalg.norm(twist_pol) > _KN.comando.limiar_marcha
             obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist, fase)
             acao = ator(obs)
 

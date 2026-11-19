@@ -648,6 +648,8 @@ class TwistV3(UniformVelocityCommand):
         # relógio do episódio, próprio: o reset do mjlab zera episode_length_buf DEPOIS do command_manager.reset
         # (manager_based_rl_env.py:581-590; §6.4), por isso não se lê o episode_length_buf aqui
         self._agora = torch.zeros(n, device=dev)
+        # 19/11, T12: fase da marcha própria, só anda com comando (`on`); o `_agora` segue contando a âncora e a abertura
+        self._fase_t = torch.zeros(n, device=dev)
         # segmento aberto: snapshot do comando, célula e "tarefa com caixa" no instante da abertura
         self.seg_cmd = torch.zeros(n, 3, device=dev)
         self.seg_cel = torch.full((n,), -1, dtype=torch.long, device=dev)
@@ -781,10 +783,12 @@ class TwistV3(UniformVelocityCommand):
         self.seg_nota += torch.stack([torch.exp(-e_lin / k.sigma_nota ** 2), erro_ang], dim=1) * (apos * dt)[:, None]
         self.seg_dur += apos * dt
         # 5. relógio de marcha (16/11, R: a forma do `feet_gait` da Unitree): roda depois das recompensas, então o
-        # `passo` do passo t lê a fase do passo t − 1. A fase é o tempo do episódio sobre o período fixo, sem recomeço
-        # no limiar nem no empurrão; `on` (‖comando‖ > limiar) só diz se o termo paga.
+        # `passo` do passo t lê a fase do passo t − 1. 19/11, T12: a fase é o tempo com comando (`on`: ‖comando‖ >
+        # limiar) sobre o período fixo; com comando zero ela para onde estava e volta dali. Sem isso, o P3 (comando
+        # zero) via a fase correr e levantava a caixa no pulso dela, numa janela menor que o `tempo_p3`.
         on = cmd.norm(dim=1) > k.limiar_marcha
-        env.v3_fase_marcha[:] = torch.remainder(self._agora / k.periodo_marcha, 1.0)
+        self._fase_t += dt * on
+        env.v3_fase_marcha[:] = torch.remainder(self._fase_t / k.periodo_marcha, 1.0)
         env.v3_marcha_on[:] = on
         self.soma_acerto += env.v3_acerto_marcha * on
         self.passos_on += on
@@ -796,6 +800,7 @@ class TwistV3(UniformVelocityCommand):
         time_out = self._env.termination_manager.time_outs[env_ids]
         self._fecha(env_ids, falha=~time_out)
         self._agora[env_ids] = 0.0
+        self._fase_t[env_ids] = 0.0
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0
         self.soma_acerto[env_ids] = 0.0

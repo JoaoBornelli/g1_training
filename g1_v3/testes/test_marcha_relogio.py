@@ -5,6 +5,7 @@ Env falso com `types.SimpleNamespace`, como os vizinhos. O `_update_metrics` do 
 import math
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import torch
@@ -73,6 +74,7 @@ def _twist(cmd, n=1):
         root_link_ang_vel_b=torch.zeros(n, 3)))
     obj.vel_command_b = torch.tensor([cmd], dtype=torch.float32).repeat(n, 1)
     obj._agora, obj.t_ab, obj.ancora_feita = torch.zeros(n), torch.zeros(n), torch.zeros(n, dtype=torch.bool)
+    obj._fase_t = torch.zeros(n)
     obj.command_counter, obj.seg_visto = torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.long)
     obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
     obj.seg_nota, obj.seg_dur = torch.zeros(n, 2), torch.zeros(n)
@@ -92,20 +94,56 @@ def _passos_do_relogio(obj, n):
 class RelogioDoTwist(unittest.TestCase):
 
     def test_fase_e_o_tempo_sobre_08_com_comando_ligado_e_desligado(self):
-        # 50 passos de 0,02 s = 1,0 s → fase (1,0 / 0,8) mod 1 = 0,25; o comando não muda o período
-        for cmd in ((0.5, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 0.0)):
+        # 19/11, T12: 50 passos de 0,02 s = 1,0 s com comando → fase (1,0 / 0,8) mod 1 = 0,25; com comando zero, 0
+        for cmd in ((0.5, 0.0, 0.0), (1.0, 0.0, 0.0)):
             obj = _twist(cmd)
             _passos_do_relogio(obj, 50)
             self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 0.25, places=4)
+        obj = _twist((0.0, 0.0, 0.0))
+        _passos_do_relogio(obj, 50)
+        self.assertEqual(float(obj._env.v3_fase_marcha[0]), 0.0)
 
     def test_sem_recomeco_quando_o_comando_passa_do_limiar(self):
-        # 10 passos sem comando e 1 com: a fase segue o tempo (11 · dt / 0,8), e não parte de 0
+        # 10 passos sem comando e 1 com: a fase conta só o passo com comando (1 · dt / 0,8)
         obj = _twist((0.0, 0.0, 0.0))
         _passos_do_relogio(obj, 10)
         obj.vel_command_b[:] = torch.tensor([0.5, 0.0, 0.0])
         _passos_do_relogio(obj, 1)
-        self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 11 * DT / 0.8, places=5)
+        self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 1 * DT / 0.8, places=5)
         self.assertTrue(bool(obj._env.v3_marcha_on[0]))
+
+    def test_comando_zero_comando_soma_so_os_passos_com_comando(self):
+        # 20 passos com comando (fase 20 · dt / 0,8 = 0,5), 30 sem (a fase fica em 0,5) e 10 com (30 passos de comando:
+        # 30 · dt / 0,8 = 0,75)
+        obj = _twist((0.5, 0.0, 0.0))
+        _passos_do_relogio(obj, 20)
+        obj.vel_command_b[:] = 0.0
+        _passos_do_relogio(obj, 30)
+        self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 0.5, places=5)
+        obj.vel_command_b[:] = torch.tensor([0.5, 0.0, 0.0])
+        _passos_do_relogio(obj, 10)
+        self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 0.75, places=5)
+
+    def test_contagem_do_driver_com_o_twist_do_passo_anterior_bate_com_a_fase_do_env(self):
+        # 19/11, T12: o `pilota_v3` e o `registra_juntas_v3` contam `passos += andou_ant` (o twist do passo ANTERIOR passou
+        # do limiar) e a fase é `passos · dt / período`. O env soma com o comando que a política viu no passo t, e a fase
+        # entra na observação de t + 1: a fase do driver no passo t é a do env depois do passo t − 1.
+        # Comando, zero, comando; a contagem está inline no `main` dos drivers, então o teste repete a regra e confere
+        # no texto dos dois que ela está lá.
+        cmds = [(0.5, 0.0, 0.0)] * 20 + [(0.0, 0.0, 0.0)] * 30 + [(0.5, 0.0, 0.0)] * 10
+        obj = _twist(cmds[0])
+        passos, andou_ant, fase_env = 0, False, 0.0
+        for cmd in cmds:
+            passos += andou_ant  # o driver, antes da observação do passo t
+            self.assertAlmostEqual((passos * DT / C.periodo_marcha) % 1.0, fase_env, places=5)
+            andou_ant = bool(torch.tensor(cmd).norm() > C.limiar_marcha)
+            obj.vel_command_b[:] = torch.tensor(cmd)  # o env, depois da ação do passo t
+            _passos_do_relogio(obj, 1)
+            fase_env = float(obj._env.v3_fase_marcha[0])
+        self.assertEqual(passos, 29)  # 30 passos com comando; o último ainda não entrou na observação
+        raiz = Path(__file__).resolve().parents[2]
+        for driver in ("pilota_v3.py", "registra_juntas_v3.py"):
+            self.assertIn("passos += andou_ant", (raiz / driver).read_text(), driver)
 
     def test_a_fase_da_a_volta_a_cada_08_s(self):
         obj = _twist((0.5, 0.0, 0.0))

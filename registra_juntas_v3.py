@@ -268,8 +268,6 @@ def main() -> None:
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
-    ap.add_argument("--fase-parada", action="store_true",
-                    help="teste da fase (19/11): o relógio de marcha não anda com o twist abaixo de `limiar_marcha`")
     ap.add_argument("--coluna", default=None,
                     help="coluna do gerador de terreno (ex.: escada, rampa, obstaculos): leva a cena a esse sub-terreno")
     ap.add_argument("--linha", type=int, default=None, help="linha do gerador (até o teto da coluna, PD-20)")
@@ -356,7 +354,8 @@ def main() -> None:
     restaura(m, d, c, percepcao, visao)
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
-    passos = 0  # passos da política desde o restaura: a fase do relógio sai daqui, como no pilota_v3.main
+    passos = 0  # passos da política com comando desde o restaura: a fase do relógio sai daqui, como no pilota_v3.main
+    andou_ant = False  # o twist do passo anterior passou do limiar (19/11, T12)
     cima_b = EZ.copy()            # eixo da caixa que aponta para cima, no frame dela
     linhas: list[dict] = []
 
@@ -402,11 +401,10 @@ def main() -> None:
                     mapa = percepcao.passo(m, d)
                     # ⚠ A caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
                     caixa = visao.passo(m, d, piloto.tarefa)
-                    # 19/11, teste da fase: com --fase-parada o relógio não anda enquanto o twist está abaixo do limiar
-                    # do `passo` (o treino não faz isso; o teste mede se o ritmo dos braços no P3 vem da fase observada)
-                    if not args.fase_parada or np.linalg.norm(twist_pol) > pv._KN.comando.limiar_marcha:
-                        passos += 1  # o env soma dt antes de gravar a fase (T4 de 16/11)
+                    # 19/11, T12: como o env, a fase só anda com comando, e a do passo t entra na observação de t + 1
+                    passos += andou_ant
                     fase_relogio = (passos * dt / pv._KN.comando.periodo_marcha) % 1.0
+                    andou_ant = np.linalg.norm(twist_pol) > pv._KN.comando.limiar_marcha
                     obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist,
                                                  fase_relogio)
                     acao = ator(obs)
