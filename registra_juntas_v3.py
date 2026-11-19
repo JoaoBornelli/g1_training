@@ -268,6 +268,8 @@ def main() -> None:
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="fator de tempo do viewer: 1,0 = tempo real, 0,25 = 4x lento")
     ap.add_argument("--sem-viewer", action="store_true", help="roda o mais rápido que der")
+    ap.add_argument("--fase-parada", action="store_true",
+                    help="teste da fase (19/11): o relógio de marcha não anda com o twist abaixo de `limiar_marcha`")
     ap.add_argument("--coluna", default=None,
                     help="coluna do gerador de terreno (ex.: escada, rampa, obstaculos): leva a cena a esse sub-terreno")
     ap.add_argument("--linha", type=int, default=None, help="linha do gerador (até o teto da coluna, PD-20)")
@@ -400,7 +402,10 @@ def main() -> None:
                     mapa = percepcao.passo(m, d)
                     # ⚠ A caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
                     caixa = visao.passo(m, d, piloto.tarefa)
-                    passos += 1  # o env soma dt antes de gravar a fase (T4 de 16/11)
+                    # 19/11, teste da fase: com --fase-parada o relógio não anda enquanto o twist está abaixo do limiar
+                    # do `passo` (o treino não faz isso; o teste mede se o ritmo dos braços no P3 vem da fase observada)
+                    if not args.fase_parada or np.linalg.norm(twist_pol) > pv._KN.comando.limiar_marcha:
+                        passos += 1  # o env soma dt antes de gravar a fase (T4 de 16/11)
                     fase_relogio = (passos * dt / pv._KN.comando.periodo_marcha) % 1.0
                     obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist,
                                                  fase_relogio)
@@ -413,7 +418,7 @@ def main() -> None:
 
                     q = d.qpos[ids_q]
                     ln = {"passo": passo, "t": round(passo * dt, 4),
-                          "fase": fase.rotulo, "tarefa": fase.tarefa, "ckpt": ckpt, **sub}
+                          "fase": fase.rotulo, "tarefa": fase.tarefa, "relogio": fase_relogio, "ckpt": ckpt, **sub}
                     # O alvo gravado é o PONTO do PEGAR (a caixa vista) ou o de soltura do BOTAR (a laje, F7), o que o
                     # driver manda; I §4.1. O `alvos.caixa_alvo_w` pede o índice P0..B4, que o driver não tem.
                     ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa in ("PEGAR", "BOTAR") and visao.aberto
