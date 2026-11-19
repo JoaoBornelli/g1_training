@@ -159,31 +159,39 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
         self.assertLess(K_AL.folga_p1, K_AL.tol_palma)
 
     def test_palma_face_e_a_face_da_almofada_a_frente_do_punho(self):
-        # 18/11, T11a: o alvo sai da geometria. `palma_face` = centro + meia espessura da almofada da palma, e esse valor
-        # passa do raio da cápsula `*_wrist_collision` do g1.xml (0,035): com a mão plana, a almofada toca antes do punho.
-        from g1_v3 import cena
-        self.assertAlmostEqual(K_AL.palma_face, cena._PALM_DZ + cena._PAD_HALF[1], delta=1e-9)
-        self.assertGreater(K_AL.palma_face, 0.035)
-        # A mão plana contra um plano, no modelo que a cena monta (qpos0: punho reto): o alcance de cada peça ao longo da
-        # normal da palma, medido do sítio. O plano toca primeiro a peça de maior alcance: a almofada, e não o punho.
+        # 19/11, T12: o alvo sai da geometria. `palma_face` = o alcance do casco da palma ao longo da normal da palma,
+        # medido do sítio, em qpos0 (a ponta dos dedos). Esse alcance passa do raio da cápsula `*_wrist_collision` do
+        # g1.xml (0,035): com a mão plana, a almofada toca antes do punho. O dorso fica todo do outro lado do plano.
         import mujoco
+        from g1_v3 import cena
         from mjlab.asset_zoo.robots.unitree_g1.g1_constants import get_spec
+        self.assertGreater(K_AL.palma_face, 0.035)
         modelo = cena.add_pads_de_palma(get_spec(), ATIVO.cena).compile()
         dado = mujoco.MjData(modelo)
         mujoco.mj_forward(modelo, dado)
         nomes = {modelo.geom(g).name for g in range(modelo.ngeom)}
+
+        def vertices(geom):  # os vértices do casco no mundo
+            ini = modelo.mesh_vertadr[modelo.geom_dataid[geom.id]]
+            malha = modelo.mesh_vert[ini:ini + modelo.mesh_vertnum[modelo.geom_dataid[geom.id]]]
+            return malha @ dado.geom_xmat[geom.id].reshape(3, 3).T + dado.geom_xpos[geom.id]
+
         for lado, sinal in (("left", -1.0), ("right", 1.0)):
             with self.subTest(mao=lado):
                 self.assertNotIn(f"{lado}_hand_collision", nomes)  # a cápsula da mão do fabricante saiu
-                pad, punho = modelo.geom(f"{lado}_palm_pad"), modelo.geom(f"{lado}_wrist_collision")
-                sitio = dado.site(f"{lado}_palm").xpos
-                normal = dado.geom_xmat[pad.id].reshape(3, 3)[:, 1] * sinal  # da palma para fora
+                pad, dorso = modelo.geom(f"{lado}_palm_pad"), modelo.geom(f"{lado}_hand_back_pad")
+                punho = modelo.geom(f"{lado}_wrist_collision")
+                self.assertEqual(pad.type[0], mujoco.mjtGeom.mjGEOM_MESH)
+                self.assertEqual(dorso.type[0], mujoco.mjtGeom.mjGEOM_MESH)
+                sitio = dado.site(f"{lado}_palm")
+                normal = dado.xmat[modelo.site_bodyid[sitio.id]].reshape(3, 3)[:, 1] * sinal  # da palma para fora
                 self.assertEqual(punho.type[0], mujoco.mjtGeom.mjGEOM_CAPSULE)
                 eixo = dado.geom_xmat[punho.id].reshape(3, 3)[:, 2]  # a cápsula: raio size[0], meio comprimento size[1]
-                alcance_pad = normal @ (dado.geom_xpos[pad.id] - sitio) + pad.size[1]
-                alcance_punho = normal @ (dado.geom_xpos[punho.id] - sitio) + abs(normal @ eixo) * punho.size[1] + punho.size[0]
-                self.assertAlmostEqual(alcance_pad, K_AL.palma_face, delta=1e-6)
+                alcance_pad = ((vertices(pad) - sitio.xpos) @ normal).max()
+                alcance_punho = normal @ (dado.geom_xpos[punho.id] - sitio.xpos) + abs(normal @ eixo) * punho.size[1] + punho.size[0]
+                self.assertAlmostEqual(alcance_pad, K_AL.palma_face, delta=1e-3)
                 self.assertGreater(alcance_pad, alcance_punho + 0.005)  # margem acima de 5 mm sobre o punho
+                self.assertLessEqual(((vertices(dorso) - sitio.xpos) @ normal).max(), 1e-6)  # o dorso, do outro lado
 
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
         # §6.3: P3, P4, B1, B2 e B4 não usam as palmas; devolvem 0, nunca NaN (§6.6).
