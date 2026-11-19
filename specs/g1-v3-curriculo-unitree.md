@@ -823,7 +823,7 @@ curvados, e o casco cobre esse vão. Medida local (19/11, script de teste que tr
 - Com o comando zero a fase fica no valor em que estava; quando o comando volta, ela continua dali.
 - O `passo` (`recompensas.py:597`) e o bloco `marcha_on` da observação não mudam.
 
-**Driver** (`pilota_v3.py:818-819`, `registra_juntas_v3.py:405-409`): `passos` só soma quando o twist do passo
+**Driver** (`pilota_v3.py:818-819`, `registra_juntas_v3.py:405-409`; hoje o driver soma `passos` todo passo): `passos` só soma quando o twist do passo
 anterior passa de `limiar_marcha` (o env soma com o comando que a política viu no passo t, e a fase entra na
 observação de t+1). O flag `--fase-parada` sai do `registra_juntas`: o comportamento vira o padrão. A coluna
 `relogio` do CSV fica.
@@ -849,7 +849,7 @@ observação de t+1). O flag `--fase-parada` sai do `registra_juntas`: o comport
 
 ### 15.4 Testes
 
-- `test_marcha_relogio.py`: `test_o_periodo_nao_depende_do_comando` passa a exigir a fase parada com o comando zero
+- `test_marcha_relogio.py`: `test_fase_e_o_tempo_sobre_08_com_comando_ligado_e_desligado` passa a exigir a fase parada com o comando zero
   (50 passos com cmd 0 → fase 0) e a volta a cada 0,8 s com comando; `test_sem_recomeco_quando_o_comando_passa_do_limiar`
   passa a 10 passos sem comando e 1 com → fase `1 · dt / 0,8` (continua de onde parou); novo caso: comando, zero e
   comando de novo → a fase soma só os passos com comando.
