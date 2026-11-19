@@ -168,7 +168,7 @@ class Alvos:  # S §8.2; PD-23
     p0_frente: float = 0.05  # S §8.2: P0, avanço à frente da caixa (m)
     # 18/11, T11a: o sítio da palma à face da caixa COM A ALMOFADA ENCOSTADA = `cena._PALM_DZ + cena._PAD_HALF[1]`.
     # Era 0,035, a distância em que a cápsula do punho encostava (`g1_limpo/ik/gera_botar.py`), e a almofada não tocava
-    palma_face: float = 0.040  # S §8.2: sítio da palma à face da caixa, almofada encostada (m)
+    palma_face: float = 0.045  # S §8.2: sítio da palma à face da caixa, almofada encostada (m)
     folga_p1: float = 0.02  # 18/11, T11a: folga da almofada à face no P0 e no P1, ao lado da caixa e sem tocar (m)
     p3_alto: float = 0.05  # S §8.2: P3, altura acima da pega (m)
     # 18/11, T8: o P3 fechava com um passo sem contato caixa × laje (0,02 s) e sem altura; no model_8150 a caixa subiu

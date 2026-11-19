@@ -128,33 +128,35 @@ class TestInclinacaoDaCaixa(unittest.TestCase):
 class TestPalmasAlvoCaixa(unittest.TestCase):
 
     def test_P0_com_a_010(self):
-        # S §8.2 e T11a: P0 = (−(a + p0_frente), ±(a + palma_face + folga_p1), 0) = (−0,15; ±0,160; 0).
+        # S §8.2 e T11a: P0 = (−(a + p0_frente), ±(a + palma_face + folga_p1), 0) = (−0,15; ±0,165; 0).
         out = alvos.palmas_alvo_caixa(torch.tensor([IDX["P0"]]), torch.tensor([0.10], dtype=T), K_AL)
         self.assertEqual(tuple(out.shape), (1, 2, 3))
         for p in out[0].tolist():
             self.assertAlmostEqual(p[0], -0.15, delta=1e-6)
-            self.assertAlmostEqual(abs(p[1]), 0.160, delta=1e-6)
+            self.assertAlmostEqual(abs(p[1]), 0.165, delta=1e-6)
             self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
         self.assertLess(out[0, 0, 1].item() * out[0, 1, 1].item(), 0.0)  # uma palma de cada lado
 
     def test_B3_com_a_010(self):
-        # S §8.2: B3 = (0, ±(a + palma_face + b3_afasta), 0) = (0; ±0,190; 0).
+        # S §8.2: B3 = (0, ±(a + palma_face + b3_afasta), 0) = (0; ±0,195; 0).
         out = alvos.palmas_alvo_caixa(torch.tensor([IDX["B3"]]), torch.tensor([0.10], dtype=T), K_AL)
         for p in out[0].tolist():
             self.assertAlmostEqual(p[0], 0.0, delta=1e-6)
-            self.assertAlmostEqual(abs(p[1]), 0.190, delta=1e-6)
+            self.assertAlmostEqual(abs(p[1]), 0.195, delta=1e-6)
             self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
 
     def test_P1_ao_lado_da_face_e_P2_encostado(self):
-        # 18/11, T11a: P1 = (0; ±(a + palma_face + folga_p1); 0) = (0; ±0,160; 0), sem tocar; P2 = (0; ±(a + palma_face); 0)
-        # = (0; ±0,140; 0), a almofada na face. Antes os dois tinham o mesmo ponto, a 0,035 da face.
-        for nome, y in (("P1", 0.160), ("P2", 0.140)):
+        # 18/11, T11a: P1 = (0; ±(a + palma_face + folga_p1); 0) = (0; ±0,165; 0), sem tocar; P2 = (0; ±(a + palma_face); 0)
+        # = (0; ±0,145; 0), a almofada na face. Antes os dois tinham o mesmo ponto, a 0,035 da face.
+        for nome, y in (("P1", 0.165), ("P2", 0.145)):
             with self.subTest(alvo=nome):
                 out = alvos.palmas_alvo_caixa(torch.tensor([IDX[nome]]), torch.tensor([0.10], dtype=T), K_AL)
                 for p in out[0].tolist():
                     self.assertAlmostEqual(p[0], 0.0, delta=1e-6)
                     self.assertAlmostEqual(abs(p[1]), y, delta=1e-6)
                     self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
+        # a folga cabe na tolerância do P1: a política que vai direto ao contato (o ponto do P2) ainda fecha o P1
+        self.assertLess(K_AL.folga_p1, K_AL.tol_palma)
 
     def test_palma_face_e_a_face_da_almofada_a_frente_do_punho(self):
         # 18/11, T11a: o alvo sai da geometria. `palma_face` = centro + meia espessura da almofada da palma, e esse valor
@@ -162,6 +164,26 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
         from g1_v3 import cena
         self.assertAlmostEqual(K_AL.palma_face, cena._PALM_DZ + cena._PAD_HALF[1], delta=1e-9)
         self.assertGreater(K_AL.palma_face, 0.035)
+        # A mão plana contra um plano, no modelo que a cena monta (qpos0: punho reto): o alcance de cada peça ao longo da
+        # normal da palma, medido do sítio. O plano toca primeiro a peça de maior alcance: a almofada, e não o punho.
+        import mujoco
+        from mjlab.asset_zoo.robots.unitree_g1.g1_constants import get_spec
+        modelo = cena.add_pads_de_palma(get_spec(), ATIVO.cena).compile()
+        dado = mujoco.MjData(modelo)
+        mujoco.mj_forward(modelo, dado)
+        nomes = {modelo.geom(g).name for g in range(modelo.ngeom)}
+        for lado, sinal in (("left", -1.0), ("right", 1.0)):
+            with self.subTest(mao=lado):
+                self.assertNotIn(f"{lado}_hand_collision", nomes)  # a cápsula da mão do fabricante saiu
+                pad, punho = modelo.geom(f"{lado}_palm_pad"), modelo.geom(f"{lado}_wrist_collision")
+                sitio = dado.site(f"{lado}_palm").xpos
+                normal = dado.geom_xmat[pad.id].reshape(3, 3)[:, 1] * sinal  # da palma para fora
+                self.assertEqual(punho.type[0], mujoco.mjtGeom.mjGEOM_CAPSULE)
+                eixo = dado.geom_xmat[punho.id].reshape(3, 3)[:, 2]  # a cápsula: raio size[0], meio comprimento size[1]
+                alcance_pad = normal @ (dado.geom_xpos[pad.id] - sitio) + pad.size[1]
+                alcance_punho = normal @ (dado.geom_xpos[punho.id] - sitio) + abs(normal @ eixo) * punho.size[1] + punho.size[0]
+                self.assertAlmostEqual(alcance_pad, K_AL.palma_face, delta=1e-6)
+                self.assertGreater(alcance_pad, alcance_punho + 0.005)  # margem acima de 5 mm sobre o punho
 
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
         # §6.3: P3, P4, B1, B2 e B4 não usam as palmas; devolvem 0, nunca NaN (§6.6).

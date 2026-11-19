@@ -147,8 +147,8 @@ class F9PortaoDoTronco(unittest.TestCase):
         self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
 
     def test_conquista_das_palmas_pela_distancia_as_faces(self):
-        # 18/11, T10: palmas no centro da caixa de meia aresta 0,10: a + palma_face de cada alvo do P2 (0,140 m com a T11a).
-        # q = 1 − tanh(0,140 / (2 · 0,08)) = 0,2961, em qualquer alvo (o `progresso` decide onde soma)
+        # 18/11, T10: palmas no centro da caixa de meia aresta 0,10: a + palma_face de cada alvo do P2 (0,145 m com a T11a).
+        # q = 1 − tanh(0,145 / (2 · 0,08)) = 0,2807, em qualquer alvo (o `progresso` decide onde soma)
         esperado = 1 - math.tanh((0.1 + A.palma_face) / (A.largura_tanh * R.sigma_palmas))
         for alvo in (0, P3):
             self.assertAlmostEqual(self._portoes(alvo, 0.0, 0.0)["palmas"].item(), esperado, places=5)

@@ -110,6 +110,7 @@ with torch.inference_mode():
             "contatos": m["contatos"].float().sum(-1), "F_esq": f_esq, "F_dir": f_dir,
             "F_total": u.scene[CAIXA_ROBO].data.force.norm(dim=-1).sum(-1),
             "cont_E": m["contatos"][:, 0], "cont_D": m["contatos"][:, 1], "folga_E": folga[:, 0], "folga_D": folga[:, 1],
+            "F_pad_E": u.scene["palma_E"].data.force.norm(dim=-1).sum(-1), "F_pad_D": u.scene["palma_D"].data.force.norm(dim=-1).sum(-1),
             "site_E_y": site_y[:, 0], "site_D_y": site_y[:, 1], "pad_E_x": pad_c[:, 0, 0], "pad_E_z": pad_c[:, 0, 2],
             "pad_D_x": pad_c[:, 1, 0], "pad_D_z": pad_c[:, 1, 2], "fase": u.v3_fase_marcha, "degrau": u.v3_degrau,
             "d": cap["d"], "sigma": cap["sigma"], "phi": phi, "q_palmas": conq[:, 0], "q_pega": conq[:, 1],

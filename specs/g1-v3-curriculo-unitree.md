@@ -645,14 +645,14 @@ a alcançar a caixa. Ela não conserta o toque curto: o punho já alcança a cai
 14 passos; o contato segue a fase do relógio de marcha (21 % contra 4 % de contato duplo entre faixas da fase).
 
 **Mudança.**
-- `cena.py`: `_PALM_DZ` = 0,032 (era 0,015): a face da almofada da palma fica a 0,040 do eixo, 0,5 cm à frente da
+- `cena.py`: `_PALM_DZ` = 0,037 (era 0,015): a face da almofada da palma fica a 0,045 do eixo, 1,0 cm à frente da
   cápsula do punho. A almofada do dorso fica onde está: constante nova `_DORSO_DZ` = 0,015, usada só na chamada do
   `back_pad` em `add_pads_de_palma`. `_PAD_HALF` e `_PALM_X` não mudam (a massa e a posição ao longo da mão ficam).
-- `knobs.Alvos`: `palma_face` = 0,040 (era 0,035): a distância do site à face com a almofada encostada. Knob novo
+- `knobs.Alvos`: `palma_face` = 0,045 (era 0,035): a distância do site à face com a almofada encostada. Knob novo
   `folga_p1` = 0,02 (m): a folga da almofada à face no P0 e no P1.
 - `alvos.palmas_alvo_caixa`: `y` = `a + palma_face + folga_p1` no P0 e no P1 (ao lado da face, sem tocar);
   `a + palma_face` no P2 (encostada); `a + palma_face + b3_afasta` no B3. O `x` e o `z` não mudam.
-- `comando.py`: só o comentário da linha do `afasta` (o B3 mede de `a + palma_face`; o limiar fica 5 mm mais longe
+- `comando.py`: só o comentário da linha do `afasta` (o B3 mede de `a + palma_face`; o limiar fica 10 mm mais longe
   do centro da caixa que antes).
 - `specs/g1-v3.md`, §8.2: as linhas do P0, do P1 e do P2 da tabela, com a nota "18/11, T11a".
 - Nenhuma recompensa, portão, fecho ou tempo muda. A `q_palmas` continua a medir do alvo do P2, que agora é a mão
@@ -660,16 +660,17 @@ a alcançar a caixa. Ela não conserta o toque curto: o punho já alcança a cai
   crítico e as recompensas que leem `referencia_do_alvo` mudam de valor (as palmas da referência).
 - Contagem de funções de `g1_v3/*.py`: 477 → 477.
 
-**Margem e valor da face (decisão do dono em aberto).**
-- Com a face a 0,040, a margem sobre o punho é 5 mm. Pela geometria, o punho volta a tocar antes da almofada com a
-  base da mão inclinada para a caixa acima de ~2,4° (caixa de meia aresta 0,13) a ~5,2° (0,07), ou com a flexão do
-  `wrist_yaw` acima de ~5,1°. Uma guinada da caixa vale +θ para uma mão e −θ para a outra.
-- Com a face a 0,045, a margem é 10 mm. Os dedos da malha vão de 0,039 a 0,045; os dois valores cabem na mão. A folga
-  da almofada ao quadril na pose de pé é 6,0 cm com 0,040 e ~5,5 cm com 0,045 (7,1 cm antes da T11a).
-- O 0,040 foi o valor implementado, sem comparação com o 0,045. A troca pede o "implementa" do dono.
+**Margem e valor da face (decisão do dono, 18/11: 0,045).**
+- Com a face a 0,045, a margem sobre o punho é 10 mm. Pela geometria, o punho volta a tocar antes da almofada com a
+  base da mão inclinada para a caixa acima de ~4,7° (caixa de meia aresta 0,13) a ~9,8° (0,07), ou com a flexão do
+  `wrist_yaw` acima de ~10,3°. Uma guinada da caixa vale +θ para uma mão e −θ para a outra.
+- A primeira versão da T11a usou 0,040: margem de 5 mm, com os limites em ~2,4°, ~5,1° e ~5,1°. O dono trocou para
+  0,045 antes de qualquer coleta ou treino com 0,040.
+- Os dedos da malha vão de 0,039 a 0,045: a face da almofada fica na ponta deles. A folga da almofada ao quadril na
+  pose de pé, medida por cinemática, é 5,6 cm com 0,045 (6,0 cm com 0,040; 7,1 cm antes da T11a).
 
 **Alternativas avaliadas.**
-- Almofada a 0,045: acima; em aberto.
+- Almofada a 0,040: acima; trocada por 0,045 pela margem.
 - Almofada mais perto dos dedos (x de 0,14 a 0,18): muda o braço de alavanca do `wrist_yaw`, que limita o aperto
   (40 a 62 N por palma); fora desta tarefa.
 - Reduzir ou excluir a cápsula do punho: o punho real tem de 2,4 a 3,3 cm de raio na malha; tirar a peça deixaria o
@@ -680,21 +681,26 @@ a alcançar a caixa. Ela não conserta o toque curto: o punho já alcança a cai
   (a mão tem de tocar).
 
 **Testes.**
-- `g1_v3/testes/test_alvos.py`: com `a` = 0,10, P0 = (−0,15; ±0,160; 0), P1 = (0; ±0,160; 0),
-  P2 = (0; ±0,140; 0), B3 = (0; ±0,190; 0).
+- `g1_v3/testes/test_alvos.py`: com `a` = 0,10, P0 = (−0,15; ±0,165; 0), P1 = (0; ±0,165; 0),
+  P2 = (0; ±0,145; 0), B3 = (0; ±0,195; 0). O mesmo teste confere `folga_p1` < `tol_palma`: a política que vai direto
+  ao contato ainda fecha o P1.
 - `g1_v3/testes/test_alvos.py`, teste de geometria: `Alvos.palma_face` = `cena._PALM_DZ + cena._PAD_HALF[1]`, e esse
   valor é maior que 0,035, o raio da cápsula `left_wrist_collision` do `g1.xml`.
 - Os testes que leem `A.palma_face` (`test_comando_e.py`, `test_recompensas_f.py`) seguem pela fórmula.
-- Pendentes, pedem o "implementa" do dono: (1) um teste que monta a mão com `add_pads_de_palma`, encosta a mão plana
-  num plano e confere que a almofada toca e a cápsula do punho não; (2) um teste de knob `folga_p1` < `tol_palma`.
+- O teste de geometria monta o robô com `add_pads_de_palma`, compila o modelo e mede, com o punho reto, o alcance
+  de cada peça ao longo da normal da palma a partir do sítio: o da almofada é `palma_face` e passa do alcance da
+  cápsula do punho em mais de 5 mm, nas duas mãos; a cápsula `*_hand_collision` não existe no modelo. O teste é
+  geométrico: ele não roda a física do contato.
+- `g1_v3/coleta.py`: colunas `F_pad_E` e `F_pad_D`, a força (N) do sensor de cada almofada com a caixa. A força na
+  face (`F_esq`, `F_dir`) menos a da almofada dá a parte do punho e do braço.
 
 **Efeitos fora do PEGAR.**
-- CARREGAR e BOTAR usam as mesmas mãos. Com a caixa presa, cada site fica 0,5 cm mais longe do centro da caixa. O
+- CARREGAR e BOTAR usam as mesmas mãos. Com a caixa presa, cada site fica 1,0 cm mais longe do centro da caixa. O
   detector de "PEGAR concluído" tem 5 cm de tolerância nas palmas.
-- As tabelas de IK (`g1_limpo/ik/`, `FOLGA_PALMA` = 0,035) não mudam. A pose de pé com caixa delas põe o site 5 mm
-  mais perto da caixa que a almofada encostada: seguir essa pose aperta a caixa 5 mm por lado.
-- Autocolisão: a almofada saiu 1,7 cm para o lado da coxa, e a autocolisão entra no `contato_fora` em toda tarefa.
-  Medido por cinemática (18/11): na pose de pé a folga da almofada ao quadril cai de 7,1 para 6,0 cm, sem toque. A
+- As tabelas de IK (`g1_limpo/ik/`, `FOLGA_PALMA` = 0,035) não mudam. A pose de pé com caixa delas põe o site 10 mm
+  mais perto da caixa que a almofada encostada: seguir essa pose aperta a caixa 10 mm por lado.
+- Autocolisão: a almofada saiu 2,2 cm para o lado da coxa, e a autocolisão entra no `contato_fora` em toda tarefa.
+  Medido por cinemática (18/11): na pose de pé a folga da almofada ao quadril cai de 7,1 para 5,6 cm, sem toque. A
   marcha com balanço de braço não tem medida.
 - A cena exportada do `pilota_v3` precisa de nova exportação (`python -m g1_v3.exporta_cena --saida ...`). Uma cena
   exportada antes da T11a roda sem erro, com a almofada velha e o alvo novo.
