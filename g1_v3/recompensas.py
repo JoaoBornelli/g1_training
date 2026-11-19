@@ -587,11 +587,12 @@ def rastreio_angular(env, tarefas):
 def passo(env, tarefas):
     """Marcha por relógio, na forma do `feet_gait` do unitree_rl_lab (16/11, R). ANDAR e CARREGAR.
 
-    O relógio mora no `TwistV3._update_metrics`: período fixo de 0,8 s, fase pelo tempo do episódio, pés defasados em
-    meio ciclo, sem recomeço. Cada pé paga 1 quando o contato bate com a fase, e o termo vale × (‖comando‖ > limiar),
-    com o comando do passo corrente. ⚠ Não há portão de velocidade: marchar no lugar com comando paga até 1,0/s (peso
-    0,5 × 2 pés). Quem impede que isso sirva é o nível do ANDAR (T2), que não sobe sem rastreio. A taxa de acerto
-    vai para `v3_acerto_marcha` (métrica `acerto_relogio`).
+    O relógio mora no `TwistV3._update_metrics`: período fixo de 0,8 s, fase pelo tempo com comando acima de
+    `limiar_marcha` (19/11, T12: com comando zero ela para), pés defasados em meio ciclo, sem recomeço. Cada pé paga 1
+    quando o contato bate com a fase, e o termo vale × (‖comando‖ > limiar), com o comando do passo corrente. ⚠ Não há
+    portão de velocidade: marchar no lugar com comando paga até 1,0/s (peso 0,5 × 2 pés). Quem impede que isso sirva é
+    o nível do ANDAR (T2), que não sobe sem rastreio. A taxa de acerto vai para `v3_acerto_marcha` (métrica
+    `acerto_relogio`).
     """
     cmd = env.command_manager.get_command("twist")
     on = cmd.norm(dim=-1) > C.limiar_marcha

@@ -390,7 +390,7 @@ def main() -> None:
                     limpa_a_cena(m, d, c, args.afasta,
                                  laje=fase.limpa_laje, caixa=fase.limpa_caixa)
                 n = max(1, int(round(fase.segundos / dt)))
-                for _ in range(n):
+                for i_passo in range(n):
                     if viewer is not None and not viewer.is_running():
                         raise KeyboardInterrupt
                     t0 = time.perf_counter()
@@ -402,9 +402,13 @@ def main() -> None:
                     # ⚠ A caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
                     caixa = visao.passo(m, d, piloto.tarefa)
                     # 19/11, T12: como o env, a fase só anda com comando, e a do passo t entra na observação de t + 1
-                    passos += andou_ant
+                    # (soma-se o twist do passo anterior). No 1º passo de cada fase do roteiro (o do restaura
+                    # incluso), o env já reamostrou o comando antes de somar (reset; troca de trecho na cadeia):
+                    # soma-se o twist novo.
+                    andou = np.linalg.norm(twist_pol) > pv._KN.comando.limiar_marcha
+                    passos += andou if i_passo == 0 else andou_ant
                     fase_relogio = (passos * dt / pv._KN.comando.periodo_marcha) % 1.0
-                    andou_ant = np.linalg.norm(twist_pol) > pv._KN.comando.limiar_marcha
+                    andou_ant = andou
                     obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist,
                                                  fase_relogio)
                     acao = ator(obs)

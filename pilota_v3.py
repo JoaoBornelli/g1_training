@@ -785,7 +785,7 @@ def main() -> None:
     acao = np.zeros(ator.dim_saida)
     hist: np.ndarray | None = None
     passos = 0  # passos da política com comando desde o reset: a fase do relógio sai daqui, como o `_fase_t` do env
-    andou_ant = False  # o twist do passo anterior passou do limiar (o env soma a fase com o comando que a política viu)
+    andou_ant, tarefa_ant = False, piloto.tarefa  # o twist do passo anterior passou do limiar; a tarefa dele
     periodo_marcha = _KN.comando.periodo_marcha
 
     print(f"[pilota_v3] cena {args.cena}  checkpoint iter={ator.iteracao}  "
@@ -805,7 +805,6 @@ def main() -> None:
                 acao[:] = 0.0
                 hist = None
                 passos = 0
-                andou_ant = False
                 piloto.twist[:] = 0.0
                 piloto.rumo_ref = None
                 piloto.reset_pedido = False
@@ -817,11 +816,14 @@ def main() -> None:
             mapa = percepcao.passo(m, d)
             # ⚠ A ORDEM: a caixa depois do `Percepcao.passo` (a odometria é dele), e antes da observação.
             caixa = visao.passo(m, d, piloto.tarefa)
-            # 19/11, T12: o env soma dt à fase só com comando, e a fase do passo t entra na observação de t + 1; por
-            # isso soma-se o twist do passo ANTERIOR
-            passos += andou_ant
+            # 19/11, T12: o env soma dt à fase só com comando, no `_update_metrics` do twist, antes do `_resample` do
+            # passo; a fase do passo t entra na observação de t + 1. Por isso soma-se o twist do passo ANTERIOR. No
+            # reset (hist None) e na troca de tarefa, o comando já foi reamostrado antes do `_update_metrics` (o reset
+            # do mjlab; a cadeia, `comando._publica`), e o env soma com o twist NOVO, o desta observação.
+            andou = np.linalg.norm(twist_pol) > _KN.comando.limiar_marcha
+            passos += andou if hist is None or piloto.tarefa != tarefa_ant else andou_ant
             fase = (passos * dt / periodo_marcha) % 1.0
-            andou_ant = np.linalg.norm(twist_pol) > _KN.comando.limiar_marcha
+            andou_ant, tarefa_ant = andou, piloto.tarefa
             obs, hist = monta_observacao(d, c, twist_pol, piloto.tarefa, acao, caixa, mapa, hist, fase)
             acao = ator(obs)
 

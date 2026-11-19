@@ -5,7 +5,6 @@ Env falso com `types.SimpleNamespace`, como os vizinhos. O `_update_metrics` do 
 import math
 import types
 import unittest
-from pathlib import Path
 from unittest import mock
 
 import torch
@@ -124,26 +123,18 @@ class RelogioDoTwist(unittest.TestCase):
         _passos_do_relogio(obj, 10)
         self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), 0.75, places=5)
 
-    def test_contagem_do_driver_com_o_twist_do_passo_anterior_bate_com_a_fase_do_env(self):
-        # 19/11, T12: o `pilota_v3` e o `registra_juntas_v3` contam `passos += andou_ant` (o twist do passo ANTERIOR passou
-        # do limiar) e a fase é `passos · dt / período`. O env soma com o comando que a política viu no passo t, e a fase
-        # entra na observação de t + 1: a fase do driver no passo t é a do env depois do passo t − 1.
-        # Comando, zero, comando; a contagem está inline no `main` dos drivers, então o teste repete a regra e confere
-        # no texto dos dois que ela está lá.
-        cmds = [(0.5, 0.0, 0.0)] * 20 + [(0.0, 0.0, 0.0)] * 30 + [(0.5, 0.0, 0.0)] * 10
-        obj = _twist(cmds[0])
-        passos, andou_ant, fase_env = 0, False, 0.0
-        for cmd in cmds:
-            passos += andou_ant  # o driver, antes da observação do passo t
-            self.assertAlmostEqual((passos * DT / C.periodo_marcha) % 1.0, fase_env, places=5)
-            andou_ant = bool(torch.tensor(cmd).norm() > C.limiar_marcha)
-            obj.vel_command_b[:] = torch.tensor(cmd)  # o env, depois da ação do passo t
-            _passos_do_relogio(obj, 1)
-            fase_env = float(obj._env.v3_fase_marcha[0])
-        self.assertEqual(passos, 29)  # 30 passos com comando; o último ainda não entrou na observação
-        raiz = Path(__file__).resolve().parents[2]
-        for driver in ("pilota_v3.py", "registra_juntas_v3.py"):
-            self.assertIn("passos += andou_ant", (raiz / driver).read_text(), driver)
+    def test_reset_zera_a_fase(self):
+        # 19/11, T12: o `_fase_t` zera no reset do episódio; o 1º passo depois dele soma só o próprio dt (o fabricante,
+        # o fecho e a abertura do segmento ficam fora)
+        obj = _twist((0.5, 0.0, 0.0))
+        _passos_do_relogio(obj, 10)
+        obj._env.termination_manager = types.SimpleNamespace(time_outs=torch.zeros(1, dtype=torch.bool))
+        with mock.patch.object(comando.TwistV3, "_fecha"), mock.patch.object(comando.TwistV3, "_abre"), \
+                mock.patch.object(comando.UniformVelocityCommand, "reset", return_value={}):
+            obj.reset(torch.tensor([0]))
+        self.assertEqual(float(obj._fase_t[0]), 0.0)
+        _passos_do_relogio(obj, 1)
+        self.assertAlmostEqual(float(obj._env.v3_fase_marcha[0]), DT / 0.8, places=5)
 
     def test_a_fase_da_a_volta_a_cada_08_s(self):
         obj = _twist((0.5, 0.0, 0.0))

@@ -299,7 +299,8 @@ def privilegiados(env: ManagerBasedRlEnv, fase: bool = False) -> torch.Tensor:
     """Termo `fase` do ator e do crítico (E,2) ou `privilegiados` só do crítico (E,4; 13/11, M7; 16/11, T4).
 
     `fase=True`: seno e cosseno da fase do relógio de marcha (`v3_fase_marcha`). O ator o vê, como o `feet_gait` da
-    Unitree, porque o `passo` paga a fase e o ator não podia saber qual pé apoiar; o robô real a calcula pelo tempo.
+    Unitree, porque o `passo` paga a fase e o ator não podia saber qual pé apoiar; o robô real a calcula pelo tempo com
+    comando acima de `limiar_marcha` (19/11, T12: com comando zero ela para; a regra dos drivers em `pilota_v3.main`).
     `fase=False`: relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
 
     ⚠ O σ entra como log1p(σ) (C4): nos alvos em metros vale ≈ σ, mas o do B4 é adimensional e abre em ~5 a 10; sem o

@@ -576,26 +576,37 @@ def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) ->
 
     env.reset()
     percepcao = pilota.Percepcao(m, dados)
-    percepcao.reinicia(m, espelha_estado(env, m))
     acao = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
     hist = None
     resets = 0
     limiar = ATIVO.percepcao.limiar_visto
+    # 19/11, T12: a fase que o pilota recebe sai da regra dos drivers (`pilota_v3.main`, `registra_juntas_v3.main`), e
+    # não do env: `n_fase` conta os passos com comando, com o twist do passo anterior, e com o atual no reset e na troca
+    # de trecho ou de tarefa (o comando já foi reamostrado antes do `_update_metrics`). Assim a paridade prova a regra.
+    n_fase, andou_ant, trecho_tarefa_ant = 0, False, None
 
     for passo in range(passos):
-        env.step(acao)
-        reiniciou = bool(_np(env.reset_buf)[0])
+        # 19/11, T12: o passo 0 é a observação do `env.reset()`, que já entra no histórico; começar depois do 1º
+        # `env.step` deixava o histórico do pilota um passo atrás, e o bloco `fase` falhava no passo 0.
+        if passo > 0:
+            env.step(acao)
+        reiniciou = passo == 0 or bool(_np(env.reset_buf)[0])
         d = espelha_estado(env, m)
         if reiniciou:
             hist = None  # o pilota preenche o histórico no 1º passo, como o mjlab faz no reset
+            n_fase = 0
             percepcao.reinicia(m, d)
-            resets += 1
+            resets += passo > 0  # o reset do passo 0 é o do `env.reset()`, não um reset do episódio
 
         obs_env = _np(env.observation_manager.compute()[GRUPO])[0].astype(np.float64)
         twist = _np(env.command_manager.get_command("twist"))[0].astype(np.float64)
         anterior = _np(env.action_manager.action)[0].astype(np.float64)
         tarefa = int(_np(env.v3_tarefa)[0])
         mapa_env = obs_env[fat["mapa"]]
+        andou = np.linalg.norm(twist) > ATIVO.comando.limiar_marcha
+        trecho_tarefa = (int(_np(env.v3_trecho)[0]), tarefa)
+        n_fase += andou if reiniciou or trecho_tarefa != trecho_tarefa_ant else andou_ant
+        andou_ant, trecho_tarefa_ant = andou, trecho_tarefa
 
         # Sem portão (decisão de 29/10): só imprime o quanto a Percepcao do pilota difere do mapa do env.
         dmax, concordancia = _compara_mapas(percepcao.passo(m, d), mapa_env, limiar)
@@ -604,7 +615,8 @@ def paridade(pasta: Path | None = None, tol: float = 1e-5, passos: int = 200) ->
 
         nosso, hist = pilota.monta_observacao(
             d, dados, twist, tarefa, anterior,
-            obs_env[fat["caixa"]][-canais["caixa"]:], mapa_env, hist, float(_np(env.v3_fase_marcha)[0]))
+            obs_env[fat["caixa"]][-canais["caixa"]:], mapa_env, hist,
+            (n_fase * env.step_dt / ATIVO.comando.periodo_marcha) % 1.0)
         nosso = np.asarray(nosso, dtype=np.float64)
         if nosso.shape != (dim_ator(c),):
             raise AssertionError(f"monta_observacao devolveu forma {nosso.shape}, esperado ({dim_ator(c)},)")
