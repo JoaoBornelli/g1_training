@@ -758,10 +758,20 @@ dois leem a mesma régua.
 - O limite `renda_conquista` < 2,3 (fecho B2 → B3) não muda.
 
 **Testes** (`g1_v3/testes/test_recompensas_e.py`).
-- `test_conquistas_so_somam_onde_a_pega_tem_de_continuar`: o caso do P2 com as duas almofadas paga 12 + 4 = 16; o
-  P1 e o B3 seguem sem as conquistas. Caso novo: P2 sem almofada em contato e `q_pega` = 1 paga 12 + 2 = 14.
+- `test_conquistas_so_somam_onde_a_pega_tem_de_continuar`: com `q_palmas` = 0,3 e `q_pega` = 0,9 (valores diferentes,
+  para o teste distinguir qual conquista recebe o fator), o P2 paga 14,4 com as duas almofadas, 13,5 com uma e 12,6
+  com nenhuma; o P1 e o B3 seguem sem as conquistas; o P3 sem almofada paga a pega inteira (20,4); o P2 sem a caixa
+  (perda, ou CARREGAR aberto depois de um PEGAR que parou no P2) paga 0.
 - `test_todo_fecho_sobe_a_renda_com_as_conquistas`: entram os fechos P1 → P2 e P2 → P3, no mesmo estado dos dois
   lados e com os portões em 0 e em 1.
+
+**O que o código permite (revisão independente de 18/11, sem achado que bloqueie).**
+- A força no P2 não tem custo: o `aperto` e a `sacudida` só valem de P3 a B2. A parcela da pega cresce até ~2·`F_pega`
+  (~41 N com 1 kg) e fica plana depois; nada paga nem cobra força acima disso.
+- A `q_pega` lê a força de qualquer peça nas faces laterais, e o fator lê o toque da almofada em qualquer face da
+  caixa. Uma almofada no topo com o punho na face lateral recebe a parcela. O fecho do P2 lê a mesma régua.
+- As conquistas do P2 não passam pelos portões: com a caixa deslocada ou inclinada o Φ cai a 0 e o fecho fica
+  bloqueado, e as conquistas seguem pagando até 4/s. A diferença entre o estado certo e o deslocado continua 3·Φ.
 
 **O que olhar, COM treino.** Retomada do model_10850 com a T11a e a T11b; coleta de 256 × 3000 ~500 its depois.
 

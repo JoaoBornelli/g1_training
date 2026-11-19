@@ -198,7 +198,7 @@ class TestProgresso(unittest.TestCase):
 
     def test_todo_fecho_sobe_a_renda_com_as_conquistas(self):
         # 18/11, T10 (a regra de 09/11): a abertura da etapa seguinte (h = 1, Φ de abertura 0,538) paga mais que o máximo
-        # da atual (h = 1, Φ = 1, conquistas cheias). (etapa, Φ pago?, conquistas) de P2 a B4; o CARREGAR não paga Φ
+        # da atual (h = 1, Φ = 1, conquistas cheias). (etapa, Φ pago?, conquistas) de P1 a B4; o CARREGAR não paga Φ
         phi0 = 1 - math.tanh(1 / K.largura_tanh)
         cadeia = [(1, True, 0.0), (2, True, 2.0), (3, True, 2.0), (4, True, 2.0), (5, False, 2.0), (5, True, 2.0), (6, True, 2.0),
                   (7, True, 0.0), (8, True, 0.0)]
@@ -311,15 +311,17 @@ class TestEtapaDoProgresso(unittest.TestCase):
             self.assertAlmostEqual(float(env.v3_phi[i]), c[7], places=5, msg=str(c))
 
     def test_conquistas_so_somam_onde_a_pega_tem_de_continuar(self):
-        # 18/11, T10: com Φ 0 e as duas conquistas em 1, cada caso paga 6·n (h = 1) mais 2·2 só em P3, P4, B1, B2 e no
-        # CARREGAR com o P4 fechado. (alvo, tarefa, perdeu, b4_fechado, p4_fechado, renda[, almofadas em contato])
-        # T11b: o P2 também soma, e nele a pega vale pela fração das almofadas na caixa: duas 12 + 2·(1 + 1) = 16; uma
-        # 12 + 2·(1 + 0,5) = 15; nenhuma 12 + 2·1 = 14. O P1 segue sem conquistas; o P3 sem almofada paga a pega inteira
-        casos = [(2, "PEGAR", False, False, False, 16.0), (2, "PEGAR", False, False, False, 15.0, (True, False)),
-                 (2, "PEGAR", False, False, False, 14.0, (False, False)), (1, "PEGAR", False, False, False, 6.0),
-                 (3, "PEGAR", False, False, False, 22.0, (False, False)), (3, "PEGAR", False, False, False, 22.0),
-                 (4, "PEGAR", False, False, False, 28.0), (4, "CARREGAR", False, False, True, 34.0),
-                 (5, "BOTAR", False, False, True, 34.0), (6, "BOTAR", False, False, True, 40.0),
+        # 18/11, T10: com Φ 0, q_palmas 0,3 e q_pega 0,9, cada caso paga 6·n (h = 1) mais 2·(0,3 + 0,9) = 2,4 só em P3, P4,
+        # B1, B2 e no CARREGAR com o P4 fechado. (alvo, tarefa, perdeu, b4_fechado, p4_fechado, renda[, almofadas em contato])
+        # T11b: o P2 também soma, e nele SÓ a pega vale pela fração das almofadas na caixa: duas 12 + 2·(0,3 + 0,9) = 14,4;
+        # uma 12 + 2·(0,3 + 0,45) = 13,5; nenhuma 12 + 2·0,3 = 12,6. O P1 segue sem conquistas; o P3 sem almofada paga a
+        # pega inteira; o P2 sem a caixa (CARREGAR aberto depois de um PEGAR que parou no P2) paga 0
+        casos = [(2, "PEGAR", False, False, False, 14.4), (2, "PEGAR", False, False, False, 13.5, (True, False)),
+                 (2, "PEGAR", False, False, False, 12.6, (False, False)), (1, "PEGAR", False, False, False, 6.0),
+                 (2, "CARREGAR", False, False, False, 0.0), (2, "PEGAR", True, False, False, 0.0),
+                 (3, "PEGAR", False, False, False, 20.4, (False, False)), (3, "PEGAR", False, False, False, 20.4),
+                 (4, "PEGAR", False, False, False, 26.4), (4, "CARREGAR", False, False, True, 32.4),
+                 (5, "BOTAR", False, False, True, 32.4), (6, "BOTAR", False, False, True, 38.4),
                  (7, "BOTAR", False, False, True, 42.0), (-1, "CARREGAR", False, False, False, 0.0),
                  (3, "ANDAR", True, False, False, 0.0), (-1, "ANDAR", False, True, True, 54.0)]
         n = len(casos)
@@ -331,7 +333,7 @@ class TestEtapaDoProgresso(unittest.TestCase):
         for k, nome in enumerate(("palma_E", "palma_D")):
             achou = torch.tensor([[float(c[6][k]) if len(c) > 6 else 1.0] for c in casos])
             env.scene[nome] = types.SimpleNamespace(data=types.SimpleNamespace(found=achou))
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.zeros(n), torch.ones(n, 2))), \
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.zeros(n), torch.tensor([[0.3, 0.9]]).expand(n, 2))), \
                 _sinal_m5(n), mock.patch.object(recompensas, "n_pressa", lambda h, ganho, dt, tau, rec: h):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         for i, c in enumerate(casos):
