@@ -790,3 +790,93 @@ dois leem a mesma régua.
 **Aberto (não entra na T11).** A posição da almofada ao longo da mão. O relógio do fecho que zera e o invariante de
 deslocamento que exige o valor exato 1. A fase do relógio de marcha no PEGAR. A recompensa da pega em uma etapa só
 (`design_draft.md` do projeto, opção 3), que só entra se o P3 ou o P4 pararem depois da T11.
+
+## 15. Tarefa T12: o relógio da marcha congela com comando zero, e a mão colide pelo casco da malha
+
+Enunciado: `specs/g1-v3-comportamento.md` §4.1 (P2: as duas palmas nas faces) e §4.3 (de P2 a B2, a caixa nivelada e
+segura). A T12 junta duas mudanças por decisão do dono (19/11), numa retomada do `model_12500`.
+
+### 15.1 Causa medida
+
+**Relógio.** Coleta do `model_12500` (amostrada, 256 × 3000, `medidas-p2-model10600.md` do projeto): o P2 fecha em
+84 % das visitas e o P3 em 1 de 190. A caixa fica 3 cm ou mais no ar só nas fases 0,4 a 0,7 do relógio da marcha
+(11 a 39 % do tempo; abaixo de 2 % nas outras); 52 % da energia da altura da caixa no P3 fica entre 1,0 e 1,5 Hz
+(relógio: 1,25 Hz). A janela dura ~0,24 s, menos que o `tempo_p3` de 0,30 s. O comando no P3 é zero, e o relógio
+corre pelo tempo do episódio com qualquer comando (`comando.py:787`); o ator vê a fase (`observacoes.py:311`).
+Teste no `registra_juntas` (flag `--fase-parada`, 19/11): com a fase parada, a energia em 1,0–1,5 Hz cai de 83 % para
+1 % e a base para (0,043 → 0,002 m/s). A Unitree (`unitree_rl_lab`, `gait_phase` e `feet_gait`) usa a mesma forma:
+fase pelo tempo, sem ler o comando; ela só treina locomoção.
+
+**Mão.** A almofada da palma fica a 4,5 cm da normal da palma, 3,2 a 3,5 cm à frente da palma visível (1,0 a 1,3 cm),
+sobre a palma e não sobre os dedos, e é invisível no viewer (grupo 3). O dono viu a caixa se mover sem a mão tocar.
+O casco convexo da malha da mão segue a mão real: a frente da mão vai de 1,0 cm na palma a 4,5 cm na ponta dos dedos
+curvados, e o casco cobre esse vão. Medida local (19/11, script de teste que troca a geometria e mantém os nomes): o
+`mujoco_warp` aceita o casco; em CPU, 34,0 → 37,2 s por iteração (64 envs, ruído de ±6 s; não vale para a GPU); no
+`registra_juntas` com o `model_12500`, as duas palmas têm força em 78 % do PEGAR (fase normal) e 93 % (fase parada).
+
+### 15.2 Relógio congelado (`comando.TwistV3`)
+
+- Acumulador próprio da fase, `self._fase_t` (s), criado ao lado do `_agora` e zerado no `reset`. O `_agora` não muda:
+  ele conta o tempo da âncora e da abertura (`comando.py:669`, `:759`, `:778`).
+- A cada passo: `self._fase_t += dt · on`, com o `on` que já existe (`‖cmd‖ > limiar_marcha`, `comando.py:786`).
+  `env.v3_fase_marcha = remainder(self._fase_t / periodo_marcha, 1)`.
+- Com o comando zero a fase fica no valor em que estava; quando o comando volta, ela continua dali.
+- O `passo` (`recompensas.py:597`) e o bloco `marcha_on` da observação não mudam.
+
+**Driver** (`pilota_v3.py:818-819`, `registra_juntas_v3.py:405-409`): `passos` só soma quando o twist do passo
+anterior passa de `limiar_marcha` (o env soma com o comando que a política viu no passo t, e a fase entra na
+observação de t+1). O flag `--fase-parada` sai do `registra_juntas`: o comportamento vira o padrão. A coluna
+`relogio` do CSV fica.
+
+### 15.3 Casco da mão (`cena.add_pads_de_palma`)
+
+- Os quatro geoms mantêm o nome (`*_palm_pad`, `*_hand_back_pad`), o grupo (`_GRUPO_PAD`), o condim, o atrito e o
+  rgba. Assim o `CollisionCfg` (`cena.py:205-220`), os sensores, o DR de atrito, a coleta e o `registra_juntas` não
+  mudam de nome.
+- A forma passa de caixa a malha. Os vértices vêm das malhas visuais do corpo da mão (`*_rubber_hand`, grupo 2), no
+  frame do corpo, lidos de uma cópia compilada do spec em qpos0. O corte é o plano do sítio `*_palm` perpendicular à
+  normal da palma (o y do corpo com o sinal do lado): vértices com projeção ≥ 0 formam a palma, ≤ 0 o dorso.
+- Cada metade vira uma malha (`spec.add_mesh`) com os vértices do casco (`scipy.spatial.ConvexHull`) e
+  `maxhullvert` 64 (constante em `cena.py`).
+- Saem `_PAD_HALF`, `_PALM_DZ`, `_DORSO_DZ`, `_PALM_X` e a função `_add_pad`.
+- `knobs.Alvos.palma_face` fica em 0,045: é o alcance do casco da palma na normal da palma em qpos0 (a ponta dos
+  dedos). O comentário passa a dizer isso.
+
+**Coleta** (`coleta.py:76-79` e `:93-96`): a folga da almofada à face passa a usar os vértices da malha do geom
+(`mesh_vert` do modelo) no lugar dos 8 cantos do `_PAD_HALF`. As colunas não mudam.
+
+**Contagem de funções:** `cena.py` −1 (`_add_pad`); nenhuma função nova no resto.
+
+### 15.4 Testes
+
+- `test_marcha_relogio.py`: `test_o_periodo_nao_depende_do_comando` passa a exigir a fase parada com o comando zero
+  (50 passos com cmd 0 → fase 0) e a volta a cada 0,8 s com comando; `test_sem_recomeco_quando_o_comando_passa_do_limiar`
+  passa a 10 passos sem comando e 1 com → fase `1 · dt / 0,8` (continua de onde parou); novo caso: comando, zero e
+  comando de novo → a fase soma só os passos com comando.
+- `test_alvos.py`, `test_palma_face_e_a_face_da_almofada_a_frente_do_punho`: o alcance do casco da palma na normal,
+  medido do sítio no modelo compilado, vale `palma_face` com tolerância de 1 mm; passa o raio da cápsula
+  `*_wrist_collision` por mais de 5 mm; os geoms são `mjGEOM_MESH`; o casco do dorso fica todo do outro lado do plano.
+  Sai a igualdade com `_PALM_DZ + _PAD_HALF[1]`.
+- Driver: um teste que confere a contagem dos `passos` com o twist do passo anterior (comando, zero, comando).
+- Paridade do `exporta_cena` (`--paridade`): roda e passa com o casco e com o relógio novo.
+- Suíte inteira no fim do lote; treino local de 2 iterações em CPU sem erro nem NaN.
+
+### 15.5 O que olhar, COM treino
+
+Retomada do `model_12500` (`RETOMA = 1`); coleta de 256 × 3000 com `--amostra` ~500 its depois.
+
+| Medida | Hoje (12500) | Passa | Reprova |
+|---|---|---|---|
+| Tempo por iteração no pod | 9,13 s | ≤ 11,4 s (+25 %) | acima: `maxhullvert` 32 |
+| Energia da altura da caixa no P3 em 1,0–1,5 Hz | 52 % | ≤ 20 % | ≥ 40 % |
+| Fechos do P3 por visita | 0,5 % | ≥ 30 % | < 5 % |
+| Contato duplo no P2 | 46 % | ≥ 30 % | < 20 % |
+| `s_ANDAR_andar` 400 its depois | 0,731 | ≥ 0,664 | abaixo |
+
+- Previsão que a medida pode refutar: com o relógio parado no PEGAR, a subida da caixa deixa de seguir o passo e passa
+  a durar mais que 0,30 s. Espero uma queda inicial do P3: o teste do `registra_juntas` mostrou que a política atual
+  só levanta a caixa no pulso da fase.
+- Reprova na energia com o relógio parado: o ritmo vem do histórico de ações, e não da fase; o congelamento sai.
+- Reprova no `s_ANDAR_andar`: treino do zero com a T12.
+
+**Ordem.** Spec → "implementa" do dono → lote → revisão → push com o OK → retomada.
