@@ -892,3 +892,148 @@ com 1–3 N. O casco encosta pela curva da ponta dos dedos, um contato em linha 
 Decisão do dono: a almofada volta à da T11a (`cena.py`, `coleta.py`, `knobs.py` e `test_alvos.py` como no `bb5afa3`);
 o relógio congelado (§15.2) fica. A almofada plana na face do casco (plano de 14,1°) pede a mão inclinada e o
 `palma_face` em ~0,022; fica para uma mudança separada.
+
+## 16. Tarefa T13: fecho por zona adaptativa em todas as tarefas de manipulação
+
+Enunciado: `specs/g1-v3-comportamento.md` §4.1 (PEGAR), §4.2 (BOTAR), §5.1 (o que paga nas tarefas de alvo). Análise,
+literatura e contas: `~/workbench/docs/g1/relatorios/2026-11-20-curriculo-adaptativo-proposta.md` (com a resenha).
+Decisões do dono (20/11): cada etapa é um acontecimento com critérios em zona que começa larga e aperta com o sucesso;
+vale para todas as tarefas de manipulação no mesmo lote; sem início de episódio no meio da cadeia.
+
+### 16.1 Causa medida
+
+- Coleta do model_12500 (pod, 256 × 3000, amostrada), com a conta de fecho calibrada contra o relógio gravado (99,6 % das
+  linhas do P3, 98 % do P2): o P0 fecha 68 % das visitas, o P1 86 %, o P2 84 %, o P3 1 de 190, o P4 nunca.
+- P3: com 2 cm por 0,20 s fecharia 108 de 190 visitas; com 1 cm por 0,10 s, 180 de 190.
+- P4: com a caixa no ar no P3, o centro dela fica a 17 cm (p50) do ponto de transporte; uma zona de 20 cm cobriria 63 %
+  das visitas.
+- CARREGAR: a qualidade do rastreio com caixa é `nucleo(‖caixa − ponto de transporte‖; tol_caixa_p4 = 5 cm)`
+  (`recompensas.n_qualidade`); com a caixa a 17 cm, ela fica perto de 0.
+- BOTAR: os critérios têm a mesma forma (3 cm no B1; 80 % do peso no B2; 5 cm no B3; tolerâncias do detector no B4) e
+  nunca rodaram com sucesso.
+
+### 16.2 Base: o relógio da marcha volta a correr
+
+- A T13 parte do estado de antes da T12 para o relógio: a fase anda pelo tempo do episódio, com qualquer comando (como no
+  `bb5afa3`), no env e nos dois drivers. A almofada continua a da T11a (`15bc647`).
+- Motivo: as contas da 16.1 vêm do model_12500 com o relógio correndo. Com o relógio parado, esse model não levanta a
+  caixa (teste do `registra_juntas` de 19/11), e os valores largos do P3 deixam de valer. O relógio parado volta como
+  mudança separada, depois que as zonas funcionarem.
+- A correção do harness da paridade (o histórico desde a observação do reset, `35439e8`) fica; a regra da fase que a
+  paridade usa volta a ser a do relógio correndo.
+
+### 16.3 A escala z de cada etapa (`balanceador.Balanceador`)
+
+- Uma escala z_e ∈ [0, 1] por etapa: P0, P1, P2, P3, P4, B1, B2, B3, B4 (9 valores, índices 0..8 como `v3_alvo_idx`).
+  Começa em 1 (também na retomada de um checkpoint sem a chave).
+- Contadores por etapa: visitas encerradas e fechos. Uma visita começa quando a etapa abre e termina:
+  - com fecho (a etapa avança) → conta fecho;
+  - sem fecho, com `T_visita` = 8 s desde a abertura, com o reset do episódio, com a caixa perdida ou com a troca da
+    tarefa → conta falha.
+  - O tempo desde a abertura é um buffer novo por env (sem função nova).
+- No `fecha_iteracao`, depois da EMA (passo 1 de hoje) e antes do refino: para cada etapa com pelo menos `N_min` = 200
+  visitas encerradas acumuladas, taxa = fechos / visitas; z_e ← clip(z_e − k·(taxa − t_alvo), 0, 1); zera os
+  acumuladores da etapa. `t_alvo` = 0,6; `k` = 0,05.
+- Ordem na cadeia, aplicada depois da atualização: z_e ← max(z_e, z_(e−1) − 0,2) em P1..P4 e em B2..B4 (uma etapa não
+  fica mais apertada que a anterior por mais de 0,2).
+- Os knobs novos ficam em `knobs.Balanceador`: `zona_t_alvo`, `zona_ganho`, `zona_n_min`, `zona_t_visita`,
+  `zona_folga_cadeia`.
+- `estado()` e `carrega()` gravam e leem os z e os acumuladores (`carrega` aceita estado sem a chave: z = 1).
+- Log: `Curriculum/v3/z_<etapa>` e `Curriculum/v3/taxa_<etapa>` (a última taxa calculada), no mesmo bloco de
+  `curriculo.py:128`.
+
+### 16.4 Os critérios efetivos (`knobs.Alvos` e `comando.py`)
+
+Cada critério da tabela vira um par (largo, final). O valor final é o de hoje. O valor efetivo da etapa e é
+final + z_e·(largo − final).
+
+| Etapa | Campo | Final (hoje) | Largo |
+|---|---|---|---|
+| P0, P1 | `tol_palma` | 0,03 m | 0,05 m |
+| P2 | `tempo_p2` | 0,3 s | 0,2 s |
+| P3 | `tol_caixa_p3` (subida ≥ `p3_alto` − tol) | 0,02 m (subida 3 cm) | 0,04 m (subida 1 cm) |
+| P3 | `tempo_p3` | 0,3 s | 0,1 s |
+| P4 | `tol_caixa_p4` (fecho) | 0,05 m | 0,20 m |
+| P4 | `tol_pelve_p4` (fecho) | 0,03 m | 0,10 m |
+| P4 | `tempo_p4` | 0,5 s | 0,2 s |
+| B1 | `tol_b1_horizontal` | 0,03 m | 0,10 m |
+| B2 | `raio_b2` | 0,10 m | 0,20 m |
+| B2 | `apoio_b2_mg` | 0,8 | 0,5 |
+| B2 | `tempo_b2` | 0,3 s | 0,1 s |
+| B3 | `b3_afasta` | 0,05 m | 0,02 m |
+| B3 | `tempo_b3` | 0,5 s | 0,2 s |
+| B4 | `tol_pelve_b4`, `tol_tronco_b4_graus`, `tol_palmas_b4` (fecho) | os do detector | 2 × os do detector |
+| B4 | `tempo_b4` | 0,5 s | 0,2 s |
+
+- Onde o efetivo entra: só nos predicados de fecho (`ok_agora_pegar`, `ok_agora_botar`) e nos tempos de permanência
+  (`self.tempos`, hoje montado de `_TEMPOS` em `comando.py:37` e `:289`, passa a ser atualizado a cada iteração).
+- Onde o final continua: a distância `d` e o Φ (`distancia_do_alvo`, `d_p4`, `d_pose` do B4), os portões, o ponto-alvo
+  do P3 (`p3_alto`) e o fator de pouso. O Φ puxa para o valor final, com gradiente dentro da zona larga.
+- Exceção decidida: a qualidade do CARREGAR (`n_qualidade`) usa o `tol_caixa_p4` efetivo do P4. "A caixa no lugar de
+  transporte" é uma medida só.
+- Não viram zona: a caixa perdida (queda, arremesso, saída da laje), a queda do robô, `v_parada_b3` no B2 e no B3,
+  `incl_lim` (rampa própria pelo degrau), o portão de deslocamento de P0 a P2 e o invariante das duas palmas.
+- Um jeito de fazer sem função nova: um `Alvos` efetivo montado com `dataclasses.replace` uma vez por iteração e passado
+  no lugar de `A` aos dois núcleos de fecho. Os núcleos continuam escalares por campo (a zona é por etapa, não por env).
+
+### 16.5 O σ ganha piso por etapa
+
+- `_sigma` (`comando.py:342`) passa a `max(d_abertura, σ_min_e)`, com `σ_min_e` por etapa: P0 0,05; P1 0,05; P2 0,08;
+  P3 0,05; P4 0,20; B1 0,10; B2 0,20; B3 0,05 (m). O B4 fica como hoje (adimensional, sem piso).
+- Motivo: no P2, o σ medido na abertura tem p50 de 2,4 cm, e o Φ cai perto de 0,1 com a caixa segura a 6,5 cm do centro
+  da face. O piso mantém o Φ graduado até o alvo, sem a escala minúscula.
+- `knobs.Alvos.sigma_min` (o piso de 1 cm de hoje) vira a tupla `sigma_min_etapa`.
+
+### 16.6 Os níveis só sobem com o critério final
+
+- O sucesso registrado na célula `pegar` (`comando._registra`) só conta como sucesso quando z de P0 a P4 está em 0.
+  O da célula `botar`, quando z de B1 a B4 está em 0. Antes disso, o registro entra como falha (n conta, soma não).
+- Efeito: o nível e o subnível do PEGAR e do BOTAR (laje e massa), o refino do degrau dessas tarefas e as travas do DR
+  só avançam com o critério final.
+- A abertura da fatia C usa a mesma célula. Ela também espera o critério final do PEGAR. Ponto para o dono decidir
+  depois de medir: abrir a fatia C com a zona larga.
+- A célula do CARREGAR não muda: o sucesso do segmento não lê a qualidade.
+
+### 16.7 Observação
+
+- O ator não muda.
+- No crítico, o canal `log1p(σ)` do bloco `privilegiados` (`observacoes.py:314`) passa a ser o z da etapa corrente do
+  env (0 fora de etapa). A dimensão não muda, e a retomada do checkpoint funciona; o crítico passa por um transiente.
+
+### 16.8 Testes
+
+- Controle: taxa acima de `t_alvo` aperta e abaixo afrouxa; clip em [0, 1]; sem atualização com menos de `N_min`
+  visitas; a ordem da cadeia; os acumuladores zeram depois da atualização.
+- Visita: fecho conta fecho; `T_visita` sem fecho, reset, perda e troca de tarefa contam falha; nada conta duas vezes.
+- Critério efetivo: com z = 1 o P3 fecha com 1 cm por 0,1 s e não fecha com 0,5 cm; com z = 0 os fechos são os de hoje
+  (os testes atuais dos núcleos passam sem mudança); o `self.tempos` acompanha o z.
+- O Φ e o `d` não mudam com o z; a qualidade do CARREGAR muda com o z do P4.
+- Níveis: com z do PEGAR acima de 0, um P4 fechado registra falha na célula; com z = 0, sucesso.
+- `estado()`/`carrega()` com e sem a chave nova.
+- Paridade do `exporta_cena` com o relógio correndo.
+- Cada teste novo precisa falhar com a mutação correspondente (o revisor confere).
+- Suíte inteira no fim; treino local de 2 its em CPU sem erro nem NaN; contagem de funções antes → depois (meta: não
+  sobe; a base é 472).
+
+### 16.9 Teste local antes de qualquer treino
+
+1. Coleta em CPU do model_12500 com a T13 (32 envs, 1200 passos, amostrada, segundo plano): com z = 1, a cadeia passa do
+   P3 em mais da metade das visitas e chega ao P4; contar os fechos do P4 e as visitas ao CARREGAR.
+2. `registra_juntas` com o roteiro do PEGAR e do CARREGAR, para ver a caixa ir ao ponto de transporte.
+3. Só então o treino no Kaggle, retomando do model_12500.
+
+### 16.10 O que olhar, COM treino
+
+| Medida | Hoje (model_12500) | Passa | Reprova |
+|---|---|---|---|
+| Fecho do P3 por visita, 200 its depois | 0,5 % | ≥ 40 % | < 10 % |
+| P4 fechado (`Episode_Metrics/phi_B1` ou o fecho na coleta) | 0 | > 0 nas primeiras 300 its | 0 em 500 its |
+| z do P3 em 1000 its | 1 | ≤ 0,5 | ≥ 0,9 |
+| z do P0 a P2 em 300 its | 1 | 0 | > 0,5 |
+| `s_ANDAR_andar` 400 its depois | 0,731 | ≥ 0,664 | abaixo |
+
+- z preso perto de 1 no P3: a política não refina; a regra de aperto ou o gradiente do Φ estão errados.
+- Perda da caixa no CARREGAR acima de 20 % dos episódios com caixa: o P4 largo entrega a caixa fora do lugar; reduzir o
+  largo do P4.
+
+**Ordem.** Spec → "implementa" do dono → lote → revisão → teste local (16.9) → push com o OK → treino no Kaggle.
