@@ -912,15 +912,17 @@ vale para todas as tarefas de manipulação no mesmo lote; sem início de episó
 - BOTAR: os critérios têm a mesma forma (3 cm no B1; 80 % do peso no B2; 5 cm no B3; tolerâncias do detector no B4) e
   nunca rodaram com sucesso.
 
-### 16.2 Base: o relógio da marcha volta a correr
+### 16.2 Base: o relógio parado e a almofada da T11a
 
-- A T13 parte do estado de antes da T12 para o relógio: a fase anda pelo tempo do episódio, com qualquer comando (como no
-  `bb5afa3`), no env e nos dois drivers. A almofada continua a da T11a (`15bc647`).
-- Motivo: as contas da 16.1 vêm do model_12500 com o relógio correndo. Com o relógio parado, esse model não levanta a
-  caixa (teste do `registra_juntas` de 19/11), e os valores largos do P3 deixam de valer. O relógio parado volta como
-  mudança separada, depois que as zonas funcionarem.
-- A correção do harness da paridade (o histórico desde a observação do reset, `35439e8`) fica; a regra da fase que a
-  paridade usa volta a ser a do relógio correndo.
+- A T13 parte do `15bc647`, sem mudar o relógio nem a almofada: o relógio da marcha fica congelado com
+  ‖cmd‖ ≤ `limiar_marcha` (§15.2), no env e nos dois drivers; a almofada é a da T11a (§15.6).
+- Decisão do dono (20/11): o relógio serve ao andar e não conta na pega. A almofada fica até o teste do aperto
+  (fora do repo) decidir entre a almofada, o casco e uma faixa na ponta dos dedos.
+- Limite das contas da 16.1: elas vêm do model_12500 com o relógio correndo. Com o relógio parado, esse model levanta a
+  caixa no máximo 2,2 cm (`registra_juntas` de 19/11, um episódio); a subida larga do P3 (1 cm) fica dentro desse
+  alcance, e a de hoje (3 cm) fica fora. A coleta da 16.9 mede o fecho com o relógio parado antes do treino.
+- A correção do harness da paridade (o histórico desde a observação do reset, `35439e8`) fica, com a regra da fase do
+  relógio parado.
 
 ### 16.3 A escala z de cada etapa (`balanceador.Balanceador`)
 
@@ -1010,21 +1012,28 @@ final + z_e·(largo − final).
 - O Φ e o `d` não mudam com o z; a qualidade do CARREGAR muda com o z do P4.
 - Níveis: com z do PEGAR acima de 0, um P4 fechado registra falha na célula; com z = 0, sucesso.
 - `estado()`/`carrega()` com e sem a chave nova.
-- Paridade do `exporta_cena` com o relógio correndo.
+- Paridade do `exporta_cena` com o relógio parado (a regra da §15.2), como no `15bc647`.
 - Cada teste novo precisa falhar com a mutação correspondente (o revisor confere).
 - Suíte inteira no fim; treino local de 2 its em CPU sem erro nem NaN; contagem de funções antes → depois (meta: não
   sobe; a base é 472).
 
 ### 16.9 Teste local antes de qualquer treino
 
-1. Coleta em CPU do model_12500 com a T13 (32 envs, 1200 passos, amostrada, segundo plano): com z = 1, a cadeia passa do
-   P3 em mais da metade das visitas e chega ao P4; contar os fechos do P4 e as visitas ao CARREGAR.
+1. Coleta em CPU do model_12500 com a T13 e o relógio parado (amostrada, segundo plano), grande o bastante para ter pelo
+   menos 30 visitas ao P3; a coleta do `15bc647` com 32 envs × 1200 passos teve 1 visita ao P2. Contar, por etapa, as
+   visitas e os fechos com z = 1 (o que a coleta roda) e, pelo `p3_calibra`, os fechos do P3 que o critério final
+   (z = 0) daria nas mesmas visitas. Contar também os fechos do P4 e as visitas ao CARREGAR.
 2. `registra_juntas` com o roteiro do PEGAR e do CARREGAR, para ver a caixa ir ao ponto de transporte.
-3. Só então o treino no Kaggle, retomando do model_12500.
+3. Passa para o Kaggle: o P3 fecha com z = 1 em mais visitas que com z = 0, e o código não dá erro nem NaN. Se o P3 não
+   fecha nenhuma vez com z = 1, o dono decide antes do treino: com o relógio parado, a política precisa reaprender a
+   subida sem o pulso da fase, e a zona sozinha não dá o fecho.
+4. Só então o treino no Kaggle, retomando do model_12500.
 
 ### 16.10 O que olhar, COM treino
 
-| Medida | Hoje (model_12500) | Passa | Reprova |
+A coluna "model_12500" vem do relógio correndo. Com o relógio parado, o ponto de partida é o da coleta da 16.9.
+
+| Medida | model_12500 (relógio correndo) | Passa | Reprova |
 |---|---|---|---|
 | Fecho do P3 por visita, 200 its depois | 0,5 % | ≥ 40 % | < 10 % |
 | Fecho do P4 por visita (`Curriculum/v3/taxa_P4`) | 0 | > 0 nas primeiras 300 its | 0 em 500 its |
