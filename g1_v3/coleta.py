@@ -72,14 +72,10 @@ u.episode_length_buf = torch.randint_like(u.episode_length_buf, high=int(u.max_e
 cadeia, twist = u.command_manager.get_term("cadeia"), u.command_manager.get_term("twist")
 robo, rm, tm = u.scene["robot"], u.reward_manager, u.termination_manager
 xs, ids, rews, terms = [], [], [], []
-# 18/11: as almofadas das palmas (E, D); 19/11, T12: os vértices da malha de cada uma no frame do geom (o casco da mão,
-# com contagem de vértices diferente por lado): a folga até a face da caixa
+# 18/11: as almofadas das palmas (E, D) e os 8 cantos de uma almofada no frame do geom: a folga até a face da caixa
 pads = robo.find_geoms(cena.PALM_PAD_GEOMS, preserve_order=True)[0]
-mj = u.sim.mj_model
-verts = []
-for g in robo.indexing.geom_ids[pads].tolist():
-    ini = mj.mesh_vertadr[mj.geom_dataid[g]]
-    verts.append(torch.tensor(mj.mesh_vert[ini:ini + mj.mesh_vertnum[mj.geom_dataid[g]]], device=u.device, dtype=torch.float32))
+cantos = torch.tensor([[a, b, c] for a in (-1.0, 1.0) for b in (-1.0, 1.0) for c in (-1.0, 1.0)], device=u.device) \
+    * torch.tensor(cena._PAD_HALF, device=u.device)
 lado = torch.tensor([1.0, -1.0], device=u.device)  # palma E na face +y, palma D na face −y (`alvos.palmas_alvo_caixa`)
 
 with torch.inference_mode():
@@ -91,15 +87,13 @@ with torch.inference_mode():
         faces = u.scene["caixa_faces"].data
         R_cx = alvos.frame_da_caixa(u.scene["box"].data.root_link_quat_w, d.heading_w)
         f_esq, f_dir = recompensas.forcas_por_face(faces.normal, faces.force, faces.found > 0, R_cx)
-        # almofada no frame da caixa: o centro (E,2,3) e a folga (E,2) = o vértice mais perto do plano da face lateral
-        # (> 0: a almofada inteira está fora do plano da face; ≤ 0: um vértice passou do plano)
+        # almofada no frame da caixa: o centro (E,2,3) e a folga (E,2) = o canto mais perto do plano da face lateral
+        # (> 0: a almofada inteira está fora do plano da face; ≤ 0: um canto passou do plano)
         pad_p = d.geom_pos_w[:, pads]
-        pad_R = matrix_from_quat(d.geom_quat_w[:, pads])
+        cantos_w = pad_p[:, :, None] + torch.einsum("ekij,cj->ekci", matrix_from_quat(d.geom_quat_w[:, pads]), cantos)
         pad_c = torch.einsum("eji,ekj->eki", R_cx, pad_p - m["caixa_p"][:, None])
-        folga = torch.stack([
-            (torch.einsum("eji,ecj->eci", R_cx, pad_p[:, k, None] + verts[k] @ pad_R[:, k].transpose(-1, -2)
-                          - m["caixa_p"][:, None])[..., 1] * lado[k]).amin(-1)
-            for k in range(2)], dim=1) - u.v3_meia[:, None]
+        folga = (torch.einsum("eji,ekcj->ekci", R_cx, cantos_w - m["caixa_p"][:, None, None])[..., 1] * lado[:, None]).amin(-1) \
+            - u.v3_meia[:, None]
         site_y = m["palmas_c"][..., 1] * lado - u.v3_meia[:, None]  # o site até a face lateral (o alvo do P2 é palma_face)
         caixa_b = quat_apply_inverse(m["base_q"], m["caixa_p"] - m["base_p"])
         e_p4 = quat_apply_inverse(m["base_q"], m["caixa_p"] - recompensas.alvo_da_caixa_w(u, torch.full_like(u.v3_alvo_idx, P4)))

@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 import torch
-from scipy.spatial import ConvexHull
 
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import G1_ARTICULATION, get_spec
@@ -54,13 +53,16 @@ MESA_POR_GRUPO = (("corpo_prateleira", "contato_tronco"), ("palma_prateleira", "
 # entra e o punho e o cotovelo saem. O que deixa isso seguro é o LIMIAR DE FORÇA da terminação, e não a
 # lista: roçar não termina; escorar termina.
 
-# 19/11, T12: as almofadas são o casco convexo de cada metade da malha visual da mão (palma e dorso, cortados pelo plano
-# do sítio da palma), e não caixas: a frente da mão vai de 1,0 cm na palma a 4,5 cm na ponta dos dedos, e a caixa cobria
-# só parte disso. `knobs.Alvos.palma_face` é o alcance do casco da palma na normal da palma em qpos0 (teste em
-# `test_alvos.py`). 64: o limite de vértices por casco (o `mujoco_warp` aceita; se o tempo por iteração subir, 32).
-_MAXHULL_PAD = 64
-# ⚠ O sinal da normal da palma é o do CÓDIGO (g1_limpo/cena.py:add_pads_de_palma), não o do comentário da fonte: a
-# palma da direita aponta em +y do corpo da mão e a da esquerda em −y. O comentário estava errado.
+_PAD_HALF = (0.035, 0.008, 0.045)  # laje fina, cobre a palma (g1_limpo/cena.py:90)
+# 18/11, T11a: a face da almofada da palma fica a _PALM_DZ + _PAD_HALF[1] = 0,045 do eixo da mão, 1,0 cm à frente da
+# cápsula do punho (`*_wrist_collision`, raio 0,035). Com 0,015 a face ficava a 0,023: a mão plana encostava o punho e
+# a almofada parava a 1,2 cm da caixa. Os dedos da malha `*_rubber_hand` ficam de 0,039 a 0,045; 0,045 é a ponta deles. `knobs.Alvos.palma_face`
+# é esta mesma soma (teste em `test_alvos.py`).
+_PALM_DZ = 0.037  # centro da almofada da palma ao longo da normal da palma (m)
+_DORSO_DZ = 0.015  # centro da almofada do dorso (m): não mudou na T11a
+_PALM_X = 0.10  # ao longo da mão, na região da palma
+# ⚠ O sinal de dz das palmas é o do CÓDIGO (g1_limpo/cena.py:add_pads_de_palma), não o do comentário
+# da fonte: o pad de palma da direita sai em +dz e o da esquerda em −dz. O comentário estava errado.
 
 
 # ============================================================ specs de entidade
@@ -127,8 +129,14 @@ def spec_laje(c: Cena) -> mujoco.MjSpec:
 
 
 # ===================================================================== o robô
+def _add_pad(corpo_mao, name: str, dz: float, condim: int, atrito, rgba) -> None:
+    corpo_mao.add_geom(name=name, type=mujoco.mjtGeom.mjGEOM_BOX, pos=(_PALM_X, dz, 0.0),
+                       size=_PAD_HALF, condim=condim, friction=tuple(atrito), group=_GRUPO_PAD,
+                       rgba=rgba)
+
+
 def add_pads_de_palma(spec: mujoco.MjSpec, c: Cena) -> mujoco.MjSpec:
-    """Remove as cápsulas `*_hand_collision` e acrescenta pads de palma e de dorso (casco da malha da mão; T12).
+    """Remove as cápsulas `*_hand_collision` e acrescenta pads de palma e de dorso.
 
     As cápsulas são simétricas: não distinguem palma de verso, e deixariam o DORSO tocar a caixa e
     contar como pega. ⚠ A API de remoção é `spec.delete(geom)`, nunca `geom.delete()`.
@@ -137,35 +145,14 @@ def add_pads_de_palma(spec: mujoco.MjSpec, c: Cena) -> mujoco.MjSpec:
         if geom.name in ("left_hand_collision", "right_hand_collision"):
             spec.delete(geom)
 
-    # 19/11, T12: os vértices vêm de uma cópia compilada em qpos0; o spec que volta ainda não foi compilado
-    modelo = spec.copy().compile()
-    dado = mujoco.MjData(modelo)
-    mujoco.mj_forward(modelo, dado)
-    # (lado, sinal da normal da palma)
-    for lado, sinal in (("left", -1.0), ("right", +1.0)):
-        hand_body = spec.site(f"{lado}_palm").parent
-        id_site = modelo.site(f"{lado}_palm").id
-        id_corpo = modelo.site_bodyid[id_site]
-        rot, pos = dado.xmat[id_corpo].reshape(3, 3), dado.xpos[id_corpo]
-        normal = rot[:, 1] * sinal
-        # 19/11, T12: só a malha `*_rubber_hand`. O corpo da mão também leva a malha `*_wrist_yaw_link`: com ela o casco
-        # da palma crescia 59 % e cobria o punho do lado da palma (o punho contava como palma). Os geoms visuais não
-        # têm nome; a malha tem.
-        id_malha = modelo.mesh(f"{lado}_rubber_hand").id
-        g = np.flatnonzero((modelo.geom_dataid == id_malha) & (modelo.geom_type == mujoco.mjtGeom.mjGEOM_MESH))[0]
-        ini = modelo.mesh_vertadr[id_malha]
-        malha = modelo.mesh_vert[ini:ini + modelo.mesh_vertnum[id_malha]]
-        verts = malha @ dado.geom_xmat[g].reshape(3, 3).T + dado.geom_xpos[g]  # no frame do mundo em qpos0
-        proj = (verts - dado.site_xpos[id_site]) @ normal  # ≥ 0: palma; ≤ 0: dorso
-        for nome, corte, condim, atrito, rgba in (
-            (f"{lado}_palm_pad", proj >= 0, 3, c.pad_atrito, (0.1, 0.6, 0.1, 0.6)),
-            (f"{lado}_hand_back_pad", proj <= 0, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4)),
-        ):
-            vb = (verts[corte] - pos) @ rot  # no frame do corpo da mão
-            casco = vb[ConvexHull(vb).vertices]
-            spec.add_mesh(name=f"casco_{nome}", uservert=casco.ravel().tolist(), maxhullvert=_MAXHULL_PAD)
-            hand_body.add_geom(name=nome, type=mujoco.mjtGeom.mjGEOM_MESH, meshname=f"casco_{nome}", condim=condim,
-                               friction=tuple(atrito), group=_GRUPO_PAD, rgba=rgba)
+    # (site, pad de palma, pad de dorso, sinal do dz da palma)
+    for site_name, palm_pad, back_pad, sinal in (
+        ("left_palm", "left_palm_pad", "left_hand_back_pad", -1.0),
+        ("right_palm", "right_palm_pad", "right_hand_back_pad", +1.0),
+    ):
+        hand_body = spec.site(site_name).parent
+        _add_pad(hand_body, palm_pad, sinal * _PALM_DZ, 3, c.pad_atrito, (0.1, 0.6, 0.1, 0.6))
+        _add_pad(hand_body, back_pad, -sinal * _DORSO_DZ, 1, c.robo_atrito, (0.6, 0.1, 0.1, 0.4))
     return spec
 
 

@@ -880,3 +880,15 @@ Retomada do `model_12500` (`RETOMA = 1`); coleta de 256 × 3000 com `--amostra` 
 - Reprova no `s_ANDAR_andar`: treino do zero com a T12.
 
 **Ordem.** Spec → "implementa" do dono → lote → revisão → push com o OK → retomada.
+
+### 15.6 O casco sai (20/11)
+
+Retomada da T12 no pod (pasta `2026-11-19_19-25-45_unitree2`, its 12500–13500): o P2 deixou de fechar (antes, 84 % das
+visitas) e o P3 não abriu. Coleta local em CPU do `model_13500` (32 envs × 1200 passos, amostrada): o sensor da palma
+funciona com o casco, mas o contato duplo no P2 cai a 9,5 % (era 46 %), as sequências não passam de 0,08 s e a força
+da palma tem p50 0 (era 9–11 N). No `registra_juntas` (sem DR, ação média) o mesmo model segura com as duas palmas,
+com 1–3 N. O casco encosta pela curva da ponta dos dedos, um contato em linha que o ruído e a DR desfazem.
+
+Decisão do dono: a almofada volta à da T11a (`cena.py`, `coleta.py`, `knobs.py` e `test_alvos.py` como no `bb5afa3`);
+o relógio congelado (§15.2) fica. A almofada plana na face do casco (plano de 14,1°) pede a mão inclinada e o
+`palma_face` em ~0,022; fica para uma mudança separada.
