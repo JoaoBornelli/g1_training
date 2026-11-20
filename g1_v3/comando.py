@@ -11,7 +11,7 @@ e a razão de marcha ficam só como diagnóstico, que o §6.7 loga).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 
@@ -22,7 +22,7 @@ from mjlab.utils.lab_api.math import quat_apply_inverse, wrap_to_pi
 from g1_v3 import alvos, balanceador, estimador, eventos, recompensas
 from g1_v3.alvos import B1, B2, B3, B4, P0, P1, P2, P3, P4
 from g1_v3.curriculo import garante_v3
-from g1_v3.knobs import ATIVO, TAREFAS, Alvos, Cadeia, Comando, Estimador
+from g1_v3.knobs import ALVOS, ATIVO, TAREFAS, Alvos, Cadeia, Comando, Estimador
 from g1_v3.observacoes import z_pe_min
 
 # Índices de TAREFAS (knobs.py): o one-hot da §6.5 e a tabela de trechos usam esta ordem.
@@ -33,8 +33,6 @@ FATIA_ANDAR, FATIA_B, FATIA_C = 0, 1, 2
 # Não é número de treino (mesmo papel do `_EPS` de alvos.py).
 _EPS = 1e-6
 A, T, CENA = ATIVO.alvos, ATIVO.terminacao, ATIVO.cena
-# Tempo de permanência por alvo, na ordem de ALVOS (S §8.2): só P4, B2, B3 e B4 têm tempo.
-_TEMPOS = (0.0, 0.0, A.tempo_p2, A.tempo_p3, A.tempo_p4, 0.0, A.tempo_b2, A.tempo_b3, A.tempo_b4)
 
 
 # --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------
@@ -44,8 +42,12 @@ def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus
     """(E,) bool: a condição de cada alvo de PEGAR, `& (invariantes == 1)` (S §8.2: o invariante impede o avanço).
     ⚠ B1..B4 e −1 dão False. Os B vêm de `ok_agora_botar` (F1), na cadeia, e não por esta condição.
     18/11, T8: `subida` (E,) m = fundo da caixa sobre o topo da laje da pega. O P3 exige a caixa fora da laje E levantada
-    (subida ≥ p3_alto − tol_caixa_p3); o P4 também exige a caixa fora da laje."""
-    p01 = (d_palmas <= k.tol_palma).all(-1)
+    (subida ≥ p3_alto − tol_caixa_p3); o P4 também exige a caixa fora da laje.
+    20/11, T13: `k` é o `Alvos` efetivo da zona (`env.v3_alvos`); o `tol_palma` dele é um escalar ou um valor por etapa (9,),
+    porque P0 e P1 têm z próprios."""
+    tol = torch.as_tensor(k.tol_palma, device=indice.device)
+    tol = tol[indice.clamp(min=0)] if tol.ndim else tol
+    p01 = (d_palmas <= tol[..., None]).all(-1)
     p2 = contatos.all(-1)
     p3 = ~apoio & (incl_graus <= incl_lim_graus) & (subida >= k.p3_alto - k.tol_caixa_p3)
     p4 = (d_caixa_p4 <= k.tol_caixa_p4) & (d_pelve_p4 <= k.tol_pelve_p4) & ~apoio
@@ -286,7 +288,12 @@ class CadeiaCmd(CommandTerm):
         self.pega = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)  # PEGAR aberto, sem registro
         self.bota = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)  # BOTAR aberto, até o fim da cadeia
         self.sit_palmas = self.robot.find_sites(("left_palm", "right_palm"))[0]  # ordem = `palmas_alvo_caixa`
-        self.tempos = torch.tensor(_TEMPOS, dtype=torch.float32, device=self.device)
+        # 20/11, T13: o piso do σ por etapa; os tempos e o `Alvos` efetivo vêm da zona, refeitos a cada iteração em `_alvos`
+        self.sigma_min = torch.tensor(A.sigma_min_etapa, device=self.device)
+        self.it_zona = -1
+        # visita da zona: a etapa que o env está visitando (−1 = nenhuma) e o tempo desde a abertura (−1 = visita encerrada)
+        self.vis_e = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+        self.t_vis = torch.full((self.num_envs,), -1.0, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:  # one-hot (E,6) de v3_tarefa (§6.5)
@@ -340,9 +347,9 @@ class CadeiaCmd(CommandTerm):
                                              m["dpalmas"], deficit, env.v3_meia, A)
 
     def _sigma(self, m, indice) -> torch.Tensor:
-        # Piso só nos alvos métricos (M12): o B4 é adimensional, e o piso de 1 cm não vale para ele.
+        # 20/11, T13: piso por etapa (`sigma_min_etapa`); o B4 é adimensional e o piso dele é 0 (M12).
         d = self._dist(m, indice)
-        return torch.where(indice == B4, d, d.clamp(min=A.sigma_min))
+        return torch.maximum(d, self.sigma_min[indice.clamp(min=0)])
 
     def _espera(self) -> torch.Tensor:
         # (E,) bool: PEGAR sem alvo, à espera da primeira leitura válida da caixa (E11 S5b). Não usa `self.pega`: esse
@@ -407,7 +414,32 @@ class CadeiaCmd(CommandTerm):
         # e os buffers do avanço. ⚠ Um só `avanca`: dois sobre o mesmo relógio se zerariam. O índice fica em P4 depois do
         # P4 (a troca de tarefa leva a B1). O B4 da caixa perdida fecha pela pose de pé, sem o portão desloc (E11).
         env = self._env
-        idx, a, ref, tar = env.v3_alvo_idx, env.v3_meia, env.v3_ref, env.v3_tarefa
+        idx, a, ref, tar, cur = env.v3_alvo_idx, env.v3_meia, env.v3_ref, env.v3_tarefa, env.v3_cur
+        if self.it_zona != cur.it:
+            # 20/11, T13: a zona muda no fecho da iteração. O `Alvos` efetivo (final + z·(largo − final)) e os tempos de
+            # permanência são refeitos uma vez por iteração; o fecho (`ok_agora_*`) e a qualidade do CARREGAR leem o efetivo,
+            # e o Φ, o `d`, os portões e o ponto-alvo seguem no `A` final
+            self.it_zona = cur.it
+            palma, efetivo = [A.tol_palma] * len(ALVOS), {}
+            for nome, campo, largo in A.zona:
+                e = ALVOS.index(nome)
+                v = balanceador.no_degrau(getattr(A, campo), largo, cur.z[e], 1)
+                if campo == "tol_palma":
+                    palma[e] = v  # P0 e P1 repartem o campo, cada uma com o z dela
+                else:
+                    efetivo[campo] = v
+            env.v3_alvos = replace(A, tol_palma=torch.tensor(palma, device=self.device), **efetivo)
+            self.tempos = torch.tensor([0.0, 0.0, efetivo["tempo_p2"], efetivo["tempo_p3"], efetivo["tempo_p4"], 0.0,
+                                        efetivo["tempo_b2"], efetivo["tempo_b3"], efetivo["tempo_b4"]], device=self.device)
+        # 20/11, T13: visitas da zona. Uma visita é a etapa aberta. Ela acaba com o fecho (conta fecho e visita) ou sem
+        # fecho (conta só visita): `zona_t_visita` desde a abertura, a perda da caixa ou a troca da etapa por fora (a tarefa
+        # mudou). O reset conta em `_resample`. Depois de encerrada a visita não reabre até a etapa mudar (nada conta duas vezes)
+        etapa = torch.where((idx >= 0) & ~((idx == P4) & env.v3_p4_fechado) & ~env.v3_perdeu, idx, -1)
+        mudou = etapa != self.vis_e
+        acaba = torch.where((self.t_vis >= 0) & mudou, self.vis_e, -1)
+        self.vis_e = etapa
+        self.t_vis = torch.where(mudou, torch.where(etapa >= 0, 0.0, -1.0), self.t_vis)
+        self.t_vis = torch.where(self.t_vis >= 0, self.t_vis + dt, self.t_vis)
         zero = torch.zeros_like(m["h"])
         botar = (tar == BOTAR) | env.v3_perdeu  # B1..B4, e o B4 da caixa perdida (E3)
         desl = (m["caixa_p"][:, :2] - env.v3_caixa_pega_w[:, :2]).norm(dim=-1)
@@ -429,15 +461,24 @@ class CadeiaCmd(CommandTerm):
         pega = (tar == PEGAR) & ~env.v3_p4_fechado
         ok = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], recompensas.incl_lim(env),
                             m["h_caixa"] - a - env.v3_topo,  # fundo da caixa sobre a laje (verdade, não a estimada)
-                            d_caixa_p4, d_pelve_p4, inv, A) & pega
+                            d_caixa_p4, d_pelve_p4, inv, env.v3_alvos) & pega
         if botar.any():  # BOTAR (B1..B4); o B4 da caixa perdida cai aqui com `inv` = 1 (o `desl` zerado)
             dif = m["caixa_p"] - recompensas.alvo_da_caixa_w(env, idx)
             # F9 S3: a palma mede da face, a + palma_face (o sítio da palma com a almofada encostada fica a palma_face da face; T11a)
             afasta = (m["palmas_c"].abs() - (a + A.palma_face)[:, None, None]).amax(-1)
             ok = ok | ok_agora_botar(idx, dif[:, :2].norm(dim=-1), dif.norm(dim=-1), m["apoio_N"], m["peso_N"], afasta,
                                      m["apoio"], m["v_caixa"], m["pelve"] - ref.pelve_de_pe, m["tronco_graus"], m["dpalmas"],
-                                     inv, A)
+                                     inv, env.v3_alvos)
         novo, rel, av = alvos.avanca(idx, ok, env.v3_relogio_alvo, dt, self.tempos)
+        fecho = av & (self.t_vis >= 0)
+        venceu = ~av & (self.t_vis >= ATIVO.balanceador.zona_t_visita)
+        encerra = fecho | venceu
+        visitas = torch.bincount(torch.cat([acaba[acaba >= 0], self.vis_e[encerra]]), minlength=len(ALVOS))
+        fechos = torch.bincount(self.vis_e[fecho], minlength=len(ALVOS))
+        for e, (v, f) in enumerate(zip(*torch.stack([visitas, fechos]).tolist())):
+            cur.vis_acum[e] += v
+            cur.fech_acum[e] += f
+        self.t_vis = torch.where(encerra, -1.0, self.t_vis)
         fecha_p4 = av & (idx == P4)
         novo = torch.where(fecha_p4, idx, novo)
         fecha_b2 = av & (idx == B2)
@@ -477,11 +518,13 @@ class CadeiaCmd(CommandTerm):
         ids, falhou = ids[sel], falhou[sel]
         if ids.numel() == 0:
             return
+        # 20/11, T13: o sucesso só conta com o critério final, o z da cadeia da tarefa todo em 0; antes disso entra como falha
+        # (o nível, o subnível, o refino e as travas do DR da tarefa só avançam com o critério final)
         if botar:
-            suc = sucesso_do_botar(env.v3_b4_fechado[ids], falhou, env.v3_perdeu[ids])
+            suc = sucesso_do_botar(env.v3_b4_fechado[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[5:]) == 0.0)
             celula = env.v3_cur.id_celula("BOTAR", "botar")
         else:
-            suc = sucesso_do_pegar(env.v3_p4_fechado[ids], falhou, env.v3_perdeu[ids])
+            suc = sucesso_do_pegar(env.v3_p4_fechado[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[:5]) == 0.0)
             celula = env.v3_cur.id_celula("PEGAR", "pegar")
         env.v3_cur.registra(celula, int(ids.numel()), int(suc.sum()))
         pend[ids] = False
@@ -590,6 +633,11 @@ class CadeiaCmd(CommandTerm):
         falhou = ~env.termination_manager.time_outs[env_ids]
         self._registra(env_ids, falhou)
         self._registra(env_ids, falhou, botar=True)
+        # 20/11, T13: a visita aberta no reset conta falha na zona
+        aberta = self.vis_e[env_ids][self.t_vis[env_ids] >= 0]
+        for e in aberta.tolist():
+            env.v3_cur.vis_acum[e] += 1
+        self.vis_e[env_ids], self.t_vis[env_ids] = -1, -1.0
         for nome in ("v3_pegou", "v3_perdeu", "v3_p4_fechado", "v3_b4_fechado", "v3_perdeu_agora", "v3_avancou",
                      "v3_aviso", "v3_fim"):
             getattr(env, nome)[env_ids] = False

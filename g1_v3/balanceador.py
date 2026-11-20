@@ -5,6 +5,8 @@ sobre a tabela de abertura da §6.3 e as células de PD-12. Os knobs entram como
 16/11: o ANDAR tem uma célula de velocidade (`andar`) e a nota dela é a média do núcleo da Unitree no segmento
 (0 a 1); o portão dela é `portao_andar`, o das outras tarefas é `portao` (sucesso 0 ou 1 por segmento). O nível sobe
 com o portão por `iters_nivel` iterações seguidas, nas 4 tarefas.
+20/11, T13: cada etapa do PEGAR e do BOTAR (P0..P4, B1..B4) tem uma escala de zona z em [0, 1] (1 = critério largo, 0 = o final);
+ela sobe e desce pela taxa de fecho por visita. Visitas e fechos acumulam no `vis_acum` e no `fech_acum`, que a cadeia preenche.
 O estado vai ao checkpoint em tipos do Python, no formato de g1_limpo/runner.py:47-61.
 """
 from __future__ import annotations
@@ -25,6 +27,8 @@ ABERTAS_NO_COMECO = (("ANDAR", "andar"),)  # S §11.1: só o ANDAR abre no come�
 VELOCIDADE = {"ANDAR": ("andar",),
               "CARREGAR": ("reto", "giro_lugar", "arco"), "PEGAR": ("pegar",), "BOTAR": ("botar",)}
 CADEIA = ("ANDAR", "CARREGAR")  # tarefas com cadeia de velocidade e célula de terreno (S §11.2)
+# 20/11, T13: etapas do PEGAR e do BOTAR, P0..P4 e B1..B4 (o `len(knobs.ALVOS)`; um módulo puro não importa o knobs)
+N_ETAPAS = 9
 FATIA_DE = {"ANDAR": 0, "PEGAR": 1, "CARREGAR": 1, "BOTAR": 2}  # ANDAR, B, C (PD-14)
 
 
@@ -88,6 +92,11 @@ class Curriculo:
         # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
         # "vies": a célula `andar` do ANDAR passou no portão; "subida": o PEGAR ou o CARREGAR já subiu de nível
         self._dr = {"portao0": False, "vies": False, "subida": False}
+        # 20/11, T13: zona de cada etapa (índices de `ALVOS`); `taxa` é a última calculada, para o log
+        self.z = [1.0] * N_ETAPAS
+        self.vis_acum = [0] * N_ETAPAS
+        self.fech_acum = [0] * N_ETAPAS
+        self.taxa = [0.0] * N_ETAPAS
         # rampa da fatia (§5.3): o fecho em que cada fatia abriu (None = fechada); o ANDAR abre na iteração 0
         self._it_abertura = [0, None, None]
         # degraus da rampa de cada fatia. 18/11, T9: sobe um a cada `rampa_fatia_its` fechos e não desce
@@ -130,7 +139,8 @@ class Curriculo:
         # ⚠ ordem do fecho (os testes fixam): 1) EMA com o que a iteração registrou; 2) contador do refino,
         # ANTES das subidas, para que a célula recém-subida (s velho, n_medidas = 0) não conte no nível novo;
         # 3) aberturas (B e C, cadeias, terreno); 4) rampa das fatias (por tempo); 5) subidas de nível
-        # (a contagem de iterações seguidas no portão); 6) travas do DR (com o s já atualizado).
+        # (a contagem de iterações seguidas no portão); 6) travas do DR (com o s já atualizado). 20/11, T13: a zona das
+        # etapas entra entre a EMA e o refino.
         # EMA (PD-13), uma atualização por iteração: com n > 0, x = soma/n; se n_medidas = 0, s = x;
         # senão s += alfa·(x − s). n = 0 não muda s. s começa em 0.
         # Subir de nível zera n_medidas das células da tarefa: a EMA recomeça na 1ª medida depois da subida.
@@ -141,6 +151,14 @@ class Curriculo:
                 c.s = x if c.n_medidas == 0 else c.s + self.k.alfa * (x - c.s)
                 c.n_medidas += 1
             self._acum_n[i] = self._acum_suc[i] = 0
+        # 20/11, T13: a zona das etapas com visitas suficientes; depois, uma etapa não fica mais apertada que a anterior
+        for e, n in enumerate(self.vis_acum):
+            if n >= self.k.zona_n_min:
+                self.taxa[e] = self.fech_acum[e] / n
+                self.z[e] = min(1.0, max(0.0, self.z[e] - self.k.zona_ganho * (self.taxa[e] - self.k.zona_t_alvo)))
+                self.vis_acum[e] = self.fech_acum[e] = 0
+        for e in (*range(1, 5), *range(6, 9)):
+            self.z[e] = max(self.z[e], self.z[e - 1] - self.k.zona_folga_cadeia)
         for t in TAREFAS:
             self._conta_refino(t)
         self._abre()
@@ -356,6 +374,7 @@ class Curriculo:
             "dr": dict(self._dr),
             "it_abertura": list(self._it_abertura),
             "rampa": list(self._rampa),
+            "zona": {"z": list(self.z), "visitas": list(self.vis_acum), "fechos": list(self.fech_acum)},
         }
 
     def carrega(self, estado: dict) -> None:
@@ -373,3 +392,8 @@ class Curriculo:
         self._dr = dict(estado["dr"])
         self._it_abertura = list(estado.get("it_abertura", [0, None, None]))
         self._rampa = list(estado.get("rampa", [0, 0, 0]))
+        # 20/11, T13: estado sem a chave (checkpoint antigo): z = 1 e os acumuladores em 0
+        zona = estado.get("zona", {})
+        self.z = list(zona.get("z", [1.0] * N_ETAPAS))
+        self.vis_acum = list(zona.get("visitas", [0] * N_ETAPAS))
+        self.fech_acum = list(zona.get("fechos", [0] * N_ETAPAS))

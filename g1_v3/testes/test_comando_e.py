@@ -12,7 +12,7 @@ from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, comando, curriculo, eventos, potencial, recompensas
+from g1_v3 import alvos, balanceador, comando, curriculo, eventos, potencial, recompensas
 from g1_v3.comando import CadeiaCmd, caixa_perdida_agora, ok_agora_pegar, sucesso_do_pegar
 from g1_v3.knobs import ATIVO, Estimador
 
@@ -68,10 +68,18 @@ def sucesso(p4, falhou, perdeu):
 
 # --- E11 (29/10): invólucros da cadeia com env falso (E = 1), sem a cena --------------------------------------
 
+def _cur_sem_zona():
+    # 20/11, T13: o currículo real com a zona toda fechada (z = 0): os critérios efetivos são os finais de antes da T13
+    cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, ATIVO.terreno)
+    cur.z = [0.0] * balanceador.N_ETAPAS
+    return cur
+
+
 def _env_falso(idx, tarefa=comando.PEGAR):
     # Só os buffers que `_alvos` e `_abre_p0` leem ou escrevem.
     z, b = torch.zeros(1), torch.zeros(1, dtype=torch.bool)
     return types.SimpleNamespace(
+        device="cpu", v3_cur=_cur_sem_zona(),
         v3_alvo_idx=torch.tensor([idx], dtype=torch.long), v3_tarefa=torch.tensor([tarefa], dtype=torch.long),
         v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(1),
                                                                   pelve_de_pe=0.0),
@@ -88,7 +96,8 @@ def _cadeia_sem_env(env):
     obj = CadeiaCmd.__new__(CadeiaCmd)
     obj._env = env
     obj.pega = torch.zeros(1, dtype=torch.bool)
-    obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
+    obj.it_zona = -1  # 20/11, T13: o `_alvos` refaz o `Alvos` efetivo e os tempos na primeira chamada
+    obj.vis_e, obj.t_vis = torch.full((1,), -1, dtype=torch.long), torch.full((1,), -1.0)
     obj.cfg = types.SimpleNamespace(est=Estimador())
     return obj
 
@@ -404,7 +413,9 @@ def _cadeia_de_trechos(n=1):
     z = lambda *forma: torch.zeros(n, *forma)  # noqa: E731
     b = lambda: torch.zeros(n, dtype=torch.bool)  # noqa: E731
     cur = types.SimpleNamespace(registros=[], id_celula=lambda tarefa, tipo: 0, niveis_abertos=lambda nome: 0,
-                                degrau=lambda nome: 0, restricao=lambda: 1.0)
+                                degrau=lambda nome: 0, restricao=lambda: 1.0,
+                                it=0, z=[0.0] * balanceador.N_ETAPAS, vis_acum=[0] * balanceador.N_ETAPAS,
+                                fech_acum=[0] * balanceador.N_ETAPAS)  # 20/11, T13: z = 0, os critérios finais
     cur.registra = lambda celula, num, suc: cur.registros.append((num, suc))
     env = types.SimpleNamespace(
         device="cpu", v3_cur=cur, v3_gerador=None, v3_meia=torch.full((n,), 0.1), v3_topo=torch.zeros(n), scene={}, step_dt=DT,
@@ -426,7 +437,7 @@ def _cadeia_de_trechos(n=1):
     obj.pega, obj.bota = b(), b()
     obj.relogio, obj.alvo_s = z(), z()
     obj.tab, obj.faixas = comando._monta(ATIVO.cadeia, "cpu")
-    obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
+    obj.vis_e, obj.t_vis = torch.full((n,), -1, dtype=torch.long), torch.full((n,), -1.0)
     obj._twist = lambda: types.SimpleNamespace(_resample=lambda ids: None, vel_command_b=torch.zeros(n, 3))
     obj._sigma = lambda m, indice: torch.ones(n)
     obj._mede = lambda: None  # sem a cena; o reset não deve chamá-lo (M6), e o teste que confere isso o troca por um Mock

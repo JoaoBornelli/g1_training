@@ -10,7 +10,7 @@ from unittest import mock
 
 import torch
 
-from g1_v3 import alvos, comando, recompensas
+from g1_v3 import alvos, balanceador, comando, recompensas
 from g1_v3.knobs import ATIVO
 
 A = ATIVO.alvos
@@ -145,7 +145,8 @@ def _cadeia_falsa(env, n=1):
     obj = comando.CadeiaCmd.__new__(comando.CadeiaCmd)
     obj._env = env
     obj.pega = torch.zeros(n, dtype=torch.bool)
-    obj.tempos = torch.tensor(comando._TEMPOS, dtype=torch.float32)
+    obj.it_zona = -1  # 20/11, T13: o `_alvos` refaz o `Alvos` efetivo e os tempos na primeira chamada
+    obj.vis_e, obj.t_vis = torch.full((n,), -1, dtype=torch.long), torch.full((n,), -1.0)
     obj._sigma = lambda m, indice: torch.zeros(n)
     return obj
 
@@ -163,7 +164,10 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
         # Degrau: `h` (altura sob a pelve) = 0,50, mas a pelve sobre o pé mais baixo = 1,00 − 0,10 = 0,90.
         # O B4 segue a pelve sobre o pé: dpelve = 0,90 − 0,789 = 0,111 (e não 0,50 − 0,789 = −0,289).
         z = torch.zeros(1)
+        cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, ATIVO.terreno)
+        cur.z = [0.0] * balanceador.N_ETAPAS  # 20/11, T13: z = 0, os critérios finais
         env = types.SimpleNamespace(
+            device="cpu", v3_cur=cur,
             v3_alvo_idx=torch.tensor([B4]), v3_tarefa=torch.tensor([comando.ANDAR]),
             v3_perdeu=torch.tensor([True]), v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=_ref_falsa(),
             v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_pegou=torch.zeros(1, dtype=torch.bool),

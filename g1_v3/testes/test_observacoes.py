@@ -71,17 +71,20 @@ class ObservacoesTest(unittest.TestCase):
             self.assertEqual(out.argmax(-1).tolist(), acesas)
 
     def test_privilegiados_tem_4_colunas_na_ordem_do_termo(self):
+        # 20/11, T13: o canal 3 é o z da etapa corrente (era o log1p do σ); fora de etapa (índice −1) vale 0
+        z = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
         env = types.SimpleNamespace(
             v3_fase_marcha=torch.tensor([0.0, 0.25]), v3_marcha_on=torch.tensor([False, True]),
             v3_h=torch.tensor([1.0, 0.4]), v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]),
-            v3_sigma=torch.tensor([0.3, 8.0]))
+            v3_sigma=torch.tensor([0.3, 8.0]), v3_alvo_idx=torch.tensor([3, -1]), v3_cur=types.SimpleNamespace(z=z))
         out = observacoes.privilegiados(env)
         self.assertEqual(out.shape, (2, 4))
-        esperado = torch.tensor([[0.0, 1.0, 0.5, math.log1p(0.3)],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5
-                                 [1.0, 0.4, 0.0, math.log1p(8.0)]])  # Φ acima do melhor: lacuna 0
+        esperado = torch.tensor([[0.0, 1.0, 0.5, 0.6],  # Φ −1 (sem alvo) conta como 0: lacuna 0,5; etapa P3: z = 0,6
+                                 [1.0, 0.4, 0.0, 0.0]])  # Φ acima do melhor: lacuna 0; sem etapa: z = 0
         self.assertTrue(torch.allclose(out, esperado, atol=1e-6), f"{out}")
-        # C4: o canal 3 é log1p(σ): o σ adimensional do B4 (8) entra em ~2,2, e não em 8
-        self.assertTrue(torch.allclose(out[:, 3], torch.log1p(env.v3_sigma), atol=1e-6))
+        # o σ não entra mais no crítico: mudar o σ não muda o canal 3
+        env.v3_sigma = torch.tensor([5.0, 0.01])
+        self.assertTrue(torch.allclose(observacoes.privilegiados(env)[:, 3], esperado[:, 3], atol=1e-6))
 
     def test_privilegiados_com_fase_da_o_seno_e_o_cosseno_de_2_pi_fase(self):
         # T4: fase 0, 0,25 e 0,5 → (0, 1), (1, 0), (0, −1); o `fase=True` lê só o `v3_fase_marcha`

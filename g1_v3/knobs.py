@@ -199,7 +199,22 @@ class Alvos:  # S §8.2; PD-23
     incl_inicio_graus: float = 30.0  # S §8.2, §9.1: inclinação inicial da caixa (graus)
     incl_fim_graus: float = 15.0  # S §8.2, §9.1: inclinação final da caixa (graus)
     delta_incl_graus: float = 15.0  # S §8.2, §9.1: tolerância de inclinação (graus)
-    sigma_min: float = 0.01  # E3: piso do σ do alvo métrico (m); σ = 0 daria NaN no núcleo
+    # 20/11, T13: o σ do alvo métrico tem piso por etapa (P0..P4, B1..B4; m), em vez de 1 cm para todas (E3: σ = 0 daria NaN no núcleo).
+    # No P2 o σ medido na abertura tem p50 de 2,4 cm e o Φ caía a ~0,1 com a caixa segura a 6,5 cm do centro da face. O B4 é adimensional: sem piso
+    sigma_min_etapa: tuple = (0.05, 0.05, 0.08, 0.05, 0.20, 0.10, 0.20, 0.05, 0.0)
+    # 20/11, T13: zona do fecho por etapa: (etapa, campo, largo). O valor final é o campo de mesmo nome acima; z = 1 usa o largo e z = 0 o
+    # final (`final + z·(largo − final)`). Só o fecho (`ok_agora_*`), o tempo de permanência e a qualidade do CARREGAR leem o efetivo
+    zona: tuple = (
+        ("P0", "tol_palma", 0.05), ("P1", "tol_palma", 0.05),  # 20/11, T13: a palma na pose da pega, 5 cm em vez de 3
+        ("P2", "tempo_p2", 0.2),  # 20/11, T13: contato das duas palmas por 0,2 s em vez de 0,3
+        ("P3", "tol_caixa_p3", 0.04), ("P3", "tempo_p3", 0.1),  # 20/11, T13: subida de 1 cm por 0,1 s em vez de 3 cm por 0,3 s
+        ("P4", "tol_caixa_p4", 0.20), ("P4", "tol_pelve_p4", 0.10), ("P4", "tempo_p4", 0.2),  # 20/11, T13: a caixa a 17 cm (p50) cobre 63 % das visitas com 20 cm
+        ("B1", "tol_b1_horizontal", 0.10),  # 20/11, T13: B1 a 10 cm em vez de 3
+        ("B2", "raio_b2", 0.20), ("B2", "apoio_b2_mg", 0.5), ("B2", "tempo_b2", 0.1),  # 20/11, T13: o B2 nunca fechou
+        ("B3", "b3_afasta", 0.02), ("B3", "tempo_b3", 0.2),  # 20/11, T13: afastamento de 2 cm em vez de 5
+        ("B4", "tol_pelve_b4", 2 * Detector.tol_pelve), ("B4", "tol_tronco_b4_graus", 2 * Detector.tol_tronco_graus),
+        ("B4", "tol_palmas_b4", 2 * Detector.tol_palma), ("B4", "tempo_b4", 0.2),  # 20/11, T13: o dobro das tolerâncias do detector
+    )
     largura_tanh: float = 2.0  # 10/11: Φ = 1 − tanh(d / (largura·σ)); com 2, Φ(σ) = 0,54 e o ganho/custo por cm no P1 fica ≥ 1 até ~40 cm
     desloc_p0p2_frac: float = 1.0  # S §8.2; PD-23: deslocamento P0–P2, × meia aresta
     delta_p0p2_frac: float = 0.5  # S §8.2; PD-23: tolerância P0–P2, × meia aresta
@@ -380,6 +395,12 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     iters_refino: int = 100  # S §11.5: iterações seguidas no portão para avançar o refino
     degraus: int = 5  # S §11.5: degraus do refino (0..5)
     passos_por_iteracao: int = 24  # D10: num_steps_per_env do rl_cfg(); guarda do termo v3 (D4)
+    # 20/11, T13: zona adaptativa por etapa do PEGAR e do BOTAR. z em [0, 1] (1 = critério largo) sobe e desce pela taxa de fecho por visita
+    zona_t_alvo: float = 0.6  # 20/11, T13: taxa de fecho por visita em que o z fica parado; acima aperta, abaixo afrouxa
+    zona_ganho: float = 0.05  # 20/11, T13: k de z ← clip(z − k·(taxa − t_alvo), 0, 1), uma vez por N_min visitas
+    zona_n_min: int = 200  # 20/11, T13: visitas encerradas da etapa para atualizar o z (taxa com ruído de ~3 % a 200)
+    zona_t_visita: float = 8.0  # 20/11, T13: s desde a abertura da etapa; sem fecho até lá a visita conta falha
+    zona_folga_cadeia: float = 0.2  # 20/11, T13: uma etapa não fica mais apertada que a anterior por mais que isto
 
 
 @dataclass(frozen=True)

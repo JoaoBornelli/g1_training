@@ -301,10 +301,11 @@ def privilegiados(env: ManagerBasedRlEnv, fase: bool = False) -> torch.Tensor:
     `fase=True`: seno e cosseno da fase do relógio de marcha (`v3_fase_marcha`). O ator o vê, como o `feet_gait` da
     Unitree, porque o `passo` paga a fase e o ator não podia saber qual pé apoiar; o robô real a calcula pelo tempo com
     comando acima de `limiar_marcha` (19/11, T12: com comando zero ela para; a regra dos drivers em `pilota_v3.main`).
-    `fase=False`: relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o σ do Φ do alvo.
+    `fase=False`: relógio ligado, o fator h da renda da etapa (M5), a lacuna até o melhor Φ da etapa e o z da etapa
+    corrente (20/11, T13: a escala da zona do fecho, 0 fora de etapa).
 
-    ⚠ O σ entra como log1p(σ) (C4): nos alvos em metros vale ≈ σ, mas o do B4 é adimensional e abre em ~5 a 10; sem o
-    log ele entraria no crítico 5 a 10 vezes maior que os outros canais (escala fixa 1).
+    ⚠ O canal 3 era o log1p(σ) do Φ do alvo (C4); a T13 o troca pelo z, que já está em [0, 1]. A dimensão não muda, e o
+    crítico de um checkpoint antigo passa por um transiente.
 
     ⚠ Lacuna = relu(melhor Φ − Φ): o Φ é −1 sem alvo (sentinela), e o `clamp` o trata como 0. Sem ruído (§6.5).
     """
@@ -312,7 +313,9 @@ def privilegiados(env: ManagerBasedRlEnv, fase: bool = False) -> torch.Tensor:
         ang = 2 * torch.pi * env.v3_fase_marcha
         return torch.stack([ang.sin(), ang.cos()], dim=-1)
     lacuna = torch.relu(env.v3_phi_melhor - env.v3_phi.clamp(min=0.0))
-    return torch.stack([env.v3_marcha_on.float(), env.v3_h, lacuna, torch.log1p(env.v3_sigma)], dim=-1)
+    # o 0 no fim do vetor é o z do índice −1 (sem etapa)
+    z = torch.tensor([*env.v3_cur.z, 0.0], device=env.v3_alvo_idx.device)[env.v3_alvo_idx]
+    return torch.stack([env.v3_marcha_on.float(), env.v3_h, lacuna, z], dim=-1)
 
 
 def referencia(env: ManagerBasedRlEnv) -> torch.Tensor:

@@ -45,6 +45,8 @@ def garante_v3(env: "ManagerBasedRlEnv") -> None:
     n, dev = env.num_envs, env.device
     if not hasattr(env, "v3_cur"):
         env.v3_cur = balanceador.Curriculo(_K.balanceador, _K.niveis, _K.comando, _K.terreno, k_dr=_K.dr)
+    if not hasattr(env, "v3_alvos"):  # 20/11, T13: o `Alvos` efetivo da zona; a cadeia o refaz a cada iteração (nasce o final)
+        env.v3_alvos = _K.alvos
     if not hasattr(env, "v3_ref"):  # §6.4: uma instância de alvos.Referencias (float64)
         env.v3_ref = alvos.Referencias(_CAMINHO_REF, dev)
     if not hasattr(env, "v3_filtro"):
@@ -104,7 +106,7 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     1) Fecha a iteração do balanceador uma vez por iteração de `passos_por_iteracao` passos, e não por reset
        (a iteração é `common_step_counter // passos_por_iteracao`). A 1ª chamada só fixa a iteração corrente.
     2) Devolve as chaves `frac_*`, `s_<tarefa>_<tipo>`, `nivel_<tarefa>`, `nivel_terreno_<tarefa>` (ANDAR e
-       CARREGAR), `degrau_<tarefa>`, `degrau_global` (P23) e, do `dr()`, `atraso_max` e `mu_min_pad` (H6, P23).
+       CARREGAR), `z_<etapa>` e `taxa_<etapa>` (20/11, T13), `degrau_<tarefa>`, `degrau_global` (P23) e, do `dr()`, `atraso_max` e `mu_min_pad` (H6, P23).
        O mjlab as publica como `Curriculum/v3/<k>`.
 
     ⚠ `v3_freio` e `v3_degrau` NÃO são escritos aqui: são do `comando.cadeia` (§6.4).
@@ -130,6 +132,8 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
         log[f"nivel_{t}"] = cur.nivel(t)
         log[f"degrau_{t}"] = cur.degrau(t)
     log.update(subnivel_PEGAR=cur.subnivel("PEGAR"), subnivel_BOTAR=cur.subnivel("BOTAR"))
+    for e, nome in enumerate(knobs.ALVOS):  # 20/11, T13: a zona de cada etapa e a última taxa de fecho por visita
+        log[f"z_{nome}"], log[f"taxa_{nome}"] = cur.z[e], cur.taxa[e]
     for t in balanceador.CADEIA:  # só as cadeias têm linha de terreno (PD-20)
         log[f"nivel_terreno_{t}"] = cur.nivel_terreno(t)
     log.update(atraso_max=teto, mu_min_pad=dr["mu_min_pad"], degrau_global=cur.degrau_global(),

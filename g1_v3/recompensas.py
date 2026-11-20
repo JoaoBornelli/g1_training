@@ -562,7 +562,8 @@ def _qualidade(env):
     alvo = torch.where(terreno[:, None], pelve_tb, alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, _P4)))
     d = (caixa.data.root_link_pos_w - alvo).norm(dim=-1)
     incl = torch.rad2deg(alvos.inclinacao_da_caixa(caixa.data.root_link_quat_w))
-    return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), K), d
+    # 20/11, T13: a qualidade lê o `tol_caixa_p4` efetivo da zona (`env.v3_alvos`): "a caixa no lugar de transporte" é uma medida só
+    return n_qualidade(d, incl, incl_lim(env), _contato_palmas(env), env.v3_alvos), d
 
 
 def _rastreio_com_qualidade(env, linear):

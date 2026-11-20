@@ -38,7 +38,7 @@ def env_falso(celula, yaw, caixa_z):
     cur = types.SimpleNamespace(id_celula=lambda tarefa, tipo: CELULA_TERRENO
                                 if (tarefa, tipo) == ("CARREGAR", "terreno") else -1)
     return types.SimpleNamespace(
-        device="cpu", scene=cena, v3_ref=ref, v3_cur=cur, v3_meia=torch.tensor([0.1]),
+        device="cpu", scene=cena, v3_ref=ref, v3_cur=cur, v3_alvos=K, v3_meia=torch.tensor([0.1]),
         v3_alvo_idx=torch.zeros(1, dtype=torch.long), v3_caixa_pega_w=torch.zeros(1, 3),
         v3_alvo_w=torch.zeros(1, 3), v3_celula=torch.tensor([celula], dtype=torch.long),
         v3_degrau=torch.zeros(1, dtype=torch.long))
