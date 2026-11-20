@@ -1038,9 +1038,13 @@ A coluna "model_12500" vem do relógio correndo. Com o relógio parado, o ponto 
 | Fecho do P3 por visita, 200 its depois | 0,5 % | ≥ 40 % | < 10 % |
 | Fecho do P4 por visita (`Curriculum/v3/taxa_P4`) | 0 | > 0 nas primeiras 300 its | 0 em 500 its |
 | z do P3 em 1000 its | 1 | ≤ 0,5 | ≥ 0,9 |
-| z do P0 a P2 em 300 its | 1 | 0 | > 0,5 |
+| z do P0 a P2 em 500 its | 1 | ≤ 0,1 | > 0,5 |
 | `s_ANDAR_andar` 400 its depois | 0,731 | ≥ 0,664 | abaixo |
 
+- Conta do prazo do z (20/11): com k = 0,05, `N_min` 200, 4096 envs × 24 passos e as visitas da coleta do model_12500
+  (cerca de 50 ao P0 e 24 ao P3 por iteração), a política parada leva o z do P0 a P2 a 0,1 em 380 a 480 its. Com a
+  política parada, o z do P3 para onde a taxa vale 0,6 (0,63 no model_12500 com o relógio correndo); ele só desce se a
+  política melhora.
 - z preso perto de 1 no P3: a política não refina; a regra de aperto ou o gradiente do Φ estão errados.
 - Perda da caixa no CARREGAR acima de 20 % dos episódios com caixa: o P4 largo entrega a caixa fora do lugar; reduzir o
   largo do P4.
