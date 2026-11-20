@@ -1027,7 +1027,7 @@ final + z_e·(largo − final).
 | Medida | Hoje (model_12500) | Passa | Reprova |
 |---|---|---|---|
 | Fecho do P3 por visita, 200 its depois | 0,5 % | ≥ 40 % | < 10 % |
-| P4 fechado (`Episode_Metrics/phi_B1` ou o fecho na coleta) | 0 | > 0 nas primeiras 300 its | 0 em 500 its |
+| Fecho do P4 por visita (`Curriculum/v3/taxa_P4`) | 0 | > 0 nas primeiras 300 its | 0 em 500 its |
 | z do P3 em 1000 its | 1 | ≤ 0,5 | ≥ 0,9 |
 | z do P0 a P2 em 300 its | 1 | 0 | > 0,5 |
 | `s_ANDAR_andar` 400 its depois | 0,731 | ≥ 0,664 | abaixo |
