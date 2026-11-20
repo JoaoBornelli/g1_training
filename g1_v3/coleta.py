@@ -7,7 +7,8 @@ segundo, com o peso), as terminações e o fim do episódio. Metade dos episódi
 (a política não muda; só o sorteio da fatia).
 
 Saída: `coleta.npz` com `x` (T,E,F) float16 e `colunas`; `ids` (T,E,K) int16 e `colunas_ids`; `rew` (T,E,R) float16 e
-`termos_rew`; `term` (T,E,M) bool e `termos_term`; e `meta.json` (argumentos e o estado do currículo do checkpoint).
+`termos_rew`; `term` (T,E,M) bool e `termos_term`; e `meta.json` (argumentos e o estado do currículo do checkpoint, `curriculo`, e do fim da coleta, `curriculo_fim`: o z
+anda durante a coleta).
 
 Uso:
     python -m g1_v3.coleta --checkpoint CAMINHO/model_N.pt [--num-envs 256] [--passos 3000] [--amostra]
@@ -137,6 +138,7 @@ np.savez_compressed(
     saida / "coleta.npz", x=torch.stack(xs).numpy(), colunas=np.array(list(x)), ids=torch.stack(ids).numpy(),
     colunas_ids=np.array(list(i)), rew=torch.stack(rews).numpy(), termos_rew=np.array(rm.active_terms),
     term=torch.stack(terms).numpy(), termos_term=np.array(tm.active_terms))
+meta["curriculo_fim"] = u.v3_cur.estado()
 (saida / "meta.json").write_text(json.dumps(meta, default=str, indent=1))
 a = torch.stack(ids)[..., list(i).index("alvo")]
 print(f"política: {'amostrada' if args.amostra else 'média'}; passos={args.passos}; envs={args.num_envs}; "

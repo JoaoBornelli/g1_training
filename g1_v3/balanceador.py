@@ -92,11 +92,11 @@ class Curriculo:
         # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
         # "vies": a célula `andar` do ANDAR passou no portão; "subida": o PEGAR ou o CARREGAR já subiu de nível
         self._dr = {"portao0": False, "vies": False, "subida": False}
-        # 20/11, T13: zona de cada etapa (índices de `ALVOS`); `taxa` é a última calculada, para o log
+        # 20/11, T13: zona de cada etapa (índices de `ALVOS`); `taxa` é a última calculada, para o log (−1 = sem medida)
         self.z = [1.0] * N_ETAPAS
         self.vis_acum = [0] * N_ETAPAS
         self.fech_acum = [0] * N_ETAPAS
-        self.taxa = [0.0] * N_ETAPAS
+        self.taxa = [-1.0] * N_ETAPAS
         # rampa da fatia (§5.3): o fecho em que cada fatia abriu (None = fechada); o ANDAR abre na iteração 0
         self._it_abertura = [0, None, None]
         # degraus da rampa de cada fatia. 18/11, T9: sobe um a cada `rampa_fatia_its` fechos e não desce
