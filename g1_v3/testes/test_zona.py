@@ -7,6 +7,7 @@ import contextlib
 import math
 import types
 import unittest
+from dataclasses import replace
 from unittest import mock
 
 import torch
@@ -35,6 +36,7 @@ class TestControleDoZ(unittest.TestCase):
     def test_comeca_em_1_e_as_etapas_sao_as_de_alvos(self):
         self.assertEqual(N, len(ALVOS))
         self.assertEqual(novo().z, [1.0] * N)
+        self.assertEqual(novo().taxa, [-1.0] * N)  # sem medida: o log não mostra 0 antes da primeira atualização
 
     def test_taxa_acima_do_alvo_aperta_e_abaixo_afrouxa(self):
         # z ← z − k·(taxa − t_alvo): taxa 1 com t_alvo 0,6 e k 0,05 tira 0,02; taxa 0 põe 0,03
@@ -61,6 +63,7 @@ class TestControleDoZ(unittest.TestCase):
         fecha(cur, P3, n, n)
         self.assertEqual(cur.z[P3], 1.0)
         self.assertEqual((cur.vis_acum[P3], cur.fech_acum[P3]), (n, n))  # as visitas esperam a próxima iteração
+        self.assertEqual(cur.taxa[P3], -1.0)
         fecha(cur, P3, n + 1, n + 1)  # 200 visitas acumuladas: agora atualiza
         self.assertAlmostEqual(cur.z[P3], 0.98, places=9)
 
@@ -133,13 +136,15 @@ def _cadeia(idx, z, tarefa=comando.PEGAR):
     return obj, env
 
 
-def _alvos(obj, m, dt=ce.DT, ok_pegar=None):
-    # `_alvos` com a cena de fora; `ok_pegar` (bool) força o fecho do PEGAR, sem ele o núcleo real decide
+def _alvos(obj, m, dt=ce.DT, ok_pegar=None, ok_botar=False):
+    # `_alvos` com a cena de fora; `ok_pegar` (bool) força o fecho do PEGAR, sem ele o núcleo real decide. `ok_botar`
+    # força o do BOTAR (False por padrão); None deixa o núcleo real decidir, com o `Alvos` efetivo
     patches = [mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.zeros(1, 3)),
                mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])),
                mock.patch.object(recompensas, "portoes_do_alvo",
-                                 return_value=dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1))),
-               mock.patch.object(comando, "ok_agora_botar", return_value=torch.tensor([False]))]
+                                 return_value=dict(desloc=torch.ones(1), incl=torch.ones(1), maos=torch.ones(1)))]
+    if ok_botar is not None:
+        patches.append(mock.patch.object(comando, "ok_agora_botar", return_value=torch.tensor([ok_botar])))
     if ok_pegar is not None:
         patches.append(mock.patch.object(comando, "ok_agora_pegar", return_value=torch.tensor([ok_pegar])))
     with contextlib.ExitStack() as pilha:
@@ -210,6 +215,69 @@ class TestCriterioEfetivo(unittest.TestCase):
                 with mock.patch.object(alvos, "palmas_alvo_caixa", return_value=torch.zeros(1, 2, 3)):
                     _alvos(obj, m)
                 self.assertEqual(env.v3_alvo_idx.item(), idx + 1 if fecha_ else idx)
+
+    def test_o_fecho_do_botar_usa_o_alvos_efetivo(self):
+        # o núcleo real do BOTAR, sem mock: cada medida fica entre o final e o largo, e só o z = 1 fecha. Com o `Alvos`
+        # final no lugar do efetivo (`env.v3_alvos`), o z = 1 não fecharia
+        m = ce._medidas()
+        m["caixa_p"] = torch.tensor([[0.06, 0.0, 0.0]])  # B1: 6 cm (final 3, largo 10)
+        casos = [(B1, m, 1)]
+        m2 = ce._medidas()
+        m2["apoio_N"] = torch.tensor([0.65])  # B2: 65 % do peso (final 80 %, largo 50 %)
+        casos.append((B2, m2, 15))
+        m3 = ce._medidas()
+        m3["palmas_c"] = torch.full((1, 2, 3), 0.1 + A.palma_face + 0.03)  # B3: palmas a 3 cm da face (final 5, largo 2)
+        casos.append((B3, m3, 15))
+        for idx, medidas, passos in casos:
+            for z, fecha_ in ((1.0, True), (0.0, False)):
+                with self.subTest(idx=idx, z=z):
+                    obj, env = _cadeia(idx, [z] * N, tarefa=comando.BOTAR)
+                    for _ in range(passos):
+                        _alvos(obj, medidas, ok_botar=None)
+                    self.assertEqual(env.v3_alvo_idx.item() == idx + 1, fecha_)
+
+    def test_o_phi_nao_muda_com_o_z(self):
+        # o Φ lê o `Alvos` final (`K`), não o efetivo: com `env.v3_alvos` largo (z = 1) ele fica igual ao do final. P4: a razão
+        # tol_caixa/tol_pelve da distância; B2: o `apoio_b2_mg` do déficit (65 % do peso no apoio, entre o final e o largo)
+        class Cena(dict):
+            env_origins = torch.zeros(1, 3)
+
+        quat = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        robo = types.SimpleNamespace(
+            data=types.SimpleNamespace(root_link_pos_w=torch.zeros(1, 3), root_link_quat_w=quat,
+                                       site_pos_w=torch.zeros(1, 2, 3)),
+            find_sites=lambda nomes: ([0, 1], None))
+        caixa = types.SimpleNamespace(data=types.SimpleNamespace(  # a caixa a 1 m: fora da altura do pouso
+            root_link_pos_w=torch.tensor([[0.0, 0.0, 1.0]]), root_link_quat_w=quat, root_link_lin_vel_w=torch.zeros(1, 3)))
+        faces = types.SimpleNamespace(data=types.SimpleNamespace(
+            normal=torch.zeros(1, 12, 3), force=torch.zeros(1, 12, 3), found=torch.zeros(1, 12)))
+        peso = 1.0 * 9.81
+        cena = Cena(robot=robo, box=caixa, caixa_faces=faces,
+                    altura_pelve=types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.full((1, 1), 0.05))),
+                    apoio_caixa=types.SimpleNamespace(data=types.SimpleNamespace(force=torch.tensor([[[0.0, 0.0, 0.65 * peso]]]))))
+        largo = replace(A, tol_caixa_p4=0.20, tol_pelve_p4=0.10, apoio_b2_mg=0.5)
+        ones = dict.fromkeys(("desloc", "incl", "maos", "tronco", "recuo", "com"), torch.ones(1))
+        for idx in (P4, B2):
+            phis = []
+            for k in (A, largo):
+                env = types.SimpleNamespace(
+                    device="cpu", scene=cena, v3_alvos=k, v3_meia=torch.tensor([0.1]), v3_topo_destino=torch.zeros(1),
+                    v3_degrau=torch.zeros(1, dtype=torch.long), v3_caixa_pega_w=torch.zeros(1, 3),
+                    v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_ponto_apoio=torch.zeros(1, 3),
+                    v3_alvo_idx=torch.tensor([idx]), v3_sigma=torch.tensor([0.3]),
+                    v3_ref=types.SimpleNamespace(palmas_de_pe_b=torch.zeros(2, 3)), v3_massa=torch.ones(1),
+                    sim=types.SimpleNamespace(mj_model=types.SimpleNamespace(opt=types.SimpleNamespace(gravity=(0.0, 0.0, -9.81)))))
+                with mock.patch.object(recompensas, "ref_do_alvo", return_value=torch.zeros(1, 8)), \
+                        mock.patch.object(recompensas, "incl_torso", return_value=torch.zeros(1)), \
+                        mock.patch.object(recompensas, "_pes_e_com",
+                                          return_value=(torch.zeros(1, 8, 2), torch.zeros(1, 2), torch.ones(1, dtype=torch.bool))), \
+                        mock.patch.object(recompensas, "_recuo_ref", return_value=torch.zeros(1)), \
+                        mock.patch.object(recompensas, "alvo_da_caixa_w", return_value=torch.tensor([[0.0, 0.0, 1.0]])), \
+                        mock.patch.object(recompensas, "portoes_do_alvo", return_value=ones):
+                    phis.append(recompensas._phi_env(env, env.v3_alvo_idx, env.v3_sigma)[0].item())
+            with self.subTest(idx=idx):
+                self.assertGreater(phis[0], 0.5)
+                self.assertEqual(phis[0], phis[1])
 
     def test_o_d_e_o_phi_ficam_no_valor_final(self):
         obj, env = _cadeia(P4, [1.0] * N)
@@ -300,12 +368,24 @@ class TestVisitas(unittest.TestCase):
         env.v3_tarefa[:] = comando.PEGAR
         env.v3_alvo_idx[:] = P3
         _alvos(obj, _medidas_p3(0.0), ok_pegar=False)
-        self.assertEqual(env.v3_cur.vis_acum[P3], 0)  # a visita está aberta
+        self.assertEqual(env.v3_cur.vis_acum, [0] * N)  # a visita está aberta
         obj._resample(torch.tensor([0]))
-        self.assertEqual((env.v3_cur.vis_acum[P3], env.v3_cur.fech_acum[P3]), (1, 0))
-        obj._resample(torch.tensor([0]))  # um segundo reset sem visita aberta
-        self.assertEqual(env.v3_cur.vis_acum[P3], 1)
+        um_p3 = [0, 0, 0, 1, 0, 0, 0, 0, 0]
+        self.assertEqual((env.v3_cur.vis_acum, env.v3_cur.fech_acum), (um_p3, [0] * N))
+        obj._resample(torch.tensor([0]))  # um segundo reset sem visita aberta: sem contagem em nenhuma etapa
+        self.assertEqual((env.v3_cur.vis_acum, env.v3_cur.fech_acum), (um_p3, [0] * N))
         self.assertEqual(obj.vis_e.tolist(), [-1])
+
+    def test_reset_depois_da_visita_vencida_nao_conta_de_novo(self):
+        obj = ce._cadeia_de_trechos()
+        env = obj._env
+        env.v3_tarefa[:] = comando.PEGAR
+        env.v3_alvo_idx[:] = P3
+        _alvos(obj, _medidas_p3(0.0), ok_pegar=False)
+        _alvos(obj, _medidas_p3(0.0), dt=10.0, ok_pegar=False)  # a visita passa de T_visita: vence e conta falha
+        self.assertEqual(env.v3_cur.vis_acum, [0, 0, 0, 1, 0, 0, 0, 0, 0])
+        obj._resample(torch.tensor([0]))  # o `vis_e` ainda guarda o P3, mas `t_vis` < 0: a visita já foi contada
+        self.assertEqual((env.v3_cur.vis_acum, env.v3_cur.fech_acum), ([0, 0, 0, 1, 0, 0, 0, 0, 0], [0] * N))
 
     def test_p4_fechado_nao_e_visita_aberta(self):
         obj, env = _cadeia(P4, [0.0] * N)
