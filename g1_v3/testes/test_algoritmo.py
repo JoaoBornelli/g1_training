@@ -142,7 +142,7 @@ class TestFixaNormalizador(unittest.TestCase):
 
 
 
-N_FATIA = 13  # o `alvo_macro` da M7
+N_FATIA = 11  # o `alvo_macro` da M7 (23/11, T14: 11 canais)
 D_OBS = N_FATIA + 4 + 6  # a fatia, quatro colunas de enchimento e o one-hot da tarefa nas 6 últimas
 
 
@@ -166,20 +166,20 @@ class TestGrupoEMediaDoGrupo(unittest.TestCase):
 
     def test_grupo_do_andar_so_e_zero_com_nenhum(self):
         alg = alg_com_fatia()
-        # ANDAR: nenhum (12), B4 fechado (10), perda (11); PEGAR: P4 aberto (4) e P4 fechado (9)
-        g = alg._grupo(obs_critico([(12, ANDAR), (10, ANDAR), (11, ANDAR), (4, PEGAR), (9, PEGAR)])).tolist()
+        # ANDAR: nenhum (10), bota fechada (8), perda (9); PEGAR: P3 aberto (3) e pega fechada (7)
+        g = alg._grupo(obs_critico([(10, ANDAR), (8, ANDAR), (9, ANDAR), (3, PEGAR), (7, PEGAR)])).tolist()
         self.assertEqual(g[0], 0)
-        self.assertEqual(g[1:3], [1 + 10, 1 + 11])  # grupos próprios, diferentes de 0 e entre si
-        self.assertEqual(g[3:], [1 + PEGAR * N_FATIA + 4, 1 + PEGAR * N_FATIA + 9])
+        self.assertEqual(g[1:3], [1 + 8, 1 + 9])  # grupos próprios, diferentes de 0 e entre si
+        self.assertEqual(g[3:], [1 + PEGAR * N_FATIA + 3, 1 + PEGAR * N_FATIA + 7])
         self.assertNotEqual(g[3], g[4])
 
     def test_grupo_sem_fatia_alvo_e_a_tarefa(self):
         alg = object.__new__(PPOPorTarefa)
-        self.assertEqual(alg._grupo(obs_critico([(12, ANDAR), (4, PEGAR), (4, CARREGAR)])).tolist(), [0, 1, 2])
+        self.assertEqual(alg._grupo(obs_critico([(10, ANDAR), (3, PEGAR), (3, CARREGAR)])).tolist(), [0, 1, 2])
 
     def test_compute_returns_guarda_a_media_de_v_por_grupo_e_mantem_o_ausente(self):
-        # 2 passos, 3 envs: env 0 no grupo 0 (ANDAR nenhum); envs 1 e 2 no PEGAR P4 aberto (grupo 18)
-        obs = torch.stack([obs_critico([(12, ANDAR), (4, PEGAR), (4, PEGAR)])] * 2)
+        # 2 passos, 3 envs: env 0 no grupo 0 (ANDAR nenhum); envs 1 e 2 no PEGAR P3 aberto (grupo 1 + 1·11 + 3)
+        obs = torch.stack([obs_critico([(10, ANDAR), (3, PEGAR), (3, PEGAR)])] * 2)
         st = types.SimpleNamespace(observations={"critic": obs}, returns=torch.ones(2, 3, 1),
                                    values=torch.tensor([[1.0, 2.0, 4.0], [3.0, 6.0, 8.0]]).unsqueeze(-1),
                                    advantages=None)
@@ -190,16 +190,16 @@ class TestGrupoEMediaDoGrupo(unittest.TestCase):
             alg.compute_returns(None)
         self.assertEqual(alg.v_grupo.shape, (1 + 6 * N_FATIA,))
         self.assertAlmostEqual(float(alg.v_grupo[0]), 2.0)  # (1 + 3) / 2
-        self.assertAlmostEqual(float(alg.v_grupo[1 + PEGAR * N_FATIA + 4]), 5.0)  # (2 + 4 + 6 + 8) / 4
+        self.assertAlmostEqual(float(alg.v_grupo[1 + PEGAR * N_FATIA + 3]), 5.0)  # (2 + 4 + 6 + 8) / 4
         self.assertEqual(float(alg.v_grupo[5]), 9.0)  # grupo ausente: o valor anterior
 
     def _passo(self, v_grupo, dones, time_outs, perdeu):
-        # 4 envs: 0, 1 e 3 no ANDAR nenhum (grupo 0, V̄ −5); 2 no PEGAR P4 aberto (grupo 18, V̄ 3)
+        # 4 envs: 0, 1 e 3 no ANDAR nenhum (grupo 0, V̄ −5); 2 no PEGAR P3 aberto (V̄ 3)
         alg = alg_com_fatia()
         alg.gamma = 0.99
         alg.v_grupo = v_grupo
         alg.transition = types.SimpleNamespace(
-            observations={"critic": obs_critico([(12, ANDAR), (12, ANDAR), (4, PEGAR), (12, ANDAR)])})
+            observations={"critic": obs_critico([(10, ANDAR), (10, ANDAR), (3, PEGAR), (10, ANDAR)])})
         alg.actor = unittest.mock.Mock(obs_normalizer=torch.nn.Identity())
         alg.critic = unittest.mock.Mock(obs_normalizer=torch.nn.Identity())
         extras = {"time_outs": torch.tensor(time_outs), "v3_perdeu_agora": torch.tensor(perdeu)}
@@ -210,7 +210,7 @@ class TestGrupoEMediaDoGrupo(unittest.TestCase):
 
     def _v_grupo(self):
         v = torch.zeros(1 + 6 * N_FATIA)
-        v[0], v[1 + PEGAR * N_FATIA + 4] = -5.0, 3.0
+        v[0], v[1 + PEGAR * N_FATIA + 3] = -5.0, 3.0
         return v
 
     def test_queda_soma_gama_vezes_o_v_negativo_do_grupo_e_nada_no_v_positivo(self):

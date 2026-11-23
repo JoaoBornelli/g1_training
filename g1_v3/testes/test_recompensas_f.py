@@ -17,7 +17,7 @@ from g1_v3 import potencial, recompensas
 from g1_v3.knobs import ATIVO, TAREFAS
 
 A = ATIVO.alvos
-B2, B3, P3, B4 = 6, 7, 3, 8
+B1, B2, B3, P3 = 4, 5, 6, 3  # 23/11, T14: P0..P3 = 0..3, B1..B3 = 4..6
 R = ATIVO.recompensa
 TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 
@@ -34,24 +34,24 @@ class PousoDevagar(unittest.TestCase):
 
 
 class InvarianteDepoisDoApoio(unittest.TestCase):
-    def _desloc_no_b3(self, desloc_apoio):
+    def _desloc_no_b2(self, desloc_apoio):
         zeros = torch.zeros(1)
         return recompensas.portoes_do_alvo(
-            t(B3, torch.long), zeros, t(desloc_apoio), zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
+            t(B2, torch.long), zeros, t(desloc_apoio), zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
             torch.tensor([True]), t(0.1), A)["desloc"].item()
 
     def test_deslocamento_de_5_cm_depois_do_apoio_da_meio(self):
-        # Teste (F4; 13/11, A5: delta_b2b4 0,06): no B3, deslocar 5 cm depois de apoiar leva a rampa do `desloc` a 0,5
-        # (rampa(0,05; 0,02; 0,06)); com 10 cm, a 0.
-        self.assertAlmostEqual(self._desloc_no_b3(0.05), 0.5, delta=1e-5)
-        self.assertEqual(self._desloc_no_b3(0.10), 0.0)
+        # Teste (F4; 13/11, A5: delta_b2b4 0,06; 23/11, T14: o B3 antigo é o B2): no B2, deslocar 5 cm depois de apoiar leva a
+        # rampa do `desloc` a 0,5 (rampa(0,05; 0,02; 0,06)); com 10 cm, a 0.
+        self.assertAlmostEqual(self._desloc_no_b2(0.05), 0.5, delta=1e-5)
+        self.assertEqual(self._desloc_no_b2(0.10), 0.0)
 
 
-class PhiDoB2(unittest.TestCase):
-    def test_phi_no_b2_com_fator_0_44_e_0_44_vezes_o_nucleo(self):
-        # Teste (F4; núcleo tanh desde 10/11): phi_do_alvo no B2 com o fator 0,44 dá 0,44 × (1 − tanh(d / 2σ))
-        # (portões todos 1 com as condições B2).
-        indice = t(B2, torch.long)
+class PhiDoB1(unittest.TestCase):
+    def test_phi_no_b1_com_fator_0_44_e_0_44_vezes_o_nucleo(self):
+        # Teste (F4; núcleo tanh desde 10/11): phi_do_alvo no B1 com o fator 0,44 dá 0,44 × (1 − tanh(d / 2σ))
+        # (portões todos 1 com as condições B1).
+        indice = t(B1, torch.long)
         zeros = torch.zeros(1)
         portoes = recompensas.portoes_do_alvo(
             indice, zeros, zeros, zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
@@ -61,14 +61,14 @@ class PhiDoB2(unittest.TestCase):
         self.assertAlmostEqual(phi.item(), 0.44 * (1 - math.tanh(0.2)), delta=1e-5)  # 0,2 / (2 × 0,5)
 
     def test_phi_tanh_no_alvo_em_sigma_e_longe(self):
-        # Teste (10/11): Φ = 1 − tanh(d / 2σ) em todo alvo, B4 incluído. No alvo vale 1; em d = σ, 1 − tanh(0,5) =
+        # Teste (10/11): Φ = 1 − tanh(d / 2σ) em todo alvo, B3 incluído. No alvo vale 1; em d = σ, 1 − tanh(0,5) =
         # 0,53788; a 4σ, 1 − tanh(2) = 0,03597 (a gaussiana já dava ~1e-7 ali: era o canal morto).
         zeros = torch.zeros(1)
         for alvo, d, sigma, esperado in (
                 (0, 0.0, 0.37, 1.0),
                 (0, 0.37, 0.37, 0.53788),
                 (1, 0.56, 0.14, 0.03597),
-                (B4, 2.0, 2.0, 0.53788)):
+                (B3, 2.0, 2.0, 0.53788)):
             indice = t(alvo, torch.long)
             portoes = recompensas.portoes_do_alvo(
                 indice, zeros, zeros, zeros, t(30.0), torch.ones(1), zeros, zeros, zeros,
@@ -88,9 +88,9 @@ class PhiDoB2(unittest.TestCase):
 
 
 class F9PortaoDoTronco(unittest.TestCase):
-    """F9 P2 / R1: o desvio do tronco que entra no portão é de um lado só, relu(incl − IK) (S §8.2); no B4 vale 1."""
+    """F9 P2 / R1: o desvio do tronco que entra no portão é de um lado só, relu(incl − IK) (S §8.2); no B3 vale 1."""
 
-    def _portoes(self, indice, tronco_graus, ik_graus, forca_N=0.0, massa=1.0):
+    def _portoes(self, indice, tronco_graus, ik_graus, forca_N=0.0, massa=1.0, apoio_N=0.0):
         """Portões que `_phi_env` monta, com o tronco e a referência do tronco dados; o resto do env em repouso.
         `forca_N`: força normal de cada palma nas faces ±y da caixa (sensor `caixa_faces`, 12 fatias)."""
         class Cena(dict):
@@ -108,7 +108,7 @@ class F9PortaoDoTronco(unittest.TestCase):
         cena = Cena(robot=robo, box=caixa, altura_pelve=types.SimpleNamespace(
             data=types.SimpleNamespace(heights=torch.zeros(1, 1))), caixa_faces=types.SimpleNamespace(
             data=types.SimpleNamespace(normal=normal, force=normal * forca_N, found=achado)),
-            apoio_caixa=types.SimpleNamespace(data=types.SimpleNamespace(force=torch.zeros(1, 1, 3))))
+            apoio_caixa=types.SimpleNamespace(data=types.SimpleNamespace(force=torch.tensor([[[0.0, 0.0, apoio_N]]]))))
         env = types.SimpleNamespace(
             device="cpu", scene=cena, v3_meia=t(0.1), v3_topo_destino=t(0.0), v3_degrau=t(0, torch.long),
             v3_caixa_pega_w=torch.zeros(1, 3), v3_perdeu=torch.zeros(1, dtype=torch.bool),
@@ -133,18 +133,26 @@ class F9PortaoDoTronco(unittest.TestCase):
                 mock.patch.object(recompensas, "distancia_do_alvo", return_value=torch.zeros(1)), \
                 mock.patch.object(recompensas, "portoes_do_alvo", side_effect=espia):
             _, conquistas = recompensas._phi_env(env, env.v3_alvo_idx, env.v3_sigma)
-        return {**espiado["g"], "pega": conquistas[:, 1], "palmas": conquistas[:, 0]}
+        return {**espiado["g"], "pega": conquistas[:, 1], "palmas": conquistas[:, 0], "peso": conquistas[:, 2]}
 
     def test_maos_paga_a_firmeza_da_pega_pelo_peso(self):
         # 11/11: maos = tanh(min F / F_pega), F_pega = margem_pega · m·g / (2μ), μ = DR.atrito_pad[0]. Com 1 kg e 20 N
         # por palma: F_pega = 2,5 · 9,81 / 1,2 = 20,44 N → tanh(0,9786) = 0,7526. Com 5 kg a mesma força vale 5× menos
-        # no argumento: tanh(0,1957) = 0,1933. Sem força vale 0; fora de P2–B2 vale 1.
+        # no argumento: tanh(0,1957) = 0,1933. Sem força vale 0; fora de P3 e B1 vale 1.
         # 18/11, T10: a firmeza é a conquista `pega`; o portão `maos` do Φ vale 1 em todo alvo
         self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0)["pega"].item(), 0.7526, delta=1e-3)
         self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, forca_N=20.0, massa=5.0)["pega"].item(), 0.1933, delta=1e-3)
         self.assertEqual(self._portoes(P3, 0.0, 0.0)["pega"].item(), 0.0)
         self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 1.0)
         self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
+
+    def test_conquista_do_peso_nas_maos_e_o_complemento_do_apoio(self):
+        # 23/11, T14: c = clamp(1 − apoio_N / peso_N, 0, 1), com o peso m·g = 9,81 N (1 kg): 0 com a caixa toda na laje,
+        # 1 com a laje sem carga, e a fração no meio; nunca fora de [0, 1] (o apoio pode passar do peso no pouso)
+        peso = 9.81
+        for apoio, esperado in ((peso, 0.0), (0.0, 1.0), (0.4 * peso, 0.6), (1.5 * peso, 0.0)):
+            with self.subTest(apoio=apoio):
+                self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, apoio_N=apoio)["peso"].item(), esperado, places=5)
 
     def test_conquista_das_palmas_pela_distancia_as_faces(self):
         # 18/11, T10: palmas no centro da caixa de meia aresta 0,10: a + palma_face de cada alvo do P2 (0,145 m com a T11a).
@@ -168,13 +176,13 @@ class F9PortaoDoTronco(unittest.TestCase):
         esperado = 1 - (20 - A.faixa_tronco_graus) / A.delta_tronco_graus
         self.assertAlmostEqual(self._portoes(P3, 20.0, 0.0)["tronco"].item(), esperado, places=5)
 
-    def test_b4_da_portao_1_com_qualquer_tronco(self):
-        # F9 P2: no B4 o núcleo já mede o tronco; o portão vale 1 mesmo 40° além da IK
-        self.assertEqual(self._portoes(B4, 40.0, 0.0)["tronco"].item(), 1.0)
+    def test_b3_da_portao_1_com_qualquer_tronco(self):
+        # F9 P2: no B3 o núcleo já mede o tronco; o portão vale 1 mesmo 40° além da IK
+        self.assertEqual(self._portoes(B3, 40.0, 0.0)["tronco"].item(), 1.0)
 
 
 class F9CercaPelveSemAlvo(unittest.TestCase):
-    """F9 S1: com `v3_alvo_idx` −1 (espera do PEGAR, depois do B4) a cerca da pelve vale a pose de pé."""
+    """F9 S1: com `v3_alvo_idx` −1 (espera do PEGAR, depois do B3) a cerca da pelve vale a pose de pé."""
 
     def test_indice_menos_um_no_pegar_cobra_a_pose_de_pe(self):
         # Pelve a 0,789 m, pose de pé também a 0,789 m: custo 0. A referência do alvo (pelve 0) daria 0,709.
@@ -190,9 +198,9 @@ class F9CercaPelveSemAlvo(unittest.TestCase):
 
 
 class F9RecuoSolto(unittest.TestCase):
-    """F9 M14: no BOTAR com o alvo B4 ou −1 a caixa já está solta, e a cerca do recuo vale zero."""
+    """F9 M14: no BOTAR com o alvo B3 ou −1 a caixa já está solta, e a cerca do recuo vale zero."""
 
-    def test_botar_com_b4_ou_menos_um_zera_a_cerca_do_recuo(self):
+    def test_botar_com_b3_ou_menos_um_zera_a_cerca_do_recuo(self):
         # Caixa a 0,25 m do centro; o recuo da pega é 0,40. Sem o zero, relu(0,15 − 0,08) = 0,07.
         transporte = torch.tensor([[0.25, 0.0, 0.0]])
 
@@ -203,7 +211,7 @@ class F9RecuoSolto(unittest.TestCase):
             def caixa_transporte_b(self, a):
                 return transporte
 
-        for indice in (B4, -1):
+        for indice in (B3, -1):
             with self.subTest(indice=indice):
                 env = types.SimpleNamespace(
                     device="cpu",

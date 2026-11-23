@@ -11,29 +11,29 @@ import unittest
 import torch
 
 from g1_v3 import metricas
-from g1_v3.alvos import B1, B2, B3
+from g1_v3.alvos import B1, B2
 
 
 class MetricasFTest(unittest.TestCase):
 
-    def test_deslocamento_depois_do_apoio_nao_conta_o_b2(self):
-        # M4: o B2 é antes do fecho; mesmo com a caixa 2 cm fora do ponto, a métrica dá 0
+    def test_deslocamento_depois_do_apoio_nao_conta_o_b1(self):
+        # M4; 23/11, T14: o B1 (levar e apoiar) é antes do fecho; mesmo com a caixa 2 cm fora do ponto, a métrica dá 0
         box = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor(
             [[0.0, 0.0, 0.5], [0.02, 0.0, 0.5], [0.0, 0.0, 0.5], [0.0, 0.0, 0.5]])))
         env = types.SimpleNamespace(num_envs=4, device="cpu", scene={"box": box}, extras={"log": {}},
-                                    v3_alvo_idx=torch.tensor([B2] * 4), v3_ponto_apoio=torch.zeros(4, 3),
+                                    v3_alvo_idx=torch.tensor([B1] * 4), v3_ponto_apoio=torch.zeros(4, 3),
                                     v3_perdeu=torch.zeros(4, dtype=torch.bool))
         desl = metricas.deslocamento_depois_do_apoio(None, env)
         self.assertEqual(float(desl(env).mean()), 0.0)
         desl.reset(torch.arange(4))
         self.assertNotIn("Episodio/deslocamento_depois_do_apoio", env.extras["log"])
 
-    def test_deslocamento_depois_do_apoio_no_b3_com_caixa_2cm(self):
-        # M4 no B3 com a caixa 2 cm do ponto: só o env 1 tem evento (flag 0/1); o log do reset é 0,02 (M5)
+    def test_deslocamento_depois_do_apoio_no_b2_com_caixa_2cm(self):
+        # M4 no B2 com a caixa 2 cm do ponto: só o env 1 tem evento (flag 0/1); o log do reset é 0,02 (M5)
         box = types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=torch.tensor(
             [[0.0, 0.0, 0.5], [0.02, 0.0, 0.5], [0.0, 0.0, 0.5], [0.0, 0.0, 0.5]])))
         env = types.SimpleNamespace(num_envs=4, device="cpu", scene={"box": box}, extras={"log": {}},
-                                    v3_alvo_idx=torch.tensor([B2, B3, B2, B2]), v3_ponto_apoio=torch.zeros(4, 3),
+                                    v3_alvo_idx=torch.tensor([B1, B2, B1, B1]), v3_ponto_apoio=torch.zeros(4, 3),
                                     v3_perdeu=torch.zeros(4, dtype=torch.bool))
         desl = metricas.deslocamento_depois_do_apoio(None, env)
         self.assertTrue(torch.equal(desl(env), torch.tensor([0.0, 1.0, 0.0, 0.0])))

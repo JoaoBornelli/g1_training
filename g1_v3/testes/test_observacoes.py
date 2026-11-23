@@ -46,33 +46,34 @@ class ObservacoesTest(unittest.TestCase):
         self.assertEqual(out.shape, (2, 6))
         self.assertEqual(out.tolist(), [[1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]])
 
-    def _env_macro(self, idx, p4=False, b4=False, perdeu=False):
+    def _env_macro(self, idx, pega=False, bota=False, perdeu=False):
         n = len(idx)
         flag = lambda v: torch.full((n,), v, dtype=torch.bool)
-        return types.SimpleNamespace(v3_alvo_idx=torch.tensor(idx, dtype=torch.long), v3_p4_fechado=flag(p4),
-                                     v3_b4_fechado=flag(b4), v3_perdeu=flag(perdeu))
+        return types.SimpleNamespace(v3_alvo_idx=torch.tensor(idx, dtype=torch.long), v3_pega_fechada=flag(pega),
+                                     v3_bota_fechada=flag(bota), v3_perdeu=flag(perdeu))
 
-    def test_alvo_macro_tem_13_posicoes_e_cada_caso_da_prioridade(self):
-        p4, b4 = ALVOS.index("P4"), ALVOS.index("B4")
-        self.assertEqual(observacoes.N_ALVO_MACRO, 13)
+    def test_alvo_macro_tem_11_posicoes_e_cada_caso_da_prioridade(self):
+        # 23/11, T14: 7 etapas + pega fechada + bota fechada + perda + nenhum = 11 canais (eram 13)
+        p3, b3 = ALVOS.index("P3"), ALVOS.index("B3")
+        self.assertEqual(observacoes.N_ALVO_MACRO, 11)
         casos = [  # (env, posição acesa)
-            (self._env_macro([0, p4, b4]), [0, p4, b4]),  # o índice, sem fecho nem perda
-            (self._env_macro([-1]), [12]),  # nenhum
-            (self._env_macro([p4], p4=True), [9]),  # P4 fechado, com o índice no P4
-            (self._env_macro([ALVOS.index("P3")], p4=True), [ALVOS.index("P3")]),  # P4 fechado fora do P4: o índice
-            (self._env_macro([-1], b4=True), [10]),  # B4 fechado (o índice cai no fecho: −1)
-            (self._env_macro([p4], p4=True, b4=True), [10]),  # B4 fechado vence P4 fechado
-            (self._env_macro([-1, p4], b4=True, perdeu=True), [11, 11]),  # a perda vence tudo
+            (self._env_macro([0, p3, b3]), [0, p3, b3]),  # o índice, sem fecho nem perda
+            (self._env_macro([-1]), [10]),  # nenhum
+            (self._env_macro([p3], pega=True), [7]),  # pega fechada, com o índice no P3
+            (self._env_macro([ALVOS.index("P2")], pega=True), [ALVOS.index("P2")]),  # pega fechada fora do P3: o índice
+            (self._env_macro([-1], bota=True), [8]),  # bota fechada (o índice cai no fecho: −1)
+            (self._env_macro([p3], pega=True, bota=True), [8]),  # bota fechada vence pega fechada
+            (self._env_macro([-1, p3], bota=True, perdeu=True), [9, 9]),  # a perda vence tudo
         ]
         for env, acesas in casos:
             out = observacoes.alvo_macro(env)
-            self.assertEqual(out.shape, (len(acesas), 13))
+            self.assertEqual(out.shape, (len(acesas), 11))
             self.assertEqual(out.sum(-1).tolist(), [1.0] * len(acesas))
             self.assertEqual(out.argmax(-1).tolist(), acesas)
 
     def test_privilegiados_tem_4_colunas_na_ordem_do_termo(self):
         # 20/11, T13: o canal 3 é o z da etapa corrente (era o log1p do σ); fora de etapa (índice −1) vale 0
-        z = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+        z = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
         env = types.SimpleNamespace(
             v3_fase_marcha=torch.tensor([0.0, 0.25]), v3_marcha_on=torch.tensor([False, True]),
             v3_h=torch.tensor([1.0, 0.4]), v3_phi_melhor=torch.tensor([0.5, 0.2]), v3_phi=torch.tensor([-1.0, 0.7]),
@@ -183,6 +184,17 @@ class ObservacoesTest(unittest.TestCase):
         self.assertFalse(torch.allclose(do_destino, do_topo))  # o teste discrimina os dois topos
         self.assertTrue(torch.allclose(observacoes.referencia(env), do_destino))
 
+    def test_referencia_no_p3_e_no_b3_usa_a_pelve_com_caixa_e_a_de_pe(self):
+        # 23/11, T14: o P3 (o P4 antigo) tem a pelve com caixa e tronco 0; o B3 (o B4 antigo), a pelve de pé e tronco 0
+        ref = Referencias(str(caminho(ATIVO.contrato.referencias)), CPU)
+        a = torch.tensor([0.10], dtype=torch.float64)
+        for nome, pelve in (("P3", ref.pelve_com_caixa(a)), ("B3", torch.tensor([ref.pelve_de_pe], dtype=torch.float64))):
+            with self.subTest(alvo=nome):
+                out = observacoes.referencia_do_alvo(torch.tensor([ALVOS.index(nome)]), torch.tensor([0.3]), a, ref,
+                                                     ATIVO.alvos)
+                self.assertAlmostEqual(float(out[0, 6]), float(pelve[0]), places=6)
+                self.assertEqual(float(out[0, 7]), 0.0)
+
     def _calcula_caixa_com(self, tarefa, alvo_idx, aviso):
         # `_calcula_caixa` com a visibilidade, as cápsulas, o estimador e o alvo no frame trocados por falsos
         robo = mock.MagicMock()
@@ -205,12 +217,12 @@ class ObservacoesTest(unittest.TestCase):
             return observacoes._calcula_caixa(env)[:, 8:11]  # o alvo: os 3 últimos canais da caixa
 
     def test_botar_sem_aviso_mostra_o_alvo_mesmo_sem_indice(self):
-        # F9 R5: no BOTAR o canal do alvo zera com o latch do aviso, e não com o índice −1 (fecho do B4)
+        # F9 R5: no BOTAR o canal do alvo zera com o latch do aviso, e não com o índice −1 (fecho do B3)
         alvo = self._calcula_caixa_com(TAREFAS.index("BOTAR"), -1, False)
         self.assertEqual(alvo.tolist(), [[1.0, 1.0, 1.0]])
 
     def test_botar_com_aviso_zera_o_alvo(self):
-        alvo = self._calcula_caixa_com(TAREFAS.index("BOTAR"), ALVOS.index("B4"), True)
+        alvo = self._calcula_caixa_com(TAREFAS.index("BOTAR"), ALVOS.index("B3"), True)
         self.assertEqual(float(alvo.abs().max()), 0.0)
 
     def test_fora_do_botar_alvo_sem_indice_zera(self):

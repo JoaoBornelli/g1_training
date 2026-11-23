@@ -249,49 +249,48 @@ def _roteiro(inicio: np.ndarray, trechos) -> dict:
 
 
 def trajetoria_pegar() -> dict:
-    """Roteiro do PEGAR a 50 Hz (laje 0,30 m, a 0,10). Dict: t, dt, indice (0..8 em ALVOS), trecho,
-    palmas (N,2,3), caixa (N,3), pelve, tronco. Trechos: P0 1,0 s; P1 0,5 s; P2 1 passo; P3 0,5 s; P4 1,0 s + 0,5 s."""
+    """Roteiro do PEGAR a 50 Hz (laje 0,30 m, a 0,10). Dict: t, dt, indice (0..6 em ALVOS), trecho,
+    palmas (N,2,3), caixa (N,3), pelve, tronco. Trechos: P0 1,0 s; P1 0,5 s; P2 1 passo; P3 1,5 s + `tempo_p3` (23/11, T14:
+    o P3 ergue a caixa e a leva ao ponto de transporte)."""
     ref, a = _ref(), A_CAIXA
     recuo = float(ref.recuo(_t(TOPO_PEGAR), _t(a))[0])
     pelve = float(ref.pelve_z(_t(TOPO_PEGAR), _t(a))[0])
     tronco = float(ref.tronco(_t(TOPO_PEGAR), _t(a))[0])
     caixa0 = np.array([recuo, 0.0, TOPO_PEGAR + a])
-    caixa1 = _caixa_alvo(A.P3, caixa0, np.zeros(3), a, ref)
-    caixa4 = _caixa_alvo(A.P4, np.zeros(3), np.zeros(3), a, ref)
+    caixa3 = _caixa_alvo(A.P3, np.zeros(3), np.zeros(3), a, ref)
     p1 = _palmas(A.P1, caixa0, a)
-    # P4 é a pose de pé com caixa (S §8.2 "P4 peito"): pelve e tronco de pé, e não os da pega (tronco 51°)
-    pelve4 = float(ref.pelve_com_caixa(_t(a))[0])
+    # o P3 termina na pose de pé com caixa (S §8.2 "P4 peito" antigo): pelve e tronco de pé, e não os da pega (tronco 51°)
+    pelve3 = float(ref.pelve_com_caixa(_t(a))[0])
     inicio = _estado(_pose_de_pe(ref), caixa0, ref.pelve_de_pe, 0.0)
     return _roteiro(inicio, [
         ("ate_P0", 1.0, A.P0, _estado(_palmas(A.P0, caixa0, a), caixa0, pelve, tronco)),
         ("P0_P1", 0.5, A.P1, _estado(p1, caixa0, pelve, tronco)),
         ("P2", DT, A.P2, _estado(p1, caixa0, pelve, tronco)),
-        ("P3", 0.5, A.P3, _estado(_palmas(A.P1, caixa1, a), caixa1, pelve, tronco)),
-        ("P4", 1.0, A.P4, _estado(_palmas(A.P1, caixa4, a), caixa4, pelve4, 0.0)),
-        ("P4_espera", ATIVO.alvos.tempo_p4, A.P4, _estado(_palmas(A.P1, caixa4, a), caixa4, pelve4, 0.0)),
+        ("P3", 1.5, A.P3, _estado(_palmas(A.P1, caixa3, a), caixa3, pelve3, 0.0)),
+        ("P3_espera", ATIVO.alvos.tempo_p3, A.P3, _estado(_palmas(A.P1, caixa3, a), caixa3, pelve3, 0.0)),
     ])
 
 
 def trajetoria_botar() -> dict:
     """Roteiro do BOTAR (laje 0,15 m), começa no transporte; mesmo formato. Permanências do knobs."""
     ref, a, k = _ref(), A_CAIXA, ATIVO.alvos
-    caixa4 = _caixa_alvo(A.P4, np.zeros(3), np.zeros(3), a, ref)
+    caixa3 = _caixa_alvo(A.P3, np.zeros(3), np.zeros(3), a, ref)
     recuo = float(ref.recuo(_t(TOPO_BOTAR), _t(a))[0])
     pelve = float(ref.pelve_z(_t(TOPO_BOTAR), _t(a))[0])
     tronco = float(ref.tronco(_t(TOPO_BOTAR), _t(a))[0])
     alvo_b, centro_b = A.laje_destino(_t(recuo), _t(0.0), _t(0.0), a, ATIVO.cena.destino_borda)
     soltura = np.array([centro_b[0, 0].item(), centro_b[0, 1].item(), TOPO_BOTAR + a])
-    caixa_b1 = _caixa_alvo(A.B1, np.zeros(3), soltura, a, ref)
-    p1_b1, p1_b2 = _palmas(A.P1, caixa_b1, a), _palmas(A.P1, soltura, a)
-    b3, pe = _palmas(A.B3, soltura, a), _pose_de_pe(ref)
-    # o BOTAR começa no fim do P4 da pega: pose de pé com caixa (tronco 0), e não a pose da pega (tronco 51°)
-    inicio = _estado(_palmas(A.P1, caixa4, a), caixa4, float(ref.pelve_com_caixa(_t(a))[0]), 0.0)
-    return _roteiro(inicio, [
-        ("ate_B1", 1.0, A.B1, _estado(p1_b1, caixa_b1, pelve, tronco)),
-        ("B1_B2", 0.5, A.B2, _estado(p1_b2, soltura, pelve, tronco)),
-        ("B2_espera", k.tempo_b2, A.B2, _estado(p1_b2, soltura, pelve, tronco)),
-        ("B3", 0.5, A.B3, _estado(b3, soltura, pelve, tronco)),
-        ("B3_espera", k.tempo_b3, A.B3, _estado(b3, soltura, pelve, tronco)),
-        ("B4", 1.0, A.B4, _estado(pe, soltura, ref.pelve_de_pe, 0.0)),
-        ("B4_espera", k.tempo_b4, A.B4, _estado(pe, soltura, ref.pelve_de_pe, 0.0)),
+    alto = soltura + np.array([0.0, 0.0, 0.15])  # 15 cm acima da soltura: a descida final é o pouso devagar (S §9.1)
+    p1_alto, p1_b1 = _palmas(A.P1, alto, a), _palmas(A.P1, soltura, a)
+    b2, pe = _palmas(A.B2, soltura, a), _pose_de_pe(ref)
+    # o BOTAR começa no fim do P3 da pega: pose de pé com caixa (tronco 0), e não a pose da pega (tronco 51°)
+    inicio = _estado(_palmas(A.P1, caixa3, a), caixa3, float(ref.pelve_com_caixa(_t(a))[0]), 0.0)
+    return _roteiro(inicio, [  # 23/11, T14: o B1 leva ao destino e apoia num trecho só
+        ("ate_B1", 1.0, A.B1, _estado(p1_alto, alto, pelve, tronco)),
+        ("B1_pouso", 2.0, A.B1, _estado(p1_b1, soltura, pelve, tronco)),
+        ("B1_espera", k.tempo_b1, A.B1, _estado(p1_b1, soltura, pelve, tronco)),
+        ("B2", 0.5, A.B2, _estado(b2, soltura, pelve, tronco)),
+        ("B2_espera", k.tempo_b2, A.B2, _estado(b2, soltura, pelve, tronco)),
+        ("B3", 1.0, A.B3, _estado(pe, soltura, ref.pelve_de_pe, 0.0)),
+        ("B3_espera", k.tempo_b3, A.B3, _estado(pe, soltura, ref.pelve_de_pe, 0.0)),
     ])

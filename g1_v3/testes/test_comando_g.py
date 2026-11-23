@@ -1,5 +1,5 @@
 """Testes da lane G3 da fase G de g1_v3/comando.py (§6.3 "Fase G"): o sucesso do segmento do CARREGAR no terreno, o
-`v3_incl_max_seg` do twist e o B4 da caixa perdida medido pela pelve sobre o pé mais baixo (F9, R6 da E11).
+`v3_incl_max_seg` do twist e o B3 da caixa perdida medido pela pelve sobre o pé mais baixo (F9, R6 da E11).
 Escritos antes do conserto. Os testes de env usam env falso (`types.SimpleNamespace`), sem a cena.
 """
 import dataclasses
@@ -16,7 +16,7 @@ from g1_v3.knobs import ATIVO
 A = ATIVO.alvos
 # k próprio do núcleo: os campos de `ATIVO.comando` (inclui `incl_max_terreno_graus`, G1)
 K = types.SimpleNamespace(**dataclasses.asdict(ATIVO.comando))
-P0, P1, P2, P3, P4, B1, B2, B3, B4 = range(9)
+P0, P1, P2, P3, B1, B2, B3 = range(7)
 CARREGAR_TERRENO = 3  # id de célula falso: ("CARREGAR", "terreno")
 
 
@@ -158,20 +158,20 @@ def _ref_falsa():
         palmas_de_pe_b=torch.zeros(1, 2, 3), palmas_com_caixa_b=lambda a: torch.zeros(1, 2, 3))
 
 
-class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
+class B3DaCaixaPerdidaPelaPelve(unittest.TestCase):
 
-    def test_b4_mede_a_pelve_sobre_o_pe_mais_baixo_e_nao_o_h(self):
+    def test_b3_mede_a_pelve_sobre_o_pe_mais_baixo_e_nao_o_h(self):
         # Degrau: `h` (altura sob a pelve) = 0,50, mas a pelve sobre o pé mais baixo = 1,00 − 0,10 = 0,90.
-        # O B4 segue a pelve sobre o pé: dpelve = 0,90 − 0,789 = 0,111 (e não 0,50 − 0,789 = −0,289).
+        # O B3 segue a pelve sobre o pé: dpelve = 0,90 − 0,789 = 0,111 (e não 0,50 − 0,789 = −0,289).
         z = torch.zeros(1)
         cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, ATIVO.terreno)
         cur.z = [0.0] * balanceador.N_ETAPAS  # 20/11, T13: z = 0, os critérios finais
         env = types.SimpleNamespace(
             device="cpu", v3_cur=cur,
-            v3_alvo_idx=torch.tensor([B4]), v3_tarefa=torch.tensor([comando.ANDAR]),
+            v3_alvo_idx=torch.tensor([B3]), v3_tarefa=torch.tensor([comando.ANDAR]),
             v3_perdeu=torch.tensor([True]), v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=_ref_falsa(),
-            v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_pegou=torch.zeros(1, dtype=torch.bool),
-            v3_b4_fechado=torch.zeros(1, dtype=torch.bool), v3_avancou=torch.zeros(1, dtype=torch.bool),
+            v3_pega_fechada=torch.zeros(1, dtype=torch.bool), v3_pegou=torch.zeros(1, dtype=torch.bool),
+            v3_bota_fechada=torch.zeros(1, dtype=torch.bool), v3_avancou=torch.zeros(1, dtype=torch.bool),
             v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
             v3_ponto_apoio=torch.zeros(1, 3), v3_sigma=torch.ones(1),
             v3_phi=torch.zeros(1), v3_h=torch.ones(1), v3_phi_melhor=torch.zeros(1))
@@ -189,10 +189,10 @@ class B4DaCaixaPerdidaPelaPelve(unittest.TestCase):
                 mock.patch.object(recompensas, "incl_lim", return_value=torch.tensor([30.0])), \
                 mock.patch.object(recompensas, "portoes_do_alvo", return_value=ok_todos):
             obj._alvos(m, 0.02)
-        dpelve = botar.call_args.args[8]  # posição de `dpelve` em `ok_agora_botar`
+        dpelve = botar.call_args.args[7]  # posição de `dpelve` em `ok_agora_botar`
         self.assertAlmostEqual(float(dpelve[0]), 0.111, places=6)
-        # 13/11, A9: o `dpalmas` da medida chega ao fecho do B4 (a caixa perdida usa o mesmo núcleo)
-        self.assertAlmostEqual(float(botar.call_args.args[10][0]), 0.07, places=6)
+        # 13/11, A9: o `dpalmas` da medida chega ao fecho do B3 (a caixa perdida usa o mesmo núcleo)
+        self.assertAlmostEqual(float(botar.call_args.args[9][0]), 0.07, places=6)
 
 
 if __name__ == "__main__":

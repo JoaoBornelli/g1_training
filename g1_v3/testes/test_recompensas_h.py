@@ -15,7 +15,7 @@ from g1_v3.knobs import ALVOS, ATIVO, JUNTAS, TAREFAS, TAU_MAX
 
 DT = 0.02
 NORMA_LIN, NORMA_ANG = ATIVO.recompensa.sacudida_norma  # (5,04; 31,56): o p50 medido no 23250
-P4, P0, P1, P2, B3, B4 = (ALVOS.index(n) for n in ("P4", "P0", "P1", "P2", "B3", "B4"))
+P3, P0, P1, P2, B2, B3 = (ALVOS.index(n) for n in ("P3", "P0", "P1", "P2", "B2", "B3"))
 CARGA = ("PEGAR", "CARREGAR", "BOTAR")  # tarefas da sacudida e do aperto (§6.5)
 S = 12  # fatias do sensor `caixa_faces` (cena.py, num_slots=12)
 IDENTIDADE = torch.tensor([[1.0, 0.0, 0.0, 0.0]])  # quat wxyz
@@ -24,7 +24,7 @@ P50_DW = 31.56 * DT  # |Δω| do p50 medido: rad/s entre duas chamadas
 R90 = torch.tensor([[[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]])  # caixa girada 90° em yaw
 
 
-def env_falso(tarefa="CARREGAR", alvo=P4, degrau=5, faces=None, e=1):
+def env_falso(tarefa="CARREGAR", alvo=P3, degrau=5, faces=None, e=1):
     """Env de `e` envs: caixa com velocidade zero e quat identidade; robô com quat identidade."""
     vel = torch.zeros(e, 6)
     box = types.SimpleNamespace(data=types.SimpleNamespace(root_link_vel_w=vel, root_link_quat_w=IDENTIDADE.repeat(e, 1)))
@@ -44,7 +44,7 @@ def vel_caixa(lin=(0.0, 0.0, 0.0), ang=(0.0, 0.0, 0.0)):
     return torch.tensor([[*lin, *ang]])
 
 
-def sacudida_p50(degrau, alvo=P4, tarefa="CARREGAR"):
+def sacudida_p50(degrau, alvo=P3, tarefa="CARREGAR"):
     """Duas chamadas do termo: a 1ª com v = 0; a 2ª com o Δ do p50 medido (|Δv| = 5,04·dt, |Δω| = 31,56·dt)."""
     env = env_falso(tarefa=tarefa, alvo=alvo, degrau=degrau)
     termo = recompensas.sacudida(cfg=None, env=env)
@@ -65,7 +65,7 @@ def fatias(contatos, ruido=()):
     return normal, forca, achado
 
 
-def aperto_de(contatos, degrau=5, alvo=P4, tarefa="CARREGAR", ruido=()):
+def aperto_de(contatos, degrau=5, alvo=P3, tarefa="CARREGAR", ruido=()):
     """Valor do `aperto` com as faces de `contatos` no sensor `caixa_faces` (robô e caixa com quat identidade)."""
     normal, forca, achado = fatias(contatos, ruido)
     faces = types.SimpleNamespace(data=types.SimpleNamespace(normal=normal, force=forca, found=achado.long()))
@@ -113,8 +113,8 @@ class Sacudida(unittest.TestCase):
         self.assertEqual(sacudida_p50(0), 0.0)
 
     def test_zero_com_alvo_que_nao_pesa_e_fora_das_tarefas(self):
-        # Teste (H2): só P3, P4, B1 e B2 pagam (§6.5, P3/P4/B1/B2); alvo −1, P0–P2, B3, B4 e ANDAR dão zero.
-        for alvo in (-1, P0, P1, P2, B3, B4):
+        # Teste (H2); 23/11, T14: só P3 e B1 pagam (§6.5); alvo −1, P0–P2, B2, B3 e ANDAR dão zero.
+        for alvo in (-1, P0, P1, P2, B2, B3):
             with self.subTest(alvo=alvo):
                 self.assertEqual(sacudida_p50(5, alvo=alvo), 0.0)
         self.assertEqual(sacudida_p50(5, tarefa="ANDAR"), 0.0)

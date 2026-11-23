@@ -2,7 +2,7 @@
 
 Convenções que o teste assume (o plano não fixa todas; ver a resposta de B0):
 - todo tensor tem forma (E,), com E = 1 aqui; quaternion em wxyz; `indice` é long (E,) com a posição
-  em ALVOS; `tempos` é (9,) na ordem de ALVOS.
+  em ALVOS; `tempos` é (7,) na ordem de ALVOS.
 """
 import math
 import unittest
@@ -16,7 +16,7 @@ K_AL = ATIVO.alvos
 K_DET = ATIVO.detector
 DEV = "cpu"
 T = torch.float64
-IDX = {nome: i for i, nome in enumerate(ALVOS)}  # P0=0 … P4=4, B1=5, B2=6, B3=7, B4=8
+IDX = {nome: i for i, nome in enumerate(ALVOS)}  # P0=0 … P3=3, B1=4, B2=5, B3=6 (23/11, T14)
 
 
 def t(*valores):
@@ -137,9 +137,9 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
             self.assertAlmostEqual(p[2], 0.0, delta=1e-6)
         self.assertLess(out[0, 0, 1].item() * out[0, 1, 1].item(), 0.0)  # uma palma de cada lado
 
-    def test_B3_com_a_010(self):
-        # S §8.2: B3 = (0, ±(a + palma_face + b3_afasta), 0) = (0; ±0,195; 0).
-        out = alvos.palmas_alvo_caixa(torch.tensor([IDX["B3"]]), torch.tensor([0.10], dtype=T), K_AL)
+    def test_B2_com_a_010(self):
+        # S §8.2: B2 = (0, ±(a + palma_face + b2_afasta), 0) = (0; ±0,195; 0).
+        out = alvos.palmas_alvo_caixa(torch.tensor([IDX["B2"]]), torch.tensor([0.10], dtype=T), K_AL)
         for p in out[0].tolist():
             self.assertAlmostEqual(p[0], 0.0, delta=1e-6)
             self.assertAlmostEqual(abs(p[1]), 0.195, delta=1e-6)
@@ -186,8 +186,8 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
                 self.assertGreater(alcance_pad, alcance_punho + 0.005)  # margem acima de 5 mm sobre o punho
 
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
-        # §6.3: P3, P4, B1, B2 e B4 não usam as palmas; devolvem 0, nunca NaN (§6.6).
-        for nome in ("P3", "P4", "B1", "B2", "B4"):
+        # §6.3: P3, B1 e B3 não usam as palmas; devolvem 0, nunca NaN (§6.6).
+        for nome in ("P3", "B1", "B3"):
             with self.subTest(alvo=nome):
                 out = alvos.palmas_alvo_caixa(torch.tensor([IDX[nome]]), torch.tensor([0.10], dtype=T), K_AL)
                 self.assertFalse(torch.isnan(out).any().item())
@@ -196,25 +196,36 @@ class TestPalmasAlvoCaixa(unittest.TestCase):
 
 class TestCaixaAlvoW(unittest.TestCase):
 
-    def test_P4_com_base_na_origem_e_rumo_zero(self):
-        # S §8.2: P4 com z = chão + z_transporte (0,90), e xy de caixa_transporte_b(a).
+    def test_P3_com_base_na_origem_e_rumo_zero(self):
+        # S §8.2; 23/11, T14: P3 (o P4 antigo) com z = chão + z_transporte (0,90), e xy de caixa_transporte_b(a).
         ref = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV)
         a = torch.tensor([0.10], dtype=T)
         zeros3 = torch.zeros(1, 3, dtype=T)
         zero1 = torch.zeros(1, dtype=T)
-        out = alvos.caixa_alvo_w(torch.tensor([IDX["P4"]]), zeros3, zeros3, zeros3,
+        out = alvos.caixa_alvo_w(torch.tensor([IDX["P3"]]), zeros3, zeros3, zeros3,
                                  zero1, zero1, a, ref, K_AL)
         self.assertAlmostEqual(out[0, 2].item(), 0.90, delta=1e-9)
         xy = ref.caixa_transporte_b(a)[0, :2]
         self.assertTrue(torch.allclose(out[0, :2], xy, atol=1e-6))
 
+    def test_B1_e_a_soltura_sem_altura_a_mais(self):
+        # 23/11, T14: o B1 (levar ao destino e apoiar) mira a soltura, sem o `b1_alto` do B1 antigo; a pega + `p3_alto` do P3
+        # antigo também saiu (o P3 mira o ponto de transporte)
+        ref = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV)
+        a = torch.tensor([0.10], dtype=T)
+        zero1 = torch.zeros(1, dtype=T)
+        soltura = torch.tensor([[0.5, 0.1, 0.3]], dtype=T)
+        out = alvos.caixa_alvo_w(torch.tensor([IDX["B1"]]), torch.zeros(1, 3, dtype=T), soltura, torch.zeros(1, 3, dtype=T),
+                                 zero1, zero1, a, ref, K_AL)
+        self.assertTrue(torch.allclose(out, soltura, atol=1e-12))
+
     def test_alvos_sem_uso_dao_zero_e_nao_nan(self):
-        # §6.3: P0, P1, P2, B3 e B4 não usam a caixa-alvo; devolvem 0, nunca NaN.
+        # §6.3: P0, P1, P2, B2 e B3 não usam a caixa-alvo; devolvem 0, nunca NaN.
         ref = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV)
         a = torch.tensor([0.10], dtype=T)
         zeros3 = torch.zeros(1, 3, dtype=T)
         zero1 = torch.zeros(1, dtype=T)
-        for nome in ("P0", "P1", "P2", "B3", "B4"):
+        for nome in ("P0", "P1", "P2", "B2", "B3"):
             with self.subTest(alvo=nome):
                 out = alvos.caixa_alvo_w(torch.tensor([IDX[nome]]), zeros3, zeros3, zeros3,
                                          zero1, zero1, a, ref, K_AL)
@@ -224,33 +235,32 @@ class TestCaixaAlvoW(unittest.TestCase):
 
 def _tempos():
     # tempo de permanência de cada alvo, na ordem de ALVOS (§8.2); 0 onde o plano não dá tempo.
-    return torch.tensor([0.0, 0.0, 0.0, 0.0, K_AL.tempo_p4, 0.0,
-                         K_AL.tempo_b2, K_AL.tempo_b3, K_AL.tempo_b4], dtype=T)
+    return torch.tensor([0.0, 0.0, 0.0, K_AL.tempo_p3, K_AL.tempo_b1, K_AL.tempo_b2, K_AL.tempo_b3], dtype=T)
 
 
 class TestAvanca(unittest.TestCase):
 
-    def test_P4_avanca_no_passo_25_com_ok_sempre(self):
-        # §8.2: tempo_p4 = 0,5 s; com passo de 0,02 s, são 25 passos. Antes do 25, fica em P4.
-        idx = torch.tensor([IDX["P4"]])
+    def test_P3_avanca_no_passo_25_com_ok_sempre(self):
+        # §8.2: tempo_p3 = 0,5 s; com passo de 0,02 s, são 25 passos. Antes do 25, fica em P3.
+        idx = torch.tensor([IDX["P3"]])
         rel = torch.zeros(1, dtype=T)
         ok = torch.ones(1, dtype=torch.bool)
         for passo in range(1, 26):
             idx, rel, _ = alvos.avanca(idx, ok, rel, 0.02, _tempos())
             if passo < 25:
-                self.assertEqual(idx.item(), IDX["P4"], f"avançou cedo no passo {passo}")
+                self.assertEqual(idx.item(), IDX["P3"], f"avançou cedo no passo {passo}")
         self.assertEqual(idx.item(), IDX["B1"])
 
     def test_ok_falso_no_passo_10_zera_o_relogio(self):
         # Sem o reset, o avanço sairia no passo 25. Com o reset no 10, a contagem recomeça e o
         # avanço sai no passo 35 (25 passos ok depois do 10). Checa 25 (ainda não) e 35 (já).
-        idx = torch.tensor([IDX["P4"]])
+        idx = torch.tensor([IDX["P3"]])
         rel = torch.zeros(1, dtype=T)
         for passo in range(1, 36):
             ok = torch.tensor([passo != 10])
             idx, rel, _ = alvos.avanca(idx, ok, rel, 0.02, _tempos())
             if passo == 25:
-                self.assertEqual(idx.item(), IDX["P4"], "o relógio não zerou no passo 10")
+                self.assertEqual(idx.item(), IDX["P3"], "o relógio não zerou no passo 10")
         self.assertEqual(idx.item(), IDX["B1"])
 
     def test_P2_avanca_no_mesmo_passo(self):
@@ -259,6 +269,14 @@ class TestAvanca(unittest.TestCase):
         rel = torch.zeros(1, dtype=T)
         idx, _, _ = alvos.avanca(idx, torch.ones(1, dtype=torch.bool), rel, 0.02, _tempos())
         self.assertEqual(idx.item(), IDX["P3"])
+
+    def test_depois_do_B3_o_indice_vira_menos_1(self):
+        # 23/11, T14: o B3 (ficar de pé) é a última etapa; o avanço depois dele dá −1 (nenhum), e não o índice 7
+        idx = torch.tensor([IDX["B3"]])
+        idx, _, avancou = alvos.avanca(idx, torch.ones(1, dtype=torch.bool), torch.zeros(1, dtype=T), 0.02,
+                                       torch.zeros(7, dtype=T))
+        self.assertTrue(avancou.item())
+        self.assertEqual(idx.item(), -1)
 
 
 class TestDetectaFim(unittest.TestCase):
@@ -308,12 +326,12 @@ class TestBaseParaMundo(unittest.TestCase):
         out = alvos.base_para_mundo(torch.tensor([[2.0, 3.0]], dtype=T), t(math.pi / 2), p)
         self.assertTrue(torch.allclose(out, torch.tensor([[2.0, 4.0]], dtype=T), atol=1e-12))
 
-    def test_caixa_alvo_p4_com_rumo_90_usa_o_mesmo_nucleo(self):
-        # Guarda de regressão da troca na conta inline de caixa_alvo_w: P4 com rumo 90° e base (1, 2).
+    def test_caixa_alvo_p3_com_rumo_90_usa_o_mesmo_nucleo(self):
+        # Guarda de regressão da troca na conta inline de caixa_alvo_w: P3 com rumo 90° e base (1, 2).
         ref = alvos.Referencias(str(caminho(ATIVO.contrato.referencias)), DEV)
         a = torch.tensor([0.10], dtype=T)
         base = torch.tensor([[1.0, 2.0, 0.0]], dtype=T)
-        out = alvos.caixa_alvo_w(torch.tensor([IDX["P4"]]), torch.zeros(1, 3, dtype=T), torch.zeros(1, 3, dtype=T),
+        out = alvos.caixa_alvo_w(torch.tensor([IDX["P3"]]), torch.zeros(1, 3, dtype=T), torch.zeros(1, 3, dtype=T),
                                  base, t(math.pi / 2), torch.zeros(1, dtype=T), a, ref, K_AL)
         tb = ref.caixa_transporte_b(a)[0]
         esperado = alvos.base_para_mundo(base[:, :2], t(math.pi / 2), tb[None, :2])

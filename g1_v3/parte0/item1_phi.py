@@ -19,21 +19,21 @@ from g1_v3.parte0 import comum as C
 
 K = ATIVO.alvos
 R = ATIVO.recompensa
-NOMES = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")  # ordem de ALVOS (knobs)
+NOMES = ("P0", "P1", "P2", "P3", "B1", "B2", "B3")  # ordem de ALVOS (knobs)
 A_CAIXA = C.A_CAIXA
 DT = C.DT
 EPS = 1e-9  # folga de ponto flutuante nos critérios de ≤ e de razão
-SIGMA_MIN = 0.01  # σ de alvo métrico com piso de 1 cm (plano E3); B4 é adimensional, sem piso
+SIGMA_MIN = 0.01  # σ de alvo métrico com piso de 1 cm (plano E3); B3 é adimensional, sem piso
 N_HOLD = round(2.0 / DT)  # 2 s de pausa a 50 Hz
 OFFSET = 0.01  # 1 cm do alvo, na grandeza do próprio alvo (palmas, caixa ou pelve)
 # Grupos pela §6.3 e pela E4 do plano: qual grandeza o k_principal mede e quais invariantes valem.
-PALMA = [0, 1, 2, 7]  # k pelas palmas: P0–P2 e B3
-CAIXA = [3, 4, 5, 6]  # k pela caixa: P3, P4, B1, B2 (B4 usa a pose)
-POUSO = [5, 6]  # B1 e B2: k × fator_pouso
+PALMA = [0, 1, 2, 5]  # k pelas palmas: P0–P2 e B2
+CAIXA = [3, 4]  # k pela caixa: P3 e B1 (B3 usa a pose)
+POUSO = [4]  # B1: k × fator_pouso
 DESLOC_PEGA = [0, 1, 2]  # invariante P0–P2: a caixa desloca menos de a na laje
-MAOS = [2, 3, 4, 5, 6]  # invariante P2–B2: caixa nivelada e duas mãos (g_mãos)
-DESLOC_BOTAR = [7, 8]  # invariante B2–B4: caixa parada, desloca pouco do ponto de apoio
-METRICOS = [0, 1, 2, 3, 4, 5, 6, 7]  # σ métrico, com piso de 1 cm; o B4 é a pose adimensional, sem piso
+MAOS = [2, 3, 4]  # invariante P2–B1: caixa nivelada e duas mãos (g_mãos)
+DESLOC_BOTAR = [5, 6]  # invariante B2–B3: caixa parada, desloca pouco do ponto de apoio
+METRICOS = [0, 1, 2, 3, 4, 5]  # σ métrico, com piso de 1 cm; o B3 é a pose adimensional, sem piso
 ALVO_P1 = A.palmas_alvo_caixa(torch.tensor([1]), torch.tensor([A_CAIXA], dtype=torch.float64), K).numpy()[0]
 
 
@@ -53,8 +53,8 @@ def _g(x, lim, delta):
 
 def referencias() -> dict:
     """Referência de cada alvo para a faixa do Φ (E4): tronco (rad) e recuo (m). P0–P3 e B1–B3: a pega
-    no topo da laje; P4: pose de pé com caixa (tronco pela FK de `q_com_caixa`, recuo do
-    `caixa_transporte_b`); B4: pose de pé sem caixa (tronco 0 e sem recuo, como nas cercas da Parte 0)."""
+    no topo da laje (P0–P2 e B1–B2); P3: pose de pé com caixa (tronco pela FK de `q_com_caixa`, recuo do
+    `caixa_transporte_b`); B3: pose de pé sem caixa (tronco 0 e sem recuo, como nas cercas da Parte 0)."""
     ref = C._ref()
     a = torch.tensor([A_CAIXA], dtype=torch.float64)
     tr_p = float(ref.tronco(_t([C.TOPO_PEGAR]), a)[0])
@@ -64,8 +64,8 @@ def referencias() -> dict:
     tr_c = float(C.fk(ref.q_com_caixa(a).numpy())["tronco"][0])
     rc_c = float(np.linalg.norm(ref.caixa_transporte_b(a).numpy()[0, :2]))
     return dict(pelve_pe=ref.pelve_de_pe,
-                tronco=np.array([tr_p] * 4 + [tr_c] + [tr_b] * 3 + [0.0]),
-                recuo=np.array([rc_p] * 4 + [rc_c] + [rc_b] * 3 + [np.nan]))
+                tronco=np.array([tr_p] * 3 + [tr_c] + [tr_b] * 2 + [0.0]),
+                recuo=np.array([rc_p] * 3 + [rc_c] + [rc_b] * 2 + [np.nan]))
 
 
 def _trechos(idx):
@@ -85,26 +85,26 @@ def _primeiro_trecho(idx, alvo):
 
 def pontos_de(tr) -> dict:
     """Pontos de referência do caminho: caixa no início (desloc. P0–P2) e caixa no fim da descida do B2
-    (ponto de apoio, desloc. B2–B4). ⚠ Apoio = fim do trecho B2, onde a caixa chega à laje."""
-    b2 = _primeiro_trecho(tr["indice"], 6)
-    apoio = tr["caixa"][b2[1]] if b2 else tr["caixa"][0]
+    (ponto de apoio, desloc. B2–B3). ⚠ Apoio = fim do trecho B1, onde a caixa chega à laje."""
+    b1 = _primeiro_trecho(tr["indice"], 4)
+    apoio = tr["caixa"][b1[1]] if b1 else tr["caixa"][0]
     return dict(caixa0=tr["caixa"][0], apoio=apoio)
 
 
 def _distancia(tr, alvo, refs):
-    """d na medida do alvo corrente (E4): palmas (média das duas) em P0–P2 e B3; distância da caixa
-    ao alvo em P3, B1, B2; em P4 (11/11), a mesma com a pelve; em B4, √((Δpelve/0,03)² + (Δtronco/5°)²)."""
+    """d na medida do alvo corrente (E4): palmas (média das duas) em P0–P2 e B2; distância da caixa
+    ao alvo em B1; em P3 (11/11), a mesma com a pelve; em B3, √((Δpelve/0,03)² + (Δtronco/5°)²)."""
     idx = tr["indice"]
     rel = tr["palmas"] - tr["caixa"][:, None, :]
     alvo_rel = A.palmas_alvo_caixa(torch.as_tensor(idx, dtype=torch.long),
                                    _t(np.full(len(idx), A_CAIXA)), K).numpy()
     d_palma = np.linalg.norm(rel - alvo_rel, axis=2).mean(1)
     d_caixa = np.linalg.norm(tr["caixa"] - alvo, axis=1)
-    d_pose = np.hypot((tr["pelve"] - refs["pelve_pe"]) / K.tol_pelve_b4,
-                      np.degrees(tr["tronco"] - refs["tronco"][idx]) / K.tol_tronco_b4_graus)
-    d_p4 = np.hypot(d_caixa, (tr["pelve"] - refs["pelve_pe"]) * (K.tol_caixa_p4 / K.tol_pelve_p4))
+    d_pose = np.hypot((tr["pelve"] - refs["pelve_pe"]) / K.tol_pelve_b3,
+                      np.degrees(tr["tronco"] - refs["tronco"][idx]) / K.tol_tronco_b3_graus)
+    d_p3 = np.hypot(d_caixa, (tr["pelve"] - refs["pelve_pe"]) * (K.tol_transporte_p3 / K.tol_pelve_p3))
     return np.where(np.isin(idx, PALMA), d_palma,
-                    np.where(idx == NOMES.index("P4"), d_p4, np.where(np.isin(idx, CAIXA), d_caixa, d_pose)))
+                    np.where(idx == NOMES.index("P3"), d_p3, np.where(np.isin(idx, CAIXA), d_caixa, d_pose)))
 
 
 def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
@@ -120,7 +120,7 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     if sigma is None:
         sig0 = d[ini][trecho]
         sigma = np.where(np.isin(idx, METRICOS), np.maximum(sig0, SIGMA_MIN), sig0)
-    # k_principal: 1 − tanh(d / (largura·σ)), vezes o fator de pouso no B1 e no B2 (velocidade vertical por diferença finita)
+    # k_principal: 1 − tanh(d / (largura·σ)), vezes o fator de pouso no B1 (velocidade vertical por diferença finita)
     z = caixa[:, 2]
     v = np.diff(z, prepend=z[0]) / DT
     pouso = P.fator_pouso(_t(v), _t(z - A_CAIXA - C.TOPO_BOTAR), R.sigma_pouso[0], R.altura_pouso,
@@ -128,7 +128,7 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     # núcleo 1 − tanh(d / (largura·σ)), o mesmo de `phi_do_alvo` (10/11), com o mesmo piso de σ
     nuc = 1 - np.tanh(d / (K.largura_tanh * np.maximum(sigma, 1e-6)))
     k = nuc * np.where(np.isin(idx, POUSO), pouso, 1.0)
-    # g: desloc. P0–P2 (x_lim = 1,0·a, Δ = 0,5·a); desloc. B2–B4; inclinação (x_lim = 30°, a fase aprender)
+    # g: desloc. P0–P2 (x_lim = 1,0·a, Δ = 0,5·a); desloc. B2–B3; inclinação (x_lim = 30°, a fase aprender)
     maos = np.isin(idx, MAOS)
     x_ini = np.linalg.norm(caixa[:, :2] - pontos["caixa0"][:2], axis=1)
     x_apo = np.linalg.norm(caixa[:, :2] - pontos["apoio"][:2], axis=1)
@@ -141,9 +141,9 @@ def avalia(tr, refs, pontos, alvo=None, sigma=None) -> dict:
     # portão da cadeia (o teto do da recompensa).
     contato = np.linalg.norm(palmas - caixa[:, None, :] - ALVO_P1, axis=2) <= K.tol_palma
     g_maos = np.where(maos, contato.sum(1) / 2.0, 1.0)
-    # faixa: tronco e recuo (x = |desvio| da referência); o recuo não vale no B4. O CoM não entra (ver a saída)
-    # F9 P2 (29/10): um lado só e 1 no B4; a saída gravada em `parte0/saida/item1_phi.txt` é da forma antiga (o dono aceitou: o B_alvo não muda)
-    g_tron = np.where(idx == 8, 1.0,_g(np.maximum(np.degrees(tr["tronco"] - refs["tronco"][idx]), 0.0),
+    # faixa: tronco e recuo (x = |desvio| da referência); o recuo não vale no B3. O CoM não entra (ver a saída)
+    # F9 P2 (29/10): um lado só e 1 no B3; a saída gravada em `parte0/saida/item1_phi.txt` é da forma antiga (o dono aceitou: o B_alvo não muda)
+    g_tron = np.where(idx == 6, 1.0, _g(np.maximum(np.degrees(tr["tronco"] - refs["tronco"][idx]), 0.0),
                                          K.faixa_tronco_graus, K.delta_tronco_graus))
     rec_ref = refs["recuo"][idx]
     g_rec = np.where(np.isnan(rec_ref), 1.0,
@@ -194,7 +194,7 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
     # dele; índice fixo (o avanço durante a pausa não é simulado, ver as premissas)
     somas = []
     for i in range(len(NOMES)):
-        tr, res, pts = (pe, rpe, pp) if i < 5 else (bo, rbo, pb)
+        tr, res, pts = (pe, rpe, pp) if i < 4 else (bo, rbo, pb)
         a0, a1 = _primeiro_trecho(tr["indice"], i)
         pal, cai = _repete(tr["palmas"][a1]), _repete(tr["caixa"][a1])
         pel, tro = np.full(N_HOLD, tr["pelve"][a1]), np.full(N_HOLD, tr["tronco"][a1])
@@ -202,7 +202,7 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
             pal = pal + np.array([OFFSET, 0.0, 0.0])
         if i in CAIXA:
             cai = cai + np.array([OFFSET, 0.0, 0.0])
-        if i == 8:
+        if i == 6:
             pel = pel + OFFSET
         hold = dict(indice=np.full(N_HOLD, i), palmas=pal, caixa=cai, pelve=pel, tronco=tro,
                     incl=np.zeros(N_HOLD))
@@ -247,12 +247,12 @@ def criterios(pe, bo, rpe, rbo, pp, pb, refs):
 PREMISSAS = [
     "Premissas (o plano não define estes pontos; cada um é dúvida para o dono):",
     "  pesos: renda_etapa e renda_phi do knob; etapa = índice do alvo (o roteiro não tem CARREGAR).",
-    "  σ do alvo = d no início do trecho de mesmo índice, com piso de 1 cm; B4 sem piso (como o item 2).",
+    "  σ do alvo = d no início do trecho de mesmo índice, com piso de 1 cm; B3 sem piso (como o item 2).",
     "  k: palmas = média das duas distâncias (caixa sem giro, então a distância é no frame da caixa); caixa = 3D.",
-    "  desloc. P0–P2: x_lim = 1,0·a = 0,10 m, Δ = 0,5·a; B3 e B4: x_lim 2 cm, Δ 2 cm, ponto de apoio = fim do B2.",
-    "  inclinação: x_lim = 30° (início da fase aprender), Δ = 15°. Só se usa no P2–B2 e no tombar.",
+    "  desloc. P0–P2: x_lim = 1,0·a = 0,10 m, Δ = 0,5·a; B2 e B3: x_lim 2 cm, Δ 2 cm, ponto de apoio = fim do B1.",
+    "  inclinação: x_lim = 30° (início da fase aprender), Δ = 15°. Só se usa no P2–B1 e no tombar.",
     "  contato da palma = a até 3 cm do ponto do P1 (o plano diz 'em contato', sem número).",
-    "  faixa: tronco e recuo. P4 usa a FK da pose de pé com caixa; o roteiro do P4 usa o tronco e a pelve da pega.",
+    "  faixa: tronco e recuo. P3 usa a FK da pose de pé com caixa; o roteiro do P3 termina na pose de pé com caixa.",
     "  faixa do CoM NÃO entra: precisa das juntas e dos pés (PD-35), que o roteiro sintético não tem.",
     "  fator de pouso: σ = 1,0 m/s (início), altura 5 cm, v por diferença finita do roteiro.",
     "  pairar: índice fixo no alvo. Se a pausa dispara o avanço (ok_agora), a soma muda; ok_agora não é simulado.",

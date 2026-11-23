@@ -25,7 +25,7 @@ R = ATIVO.recompensa
 A = C.A_CAIXA
 DT = C.DT
 TOL = 1e-5
-POUSO = [5, 6]  # B1 e B2: k × fator_pouso
+POUSO = [4]  # B1: k × fator_pouso (23/11, T14)
 
 
 def T(x):
@@ -125,10 +125,10 @@ class TestDistancia(unittest.TestCase):
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.30, places=6)
 
-    def test_b4_normaliza_pelve_e_tronco(self):
-        # Borda E4: B4 = √((Δpelve/0,03)² + (Δtronco/5°)² + (dpalmas/0,05)²); Δpelve 3 cm com o resto 0 → 1
+    def test_b3_normaliza_pelve_e_tronco(self):
+        # Borda E4: B3 = √((Δpelve/0,03)² + (Δtronco/5°)² + (dpalmas/0,05)²); Δpelve 3 cm com o resto 0 → 1
         z = torch.zeros(1, dtype=torch.float64)
-        d = recompensas.distancia_do_alvo(torch.tensor([8]), torch.zeros(1, 2, 3, dtype=torch.float64),
+        d = recompensas.distancia_do_alvo(torch.tensor([6]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.zeros(1, 3, dtype=torch.float64), torch.zeros(1, 3, dtype=torch.float64),
                                           torch.tensor([0.03], dtype=torch.float64), z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
@@ -143,22 +143,21 @@ class TestDistancia(unittest.TestCase):
             torch.tensor([dpalmas], dtype=torch.float64), torch.tensor([deficit], dtype=torch.float64),
             torch.tensor([A], dtype=torch.float64), K)[0])
 
-    def test_b4_cresce_com_as_palmas_longe_do_tronco(self):
-        # 13/11, A9: com pelve e tronco no alvo, d = dpalmas/tol_palmas_b4 (0,05 m → 1; 0,10 m → 2), e cresce com dpalmas
-        self.assertAlmostEqual(self._d_b(8, dpalmas=0.0), 0.0, places=6)
-        self.assertAlmostEqual(self._d_b(8, dpalmas=K.tol_palmas_b4), 1.0, places=6)
-        self.assertAlmostEqual(self._d_b(8, dpalmas=2 * K.tol_palmas_b4), 2.0, places=6)
+    def test_b3_cresce_com_as_palmas_longe_do_tronco(self):
+        # 13/11, A9: com pelve e tronco no alvo, d = dpalmas/tol_palmas_b3 (0,05 m → 1; 0,10 m → 2), e cresce com dpalmas
+        self.assertAlmostEqual(self._d_b(6, dpalmas=0.0), 0.0, places=6)
+        self.assertAlmostEqual(self._d_b(6, dpalmas=K.tol_palmas_b3), 1.0, places=6)
+        self.assertAlmostEqual(self._d_b(6, dpalmas=2 * K.tol_palmas_b3), 2.0, places=6)
 
-    def test_b2_soma_o_deficit_de_apoio_a_distancia_da_caixa(self):
-        # 13/11, A3: déficit 0 dá d_caixa; déficit 1 dá hypot(d_caixa, escala_apoio_b2 = 0,10)
-        self.assertAlmostEqual(self._d_b(6, deficit=0.0, caixa_x=0.05), 0.05, places=6)
-        self.assertAlmostEqual(self._d_b(6, deficit=1.0, caixa_x=0.05), math.hypot(0.05, K.escala_apoio_b2), places=6)
-        self.assertAlmostEqual(self._d_b(6, deficit=1.0, caixa_x=0.0), K.escala_apoio_b2, places=6)
+    def test_b1_soma_o_deficit_de_apoio_a_distancia_da_caixa(self):
+        # 13/11, A3; 23/11, T14: déficit 0 dá d_caixa; déficit 1 dá hypot(d_caixa, escala_apoio_b1 = 0,10)
+        self.assertAlmostEqual(self._d_b(4, deficit=0.0, caixa_x=0.05), 0.05, places=6)
+        self.assertAlmostEqual(self._d_b(4, deficit=1.0, caixa_x=0.05), math.hypot(0.05, K.escala_apoio_b1), places=6)
+        self.assertAlmostEqual(self._d_b(4, deficit=1.0, caixa_x=0.0), K.escala_apoio_b1, places=6)
 
-    def test_deficit_e_dpalmas_so_valem_no_b2_e_no_b4(self):
-        # 13/11, A3/A9: no B1 (5) e no P3 (3) a distância segue a da caixa, com déficit 1 e dpalmas altos
-        for indice in (3, 5):
-            self.assertAlmostEqual(self._d_b(indice, dpalmas=1.0, deficit=1.0, caixa_x=0.30), 0.30, places=6)
+    def test_deficit_e_dpalmas_so_valem_no_b1_e_no_b3(self):
+        # 13/11, A3/A9: no P3 (3) a distância segue a da caixa (a pelve está no alvo), com déficit 1 e dpalmas altos
+        self.assertAlmostEqual(self._d_b(3, dpalmas=1.0, deficit=1.0, caixa_x=0.30), 0.30, places=6)
 
     def test_indice_menos_um_da_zero(self):
         # Borda E4: −1 (nenhum alvo) → 0, nunca NaN
@@ -196,31 +195,32 @@ class TestProgresso(unittest.TestCase):
         # 18/11, T10: 6·n·h + 3·Φ + 2·conquistas, com n = 3, h = 0,5, Φ = 0 e as duas conquistas cheias: 9 + 0 + 4
         self.assertAlmostEqual(self._n(0.0, 3, h=0.5, conquistas=2.0), 13.0, places=5)
 
-    def test_todo_fecho_sobe_a_renda_com_as_conquistas(self):
-        # 18/11, T10 (a regra de 09/11): a abertura da etapa seguinte (h = 1, Φ de abertura 0,538) paga mais que o máximo
-        # da atual (h = 1, Φ = 1, conquistas cheias). (etapa, Φ pago?, conquistas) de P1 a B4; o CARREGAR não paga Φ
+    def test_escada_das_trocas_que_o_robo_controla(self):
+        # 23/11, T14 (seção 5 da spec): no pior caso de cada troca de etapa (h = 1 na etapa nova), a renda da abertura passa
+        # a do máximo da etapa que fecha. Etapa = índice do alvo (P3 = 3, CARREGAR e B1 = 4, B2 = 5, B3 = 6). Φ da abertura:
+        # d = σ, 1 − tanh(1/largura) = 0,538. `conquistas` = soma das conquistas pagas (palmas, pega, peso).
         phi0 = 1 - math.tanh(1 / K.largura_tanh)
-        cadeia = [(1, True, 0.0), (2, True, 2.0), (3, True, 2.0), (4, True, 2.0), (5, False, 2.0), (5, True, 2.0), (6, True, 2.0),
-                  (7, True, 0.0), (8, True, 0.0)]
-        for (n0, phi_a, c0), (n1, phi_b, c1) in zip(cadeia, cadeia[1:]):
-            maximo = self._n(1.0 if phi_a else 0.0, n0, conquistas=c0)
-            abertura = self._n(phi0 if phi_b else 0.0, n1, conquistas=c1)
-            self.assertGreater(abertura, maximo, f"fecho da etapa {n0} para a {n1}")
-        # 18/11, T11b: P1 → P2 e P2 → P3 no MESMO estado dos dois lados do fecho, com o Φ da abertura em 0 (portões em 0)
-        # e em phi0 (portões em 1). O P1 não soma as conquistas e o P2 soma c ≥ 0; no P3 a pega perde o fator das
-        # almofadas, e as conquistas dele são ≥ as do P2 (aqui iguais, o pior caso)
-        for phi_ab in (0.0, phi0):
-            for c in (0.0, 1.0, 2.0):
-                self.assertGreater(self._n(phi_ab, 2, conquistas=c), self._n(1.0, 1), f"P1 → P2, Φ {phi_ab}, c {c}")
-                self.assertGreater(self._n(phi_ab, 3, conquistas=c), self._n(1.0, 2, conquistas=c), f"P2 → P3, Φ {phi_ab}, c {c}")
+        for conq in (0.0, 1.0, 2.0):  # as mesmas dos dois lados: a caixa segue nas mãos
+            with self.subTest(conq=conq):
+                # P1 → P2 (P1 não soma conquistas; o P2 soma ≥ 0)
+                self.assertGreater(self._n(phi0, 2, conquistas=conq), self._n(1.0, 1))
+                # P2 → P3: a caixa ainda na laje, c = 0, então o Φ pago do P3 (Φ · c) é 0
+                self.assertGreaterEqual(self._n(0.0, 3, conquistas=conq) - self._n(1.0, 2, conquistas=conq), 3.0 - 1e-6)
+                # P3 → pega fechada (c ≈ 1: o fecho exige a caixa fora da laje): o Φ deixa de pagar, a etapa vai a 4
+                self.assertGreaterEqual(self._n(0.0, 4, conquistas=conq + 1.0) - self._n(1.0, 3, conquistas=conq + 1.0),
+                                        3.0 - 1e-6)
+        # B1 → B2: o B1 soma palmas e pega (até 2 conquistas), o B2 não soma nenhuma
+        self.assertGreater(self._n(phi0, 5, conquistas=0.0), self._n(1.0, 4, conquistas=2.0))
+        # B2 → B3
+        self.assertGreaterEqual(self._n(phi0, 6) - self._n(1.0, 5), 3.0 - 1e-6)
 
     def test_h_so_multiplica_a_etapa(self):
         # 13/11, M5: 6·n·h + 3·Φ, com n = 5, h = 0,5 e Φ = 0,4: 15 + 1,2
         self.assertAlmostEqual(self._n(0.4, 5, h=0.5), 16.2, places=5)
 
     def test_salto_do_fecho_nunca_cai_abaixo_de_3(self):
-        # M5: para n de 1 a 8, h e Φ em [0, 1], a renda da etapa seguinte (h = 1, Φ = 0) passa a atual por ≥ 3
-        for n in range(1, 9):
+        # M5: para n de 1 a 6, h e Φ em [0, 1], a renda da etapa seguinte (h = 1, Φ = 0) passa a atual por ≥ 3
+        for n in range(1, 7):
             for h in (0.0, 0.25, 0.5, 1.0):
                 for phi in (0.0, 0.5, 1.0):
                     self.assertGreaterEqual(6 * (n + 1) - self._n(phi, n, h), 3.0 - 1e-6, f"n={n} h={h} Φ={phi}")
@@ -228,9 +228,9 @@ class TestProgresso(unittest.TestCase):
     def test_um_valor_por_linha_da_tabela_de_etapas(self):
         self.assertAlmostEqual(self._n(0.8, 0), 2.4, places=5)   # P0 com Φ 0,8
         self.assertAlmostEqual(self._n(0.0, 1), 6.0, places=5)   # P1 com Φ 0
-        self.assertAlmostEqual(self._n(0.0, 5), 30.0, places=5)  # CARREGAR: só a etapa 5 paga
-        self.assertAlmostEqual(self._n(0.5, 7), 43.5, places=5)  # B3 com Φ 0,5
-        self.assertAlmostEqual(self._n(0.0, 9), 54.0, places=5)  # depois do B4
+        self.assertAlmostEqual(self._n(0.0, 4), 24.0, places=5)  # CARREGAR: só a etapa 4 paga
+        self.assertAlmostEqual(self._n(0.5, 6), 37.5, places=5)  # B3 com Φ 0,5
+        self.assertAlmostEqual(self._n(0.0, 7), 42.0, places=5)  # depois do B3
         self.assertAlmostEqual(self._n(0.5, 0), 1.5, places=5)   # etapa 0 com Φ 0,5 (o núcleo soma; a perda zera o Φ em `progresso`)
 
     def test_pairar_no_alvo_paga_renda_positiva(self):
@@ -240,13 +240,13 @@ class TestProgresso(unittest.TestCase):
 
     def test_o_fecho_sempre_sobe_a_renda(self):
         # Para cada par de alvos consecutivos, a renda do próximo com Φ = 0 passa a do atual com Φ = 1.
-        # Etapas: P0..P4 = 0..4, B1..B4 = 5..8, depois do B4 = 9 (o CARREGAR, etapa 5, fica entre o P4 e o B1).
-        etapas = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        # Etapas: P0..P3 = 0..3, B1..B3 = 4..6, depois do B3 = 7 (o CARREGAR, etapa 4, fica entre o P3 e o B1).
+        etapas = [0, 1, 2, 3, 4, 5, 6, 7]
         for atual, proximo in zip(etapas[:-1], etapas[1:]):
             self.assertGreater(self._n(0.0, proximo), self._n(1.0, atual), f"etapa {atual} → {proximo}")
-        # P4 (Φ = 1) → CARREGAR (etapa 5, Φ = 0) sobe; CARREGAR (30) → B1 (etapa 5, Φ ≥ 0) não cai
-        self.assertGreater(self._n(0.0, 5), self._n(1.0, 4))
-        self.assertGreaterEqual(self._n(0.0, 5), 30.0)
+        # P3 (Φ = 1) → CARREGAR (etapa 4, Φ = 0) sobe; CARREGAR (24) → B1 (etapa 4, Φ ≥ 0) não cai
+        self.assertGreater(self._n(0.0, 4), self._n(1.0, 3))
+        self.assertGreaterEqual(self._n(0.0, 4), 24.0)
 
 
 class TestPressa(unittest.TestCase):
@@ -273,21 +273,21 @@ class TestPressa(unittest.TestCase):
 class TestEtapaDoProgresso(unittest.TestCase):
     """`recompensas.progresso` com env falso e `_phi_env` trocado por um Φ fixo por env: a tabela de etapas inteira."""
 
-    # (alvo, tarefa, perdeu, b4_fechado, p4_fechado, Φ do alvo) -> (renda esperada à mão, v3_phi gravado[, h de entrada,
-    # 1 se faltar]). C3: nas etapas 5 (PEGAR) e 9 o h de entrada é 0,3 e a renda pede h = 1; sem o `h_ef = 1` ela cai.
+    # (alvo, tarefa, perdeu, bota_fechada, pega_fechada, Φ do alvo) -> (renda esperada à mão, v3_phi gravado[, h de entrada,
+    # 1 se faltar]). C3: nas etapas 4 (PEGAR) e 7 o h de entrada é 0,3 e a renda pede h = 1; sem o `h_ef = 1` ela cai.
     CASOS = [
         (0, "PEGAR", False, False, False, 0.8, 2.4, 0.8),        # P0, Φ 0,8
         (1, "PEGAR", False, False, False, 0.0, 6.0 * math.exp(-DT / R.tau_renda), 0.0),  # P1, Φ 0: h cai um passo
-        (4, "PEGAR", False, False, True, 0.9, 30.0, 0.9, 0.3),   # PEGAR com p4_fechado (alvo P4): etapa 5, Φ não paga, h = 1
-        (4, "CARREGAR", False, False, True, 0.9, 30.0, 0.9),     # CARREGAR com p4_fechado (alvo P4): etapa 5
+        (3, "PEGAR", False, False, True, 0.9, 24.0, 0.9, 0.3),   # PEGAR com pega_fechada (alvo P3): etapa 4, Φ não paga, h = 1
+        (3, "CARREGAR", False, False, True, 0.9, 24.0, 0.9),     # CARREGAR com pega_fechada (alvo P3): etapa 4
         (-1, "CARREGAR", False, False, False, 0.0, 0.0, -1.0),   # CARREGAR sem a pega: 0
-        (5, "BOTAR", False, False, False, 0.7, 0.0, 0.7),        # B1 no BOTAR sem p4_fechado: 0
-        (7, "BOTAR", False, False, True, 0.5, 43.5, 0.5),        # B3, Φ 0,5, com a pega feita
-        (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),        # B2 com p4_fechado True: etapa 6, Φ pago (fatia C)
-        (-1, "ANDAR", False, True, True, 0.0, 54.0, -1.0, 0.3),  # ANDAR final depois do B4: etapa 9, h = 1
-        (-1, "ANDAR", False, True, False, 0.0, 0.0, -1.0),       # b4_fechado sem p4_fechado: 0
-        (8, "ANDAR", True, False, True, 0.5, 0.0, 0.5),          # caixa perdida, alvo B4, Φ 0,5: 0
-        (-1, "ANDAR", True, True, True, 0.0, 0.0, -1.0),         # perdeu com b4_fechado: 0
+        (4, "BOTAR", False, False, False, 0.7, 0.0, 0.7),        # B1 no BOTAR sem pega_fechada: 0
+        (6, "BOTAR", False, False, True, 0.5, 37.5, 0.5),        # B3, Φ 0,5, com a pega feita
+        (5, "BOTAR", False, False, True, 0.5, 31.5, 0.5),        # B2 com pega_fechada True: etapa 5, Φ pago (fatia C)
+        (-1, "ANDAR", False, True, True, 0.0, 42.0, -1.0, 0.3),  # ANDAR final depois do B3: etapa 7, h = 1
+        (-1, "ANDAR", False, True, False, 0.0, 0.0, -1.0),       # bota_fechada sem pega_fechada: 0
+        (6, "ANDAR", True, False, True, 0.5, 0.0, 0.5),          # caixa perdida, alvo B3, Φ 0,5: 0
+        (-1, "ANDAR", True, True, True, 0.0, 0.0, -1.0),         # perdeu com bota_fechada: 0
         (-1, "ANDAR", False, False, False, 0.0, 0.0, -1.0),      # ANDAR da fatia ANDAR
         (-1, "PEGAR", False, False, False, 0.0, 0.0, -1.0),      # PEGAR na espera, sem alvo
     ]
@@ -297,13 +297,13 @@ class TestEtapaDoProgresso(unittest.TestCase):
         col = lambda i, dtype: torch.tensor([c[i] for c in self.CASOS], dtype=dtype)
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in self.CASOS]),
-            v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
+            v3_perdeu=col(2, torch.bool), v3_bota_fechada=col(3, torch.bool), v3_pega_fechada=col(4, torch.bool),
             v3_sigma=torch.ones(n), v3_phi=torch.zeros(n),
             **{**_buffers_m5(n), "v3_h": torch.tensor([c[8] if len(c) > 8 else 1.0 for c in self.CASOS])})
         phi = col(5, torch.float32)
         with mock.patch.object(recompensas, "_phi_env",
                                lambda e, indice, sigma: (torch.where(indice >= 0, phi, torch.zeros_like(phi)),
-                                                         torch.zeros(n, 2))), \
+                                                         torch.zeros(n, 3))), \
                 _sinal_m5(n):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         for i, c in enumerate(self.CASOS):
@@ -311,41 +311,64 @@ class TestEtapaDoProgresso(unittest.TestCase):
             self.assertAlmostEqual(float(env.v3_phi[i]), c[7], places=5, msg=str(c))
 
     def test_conquistas_so_somam_onde_a_pega_tem_de_continuar(self):
-        # 18/11, T10: com Φ 0, q_palmas 0,3 e q_pega 0,9, cada caso paga 6·n (h = 1) mais 2·(0,3 + 0,9) = 2,4 só em P3, P4,
-        # B1, B2 e no CARREGAR com o P4 fechado. (alvo, tarefa, perdeu, b4_fechado, p4_fechado, renda[, almofadas em contato])
+        # 18/11, T10: com Φ 0, q_palmas 0,3, q_pega 0,9 e (T14) o peso c = 0,5, cada caso paga 6·n (h = 1) mais as conquistas
+        # do lugar: palmas + pega no B1; palmas + pega + peso no P3 e no CARREGAR (ou no PEGAR) com a pega fechada: 2·(0,3 +
+        # 0,9 + 0,5) = 3,4. B2, B3 e o resto não pagam conquista. (alvo, tarefa, perdeu, bota_fechada, pega_fechada,
+        # renda[, almofadas em contato])
         # T11b: o P2 também soma, e nele SÓ a pega vale pela fração das almofadas na caixa: duas 12 + 2·(0,3 + 0,9) = 14,4;
         # uma 12 + 2·(0,3 + 0,45) = 13,5; nenhuma 12 + 2·0,3 = 12,6. O P1 segue sem conquistas; o P3 sem almofada paga a
-        # pega inteira; o P2 sem a caixa (CARREGAR aberto depois de um PEGAR que parou no P2) paga 0
+        # pega inteira; o P2 sem a caixa (CARREGAR aberto depois de um PEGAR que parou no P2) paga 0. O peso não paga no P2
         casos = [(2, "PEGAR", False, False, False, 14.4), (2, "PEGAR", False, False, False, 13.5, (True, False)),
                  (2, "PEGAR", False, False, False, 12.6, (False, False)), (1, "PEGAR", False, False, False, 6.0),
                  (2, "CARREGAR", False, False, False, 0.0), (2, "PEGAR", True, False, False, 0.0),
-                 (3, "PEGAR", False, False, False, 20.4, (False, False)), (3, "PEGAR", False, False, False, 20.4),
-                 (4, "PEGAR", False, False, False, 26.4), (4, "CARREGAR", False, False, True, 32.4),
-                 (5, "BOTAR", False, False, True, 32.4), (6, "BOTAR", False, False, True, 38.4),
-                 (7, "BOTAR", False, False, True, 42.0), (-1, "CARREGAR", False, False, False, 0.0),
-                 (3, "ANDAR", True, False, False, 0.0), (-1, "ANDAR", False, True, True, 54.0)]
+                 (3, "PEGAR", False, False, False, 21.4, (False, False)), (3, "PEGAR", False, False, False, 21.4),
+                 (3, "PEGAR", False, False, True, 27.4), (3, "CARREGAR", False, False, True, 27.4),
+                 (4, "BOTAR", False, False, True, 26.4), (5, "BOTAR", False, False, True, 30.0),
+                 (6, "BOTAR", False, False, True, 36.0), (-1, "CARREGAR", False, False, False, 0.0),
+                 (3, "ANDAR", True, False, False, 0.0), (-1, "ANDAR", False, True, True, 42.0)]
         n = len(casos)
         col = lambda i, dtype: torch.tensor([c[i] for c in casos], dtype=dtype)
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=col(0, torch.long), v3_tarefa=torch.tensor([TAREFAS.index(c[1]) for c in casos]),
-            v3_perdeu=col(2, torch.bool), v3_b4_fechado=col(3, torch.bool), v3_p4_fechado=col(4, torch.bool),
+            v3_perdeu=col(2, torch.bool), v3_bota_fechada=col(3, torch.bool), v3_pega_fechada=col(4, torch.bool),
             v3_sigma=torch.ones(n), v3_phi=torch.zeros(n), **{**_buffers_m5(n), "v3_h": torch.ones(n)})
         for k, nome in enumerate(("palma_E", "palma_D")):
             achou = torch.tensor([[float(c[6][k]) if len(c) > 6 else 1.0] for c in casos])
             env.scene[nome] = types.SimpleNamespace(data=types.SimpleNamespace(found=achou))
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.zeros(n), torch.tensor([[0.3, 0.9]]).expand(n, 2))), \
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.zeros(n), torch.tensor([[0.3, 0.9, 0.5]]).expand(n, 3))), \
                 _sinal_m5(n), mock.patch.object(recompensas, "n_pressa", lambda h, ganho, dt, tau, rec: h):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         for i, c in enumerate(casos):
             self.assertAlmostEqual(float(r[i]), c[5], places=4, msg=str(c))
 
+    def test_phi_do_p3_paga_vezes_o_peso_nas_maos_e_o_do_b1_nao(self):
+        # 23/11, T14: no P3 o Φ pago é Φ · c (e o peso soma 2·c); no B1 o Φ paga inteiro e o peso não soma. Φ 0,8, palmas e
+        # pega 0, h = 1: P3 paga 18 + 3·0,8·c + 2·c = 18 + 4,4·c; B1 (com a pega feita) paga 24 + 3·0,8. `v3_phi` guarda o
+        # Φ cru (as métricas `phi_<alvo>` o leem)
+        for c in (0.0, 0.5, 1.0):
+            casos = [(3, "PEGAR", False), (4, "BOTAR", True)]  # (alvo, tarefa, pega fechada)
+            env = types.SimpleNamespace(
+                device="cpu", v3_alvo_idx=torch.tensor([x[0] for x in casos]),
+                v3_tarefa=torch.tensor([TAREFAS.index(x[1]) for x in casos]),
+                v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_bota_fechada=torch.zeros(2, dtype=torch.bool),
+                v3_pega_fechada=torch.tensor([x[2] for x in casos]), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+                **_buffers_m5(2))
+            conquistas = torch.tensor([[0.0, 0.0, c]]).expand(2, 3)
+            with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.full((2,), 0.8), conquistas)), \
+                    _sinal_m5(2), mock.patch.object(recompensas, "n_pressa", lambda h, ganho, dt, tau, rec: h):
+                r = recompensas.progresso(env, TODAS_TAREFAS)
+            with self.subTest(c=c):
+                self.assertAlmostEqual(float(r[0]), 18.0 + 3 * 0.8 * c + 2.0 * c, places=4)
+                self.assertAlmostEqual(float(r[1]), 24.0 + 3 * 0.8, places=4)
+                self.assertEqual(env.v3_phi.tolist(), [torch.tensor(0.8).item()] * 2)
+
     def test_tarefa_fora_da_mascara_paga_zero(self):
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=torch.tensor([0]), v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
-            v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_b4_fechado=torch.zeros(1, dtype=torch.bool),
-            v3_p4_fechado=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
+            v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_bota_fechada=torch.zeros(1, dtype=torch.bool),
+            v3_pega_fechada=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
             **_buffers_m5(1))
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(1), torch.zeros(1, 2))), \
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(1), torch.zeros(1, 3))), \
                 _sinal_m5(1):
             r = recompensas.progresso(env, ("ANDAR",))
         self.assertEqual(float(r[0]), 0.0)
@@ -355,11 +378,11 @@ class TestEtapaDoProgresso(unittest.TestCase):
         # (ganho 0,5 × 5 = 2,5: h volta ao teto 1). O melhor Φ guarda o máximo.
         env = types.SimpleNamespace(
             device="cpu", v3_alvo_idx=torch.tensor([2, 2]), v3_tarefa=torch.full((2,), TAREFAS.index("PEGAR")),
-            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_b4_fechado=torch.zeros(2, dtype=torch.bool),
-            v3_p4_fechado=torch.zeros(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_bota_fechada=torch.zeros(2, dtype=torch.bool),
+            v3_pega_fechada=torch.zeros(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
             **{**_buffers_m5(2), "v3_h": torch.tensor([0.8, 0.8]), "v3_phi_melhor": torch.tensor([0.5, 0.1])})
         phi = torch.tensor([0.3, 0.6])
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (phi, torch.zeros(2, 2))), _sinal_m5(2):
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (phi, torch.zeros(2, 3))), _sinal_m5(2):
             r = recompensas.progresso(env, TODAS_TAREFAS)
         self.assertAlmostEqual(float(env.v3_h[0]), 0.8 * math.exp(-DT / R.tau_renda), places=5)
         self.assertAlmostEqual(float(env.v3_h[1]), 1.0, places=5)
@@ -367,18 +390,18 @@ class TestEtapaDoProgresso(unittest.TestCase):
         self.assertAlmostEqual(float(r[0]), 6 * 2 * float(env.v3_h[0]) + 3 * 0.3, places=5)
 
     def test_sinal_do_carregar_com_e_sem_comando(self):
-        # M5, CARREGAR com a pega feita (p4_fechado, alvo P4), h inicial 0,5. Env 0: comando linear 0,5, rastreio linear
+        # M5, CARREGAR com a pega feita (pega_fechada, alvo P3), h inicial 0,5. Env 0: comando linear 0,5, rastreio linear
         # 0,6 e o angular −0,8 fora (canal sem comando), caixa no alvo (d 0): sinal 0,6. Env 1: sem comando, r_lin −0,5 e
         # r_ang −0,2: (1 − 0,5)(1 − 0,2) = 0,4, com a caixa a 0,20 m: rampa 0,4, sinal 0,16.
         env = types.SimpleNamespace(
-            device="cpu", v3_alvo_idx=torch.tensor([4, 4]), v3_tarefa=torch.full((2,), TAREFAS.index("CARREGAR")),
-            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_b4_fechado=torch.zeros(2, dtype=torch.bool),
-            v3_p4_fechado=torch.ones(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+            device="cpu", v3_alvo_idx=torch.tensor([3, 3]), v3_tarefa=torch.full((2,), TAREFAS.index("CARREGAR")),
+            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_bota_fechada=torch.zeros(2, dtype=torch.bool),
+            v3_pega_fechada=torch.ones(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
             **{**_buffers_m5(2), "v3_h": torch.tensor([0.5, 0.5])})
         env.command_manager = types.SimpleNamespace(
             get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]))
         r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
-        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(2), torch.zeros(2, 2))), \
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(2), torch.zeros(2, 3))), \
                 mock.patch.object(recompensas, "_rastreio",
                                   lambda e, linear, normalizado=False: r_lin if linear else r_ang), \
                 mock.patch.object(recompensas, "_qualidade", lambda e: (torch.ones(2), torch.tensor([0.0, 0.20]))):
@@ -387,7 +410,7 @@ class TestEtapaDoProgresso(unittest.TestCase):
         esperado = [0.5 + passo * (0.6 - 0.5), 0.5 + passo * (0.16 - 0.5)]
         for i in range(2):
             self.assertAlmostEqual(float(env.v3_h[i]), esperado[i], places=5)
-            self.assertAlmostEqual(float(r[i]), 30.0 * esperado[i], places=4)  # etapa 5, Φ não paga
+            self.assertAlmostEqual(float(r[i]), 24.0 * esperado[i], places=4)  # etapa 4, Φ não paga
 
 
 class TestQualidade(unittest.TestCase):
@@ -444,25 +467,26 @@ class TestPortoes(unittest.TestCase):
             torch.tensor([A], dtype=torch.float64), K)
 
     def test_maos_meio_com_um_contato_no_p3(self):
-        # Teste E4: maos = 0,5 com um contato no P3 (P2–B2: contatos.sum/2)
+        # Teste E4: maos = 0,5 com um contato no P3 (P3 e B1: contatos.sum/2)
         self.assertAlmostEqual(float(self._p(3, [(True, False)])["maos"][0]), 0.5, places=6)
 
-    def test_maos_um_fora_de_p2_b2(self):
-        # Teste E4: maos = 1 fora de P2–B2 (P0 e B3), mesmo sem contato
-        self.assertEqual(float(self._p(0, [(False, False)])["maos"][0]), 1.0)
-        self.assertEqual(float(self._p(7, [(False, False)])["maos"][0]), 1.0)
+    def test_maos_um_fora_de_p3_e_b1(self):
+        # Teste E4; 23/11, T14: maos = 1 fora do P3 e do B1 (P0, B2 e B3), mesmo sem contato
+        for idx in (0, 5, 6):
+            self.assertEqual(float(self._p(idx, [(False, False)])["maos"][0]), 1.0)
 
     def test_maos_um_no_p2_e_zero_no_p3_sem_contato(self):
-        # 13/11, A1: o Φ do P2 não zera sem força (maos = 1); o P3 a B2 seguem exigindo o contato
+        # 13/11, A1: o Φ do P2 não zera sem força (maos = 1); o P3 e o B1 seguem exigindo o contato
         self.assertEqual(float(self._p(2, [(False, False)])["maos"][0]), 1.0)
         self.assertEqual(float(self._p(3, [(False, False)])["maos"][0]), 0.0)
+        self.assertEqual(float(self._p(4, [(False, False)])["maos"][0]), 0.0)
 
-    def test_incl_exige_a_caixa_nivelada_ate_o_b3(self):
-        # 13/11, A6: a inclinação acima de limite + delta zera o `incl` no B3 e no P2; no B4 o portão vale 1
+    def test_incl_exige_a_caixa_nivelada_ate_o_b2(self):
+        # 13/11, A6: a inclinação acima de limite + delta zera o `incl` no B2 e no P2; no B3 o portão vale 1
         fora = K.incl_inicio_graus + K.delta_incl_graus + 1.0
-        self.assertEqual(float(self._p(7, incl=fora)["incl"][0]), 0.0)
+        self.assertEqual(float(self._p(5, incl=fora)["incl"][0]), 0.0)
         self.assertEqual(float(self._p(2, incl=fora)["incl"][0]), 0.0)
-        self.assertEqual(float(self._p(8, incl=fora)["incl"][0]), 1.0)
+        self.assertEqual(float(self._p(6, incl=fora)["incl"][0]), 1.0)
 
     def test_janela_da_pega_comeca_no_p1(self):
         # 13/11, A2: o alvo do P1 é a palma encostada, então o contato com a caixa no P1 não é contato fora
@@ -491,8 +515,8 @@ class TestInclLim(unittest.TestCase):
         np.testing.assert_allclose(out, [K.incl_inicio_graus, K.incl_fim_graus], atol=1e-4)
 
 
-class TestCercaRecuoNoP4(unittest.TestCase):
-    """S7 (revisão E11): no PEGAR e no BOTAR com o alvo P4, a `cerca_recuo` mede contra a referência do transporte
+class TestCercaRecuoNoP3(unittest.TestCase):
+    """S7 (revisão E11): no PEGAR e no BOTAR com o alvo P3 (o P4 antigo), a `cerca_recuo` mede contra a referência do transporte
     (`ref.caixa_transporte_b`, norma xy de 0,25 m no mock), e não contra `ref.recuo` (0,40 m, o recuo da pega). A caixa
     está a 0,25 m: custo 0. (F4: o `Recompensa.recuo_carregar` saiu; a referência é só a do `_recuo_ref`.)"""
 
@@ -510,11 +534,11 @@ class TestCercaRecuoNoP4(unittest.TestCase):
 
         return types.SimpleNamespace(
             device="cpu", scene={"robot": robo, "box": caixa}, v3_tarefa=torch.tensor([TAREFAS.index(tarefa)]),
-            v3_alvo_idx=torch.tensor([alvos.P4]), v3_perdeu=torch.zeros(1, dtype=torch.bool),
+            v3_alvo_idx=torch.tensor([alvos.P3]), v3_perdeu=torch.zeros(1, dtype=torch.bool),
             v3_topo=torch.zeros(1), v3_topo_destino=torch.zeros(1), v3_meia=torch.full((1,), A),
             v3_ref=Referencia())
 
-    def test_cerca_recuo_no_p4_mede_contra_o_transporte(self):
+    def test_cerca_recuo_no_p3_mede_contra_o_transporte(self):
         for tarefa in ("PEGAR", "BOTAR"):
             with self.subTest(tarefa=tarefa):
                 r = recompensas.cerca_recuo(self._env(tarefa), ("PEGAR", "CARREGAR", "BOTAR"))
@@ -543,34 +567,34 @@ class TestFreioRampa(unittest.TestCase):
         self.assertAlmostEqual(self._custo(portao / 2), cheio / 2, places=4)
 
 
-class TestDistanciaDoP4(unittest.TestCase):
-    def test_p4_soma_a_pelve_na_escala_das_tolerancias(self):
-        # §6.4: P4 = √(d_caixa² + (Δpelve · tol_caixa/tol_pelve)²); caixa no alvo e pelve 3 cm → 0,05
+class TestDistanciaDoP3(unittest.TestCase):
+    def test_p3_soma_a_pelve_na_escala_das_tolerancias(self):
+        # §6.4; 23/11, T14: P3 = √(d_caixa² + (Δpelve · tol_transporte_p3/tol_pelve_p3)²); caixa no alvo e pelve 3 cm → 0,05
         z = torch.zeros(1, dtype=torch.float64)
-        d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64), z.repeat(3).reshape(1, 3),
+        d = recompensas.distancia_do_alvo(torch.tensor([3]), torch.zeros(1, 2, 3, dtype=torch.float64), z.repeat(3).reshape(1, 3),
                                           z.repeat(3).reshape(1, 3), torch.tensor([0.03], dtype=torch.float64), z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.05, places=6)
+        self.assertAlmostEqual(float(d[0]), K.tol_transporte_p3 * 0.03 / K.tol_pelve_p3, places=6)
 
-    def test_p4_com_pelve_no_alvo_e_a_caixa(self):
-        # §6.4: com Δpelve 0, o P4 é a distância da caixa (0,30 m em x → 0,30)
+    def test_p3_com_pelve_no_alvo_e_a_caixa(self):
+        # §6.4: com Δpelve 0, o P3 é a distância da caixa (0,30 m em x → 0,30)
         z = torch.zeros(1, dtype=torch.float64)
-        d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64),
+        d = recompensas.distancia_do_alvo(torch.tensor([3]), torch.zeros(1, 2, 3, dtype=torch.float64),
                                           torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
                                           torch.zeros(1, 3, dtype=torch.float64), z, z, z, z,
                                           torch.tensor([A], dtype=torch.float64), K)
         self.assertAlmostEqual(float(d[0]), 0.30, places=6)
-    def test_p3_e_b1_nao_somam_a_pelve(self):
-        # §6.4: a pelve só entra no P4. Com Δpelve 0,10 no P3 (índice 3) e no B1 (índice 5), d é o d_caixa (0,30 em x)
+
+    def test_b1_nao_soma_a_pelve(self):
+        # §6.4: a pelve só entra no P3. Com Δpelve 0,10 no B1 (índice 4), d é o d_caixa (0,30 em x)
         z = torch.zeros(1, dtype=torch.float64)
-        for indice in (3, 5):
-            with self.subTest(indice=indice):
-                d = recompensas.distancia_do_alvo(torch.tensor([indice]), torch.zeros(1, 2, 3, dtype=torch.float64),
-                                                  torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
-                                                  torch.zeros(1, 3, dtype=torch.float64),
-                                                  torch.tensor([0.10], dtype=torch.float64), z, z, z,
-                                                  torch.tensor([A], dtype=torch.float64), K)
-                self.assertAlmostEqual(float(d[0]), 0.30, places=6)
+        d = recompensas.distancia_do_alvo(torch.tensor([4]), torch.zeros(1, 2, 3, dtype=torch.float64),
+                                          torch.tensor([[0.30, 0.0, 0.0]], dtype=torch.float64),
+                                          torch.zeros(1, 3, dtype=torch.float64),
+                                          torch.tensor([0.10], dtype=torch.float64), z, z, z,
+                                          torch.tensor([A], dtype=torch.float64), K)
+        self.assertAlmostEqual(float(d[0]), 0.30, places=6)
 
 
 if __name__ == "__main__":

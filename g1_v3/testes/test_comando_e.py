@@ -1,11 +1,12 @@
 """Testes dos núcleos puros da cadeia B de g1_v3/comando.py (E3 do plano; §6.3 "Fase E: núcleos puros (29/10)",
 §12.1; S §8.2, §10, §11.3; PD-36, PD-50). Escritos antes do código: o ImportError é esperado até a lane E3.
 
-Convenções: `indice` é long em ALVOS (P0..P4 = 0..4, B1..B4 = 5..8, −1 = nenhum). Estados sintéticos de E = 1, sem
+Convenções: `indice` é long em ALVOS (P0..P3 = 0..3, B1..B3 = 4..6, −1 = nenhum; 23/11, T14: eram 9 etapas). Estados sintéticos de E = 1, sem
 env. O relógio do avanço é float64, para que 25 passos de 0,02 s somem 0,5 s dentro de `_EPS` de alvos.py.
 `invariantes` entram como número: 1,0 quando o caso não os mede; o caso do P3 a 40° monta-os com a rampa de
 `potencial` (o `portoes_do_alvo` da E4 ainda não existe).
 """
+import dataclasses
 import types
 import unittest
 from unittest import mock
@@ -18,24 +19,23 @@ from g1_v3.knobs import ATIVO, Estimador
 
 A = ATIVO.alvos
 T = ATIVO.terminacao
-P0, P1, P2, P3, P4, B1, B2, B3, B4 = range(9)
+P0, P1, P2, P3, B1, B2, B3 = range(7)
 DT = ATIVO.contrato.decimacao * ATIVO.contrato.dt_fisica  # 0,02 s, passo da política
-INCL_LIM = A.incl_inicio_graus  # 30°: limite de inclinação do P3 (S §8.2)
+INCL_LIM = A.incl_inicio_graus  # 30°: limite de inclinação (S §8.2)
 DELTA_INCL = A.delta_incl_graus  # 15°: tolerância da rampa de inclinação
-# tempo de permanência por alvo, na ordem de ALVOS. A §6.2 só dá tempo a P4, B2, B3 e B4; P0–P3 e B1 ficam em 0
-TEMPOS = torch.tensor([0, 0, A.tempo_p2, A.tempo_p3, A.tempo_p4, 0, A.tempo_b2, A.tempo_b3, A.tempo_b4], dtype=torch.float64)
+# tempo de permanência por alvo, na ordem de ALVOS (23/11, T14: P0 e P1 ficam em 0)
+TEMPOS = torch.tensor([0, 0, A.tempo_p2, A.tempo_p3, A.tempo_b1, A.tempo_b2, A.tempo_b3], dtype=torch.float64)
 
 
-def estado(indice, d_palmas=0.2, contatos=(False, False), apoio=True, incl=45.0, d_caixa=0.5, d_pelve=0.5,
+def estado(indice, d_palmas=0.2, contatos=(False, False), apoio=True, d_transporte=0.5, d_pelve=0.5,
            invariantes=1.0, subida=0.0):
     # Um passo sintético (E = 1). Por padrão nenhuma condição de alvo vale, para o caso trocar só a sua.
     return dict(indice=torch.tensor([indice], dtype=torch.long),
                 d_palmas=torch.full((1, 2), float(d_palmas)),
                 contatos=torch.tensor([list(contatos)], dtype=torch.bool),
                 apoio=torch.tensor([apoio], dtype=torch.bool),
-                incl=torch.tensor([float(incl)]),
                 subida=torch.tensor([float(subida)]),
-                d_caixa=torch.tensor([float(d_caixa)]),
+                d_transporte=torch.tensor([float(d_transporte)]),
                 d_pelve=torch.tensor([float(d_pelve)]),
                 invariantes=torch.tensor([float(invariantes)]))
 
@@ -46,14 +46,12 @@ def fase(i):
         return estado(i, d_palmas=0.01)
     if i == P2:
         return estado(i, contatos=(True, True))
-    if i == P3:
-        return estado(i, apoio=False, incl=10.0, subida=A.p3_alto)
-    return estado(i, apoio=False, d_caixa=0.01, d_pelve=0.01)  # P4
+    return estado(i, apoio=False, subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01)  # P3
 
 
-def ok(s):
-    return ok_agora_pegar(s["indice"], s["d_palmas"], s["contatos"], s["apoio"], s["incl"], INCL_LIM, s["subida"],
-                          s["d_caixa"], s["d_pelve"], s["invariantes"], A)
+def ok(s, k=A):
+    return ok_agora_pegar(s["indice"], s["d_palmas"], s["contatos"], s["apoio"], s["subida"],
+                          s["d_transporte"], s["d_pelve"], s["invariantes"], k)
 
 
 def perda(fundo=0.5, v_rel=0.0, fora=False, pegou=False, indice=P3, sobre_laje=True):
@@ -62,8 +60,8 @@ def perda(fundo=0.5, v_rel=0.0, fora=False, pegou=False, indice=P3, sobre_laje=T
                                torch.tensor([indice], dtype=torch.long), torch.tensor([sobre_laje]), T).item()
 
 
-def sucesso(p4, falhou, perdeu):
-    return sucesso_do_pegar(torch.tensor([p4]), torch.tensor([falhou]), torch.tensor([perdeu])).item()
+def sucesso(pega, falhou, perdeu):
+    return sucesso_do_pegar(torch.tensor([pega]), torch.tensor([falhou]), torch.tensor([perdeu])).item()
 
 
 # --- E11 (29/10): invólucros da cadeia com env falso (E = 1), sem a cena --------------------------------------
@@ -83,7 +81,7 @@ def _env_falso(idx, tarefa=comando.PEGAR):
         v3_alvo_idx=torch.tensor([idx], dtype=torch.long), v3_tarefa=torch.tensor([tarefa], dtype=torch.long),
         v3_meia=torch.tensor([0.1]), v3_topo=torch.zeros(1), v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(1),
                                                                   pelve_de_pe=0.0),
-        v3_p4_fechado=b.clone(), v3_pegou=b.clone(), v3_b4_fechado=b.clone(), v3_perdeu=b.clone(),
+        v3_pega_fechada=b.clone(), v3_pegou=b.clone(), v3_bota_fechada=b.clone(), v3_perdeu=b.clone(),
         v3_avancou=b.clone(), v3_relogio_alvo=z.clone(), v3_alvo_w=torch.zeros(1, 3), v3_caixa_pega_w=torch.zeros(1, 3),
         v3_ponto_apoio=torch.zeros(1, 3),
         v3_sigma=torch.ones(1), v3_phi=torch.zeros(1), v3_h=torch.ones(1), v3_phi_melhor=torch.zeros(1),
@@ -187,21 +185,22 @@ class TestCadeiaComEnvFalso(unittest.TestCase):
 
 class TestOkAgoraPegar(unittest.TestCase):
 
-    def test_avanca_de_p0_a_p4_na_ordem_e_p4_pede_25_passos(self):
-        # E3, linha "Teste": com estados sintéticos, o núcleo de avanço passa de P0 a P4 na ordem
+    def test_avanca_de_p0_a_p3_na_ordem_e_p3_pede_25_passos(self):
+        # E3, linha "Teste": com estados sintéticos, o núcleo de avanço passa de P0 a P3 na ordem; 23/11, T14: o P3 fecha
+        # na pose final por tempo_p3 = 0,5 s
         idx = torch.tensor([P0], dtype=torch.long)
         rel = torch.zeros(1, dtype=torch.float64)
-        visitados, passos_em_p4 = [P0], 0
+        visitados, passos_em_p3 = [P0], 0
         for _ in range(60):
-            if int(idx) == P4:
-                passos_em_p4 += 1
+            if int(idx) == P3:
+                passos_em_p3 += 1
             idx, rel, avancou = alvos.avanca(idx, ok(fase(int(idx))), rel, DT, TEMPOS)
             if avancou.item():
                 visitados.append(int(idx))
             if int(idx) == B1:
                 break
-        self.assertEqual(visitados, [P0, P1, P2, P3, P4, B1])
-        self.assertEqual(passos_em_p4, 25)  # tempo_p4 = 0,5 s = 25 passos de 0,02 s
+        self.assertEqual(visitados, [P0, P1, P2, P3, B1])
+        self.assertEqual(passos_em_p3, 25)  # tempo_p3 = 0,5 s = 25 passos de 0,02 s
 
     def test_p2_exige_o_contato_das_duas_palmas_por_tempo_p2(self):
         # 18/11, T10: um passo de toque (o do model_9150) não fecha o P2; fecha depois de tempo_p2 seguidos (0,3 s = 15
@@ -220,45 +219,61 @@ class TestOkAgoraPegar(unittest.TestCase):
         idx, rel, _ = alvos.avanca(idx, torch.tensor([False]), rel, DT, TEMPOS)
         self.assertEqual((int(idx), rel.item()), (P2, 0.0))
 
-    def test_p3_exige_a_caixa_levantada_por_tempo_p3(self):
-        # 18/11, T8: sem contato com a laje mas sem subir (o toque do model_8150), o P3 não fecha; com a subida de
-        # p3_alto − tol ele fecha, e só depois de tempo_p3 seguidos (0,3 s = 15 passos)
-        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, subida=0.004)).item())
-        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, subida=A.p3_alto - A.tol_caixa_p3 - 0.001)).item())
-        self.assertTrue(ok(estado(P3, apoio=False, incl=10.0, subida=A.p3_alto - A.tol_caixa_p3 + 0.001)).item())
-        self.assertFalse(ok(estado(P3, apoio=True, incl=10.0, subida=A.p3_alto)).item())
+    def test_p3_fecha_na_pose_final_e_pede_fora_da_laje(self):
+        # 23/11, T14: o P3 fecha com a caixa levantada, no ponto de transporte, com a pelve no lugar e fora da laje (molde
+        # do g1_limpo). Cada condição, fora do limite, trava; com tudo certo, passa
+        self.assertTrue(ok(fase(P3)).item())
+        self.assertFalse(ok(estado(P3, apoio=True, subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, subida=A.subida_min_p3 - 0.001, d_transporte=0.01,
+                                   d_pelve=0.01)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, subida=A.subida_min_p3, d_transporte=A.tol_transporte_p3 + 0.001,
+                                   d_pelve=0.01)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, subida=A.subida_min_p3, d_transporte=0.01,
+                                   d_pelve=A.tol_pelve_p3 + 0.001)).item())
+
+    def test_p3_le_o_alvos_efetivo_da_zona(self):
+        # 23/11, T14: o fecho lê o `Alvos` efetivo (a zona), e não o final: a mesma caixa a 15 cm do ponto fecha com o
+        # critério largo (20 cm) e não fecha com o final (5 cm)
+        s = estado(P3, apoio=False, subida=A.subida_min_p3, d_transporte=0.15, d_pelve=0.01)
+        self.assertFalse(ok(s).item())
+        self.assertTrue(ok(s, dataclasses.replace(A, tol_transporte_p3=0.20)).item())
+
+    def test_p3_zera_o_relogio_quando_a_caixa_volta_a_laje(self):
+        # 23/11, T14: "a caixa que saiu da laje não volta": a condição vale em todo o tempo do fecho. Com o apoio de volta
+        # no meio dos 0,5 s, o relógio zera; sem a interrupção, o P3 fecha em tempo_p3 seguidos (25 passos)
         idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
         passos = 0
         while int(idx) == P3:
             idx, rel, _ = alvos.avanca(idx, ok(fase(P3)), rel, DT, TEMPOS)
             passos += 1
         self.assertEqual(passos, round(A.tempo_p3 / DT))
-        # um passo de volta à laje no meio zera o relógio
         idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
-        for _ in range(5):
+        for _ in range(12):
             idx, rel, _ = alvos.avanca(idx, ok(fase(P3)), rel, DT, TEMPOS)
-        idx, rel, _ = alvos.avanca(idx, ok(estado(P3, apoio=True, incl=10.0, subida=A.p3_alto)), rel, DT, TEMPOS)
-        self.assertEqual((int(idx), rel.item()), (P3, 0.0))
+        idx, rel, avancou = alvos.avanca(
+            idx, ok(estado(P3, apoio=True, subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01)), rel, DT, TEMPOS)
+        self.assertEqual((int(idx), rel.item(), avancou.item()), (P3, 0.0, False))
 
     def test_p3_nao_avanca_com_a_caixa_a_40_graus(self):
         # E3, linha "Teste": não avança no P3 com a caixa a 40°, porque o invariante incl = rampa(40°) = 1/3 < 1
         # (limite de 30°). O invariante é incl · maos, com maos = 1 (duas palmas em contato).
         contatos = torch.tensor([[True, True]])
         inv = potencial.rampa(torch.tensor([40.0]), INCL_LIM, DELTA_INCL) * contatos.sum(-1) / 2
-        s = estado(P3, apoio=False, incl=40.0, contatos=(True, True), invariantes=inv.item(), subida=A.p3_alto)
+        s = estado(P3, apoio=False, subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01, contatos=(True, True),
+                   invariantes=inv.item())
         self.assertFalse(ok(s).item())
         idx, _, avancou = alvos.avanca(s["indice"], ok(s), torch.zeros(1, dtype=torch.float64), DT, TEMPOS)
         self.assertEqual(int(idx), P3)
         self.assertFalse(avancou.item())
 
-    def test_invariante_abaixo_de_1_bloqueia_o_p3_mesmo_com_o_degrau_ok(self):
+    def test_invariante_abaixo_de_1_bloqueia_o_p3_mesmo_com_a_pose_ok(self):
         # E3, §6.3 e S §8.2: `ok_agora` exige invariantes == 1. Com uma palma fora do contato, maos = 0,5 e o P3
-        # trava, embora o degrau (sem apoio, 10° ≤ 30°) esteja certo.
+        # trava, embora a pose final (sem apoio, caixa no ponto, pelve no lugar) esteja certa.
         inv = potencial.rampa(torch.tensor([10.0]), INCL_LIM, DELTA_INCL) * torch.tensor([[True, False]]).sum(-1) / 2
-        self.assertFalse(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, False), invariantes=inv.item(),
-                               subida=A.p3_alto)).item())
-        self.assertTrue(ok(estado(P3, apoio=False, incl=10.0, contatos=(True, True), invariantes=1.0,
-                              subida=A.p3_alto)).item())
+        self.assertFalse(ok(estado(P3, apoio=False, contatos=(True, False), invariantes=inv.item(),
+                                   subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01)).item())
+        self.assertTrue(ok(estado(P3, apoio=False, contatos=(True, True), invariantes=1.0,
+                                  subida=A.subida_min_p3, d_transporte=0.01, d_pelve=0.01)).item())
 
     def test_p0_e_p1_exigem_as_duas_palmas_no_alvo(self):
         # E3, linha "Teste" (P0, P1: as duas palmas a ≤ 3 cm): uma palma a 4 cm já trava
@@ -274,30 +289,12 @@ class TestOkAgoraPegar(unittest.TestCase):
         self.assertFalse(ok(estado(P2, contatos=(True, False))).item())
         self.assertTrue(ok(estado(P2, contatos=(True, True))).item())
 
-    def test_p4_exige_caixa_e_pelve_dentro_da_tolerancia(self):
-        # E3, linha "Teste" (P4: caixa a ≤ 5 cm e pelve a ≤ 3 cm): cada uma, fora do limite, trava
-        self.assertFalse(ok(estado(P4, apoio=False, d_caixa=0.06, d_pelve=0.01)).item())
-        self.assertFalse(ok(estado(P4, apoio=False, d_caixa=0.01, d_pelve=0.04)).item())
-        # 18/11, T8: com a caixa apoiada na laje o P4 não fecha
-        self.assertFalse(ok(estado(P4, apoio=True, d_caixa=0.01, d_pelve=0.01)).item())
-        self.assertTrue(ok(fase(P4)).item())
-
-    def test_p4_zera_o_relogio_quando_a_condicao_cai(self):
-        # E3, linha "Teste" (P4: "por 0,5 s"): se a condição cai no meio, o relógio volta a zero
-        idx = torch.tensor([P4], dtype=torch.long)
-        rel = torch.zeros(1, dtype=torch.float64)
-        for _ in range(10):
-            idx, rel, _ = alvos.avanca(idx, ok(fase(P4)), rel, DT, TEMPOS)
-        idx, rel, avancou = alvos.avanca(idx, ok(estado(P4, apoio=False, d_caixa=0.2)), rel, DT, TEMPOS)
-        self.assertEqual(rel.item(), 0.0)
-        self.assertEqual(int(idx), P4)
-        self.assertFalse(avancou.item())
-
-    def test_b1_a_b4_e_nenhum_dao_falso_no_pegar(self):
-        # E3, §6.3: B1..B4 e −1 dão False, mesmo com todas as condições de pega verdadeiras
-        for i in (B1, B2, B3, B4, -1):
+    def test_b1_a_b3_e_nenhum_dao_falso_no_pegar(self):
+        # E3, §6.3: B1..B3 e −1 dão False, mesmo com todas as condições de pega verdadeiras
+        for i in (B1, B2, B3, -1):
             with self.subTest(indice=i):
-                s = estado(i, d_palmas=0.0, contatos=(True, True), apoio=False, incl=0.0, d_caixa=0.0, d_pelve=0.0)
+                s = estado(i, d_palmas=0.0, contatos=(True, True), apoio=False, d_transporte=0.0, d_pelve=0.0,
+                           subida=1.0)
                 self.assertFalse(ok(s).item())
 
 
@@ -333,9 +330,9 @@ class TestCaixaPerdidaAgora(unittest.TestCase):
             with self.subTest(indice=i):
                 self.assertTrue(perda(indice=i, sobre_laje=False))
 
-    def test_p4_fora_da_laje_nao_e_perda(self):
-        # E3, linha "Teste": P4 fora da laje não é perda (a regra vale só de P0 a P2)
-        self.assertFalse(perda(indice=P4, sobre_laje=False))
+    def test_p3_fora_da_laje_nao_e_perda(self):
+        # E3, linha "Teste": P3 fora da laje não é perda (a regra vale só de P0 a P2)
+        self.assertFalse(perda(indice=P3, sobre_laje=False))
 
     def test_indice_menos_1_nao_e_perda_por_laje(self):
         # E3, §6.6: o índice −1 dá False, nunca NaN nem perda pela laje
@@ -384,23 +381,23 @@ class TestSucessoDoPegar(unittest.TestCase):
 
     def test_queda_no_carregar_conta_como_falha(self):
         # E3, linha "Teste" (PD-50): a queda no CARREGAR (terminação que não é time_out) não conta como sucesso
-        self.assertFalse(sucesso(p4=True, falhou=True, perdeu=False))
+        self.assertFalse(sucesso(pega=True, falhou=True, perdeu=False))
 
     def test_caixa_perdida_no_carregar_com_chave_ligada_nao_conta(self):
         # E3, linha "Teste" (PD-50): com a chave ligada a perda não termina; vira `v3_perdeu` e não conta
-        self.assertFalse(sucesso(p4=True, falhou=False, perdeu=True))
+        self.assertFalse(sucesso(pega=True, falhou=False, perdeu=True))
 
     def test_perda_com_chave_desligada_entra_como_falha(self):
         # E3, §6.3 (PD-50): com a chave desligada a perda termina o episódio, então entra por `falhou`
-        self.assertFalse(sucesso(p4=True, falhou=True, perdeu=False))
+        self.assertFalse(sucesso(pega=True, falhou=True, perdeu=False))
 
     def test_pega_fechada_sem_falha_nem_perda_conta(self):
-        # E3, §6.3: P4 fechado, sem terminação e sem perda, é sucesso
-        self.assertTrue(sucesso(p4=True, falhou=False, perdeu=False))
+        # E3, §6.3: P3 fechado, sem terminação e sem perda, é sucesso
+        self.assertTrue(sucesso(pega=True, falhou=False, perdeu=False))
 
-    def test_sem_p4_fechado_nao_conta(self):
-        # E3, §6.3: sem P4 fechado não há sucesso, mesmo sem falha
-        self.assertFalse(sucesso(p4=False, falhou=False, perdeu=False))
+    def test_sem_pega_fechada_nao_conta(self):
+        # E3, §6.3: sem o P3 fechado não há sucesso, mesmo sem falha
+        self.assertFalse(sucesso(pega=False, falhou=False, perdeu=False))
 
 
 # --- F9 (29/10), lane 1: a cadeia com a tabela de `_monta` e um `v3_cur` falso (S2, S3, P3, P5, P6, P7, M6) -------
@@ -425,7 +422,7 @@ def _cadeia_de_trechos(n=1):
         v3_freio=torch.zeros(n, dtype=torch.long), v3_degrau=torch.zeros(n, dtype=torch.long),
         v3_alvo_w=z(3), v3_caixa_pega_w=z(3), v3_ponto_apoio=z(3), v3_sigma=torch.ones(n),
         v3_vz_caixa_ant=z(), v3_v_chegada=torch.full((n,), -1.0), v3_aviso=b(),
-        v3_pegou=b(), v3_perdeu=b(), v3_p4_fechado=b(), v3_b4_fechado=b(), v3_perdeu_agora=b(), v3_avancou=b(),
+        v3_pegou=b(), v3_perdeu=b(), v3_pega_fechada=b(), v3_bota_fechada=b(), v3_perdeu_agora=b(), v3_avancou=b(),
         extras={}, v3_fim=b(), v3_t_empurrao=torch.full((n,), float("-inf")),
         v3_ref=types.SimpleNamespace(pelve_com_caixa=lambda a: torch.zeros(n), pelve_de_pe=0.0,
                                      palmas_de_pe_b=torch.zeros(n, 2, 3),
@@ -484,26 +481,26 @@ def _alvos_botar(obj, idx, m, ok=True):
 
 class TestCadeiaBotarEnvFalso(unittest.TestCase):
 
-    def test_ponto_de_apoio_nasce_no_fecho_do_b2_e_nao_no_primeiro_apoio(self):
-        # F9 S2/P1: o ponto de apoio é a caixa no fecho do B2 ("depois de apoiada", S §8.2). Um primeiro contato no B1
-        # não grava nada; o B2 que fecha grava a caixa desse passo
+    def test_ponto_de_apoio_nasce_no_fecho_do_b1_e_nao_antes(self):
+        # F9 S2/P1; 23/11, T14: o ponto de apoio é a caixa no fecho do B1 ("depois de apoiada", S §8.2). Enquanto o B1
+        # não fecha, não grava nada; o B1 que fecha grava a caixa desse passo
         obj = _cadeia_de_trechos()
         m = _medidas()
         m["caixa_p"] = torch.tensor([[0.02, 0.0, 0.5]])
         _alvos_botar(obj, comando.B1, m, ok=False)
         self.assertEqual(obj._env.v3_ponto_apoio.tolist(), [[0.0, 0.0, 0.0]])
-        obj._env.v3_relogio_alvo[:] = A.tempo_b2 - DT  # o B2 fecha neste passo
+        obj._env.v3_relogio_alvo[:] = A.tempo_b1 - DT  # o B1 fecha neste passo
         m["caixa_p"] = torch.tensor([[0.03, 0.0, 0.5]])
-        _alvos_botar(obj, comando.B2, m, ok=True)
-        self.assertEqual(obj._env.v3_alvo_idx.tolist(), [comando.B3])
+        _alvos_botar(obj, comando.B1, m, ok=True)
+        self.assertEqual(obj._env.v3_alvo_idx.tolist(), [comando.B2])
         self.assertEqual([round(v, 6) for v in obj._env.v3_ponto_apoio[0].tolist()], [0.03, 0.0, 0.5])
 
     def test_o_invariante_recebe_cada_deslocamento_no_argumento_certo(self):
         # 13/11, A5: no BOTAR sem perda, `portoes_do_alvo` recebe 0 no desloc da pega e ‖caixa − ponto de apoio‖ (xy) no
-        # desloc do apoio. Antes o do apoio ia no lugar do da pega e o zero no lugar do apoio (o B3 e o B4 ignoravam o arrasto).
+        # desloc do apoio. Antes o do apoio ia no lugar do da pega e o zero no lugar do apoio (o B2 e o B3 ignoravam o arrasto).
         obj = _cadeia_de_trechos()
         env = obj._env
-        env.v3_alvo_idx[:] = comando.B3
+        env.v3_alvo_idx[:] = comando.B2
         env.v3_tarefa[:] = comando.BOTAR
         env.v3_ponto_apoio[:] = torch.tensor([[0.03, 0.0, 0.5]])
         env.v3_caixa_pega_w[:] = 0.0
@@ -520,13 +517,13 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         self.assertEqual(desloc_pega.tolist(), [0.0])
         self.assertAlmostEqual(desloc_apoio.item(), 0.05, places=6)
 
-    def test_afasta_e_zero_com_a_palma_no_contato_e_o_b3_fecha_a_5_cm(self):
-        # F9 S3: `afasta` mede da face, a + palma_face. Com a palma encostada dá 0; a 5 cm além (e 1 mm), o B3 fecha
+    def test_afasta_e_zero_com_a_palma_no_contato_e_o_b2_fecha_a_5_cm(self):
+        # F9 S3: `afasta` mede da face, a + palma_face. Com a palma encostada dá 0; a 5 cm além (e 1 mm), o B2 fecha
         obj = _cadeia_de_trechos()
         a_face = 0.1 + A.palma_face
 
         def afasta_e_ok(y):
-            obj._env.v3_alvo_idx[:] = comando.B3
+            obj._env.v3_alvo_idx[:] = comando.B2
             obj._env.v3_tarefa[:] = comando.BOTAR
             m = _medidas()
             m["palmas_c"] = torch.tensor([[[0.0, y, 0.0], [0.0, -y, 0.0]]])
@@ -535,7 +532,7 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
 
             def captura(*args):
                 out = real(*args)
-                capturas.append((args[5].clone(), out.clone()))
+                capturas.append((args[4].clone(), out.clone()))
                 return out
 
             with mock.patch.object(comando, "ok_agora_botar", side_effect=captura), \
@@ -549,8 +546,8 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         afasta, ok = afasta_e_ok(a_face)
         self.assertAlmostEqual(afasta.abs().max().item(), 0.0, places=6)
         self.assertFalse(ok.item())
-        afasta, ok = afasta_e_ok(a_face + A.b3_afasta + 0.001)
-        self.assertAlmostEqual(afasta.min().item(), A.b3_afasta + 0.001, places=6)
+        afasta, ok = afasta_e_ok(a_face + A.b2_afasta + 0.001)
+        self.assertAlmostEqual(afasta.min().item(), A.b2_afasta + 0.001, places=6)
         self.assertTrue(ok.item())
 
     def test_primeiro_toque_grava_a_vz_de_antes_do_pouso_e_o_segundo_nao_muda(self):
@@ -581,18 +578,18 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         self.assertEqual(env.v3_v_chegada.tolist(), [-1.0, -1.0])
 
     def test_trecho_por_aviso_so_acaba_com_o_fecho_do_alvo_e_depois_do_atraso(self):
-        # 13/11, M6: o PEGAR só sai com `v3_p4_fechado`, e sai depois do atraso sorteado (0,1 s = 5 passos) contado do
+        # 13/11, M6: o PEGAR só sai com `v3_pega_fechada`, e sai depois do atraso sorteado (0,1 s = 5 passos) contado do
         # fecho. Sem o fecho, mesmo uma pose de pé com as palmas na referência não acaba o trecho (o detector antigo acabava)
         obj = _cadeia_de_trechos()
         env = obj._env
         env.v3_tarefa[:] = comando.PEGAR
         env.v3_trecho[:] = PEGAR_TRECHO
-        env.v3_alvo_idx[:] = comando.P4
+        env.v3_alvo_idx[:] = comando.P3
         obj.alvo_s[:] = 0.1
         _roda_compute(obj, 20)  # sem o fecho: nem o latch nem o avanço
         self.assertFalse(env.v3_aviso.item())
         self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO])
-        env.v3_p4_fechado[:] = True
+        env.v3_pega_fechada[:] = True
         _roda_compute(obj, 4)  # o latch pega no 1º passo; o relógio ainda não chegou ao atraso
         self.assertTrue(env.v3_aviso.item())
         self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO])
@@ -600,20 +597,20 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         self.assertEqual(env.v3_trecho.tolist(), [PEGAR_TRECHO + 1])  # o CARREGAR
         self.assertFalse(env.v3_aviso.item())  # a abertura do trecho zera o latch
 
-    def test_botar_so_acaba_com_o_b4_fechado_e_nao_com_o_p4_do_pegar(self):
-        # 13/11, M6: no BOTAR o aviso é o `v3_b4_fechado`. O `v3_p4_fechado` do PEGAR anterior segue True no episódio
+    def test_botar_so_acaba_com_a_bota_fechada_e_nao_com_a_pega_do_pegar(self):
+        # 13/11, M6: no BOTAR o aviso é o `v3_bota_fechada`. O `v3_pega_fechada` do PEGAR anterior segue True no episódio
         # e não vale como aviso
         obj = _cadeia_de_trechos()
         env = obj._env
         env.v3_tarefa[:] = comando.BOTAR
         env.v3_trecho[:] = BOTAR_TRECHO
-        env.v3_alvo_idx[:] = comando.B4
-        env.v3_p4_fechado[:] = True
+        env.v3_alvo_idx[:] = comando.B3
+        env.v3_pega_fechada[:] = True
         obj.alvo_s[:] = 0.1
         _roda_compute(obj, 10)
         self.assertFalse(env.v3_aviso.item())
         self.assertEqual(env.v3_trecho.tolist(), [BOTAR_TRECHO])
-        env.v3_b4_fechado[:] = True
+        env.v3_bota_fechada[:] = True
         _roda_compute(obj, 5)
         self.assertEqual(env.v3_trecho.tolist(), [BOTAR_TRECHO + 1])  # o ANDAR final
 
@@ -623,7 +620,7 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
         env = obj._env
         env.v3_tarefa[:] = comando.ANDAR
         env.v3_trecho[:] = ANDAR_TRECHO
-        env.v3_p4_fechado[:] = True
+        env.v3_pega_fechada[:] = True
         _roda_compute(obj, 1)
         self.assertFalse(env.v3_aviso.item())
         env.v3_aviso[:] = True
@@ -653,16 +650,16 @@ class TestCadeiaBotarEnvFalso(unittest.TestCase):
             obj._abre_p0(_medidas())
             self.assertTrue(obj.pega.all().item())
             _abre(obj, BOTAR_TRECHO, _medidas())
-        self.assertEqual(env.v3_cur.registros, [(1, 0)])  # P4 não fechou: registra falha
+        self.assertEqual(env.v3_cur.registros, [(1, 0)])  # P3 não fechou: registra falha
 
     def test_botar_pendente_no_reset_conta_sucesso_so_sem_queda(self):
-        # F9 P7: o BOTAR com B4 fechado que acaba no `time_out` (reset por tempo) conta sucesso; a queda, falha
+        # F9 P7: o BOTAR com B3 fechado que acaba no `time_out` (reset por tempo) conta sucesso; a queda, falha
         for time_out, esperado in ((True, [(1, 1)]), (False, [(1, 0)])):
             with self.subTest(time_out=time_out):
                 obj = _cadeia_de_trechos()
                 env = obj._env
                 obj.bota[:] = True
-                env.v3_b4_fechado[:] = True
+                env.v3_bota_fechada[:] = True
                 env.termination_manager.time_outs[:] = time_out
                 obj._resample(torch.tensor([0]))
                 self.assertEqual(env.v3_cur.registros, esperado)

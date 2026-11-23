@@ -125,7 +125,7 @@ class CadeiaDeTrechosTest(unittest.TestCase):
         self.assertEqual([int(tab.tarefa[t]) for t in seq], [0, 1, 2, 3, 0])
         self.assertEqual([bool(tab.por_detector[t]) for t in seq], [False, True, False, True, False])
 
-        # PEGAR (13/11, M6: o aviso é o latch do fecho do P4): sem o latch, não avança e o relógio fica em 0
+        # PEGAR (13/11, M6: o aviso é o latch do fecho do P3): sem o latch, não avança e o relógio fica em 0
         pegar = seq[1]
         trecho, relogio = t1(pegar, torch.long), t1(0.0)
         for _ in range(5):

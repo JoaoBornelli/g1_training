@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from g1_v3.knobs import (ATIVO, DR, JUNTAS, TAREFAS, TAU_MAX, Contrato, Estimador, Knobs, Recompensa, Refino,
+from g1_v3.knobs import (ALVOS, ATIVO, DR, JUNTAS, TAREFAS, TAU_MAX, Contrato, Estimador, Knobs, Recompensa, Refino,
                          dim_ator, escala_por_junta, q_de_pe)
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -79,24 +79,35 @@ class TestKnobs(unittest.TestCase):
         with self.assertRaises(dataclasses.FrozenInstanceError):
             Contrato().escala_acao = 1.0  # §6.2: escala_acao = 0,25
 
-    def test_tolerancias_do_b4_leem_o_detector(self):
-        # F9 R3 (I §4.2: são as mesmas): um literal só. Antes do conserto, `Alvos.tol_pelve_b4` é literal (0,03)
-        # e o teste falha na checagem do AST; os valores (0,03 m e 5°) não mudam.
+    def test_tolerancias_do_b3_leem_o_detector(self):
+        # F9 R3 (I §4.2: são as mesmas): um literal só. Antes do conserto, `Alvos.tol_pelve_b3` é literal (0,03)
+        # e o teste falha na checagem do AST; os valores (0,03 m e 5°) não mudam. 23/11, T14: o B4 antigo é o B3.
         arvore = ast.parse((RAIZ / "g1_v3" / "knobs.py").read_text(encoding="utf-8"))
         defaults = {}
         for no in ast.walk(arvore):
             if isinstance(no, ast.ClassDef) and no.name == "Alvos":
                 defaults = {st.target.id: st.value for st in no.body if isinstance(st, ast.AnnAssign)}
-        for nome in ("tol_pelve_b4", "tol_tronco_b4_graus", "tol_palmas_b4"):
+        for nome in ("tol_pelve_b3", "tol_tronco_b3_graus", "tol_palmas_b3"):
             self.assertIsInstance(defaults[nome], ast.Attribute, f"{nome} repete um literal")
-        self.assertEqual(ATIVO.alvos.tol_pelve_b4, 0.03)
-        self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, 5.0)
-        self.assertEqual(ATIVO.alvos.tol_pelve_b4, ATIVO.detector.tol_pelve)
-        self.assertEqual(ATIVO.alvos.tol_tronco_b4_graus, ATIVO.detector.tol_tronco_graus)
-        # 13/11, A9: as mãos ao lado do tronco no B4, a tolerância de 5 cm do detector; A3: a escala do déficit de apoio
-        self.assertEqual(ATIVO.alvos.tol_palmas_b4, 0.05)
-        self.assertEqual(ATIVO.alvos.tol_palmas_b4, ATIVO.detector.tol_palma)
-        self.assertEqual(ATIVO.alvos.escala_apoio_b2, 0.10)
+        self.assertEqual(ATIVO.alvos.tol_pelve_b3, 0.03)
+        self.assertEqual(ATIVO.alvos.tol_tronco_b3_graus, 5.0)
+        self.assertEqual(ATIVO.alvos.tol_pelve_b3, ATIVO.detector.tol_pelve)
+        self.assertEqual(ATIVO.alvos.tol_tronco_b3_graus, ATIVO.detector.tol_tronco_graus)
+        # 13/11, A9: as mãos ao lado do tronco no B3, a tolerância de 5 cm do detector; A3: a escala do déficit de apoio
+        self.assertEqual(ATIVO.alvos.tol_palmas_b3, 0.05)
+        self.assertEqual(ATIVO.alvos.tol_palmas_b3, ATIVO.detector.tol_palma)
+        self.assertEqual(ATIVO.alvos.escala_apoio_b1, 0.10)
+
+    def test_etapas_da_t14_e_a_zona_nao_afrouxa_o_peso_do_b1(self):
+        # 23/11, T14: sete etapas, um σ mínimo por etapa, e cada linha da zona aponta para um campo e uma etapa que existem.
+        # O `apoio_b1_mg` (0,8) fica fora da zona: afrouxá-lo deixaria o B1 fechar com a caixa pendurada nas mãos.
+        self.assertEqual(ALVOS, ("P0", "P1", "P2", "P3", "B1", "B2", "B3"))
+        self.assertEqual(len(ATIVO.alvos.sigma_min_etapa), len(ALVOS))
+        for nome, campo, largo in ATIVO.alvos.zona:
+            self.assertIn(nome, ALVOS)
+            self.assertTrue(hasattr(ATIVO.alvos, campo), campo)
+        self.assertNotIn("apoio_b1_mg", [campo for _, campo, _ in ATIVO.alvos.zona])
+        self.assertEqual(ATIVO.alvos.apoio_b1_mg, 0.8)
 
     def test_dr_e_refino(self):
         # §6.2, contrato de 29/10: o DR (§6.8) e o Refino (§6.9) entram no agregador.

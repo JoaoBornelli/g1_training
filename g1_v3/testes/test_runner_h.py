@@ -4,6 +4,8 @@ O rsl_rl grava só `Policy/mean_std` (logger.py:211). `RunnerV3` embrulha `logge
 a média em 0 do `action_std`, um escalar por junta, pelos nomes da ação. O runner é montado sem `__init__`, com
 logger, env e writer falsos. Escritos antes do código: `_embrulha_log` ainda não existe (AttributeError).
 """
+import os
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -112,6 +114,38 @@ class RunnerHTest(unittest.TestCase):
         obj._embrulha_log()
         obj.logger.log(it=7, action_std=torch.rand(3, len(knobs.JUNTAS)), loss_dict={})
         self.assertEqual(len(obj.logger.chamadas), 1)
+
+
+class LoadComCriticoDeOutraFormaTest(unittest.TestCase):
+    """23/11, T14: o `alvo_macro` do crítico passou de 13 para 11 canais. `RunnerV3.load` carrega só o ator e a iteração
+    quando a forma do crítico do checkpoint difere da atual (o `load_cfg` do rsl_rl 5.4.0, `ppo.py:372`)."""
+
+    def _load(self, entrada_do_checkpoint):
+        # runner sem `__init__`; o crítico atual tem a 1ª camada com 1518 entradas, e o `load` do pai (o do mjlab) é um mock
+        obj = object.__new__(RunnerV3)
+        atual = {"mlp.0.weight": torch.zeros(4, 1518), "obs_normalizer._mean": torch.zeros(1, 1518)}
+        obj.alg = types.SimpleNamespace(_raw_critic=types.SimpleNamespace(state_dict=lambda: atual))
+        estado = {"it": 7}
+        cur = mock.Mock()
+        obj.env = types.SimpleNamespace(unwrapped=types.SimpleNamespace(v3_cur=cur))
+        ckpt = {"critic_state_dict": {"mlp.0.weight": torch.zeros(4, entrada_do_checkpoint),
+                                      "obs_normalizer._mean": torch.zeros(1, entrada_do_checkpoint)},
+                "actor_state_dict": {}, "iter": 7, "infos": {"v3_curriculo": estado}}
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = os.path.join(pasta, "model_7.pt")
+            torch.save(ckpt, caminho)
+            with mock.patch.object(MjlabOnPolicyRunner, "load", return_value={"v3_curriculo": estado}) as pai:
+                obj.load(caminho)
+        return pai, cur, estado
+
+    def test_critico_de_13_canais_de_alvo_macro_carrega_so_o_ator_e_a_iteracao(self):
+        pai, cur, estado = self._load(1520)  # 1518 + 2: o `alvo_macro` com 13 canais
+        self.assertEqual(pai.call_args.args[1], {"actor": True, "critic": False, "optimizer": False, "iteration": True})
+        cur.carrega.assert_called_once_with(estado)  # o currículo segue restaurado
+
+    def test_critico_da_mesma_forma_carrega_tudo(self):
+        pai, cur, _ = self._load(1518)
+        self.assertIsNone(pai.call_args.args[1])  # sem `load_cfg`: o pai carrega o ator, o crítico, o otimizador e a iteração
 
 
 if __name__ == "__main__":
