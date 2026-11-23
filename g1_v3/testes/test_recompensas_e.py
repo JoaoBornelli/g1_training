@@ -389,6 +389,25 @@ class TestEtapaDoProgresso(unittest.TestCase):
         self.assertEqual(env.v3_phi_melhor.tolist(), [0.5, torch.tensor(0.6).item()])
         self.assertAlmostEqual(float(r[0]), 6 * 2 * float(env.v3_h[0]) + 3 * 0.3, places=5)
 
+    def test_no_p3_o_ganho_do_phi_cru_so_recarrega_o_h_com_o_peso_nas_maos(self):
+        # 23/11, T14: arrastar a caixa pela laje sobe o Φ cru do P3 com c = 0 (a caixa não saiu da laje). A recarga do h e o
+        # melhor Φ leem Φ·c: com c = 0 um ganho de 0,5 no Φ cru não recarrega o h (que só cai) nem mexe no melhor Φ; com
+        # c = 1 o mesmo ganho recarrega o h ao teto e sobe o melhor Φ. `v3_phi` guarda o Φ cru nos dois casos
+        for c, h_esperado, melhor_esperado in ((0.0, 0.8 * math.exp(-DT / R.tau_renda), 0.1), (1.0, 1.0, 0.6)):
+            env = types.SimpleNamespace(
+                device="cpu", v3_alvo_idx=torch.tensor([3]), v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
+                v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_bota_fechada=torch.zeros(1, dtype=torch.bool),
+                v3_pega_fechada=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
+                **{**_buffers_m5(1), "v3_h": torch.tensor([0.8]), "v3_phi_melhor": torch.tensor([0.1])})
+            conquistas = torch.tensor([[0.0, 0.0, c]])
+            with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.tensor([0.6]), conquistas)), \
+                    _sinal_m5(1):
+                recompensas.progresso(env, TODAS_TAREFAS)
+            with self.subTest(c=c):
+                self.assertAlmostEqual(float(env.v3_h[0]), h_esperado, places=5)
+                self.assertAlmostEqual(float(env.v3_phi_melhor[0]), melhor_esperado, places=5)
+                self.assertAlmostEqual(float(env.v3_phi[0]), 0.6, places=5)
+
     def test_sinal_do_carregar_com_e_sem_comando(self):
         # M5, CARREGAR com a pega feita (pega_fechada, alvo P3), h inicial 0,5. Env 0: comando linear 0,5, rastreio linear
         # 0,6 e o angular −0,8 fora (canal sem comando), caixa no alvo (d 0): sinal 0,6. Env 1: sem comando, r_lin −0,5 e

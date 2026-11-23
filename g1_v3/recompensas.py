@@ -796,7 +796,7 @@ def progresso(env, tarefas):
 
     Conquistas (máscara `mantem`: sem a caixa perdida e sem a bota fechada): P2 palmas + pega × almofadas; P3 e depois do
     fecho do P3 (PEGAR e CARREGAR) palmas + pega + peso `c`; B1 palmas + pega; B2, B3 e o resto, nenhuma. Sequência por
-    produto (molde do g1_limpo): no P3 o Φ só paga com o peso nas mãos, Φ · c, e o `c` paga 2·c/s.
+    produto (molde do g1_limpo): no P3 o Φ só paga com o peso nas mãos, Φ · c, e o `c` paga 2·c/s. A recarga do h e o melhor Φ também leem Φ·c no P3.
 
     Por quê: a etapa 4 só vale com a pega feita (`v3_pega_fechada`). A tarefa CARREGAR sozinha não prova a pega: o aviso do
     PEGAR é o fecho do P3 e o do BOTAR é o do B3 (M6). Depois da perda a renda é 0, sem Φ: com Φ do B3 pago, fechar o
@@ -812,6 +812,9 @@ def progresso(env, tarefas):
     idx = env.v3_alvo_idx
     phi_alvo, conquistas = _phi_env(env, idx, env.v3_sigma)  # Φ: 0 onde idx < 0
     pega_fechada, bota_fechada = env.v3_pega_fechada, env.v3_bota_fechada
+    # 23/11, T14: no P3 o Φ que paga, recarrega o h e vira o melhor Φ é Φ·c (c = o peso nas mãos): arrastar a caixa pela laje
+    # sobe o Φ cru sem tirá-la da laje e não pode recarregar a renda da etapa. `v3_phi` (métricas) segue com o Φ cru
+    phi_c = torch.where(idx == _P3, phi_alvo * conquistas[:, 2], phi_alvo)
     sem_caixa = env.v3_perdeu | (~pega_fechada & (env.v3_tarefa != TAREFAS.index("PEGAR")))
     fecho_pega = pega_fechada & (idx < _B1)
     etapa = torch.where(sem_caixa, 0, torch.where(bota_fechada, 7, torch.where(fecho_pega, 4, idx.clamp(min=0))))
@@ -819,7 +822,7 @@ def progresso(env, tarefas):
     dt, tau = env.step_dt, R.tau_renda
     com_alvo = paga_phi & (idx >= 0)
     carrega = fecho_pega & ~sem_caixa & (env.v3_tarefa == TAREFAS.index("CARREGAR"))
-    h_alvo = n_pressa(env.v3_h, torch.relu(phi_alvo - env.v3_phi_melhor), dt, tau, R.recarga_renda)
+    h_alvo = n_pressa(env.v3_h, torch.relu(phi_c - env.v3_phi_melhor), dt, tau, R.recarga_renda)
     cmd = env.command_manager.get_command("twist")
     com_lin, com_ang = cmd[:, :2].norm(dim=-1) >= C.limiar_canal, cmd[:, 2].abs() >= C.limiar_canal
     r_lin, r_ang = _rastreio(env, True, normalizado=True), _rastreio(env, False, normalizado=True)
@@ -828,7 +831,7 @@ def progresso(env, tarefas):
     sinal = sinal * potencial.rampa(_qualidade(env)[1], *R.qualidade_larga)
     h_carga = env.v3_h + (dt / tau) * (sinal - env.v3_h)
     env.v3_h[:] = torch.where(com_alvo, h_alvo, torch.where(carrega, h_carga, env.v3_h))
-    env.v3_phi_melhor[:] = torch.where(com_alvo, torch.maximum(env.v3_phi_melhor, phi_alvo), env.v3_phi_melhor)
+    env.v3_phi_melhor[:] = torch.where(com_alvo, torch.maximum(env.v3_phi_melhor, phi_c), env.v3_phi_melhor)
     h_ef = torch.where(com_alvo | carrega, env.v3_h, torch.ones_like(env.v3_h))
     # 18/11, T10: onde a pega tem de continuar. T11b: e no P2, onde o fecho testa o contato das duas almofadas e nenhum
     # termo o pagava (model_10850: 3,02/s sem palma e 3,44/s com as duas). `_CAIXA_ALVO` não muda: outros termos o leem.
@@ -837,7 +840,7 @@ def progresso(env, tarefas):
     mantem = ~sem_caixa & ~bota_fechada & (fecho_pega | _em(idx, _CAIXA_ALVO) | no_p2)
     almofadas = torch.where(no_p2, _contato_palmas(env).float().mean(-1), torch.ones_like(phi_alvo))
     com_peso = (no_p3 | fecho_pega).float()
-    phi_pago = torch.where(paga_phi, torch.where(no_p3, phi_alvo * conquistas[:, 2], phi_alvo), torch.zeros_like(phi_alvo))
+    phi_pago = torch.where(paga_phi, phi_c, torch.zeros_like(phi_alvo))
     r = n_progresso(phi_pago, etapa.float(), R.renda_phi, R.renda_etapa, h_ef,
                     torch.where(mantem, conquistas[:, 0] + conquistas[:, 1] * almofadas + conquistas[:, 2] * com_peso,
                                 torch.zeros_like(phi_alvo)),
