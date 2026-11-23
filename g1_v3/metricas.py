@@ -1,7 +1,7 @@
 """As métricas da locomoção e do mapa, como `MetricsTermCfg` — fora dos termos de recompensa.
 
 ⚠ Só importa `mjlab` e `torch` do framework, mais `recompensas.comprimento_do_passo` e `recompensas.sacudida` (§6.3,
-H5b), `potencial.curso` (a conta do curso, P13), `alvos` (os índices P0–B4 e `inclinacao_da_caixa`), `knobs.TAREFAS`
+H5b), `potencial.curso` (a conta do curso, P13), `alvos` (os índices P0–B3 e `inclinacao_da_caixa`), `knobs.TAREFAS`
 e `knobs.FATIAS` (os índices das tarefas e das fatias); e, só para a anotação, `knobs.Knobs`.
 
 POR QUE ELAS SAEM DA RECOMPENSA. O `reward_manager` pula termo com peso 0: desligar uma penalidade
@@ -24,8 +24,8 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_yaw
 
 from g1_v3 import estimador, recompensas
-from g1_v3.alvos import B3, B4, P0, P1, P2, P3, P4, inclinacao_da_caixa
-from g1_v3.knobs import FATIAS, TAREFAS
+from g1_v3.alvos import B2, B3, P0, P1, P2, P3, inclinacao_da_caixa
+from g1_v3.knobs import ALVOS, FATIAS, TAREFAS
 from g1_v3.potencial import curso
 from g1_v3.recompensas import comprimento_do_passo, sacudida
 
@@ -53,7 +53,7 @@ __all__ = [
     "fracao_avisos",
     "fracao_fora_da_plataforma",
     "aceleracao_da_caixa",
-    "erro_p4",
+    "erro_p3",
 ]
 
 # nomes da cena v3 (`cena.py`): o sensor de contato dos pés, o de altura e os sítios. Os
@@ -64,8 +64,8 @@ SITIOS_DOS_PES = ("left_foot", "right_foot")
 COMANDO = "twist"
 CAIXA = "box"
 CAIXA_ROBO = "caixa_robo"
-# a ordem é a dos índices de `alvos` (P0 = 0 … B4 = 8): o nome do termo sai daqui
-_NOMES_ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")
+# a ordem é a dos índices de `alvos` (P0 = 0 … B3 = 6): o nome do termo sai daqui
+_NOMES_ALVOS = ALVOS
 
 
 def _media_por_env(valor: torch.Tensor, mascara: torch.Tensor) -> torch.Tensor:
@@ -294,9 +294,9 @@ class tempo_no_alvo:
         self.passos[env_ids] = 0.0
 
 
-class erro_p4:
-    """Erro médio no P4, por episódio, em metros (11/11): vertical e lateral da caixa ao alvo, e da pelve à
-    referência. Sem peso. `Episodio/erro_p4_vertical`, `_lateral` e `_pelve`; o `__call__` devolve "teve o P4"."""
+class erro_p3:
+    """Erro médio no P3 (23/11, T14: o P4 antigo), por episódio, em metros (11/11): vertical e lateral da caixa ao alvo, e da pelve à
+    referência. Sem peso. `Episodio/erro_p3_vertical`, `_lateral` e `_pelve`; o `__call__` devolve "teve o P3"."""
 
     def __init__(self, cfg, env):
         self.env = env
@@ -305,8 +305,8 @@ class erro_p4:
 
     def __call__(self, env) -> torch.Tensor:
         robo = env.scene["robot"]
-        ok = (env.v3_alvo_idx == P4) & _com_caixa(env)
-        e = env.scene[CAIXA].data.root_link_pos_w - recompensas.alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, P4))
+        ok = (env.v3_alvo_idx == P3) & _com_caixa(env)
+        e = env.scene[CAIXA].data.root_link_pos_w - recompensas.alvo_da_caixa_w(env, torch.full_like(env.v3_alvo_idx, P3))
         yaw = estimador.yaw(robo.data.root_link_quat_w)
         lateral = (-torch.sin(yaw) * e[:, 0] + torch.cos(yaw) * e[:, 1]).abs()
         h = env.scene["altura_pelve"].data.heights[:, 0]
@@ -321,7 +321,7 @@ class erro_p4:
             env_ids = slice(None)
         media = self.soma / self.n.clamp(min=1.0)[:, None]
         for i, nome in enumerate(("vertical", "lateral", "pelve")):
-            _loga_episodios(self.env, "erro_p4_" + nome, media[:, i], self.n > 0, env_ids)
+            _loga_episodios(self.env, "erro_p3_" + nome, media[:, i], self.n > 0, env_ids)
         self.soma[env_ids] = 0.0
         self.n[env_ids] = 0.0
 
@@ -396,9 +396,9 @@ class velocidade_de_chegada:
 
 
 class deslocamento_depois_do_apoio:
-    """Maior deslocamento da caixa no plano xy desde `v3_ponto_apoio`, nos passos de B3 a B4 sem `v3_perdeu`. Sem peso.
+    """Maior deslocamento da caixa no plano xy desde `v3_ponto_apoio`, nos passos de B2 a B3 sem `v3_perdeu`. Sem peso.
 
-    ⚠ O ponto nasce no fecho do B2 (F9 P1): o B2 não entra. Só xy, como `deslocamento_da_caixa`.
+    ⚠ O ponto nasce no fecho do B1 (F9 P1): o B1 não entra. Só xy, como `deslocamento_da_caixa`.
     ⚠ `reduce="last"` no cfg: o `max` do mjlab diluiria os envs sem apoio (F9 M5). O `__call__` devolve a flag
     "teve apoio"; o `reset` loga o maior deslocamento do episódio (`Episodio/deslocamento_depois_do_apoio`).
     """
@@ -410,7 +410,7 @@ class deslocamento_depois_do_apoio:
 
     def __call__(self, env) -> torch.Tensor:
         alvo = env.v3_alvo_idx
-        ok = ((alvo == B3) | (alvo == B4)) & ~env.v3_perdeu
+        ok = ((alvo == B2) | (alvo == B3)) & ~env.v3_perdeu
         desl = torch.norm((env.scene[CAIXA].data.root_link_pos_w - env.v3_ponto_apoio)[:, :2], dim=-1)
         self.maior = torch.where(ok, torch.maximum(self.maior, desl), self.maior)
         self.marcada = self.marcada | ok
@@ -457,7 +457,7 @@ class fracao_fora_da_plataforma:
 
 
 class aceleracao_da_caixa:
-    """Custo da sacudida da caixa nos passos em que ela está presa (P3, P4, B1, B2), por episódio. Sem peso.
+    """Custo da sacudida da caixa nos passos em que ela está presa (P3 e B1), por episódio. Sem peso.
 
     S §14 "aceleração da caixa", P23. É a conta do termo `sacudida` (H2) sem o fator d/5 do degrau: a métrica vale
     desde o degrau 0, quando o termo ainda paga 0. O valor do episódio é a média do custo nos passos presos; com o p50
@@ -508,8 +508,8 @@ def idade_das_leituras(env) -> torch.Tensor:
 
 
 def fracao_avisos(env) -> torch.Tensor:
-    """Fração dos passos depois do primeiro aviso de fim no trecho, por env. Sem peso. Com a M6 o aviso é o fecho do P4
-    no PEGAR e o do B4 no BOTAR (não há mais detector de pose).
+    """Fração dos passos depois do primeiro aviso de fim no trecho, por env. Sem peso. Com a M6 o aviso é o fecho do P3
+    no PEGAR e o do B3 no BOTAR (não há mais detector de pose).
 
     `v3_aviso` é o latch do aviso no trecho (F9 P5): conta os passos a partir do primeiro aviso, e não os
     passos com o aviso do instante.
@@ -554,7 +554,7 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
         "fracao_mapa_visto": MetricsTermCfg(
             func=fracao_mapa_visto, params={"limiar": k.percepcao.limiar_visto}),
     }
-    # Manipulação (E7, S §14): diagnóstico, sem peso. O Φ e o tempo saem por alvo: nove de cada.
+    # Manipulação (E7, S §14): diagnóstico, sem peso. O Φ e o tempo saem por alvo: sete de cada.
     for i, nome in enumerate(_NOMES_ALVOS):
         m[f"phi_{nome}"] = MetricsTermCfg(func=phi_medio_do_alvo, reduce="last", params={"alvo": i})
         m[f"tempo_{nome}"] = MetricsTermCfg(func=tempo_no_alvo, reduce="last", params={"alvo": i})
@@ -567,5 +567,5 @@ def termos(k: Knobs) -> dict[str, MetricsTermCfg]:
     m["fracao_avisos"] = MetricsTermCfg(func=fracao_avisos)
     m["fracao_fora_da_plataforma"] = MetricsTermCfg(func=fracao_fora_da_plataforma, reduce="last")
     m["aceleracao_da_caixa"] = MetricsTermCfg(func=aceleracao_da_caixa, reduce="last")
-    m["erro_p4"] = MetricsTermCfg(func=erro_p4, reduce="last")
+    m["erro_p3"] = MetricsTermCfg(func=erro_p3, reduce="last")
     return m

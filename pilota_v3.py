@@ -273,7 +273,7 @@ class Visao:
     VISTA: a primeira leitura válida depois da tecla (`abre`), no mundo pela odometria (S5b; `comando.py:305`).
     Sem leitura, o PEGAR espera com alvo zero. O BOTAR (F7) abre com a laje de destino no nível 0 (θ = y = longe = 0,
     como `eventos.posiciona_destino`): o alvo de soltura é o topo da laje + a, FIXO, no mundo pela pose verdadeira da
-    base. Depois do primeiro aviso do detector o alvo vira zero, como o treino depois do B4 (`comando.py`, índice −1).
+    base. Depois do primeiro aviso do detector o alvo vira zero, como o treino depois do B3 (`comando.py`, índice −1).
     ⚠ `reinicia` no reset da cena, junto com o `Percepcao`.
     """
 
@@ -393,7 +393,7 @@ class Visao:
             torch.as_tensor(d.qvel[self.ids_v], dtype=torch.float32)[None],
             ref_pelve, ref_palmas, self.relogio, _DT, _KN.detector)
         fim = bool(aviso[0])
-        # As tolerâncias do B4 leem as do `Detector` (F9 R3: um número só, I §4.2). A janela do aviso é a do latch (F9 P5, R5).
+        # As tolerâncias do B3 leem as do `Detector` (F9 R3: um número só, I §4.2). A janela do aviso é a do latch (F9 P5, R5).
         if tarefa == _BOTAR and fim:
             self.fechado = True
         return fim
@@ -569,7 +569,7 @@ ACOES: dict[str, str] = {
 }
 
 # A tecla é o CARACTERE, em minúscula. O `key_callback` recebe o código GLFW (ASCII maiúsculo para letra).
-# ⚠ BOTAR é UM comando só: uma tecla põe a tarefa BOTAR, e a cadeia B1→B4 é da política, não do driver.
+# ⚠ BOTAR é UM comando só: uma tecla põe a tarefa BOTAR, e a cadeia B1→B3 é da política, não do driver.
 TECLAS: dict[str, str] = {
     "w": "vx+", "s": "vx-",
     "a": "vy+", "d": "vy-",

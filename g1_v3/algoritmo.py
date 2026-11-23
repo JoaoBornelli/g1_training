@@ -99,9 +99,9 @@ class PPOPorTarefa(PPO):
         """Grupo da vantagem e da M1, de uma observação do crítico (..., D): (...,) long.
 
         A tarefa é o argmax das 6 últimas colunas. Sem `fatia_alvo`, o grupo é a tarefa. Com ela, o grupo é 0 para o
-        ANDAR com o slot "nenhum" (o último da fatia) e `1 + tarefa·n + slot` no resto: o ANDAR final (B4 fechado) e o
+        ANDAR com o slot "nenhum" (o último da fatia) e `1 + tarefa·n + slot` no resto: o ANDAR final (bota fechada) e o
         ANDAR depois da perda ganham grupo próprio, como as outras tarefas (13/11, M7). Desde 11/11, um grupo por tarefa e
-        alvo, como o g1_limpo normalizava por elo: com um grupo por tarefa, o P4 tinha 6,7 % da magnitude da vantagem.
+        alvo, como o g1_limpo normalizava por elo: com um grupo por tarefa, o P4 (hoje o P3) tinha 6,7 % da magnitude da vantagem.
         """
         tarefa = obs_critico[..., -6:].argmax(-1)
         if self.fatia_alvo is None:

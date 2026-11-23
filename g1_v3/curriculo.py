@@ -22,7 +22,7 @@ _CAMINHO_MID360 = str(knobs.caminho("g1_v3/dados/mid360_passos.npz"))  # PD-5, g
 # Buffers da §6.4 que `garante_v3` cria, por forma e dtype. Forma sem a dimensão E. Os valores iniciais
 # seguem a §6.4: alvo e célula −1 = nenhum; t_empurrao −∞ = sem empurrão; 0 no resto.
 _LONGOS = ("v3_fatia", "v3_trecho", "v3_tarefa", "v3_freio", "v3_degrau")
-_BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_p4_fechado", "v3_b4_fechado",
+_BOOLS = ("v3_pegou", "v3_perdeu", "v3_fim", "v3_aviso", "v3_avancou", "v3_pega_fechada", "v3_bota_fechada",
           "v3_perdeu_agora")
 _ESCALARES = ("v3_meia", "v3_massa", "v3_topo", "v3_topo_destino", "v3_sigma", "v3_relogio_alvo",
               "v3_vz_caixa_ant", "v3_incl_max_seg", "v3_rumo_cena")

@@ -41,7 +41,7 @@ JUNTAS = (
 )
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR", "REORIENTAR", "LEVANTAR")  # one-hot (I §2.2)
 FATIAS = ("ANDAR", "B", "C")  # fatias do currículo (§6.2)
-ALVOS = ("P0", "P1", "P2", "P3", "P4", "B1", "B2", "B3", "B4")  # índice 0..8; −1 = nenhum
+ALVOS = ("P0", "P1", "P2", "P3", "B1", "B2", "B3")  # índice 0..6; −1 = nenhum
 # Sentinela "nunca reamostra" (plano §1.5, D14 R6): passos de atraso sem reamostra. Uma só, para o
 # lag sorteado no reset ficar no episódio inteiro. Não é número de treino, é o valor "infinito" do mjlab.
 NUNCA = 10**9
@@ -155,7 +155,7 @@ class Cadeia:  # S §7
 
 
 @dataclass(frozen=True)
-class Detector:  # I §4.2; PD-26 (13/11, M6: o treino só lê as tolerâncias, que o B4 usa; o resto é do `pilota_v3.py`)
+class Detector:  # I §4.2; PD-26 (13/11, M6: o treino só lê as tolerâncias, que o B3 usa; o resto é do `pilota_v3.py`)
     tol_pelve: float = 0.03  # I §4.2: tolerância da pelve (m)
     tol_tronco_graus: float = 5.0  # I §4.2: tolerância do tronco (graus)
     tol_palma: float = 0.05  # I §4.2: tolerância das palmas (m)
@@ -170,56 +170,52 @@ class Alvos:  # S §8.2; PD-23
     # Era 0,035, a distância em que a cápsula do punho encostava (`g1_limpo/ik/gera_botar.py`), e a almofada não tocava
     palma_face: float = 0.045  # S §8.2: sítio da palma à face da caixa, almofada encostada (m)
     folga_p1: float = 0.02  # 18/11, T11a: folga da almofada à face no P0 e no P1, ao lado da caixa e sem tocar (m)
-    p3_alto: float = 0.05  # S §8.2: P3, altura acima da pega (m)
-    # 18/11, T8: o P3 fechava com um passo sem contato caixa × laje (0,02 s) e sem altura; no model_8150 a caixa subiu
-    # no máximo 3 cm em 369 fechos e o P4 abria com ela na laje. O fecho exige a subida ≥ p3_alto − tol por tempo_p3
-    tol_caixa_p3: float = 0.02  # tolerância da subida da caixa no P3 (m)
-    tempo_p3: float = 0.3  # tempo de permanência em P3 (s)
-    b1_alto: float = 0.05  # S §8.2: B1, altura acima da soltura (m)
-    tol_palma: float = 0.03  # S §8.2: tolerância da palma (m)
     # 18/11, T10: o P2 fechava com um passo de toque; no model_9150 só 1 % dos envs tinha as duas palmas na caixa no 1º
     # passo do P3. O fecho exige o contato das duas palmas por tempo_p2
     tempo_p2: float = 0.3  # tempo de permanência em P2 (s)
-    tol_caixa_p4: float = 0.05  # S §8.2: tolerância da caixa em P4 (m)
-    tol_pelve_p4: float = 0.03  # S §8.2: tolerância da pelve em P4 (m)
-    tempo_p4: float = 0.5  # S §8.2: tempo de permanência em P4 (s)
-    tol_b1_horizontal: float = 0.03  # S §8.2: tolerância horizontal de B1 (m)
-    raio_b2: float = 0.10  # S §8.2: raio de B2 (m)
-    apoio_b2_mg: float = 0.8  # S §8.2: fração do peso no apoio de B2
-    escala_apoio_b2: float = 0.10  # 13/11, A3: o déficit de apoio vira distância no Φ do B2, da ordem do raio_b2 (m)
-    tempo_b2: float = 0.3  # S §8.2: tempo de permanência em B2 (s)
-    b3_afasta: float = 0.05  # S §8.2: afastamento das palmas em B3 (m)
-    tempo_b3: float = 0.5  # S §8.2: tempo de permanência em B3 (s)
-    v_parada_b3: float = 0.05  # PD-39: caixa parada no B3, ‖v_caixa‖ abaixo disto (m/s)
-    tol_pelve_b4: float = Detector.tol_pelve  # S §8.2; I §4.2: a mesma tolerância do detector (m)
-    tol_tronco_b4_graus: float = Detector.tol_tronco_graus  # S §8.2; I §4.2: a mesma do detector (graus)
-    tol_palmas_b4: float = Detector.tol_palma  # 13/11, A9: as mãos ao lado do tronco no B4 (§4.5), a tolerância de 5 cm do detector (m)
-    tempo_b4: float = 0.5  # S §8.2: tempo de permanência em B4 (s)
+    tol_palma: float = 0.03  # S §8.2: tolerância da palma (m)
+    # 23/11, T14: o P3 e o P4 viram o P3 (erguer e levar ao ponto de transporte). O fecho é a pose final do g1_limpo: a caixa
+    # subiu, está no ponto, a pelve no lugar e fora da laje, por tempo_p3
+    subida_min_p3: float = 0.03  # subida mínima da caixa desde a pega (m)
+    tol_transporte_p3: float = 0.05  # S §8.2: tolerância da caixa ao ponto de transporte (m)
+    tol_pelve_p3: float = 0.03  # S §8.2: tolerância da pelve (m)
+    tempo_p3: float = 0.5  # S §8.2: tempo de permanência na pose final do P3 (s)
+    # 23/11, T14: o B1 e o B2 viram o B1 (levar ao destino e apoiar). A zona nunca afrouxa `apoio_b1_mg`
+    raio_b1: float = 0.10  # S §8.2: raio da caixa ao ponto de soltura (m)
+    apoio_b1_mg: float = 0.8  # S §8.2: fração do peso no apoio do B1
+    escala_apoio_b1: float = 0.10  # 13/11, A3: o déficit de apoio vira distância no Φ do B1, da ordem do raio_b1 (m)
+    tempo_b1: float = 0.3  # S §8.2: tempo de permanência no B1 (s)
+    v_parada: float = 0.05  # PD-39: caixa parada no B1, ‖v_caixa‖ abaixo disto (m/s)
+    b2_afasta: float = 0.05  # S §8.2: afastamento das palmas no B2 (m)
+    tempo_b2: float = 0.5  # S §8.2: tempo de permanência no B2 (s)
+    tol_pelve_b3: float = Detector.tol_pelve  # S §8.2; I §4.2: a mesma tolerância do detector (m)
+    tol_tronco_b3_graus: float = Detector.tol_tronco_graus  # S §8.2; I §4.2: a mesma do detector (graus)
+    tol_palmas_b3: float = Detector.tol_palma  # 13/11, A9: as mãos ao lado do tronco no B3 (§4.5), a tolerância de 5 cm do detector (m)
+    tempo_b3: float = 0.5  # S §8.2: tempo de permanência no B3 (s)
     z_transporte: float = 0.90  # S §8.2: altura de transporte sobre o chão local (m); PD-21
     incl_inicio_graus: float = 30.0  # S §8.2, §9.1: inclinação inicial da caixa (graus)
     incl_fim_graus: float = 15.0  # S §8.2, §9.1: inclinação final da caixa (graus)
     delta_incl_graus: float = 15.0  # S §8.2, §9.1: tolerância de inclinação (graus)
-    # 20/11, T13: o σ do alvo métrico tem piso por etapa (P0..P4, B1..B4; m), em vez de 1 cm para todas (E3: σ = 0 daria NaN no núcleo).
-    # No P2 o σ medido na abertura tem p50 de 2,4 cm e o Φ caía a ~0,1 com a caixa segura a 6,5 cm do centro da face. O B4 é adimensional: sem piso
-    sigma_min_etapa: tuple = (0.05, 0.05, 0.08, 0.05, 0.20, 0.10, 0.20, 0.05, 0.0)
+    # 20/11, T13: o σ do alvo métrico tem piso por etapa (P0..P3, B1..B3; m), em vez de 1 cm para todas (E3: σ = 0 daria NaN no núcleo).
+    # No P2 o σ medido na abertura tem p50 de 2,4 cm e o Φ caía a ~0,1 com a caixa segura a 6,5 cm do centro da face. O B3 é adimensional: sem piso
+    sigma_min_etapa: tuple = (0.05, 0.05, 0.08, 0.20, 0.20, 0.05, 0.0)
     # 20/11, T13: zona do fecho por etapa: (etapa, campo, largo). O valor final é o campo de mesmo nome acima; z = 1 usa o largo e z = 0 o
     # final (`final + z·(largo − final)`). Só o fecho (`ok_agora_*`), o tempo de permanência e a qualidade do CARREGAR leem o efetivo
     zona: tuple = (
         ("P0", "tol_palma", 0.05), ("P1", "tol_palma", 0.05),  # 20/11, T13: a palma na pose da pega, 5 cm em vez de 3
         ("P2", "tempo_p2", 0.2),  # 20/11, T13: contato das duas palmas por 0,2 s em vez de 0,3
-        ("P3", "tol_caixa_p3", 0.04), ("P3", "tempo_p3", 0.1),  # 20/11, T13: subida de 1 cm por 0,1 s em vez de 3 cm por 0,3 s
-        ("P4", "tol_caixa_p4", 0.20), ("P4", "tol_pelve_p4", 0.10), ("P4", "tempo_p4", 0.2),  # 20/11, T13: a caixa a 17 cm (p50) cobre 63 % das visitas com 20 cm
-        ("B1", "tol_b1_horizontal", 0.10),  # 20/11, T13: B1 a 10 cm em vez de 3
-        ("B2", "raio_b2", 0.20), ("B2", "apoio_b2_mg", 0.5), ("B2", "tempo_b2", 0.1),  # 20/11, T13: o B2 nunca fechou
-        ("B3", "b3_afasta", 0.02), ("B3", "tempo_b3", 0.2),  # 20/11, T13: afastamento de 2 cm em vez de 5
-        ("B4", "tol_pelve_b4", 2 * Detector.tol_pelve), ("B4", "tol_tronco_b4_graus", 2 * Detector.tol_tronco_graus),
-        ("B4", "tol_palmas_b4", 2 * Detector.tol_palma), ("B4", "tempo_b4", 0.2),  # 20/11, T13: o dobro das tolerâncias do detector
+        ("P3", "subida_min_p3", 0.01), ("P3", "tol_transporte_p3", 0.20), ("P3", "tol_pelve_p3", 0.10),  # 23/11, T14: a caixa a 17 cm do ponto (p50) cobre a maioria das visitas com 20 cm
+        ("P3", "tempo_p3", 0.2),
+        ("B1", "raio_b1", 0.20), ("B1", "tempo_b1", 0.1),  # 23/11, T14: o apoio_b1_mg não entra: a zona não afrouxa o peso
+        ("B2", "b2_afasta", 0.02), ("B2", "tempo_b2", 0.2),  # 20/11, T13: afastamento de 2 cm em vez de 5
+        ("B3", "tol_pelve_b3", 2 * Detector.tol_pelve), ("B3", "tol_tronco_b3_graus", 2 * Detector.tol_tronco_graus),
+        ("B3", "tol_palmas_b3", 2 * Detector.tol_palma), ("B3", "tempo_b3", 0.2),  # 20/11, T13: o dobro das tolerâncias do detector
     )
     largura_tanh: float = 2.0  # 10/11: Φ = 1 − tanh(d / (largura·σ)); com 2, Φ(σ) = 0,54 e o ganho/custo por cm no P1 fica ≥ 1 até ~40 cm
     desloc_p0p2_frac: float = 1.0  # S §8.2; PD-23: deslocamento P0–P2, × meia aresta
     delta_p0p2_frac: float = 0.5  # S §8.2; PD-23: tolerância P0–P2, × meia aresta
-    desloc_b2b4: float = 0.02  # S §8.2; PD-23: deslocamento B2–B4 (m)
-    delta_b2b4: float = 0.06  # 13/11, A5: com 0,02 o portão do Φ ia a 0 com 4 cm de arrasto; S §8.2; PD-23: tolerância B2–B4 (m)
+    desloc_b2b4: float = 0.02  # S §8.2; PD-23: deslocamento B2–B3 (m)
+    delta_b2b4: float = 0.06  # 13/11, A5: com 0,02 o portão do Φ ia a 0 com 4 cm de arrasto; S §8.2; PD-23: tolerância B2–B3 (m)
     faixa_tronco_graus: float = 15.0  # S §8.2: faixa do tronco (graus)
     faixa_recuo: float = 0.08  # S §8.2: faixa do recuo (m)
     faixa_com: float = 0.03  # S §8.2: faixa do centro de massa (m)
@@ -333,13 +329,13 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
     renda_phi: float = 3.0
     renda_etapa: float = 6.0
-    # 18/11, T10: conquistas mantidas (palmas nas faces e pega firme), somadas de P3 a B2 e no CARREGAR (T11b: e no P2). Como portão, a
+    # 18/11, T10: conquistas mantidas (palmas nas faces e pega firme), somadas no P3, no B1 e no CARREGAR (T11b: e no P2; T14: a terceira, o peso nas mãos, só no P3 e depois do fecho do P3). Como portão, a
     # pega zerava o Φ inteiro com uma palma fora (model_9150: 71 a 78 % dos passos do P3 sem palma na caixa, Φ 0,03).
-    # renda_conquista < 2,3: o fecho do B2 perde as duas e a abertura do B3 tem de pagar mais (42 + 3·0,54 > 36 + 3 + 2·w)
+    # renda_conquista < 2,3: o fecho do B1 perde as duas e a abertura do B2 tem de pagar mais (30 + 3·0,54 > 24 + 3 + 2·w)
     renda_conquista: float = 2.0
     sigma_palmas: float = 0.08  # escala da distância das palmas às faces (m); q = 1 − tanh(d / (largura_tanh·σ)); sem medida
     # 13/11, M5: a renda da etapa (6·etapa·h) cai com τ = 3 s sem progresso do Φ; cada ganho de Φ sobre o melhor da etapa recarrega h
-    # (5 × o ganho: 0,2 de Φ devolve h a 1). Sem isso a renda de 25/s no P4 parado pagava mais que fechar (renda congelada).
+    # (5 × o ganho: 0,2 de Φ devolve h a 1). Sem isso a renda de 25/s no P3 parado pagava mais que fechar (renda congelada).
     tau_renda: float = 3.0
     recarga_renda: float = 5.0
     # 13/11, M5: qualidade larga da caixa no CARREGAR (m: x_lim e Δ da rampa): vale 1 até 5 cm e 0 a 30 cm do alvo de transporte;
@@ -355,7 +351,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     F_ref: float = 49.0  # S §8.2, §11.5: força de referência do aperto (N)
     # 11/11: o portão `maos` do Φ paga a firmeza da pega, tanh(min(F_esq, F_dir) / F_pega), com F_pega = margem_pega ·
     # m·g / (2μ) e μ = a borda de baixo de `DR.atrito_pad` (a conta do g1_limpo `_forca_ref`, com margem). Com o contato
-    # contado (0, 1 ou 2), 1 N já pagava tudo: medido no model_9300, a palma mais fraca apertava 12 N (p50) no P4, 1,5 a 3×
+    # contado (0, 1 ou 2), 1 N já pagava tudo: medido no model_9300, a palma mais fraca apertava 12 N (p50) no P4 antigo, 1,5 a 3×
     # o mínimo do atrito, e uma palma soltava em 0,2 s em 65 a 86 % dos passos. Com 2,5: F_pega = 20,4 N para 1 kg e
     # 102 N para 5 kg; o portão vale 0,53 a 12 N e 0,96 a 2·F_pega. O excesso de força é do `aperto`, pelo degrau.
     margem_pega: float = 2.5

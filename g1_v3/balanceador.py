@@ -5,7 +5,7 @@ sobre a tabela de abertura da §6.3 e as células de PD-12. Os knobs entram como
 16/11: o ANDAR tem uma célula de velocidade (`andar`) e a nota dela é a média do núcleo da Unitree no segmento
 (0 a 1); o portão dela é `portao_andar`, o das outras tarefas é `portao` (sucesso 0 ou 1 por segmento). O nível sobe
 com o portão por `iters_nivel` iterações seguidas, nas 4 tarefas.
-20/11, T13: cada etapa do PEGAR e do BOTAR (P0..P4, B1..B4) tem uma escala de zona z em [0, 1] (1 = critério largo, 0 = o final);
+20/11, T13: cada etapa do PEGAR e do BOTAR (P0..P3, B1..B3) tem uma escala de zona z em [0, 1] (1 = critério largo, 0 = o final);
 ela sobe e desce pela taxa de fecho por visita. Visitas e fechos acumulam no `vis_acum` e no `fech_acum`, que a cadeia preenche.
 O estado vai ao checkpoint em tipos do Python, no formato de g1_limpo/runner.py:47-61.
 """
@@ -27,8 +27,8 @@ ABERTAS_NO_COMECO = (("ANDAR", "andar"),)  # S §11.1: só o ANDAR abre no come�
 VELOCIDADE = {"ANDAR": ("andar",),
               "CARREGAR": ("reto", "giro_lugar", "arco"), "PEGAR": ("pegar",), "BOTAR": ("botar",)}
 CADEIA = ("ANDAR", "CARREGAR")  # tarefas com cadeia de velocidade e célula de terreno (S §11.2)
-# 20/11, T13: etapas do PEGAR e do BOTAR, P0..P4 e B1..B4 (o `len(knobs.ALVOS)`; um módulo puro não importa o knobs)
-N_ETAPAS = 9
+# 20/11, T13: etapas do PEGAR e do BOTAR, P0..P3 e B1..B3 (o `len(knobs.ALVOS)`; um módulo puro não importa o knobs; 23/11, T14: eram 9)
+N_ETAPAS = 7
 FATIA_DE = {"ANDAR": 0, "PEGAR": 1, "CARREGAR": 1, "BOTAR": 2}  # ANDAR, B, C (PD-14)
 
 
@@ -157,7 +157,7 @@ class Curriculo:
                 self.taxa[e] = self.fech_acum[e] / n
                 self.z[e] = min(1.0, max(0.0, self.z[e] - self.k.zona_ganho * (self.taxa[e] - self.k.zona_t_alvo)))
                 self.vis_acum[e] = self.fech_acum[e] = 0
-        for e in (*range(1, 5), *range(6, 9)):
+        for e in (*range(1, 4), *range(5, 7)):  # P1..P3 e B2..B3: o P0 e o B1 abrem a cadeia
             self.z[e] = max(self.z[e], self.z[e - 1] - self.k.zona_folga_cadeia)
         for t in TAREFAS:
             self._conta_refino(t)
@@ -397,3 +397,11 @@ class Curriculo:
         self.z = list(zona.get("z", [1.0] * N_ETAPAS))
         self.vis_acum = list(zona.get("visitas", [0] * N_ETAPAS))
         self.fech_acum = list(zona.get("fechos", [0] * N_ETAPAS))
+        if len(self.z) != N_ETAPAS:
+            # 23/11, T14: o estado da zona de 9 etapas guarda só o P0, P1 e P2 (os mesmos índices); as etapas novas recomeçam
+            # largas, sem visitas, e a taxa volta a −1 (sem medida)
+            n = 3
+            self.z = self.z[:n] + [1.0] * (N_ETAPAS - n)
+            self.vis_acum = self.vis_acum[:n] + [0] * (N_ETAPAS - n)
+            self.fech_acum = self.fech_acum[:n] + [0] * (N_ETAPAS - n)
+            self.taxa = [-1.0] * N_ETAPAS

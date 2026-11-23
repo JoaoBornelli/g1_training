@@ -3,7 +3,7 @@
 Spec: S §8 (alvos macro), §8.2 (tolerâncias); I §4.2 (detector de fim); PD-29 (frame da caixa),
 PD-36 (troca de tarefa), PD-47 (laje de destino). Plano §6.3. Módulo puro (§1.5): não importa o knobs,
 recebe as seções como argumento `k`. Convenções: quaternion wxyz; `indice` long (E,) na ordem de
-ALVOS, −1 = nenhum; tempos (9,) na mesma ordem.
+ALVOS, −1 = nenhum; tempos (7,) na mesma ordem.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 # Ordem de ALVOS do knobs.py, copiada aqui: este módulo não importa o knobs (§1.5).
-P0, P1, P2, P3, P4, B1, B2, B3, B4 = range(9)
+P0, P1, P2, P3, B1, B2, B3 = range(7)
 # Tolerância numérica do relógio em float: 25 passos de 0,02 s somam 0,4999… e não podem perder o aviso.
 # Não é número de treino (§1.5), só a folga de ponto flutuante.
 _EPS = 1e-9
@@ -139,13 +139,13 @@ def palmas_alvo_caixa(indice, a, k):
     """Palmas-alvo (E,2,3) no frame da caixa (S §8.2). Palma 0 = +y (esquerda), palma 1 = −y.
 
     P0: x = −(a + p0_frente); P1 e P2: x = 0. y = ±(a + palma_face + folga): folga_p1 no P0 e no P1 (ao lado da face,
-    sem tocar), 0 no P2 (a almofada encostada; 18/11, T11a: o P1 e o P2 tinham o mesmo ponto) e b3_afasta no B3.
-    ⚠ Alvos sem uso (P3, P4, B1, B2, B4) devolvem 0, nunca NaN (§6.6): o termo os zera pela máscara.
+    sem tocar), 0 no P2 (a almofada encostada; 18/11, T11a: o P1 e o P2 tinham o mesmo ponto) e b2_afasta no B2.
+    ⚠ Alvos sem uso (P3, B1, B3) devolvem 0, nunca NaN (§6.6): o termo os zera pela máscara.
     """
-    usa = (indice == P0) | (indice == P1) | (indice == P2) | (indice == B3)
+    usa = (indice == P0) | (indice == P1) | (indice == P2) | (indice == B2)
     zero = torch.zeros_like(a)
     x = torch.where(indice == P0, -(a + k.p0_frente), zero)
-    y = a + k.palma_face + ((indice == P0) | (indice == P1)).to(a) * k.folga_p1 + (indice == B3).to(a) * k.b3_afasta
+    y = a + k.palma_face + ((indice == P0) | (indice == P1)).to(a) * k.folga_p1 + (indice == B2).to(a) * k.b2_afasta
     lado = a.new_tensor([1.0, -1.0])
     x2 = x.unsqueeze(1).expand(-1, 2)
     y2 = y.unsqueeze(1) * lado
@@ -163,18 +163,15 @@ def base_para_mundo(base_xy, rumo, p):
 def caixa_alvo_w(indice, caixa_na_pega_w, alvo_soltura_w, base_pos_w, rumo, chao_z, a, ref, k):
     """Posição-alvo da caixa (E,3) no mundo (S §8.2).
 
-    P3 = caixa na pega + (0,0,p3_alto); P4 = base + R(rumo)·caixa_transporte_b(a), com z = chao_z +
-    z_transporte (o z da tabela é descartado); B1 = soltura + (0,0,b1_alto); B2 = soltura. Os outros: 0.
+    P3 = base + R(rumo)·caixa_transporte_b(a), com z = chao_z + z_transporte (o z da tabela é descartado);
+    B1 = soltura. Os outros: 0. 23/11, T14: o P3 e o B1 antigos (pega + p3_alto, soltura + b1_alto) saíram.
     """
-    ez = caixa_na_pega_w.new_tensor([0.0, 0.0, 1.0])
     tb = ref.caixa_transporte_b(a)
     xy4 = base_para_mundo(base_pos_w[:, :2], rumo, tb[:, :2])
     p4 = torch.cat([xy4, (chao_z + k.z_transporte).unsqueeze(-1)], -1)
     candidatos = (
-        (P3, caixa_na_pega_w + k.p3_alto * ez),
-        (P4, p4),
-        (B1, alvo_soltura_w + k.b1_alto * ez),
-        (B2, alvo_soltura_w),
+        (P3, p4),
+        (B1, alvo_soltura_w),
     )
     out = torch.zeros_like(caixa_na_pega_w)
     for alvo, val in candidatos:
@@ -198,7 +195,7 @@ def laje_destino(recuo, theta, y, meia_xy, borda):
 def avanca(indice, ok_agora, relogio, dt, tempos):
     """Avança o alvo quando `ok_agora` vale pelo tempo do alvo (S §8.2). Devolve (indice, relogio, avancou).
 
-    `ok_agora` falso zera o relógio (o alvo só avança com a condição sustentada). Depois de B4 o índice
+    `ok_agora` falso zera o relógio (o alvo só avança com a condição sustentada). Depois de B3 o índice
     vira −1 (nenhum): o controlador troca a tarefa e a PD-36 zera o progresso nesse passo.
     ⚠ Alvo sem tempo (P2, tempo 0) avança no primeiro passo com `ok_agora`.
     """
@@ -207,7 +204,7 @@ def avanca(indice, ok_agora, relogio, dt, tempos):
     rel = torch.where(ok_agora, relogio + dt, torch.zeros_like(relogio))
     avancou = ok_agora & valido & (rel >= tempo - _EPS)
     prox = indice + 1
-    prox = torch.where(prox > B4, torch.full_like(prox, -1), prox)
+    prox = torch.where(prox > B3, torch.full_like(prox, -1), prox)
     novo_indice = torch.where(avancou, prox, indice)
     novo_relogio = torch.where(avancou, torch.zeros_like(rel), rel)
     return novo_indice, novo_relogio, avancou
@@ -216,7 +213,7 @@ def avanca(indice, ok_agora, relogio, dt, tempos):
 def detecta_fim(pelve_sobre_pe, tronco, palmas_b, vel_juntas, ref_pelve, ref_palmas_b,
                 relogio, dt, k):
     """Aviso de fim de PEGAR ou BOTAR (I §4.2). Devolve (aviso (E,) bool, novo_relogio (E,)).
-    13/11, M6: o treino não a chama mais (o aviso é o fecho do P4 e do B4); só o `pilota_v3.py` a usa.
+    13/11, M6: o treino não a chama mais (o aviso é o fecho do P3 e do B3); só o `pilota_v3.py` a usa.
 
     Pose dentro das tolerâncias (pelve ±3 cm, tronco ±5°, cada palma ±5 cm) e juntas paradas
     (média de |q̇| abaixo de juntas_paradas), sustentadas por estavel_s. ⚠ Usa a média do instante, e

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 K = knobs.ATIVO
 ANDAR, CARREGAR, BOTAR = (knobs.TAREFAS.index(n) for n in ("ANDAR", "CARREGAR", "BOTAR"))
 N_TAREFAS = len(knobs.TAREFAS)  # 6 canais one-hot (§6.5 `tarefa`)
-# 13/11, M7: P0–B4 (9), P4 fechado, B4 fechado, perda e "nenhum" (§6.5 `alvo_macro`)
+# 13/11, M7: P0–B3 (7), pega fechada, bota fechada, perda e "nenhum" (§6.5 `alvo_macro`; 23/11, T14: eram 9 etapas, 13 canais)
 N_ALVO_MACRO = len(knobs.ALVOS) + 4
 _CAMERA = "d435"  # site da D435i no torso (cena.py); o eixo x é o óptico (PD-11)
 # Os 9 pontos da caixa (PD-11), em fração da meia aresta: o centro (o primeiro, que o `visivel` exige) e os 8 cantos.
@@ -89,10 +89,10 @@ def _magnitude(k: knobs.Estimador, g: int, degraus: int) -> dict:
             "perda": no_degrau(*k.perda, g, degraus), "vies_meia": no_degrau(*k.vies_meia, g, degraus),
             "vies_pos": no_degrau(*k.vies_pos, g, degraus), "rajada_taxa": no_degrau(*k.rajada_taxa, g, degraus)}
 
-# Índices de ALVOS: P0–P3 e B1–B3 usam a pose de IK da pelve e do tronco; P4 usa a pose com caixa; B4, de pé.
-_IK = [knobs.ALVOS.index(n) for n in ("P0", "P1", "P2", "P3", "B1", "B2", "B3")]
-_P4 = knobs.ALVOS.index("P4")
-_B4 = knobs.ALVOS.index("B4")
+# Índices de ALVOS: P0–P2, B1 e B2 usam a pose de IK da pelve e do tronco; P3 usa a pose com caixa; B3, de pé.
+_IK = [knobs.ALVOS.index(n) for n in ("P0", "P1", "P2", "B1", "B2")]
+_P3 = knobs.ALVOS.index("P3")
+_B3 = knobs.ALVOS.index("B3")
 
 
 # --- núcleos puros (sobre tensores; o teste chama estes) -----------------------------------------------------
@@ -117,15 +117,15 @@ def referencia_do_alvo(indice, h, a, ref: alvos.Referencias, k: knobs.Alvos) -> 
     """Canais da referência do alvo corrente (E,8): palmas (6), pelve (1) e tronco (1). §6.6.
 
     ⚠ Zero (nunca NaN) com alvo −1: `torch.where` com ramo zero, e não multiplicação (NaN × 0 = NaN).
-    ⚠ `torch.where` avalia os dois ramos; por isso `ref.pelve_z` roda para todo env mesmo fora de P0–B3.
+    ⚠ `torch.where` avalia os dois ramos; por isso `ref.pelve_z` roda para todo env mesmo fora de P0–B2.
     """
     palmas = alvos.palmas_alvo_caixa(indice, a, k).reshape(-1, 6)
     ik = torch.isin(indice, torch.tensor(_IK, device=indice.device))
-    p4 = indice == _P4
-    b4 = indice == _B4
+    p3 = indice == _P3
+    b3 = indice == _B3
     z = torch.zeros(h.shape[0], dtype=h.dtype, device=h.device)
     pelve = torch.where(ik, ref.pelve_z(h, a),
-                        torch.where(p4, ref.pelve_com_caixa(a), torch.where(b4, z + ref.pelve_de_pe, z)))
+                        torch.where(p3, ref.pelve_com_caixa(a), torch.where(b3, z + ref.pelve_de_pe, z)))
     tronco = torch.where(ik, ref.tronco(h, a), z)
     return torch.cat([palmas, pelve[:, None], tronco[:, None]], -1).to(palmas.dtype)
 
@@ -176,7 +176,7 @@ def _calcula_caixa(env: ManagerBasedRlEnv) -> torch.Tensor:
     e a distância câmera-caixa para o σ relativo.
     ⚠ Zero no ANDAR, esperas incluídas, e zero no alvo do CARREGAR (E8). Fora do BOTAR, zero sem alvo (`v3_alvo_idx`
     < 0: o `v3_alvo_w` pode ser velho). No BOTAR o alvo zera com o latch do aviso (`v3_aviso`), como o driver (F9 R5):
-    o índice cai no fecho do B4, antes do aviso.
+    o índice cai no fecho do B3, antes do aviso.
     """
     robo, caixa_ = env.scene["robot"], env.scene["box"]
     ids, _ = robo.find_sites((_CAMERA,))
@@ -280,17 +280,17 @@ def alvo_verdade(env: ManagerBasedRlEnv) -> torch.Tensor:
 
 
 def alvo_macro(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """One-hot (E,13) do estado da cadeia (13/11, M7): 0–8 o índice de ALVOS (P0–B4), 9 P4 fechado, 10 B4 fechado,
-    11 perda, 12 nenhum. Prioridade: perda, B4 fechado, P4 fechado (com o índice no P4), índice < 0, índice.
+    """One-hot (E,11) do estado da cadeia (13/11, M7; 23/11, T14): 0–6 o índice de ALVOS (P0–B3), 7 pega fechada, 8 bota
+    fechada, 9 perda, 10 nenhum. Prioridade: perda, bota fechada, pega fechada (com o índice no P3), índice < 0, índice.
 
-    ⚠ O crítico precisa ver o que a renda lê: o P4 fechado paga 30/s e o aberto 24·h + 3Φ; o ANDAR final (B4 fechado)
-    paga 54/s e o ANDAR depois da perda 0, e os três tinham o mesmo "nenhum". O `PPOPorTarefa._grupo` lê esta fatia.
+    ⚠ O crítico precisa ver o que a renda lê: a pega fechada paga 24/s e a aberta 18·h + 3Φ·c; o ANDAR final (bota fechada)
+    paga 42/s e o ANDAR depois da perda 0, e os três tinham o mesmo "nenhum". O `PPOPorTarefa._grupo` lê esta fatia.
     """
     na = len(knobs.ALVOS)
     idx = env.v3_alvo_idx
     slot = torch.where(idx < 0, torch.full_like(idx, na + 3), idx)
-    slot = torch.where((idx == _P4) & env.v3_p4_fechado, torch.full_like(idx, na), slot)
-    slot = torch.where(env.v3_b4_fechado, torch.full_like(idx, na + 1), slot)
+    slot = torch.where((idx == _P3) & env.v3_pega_fechada, torch.full_like(idx, na), slot)
+    slot = torch.where(env.v3_bota_fechada, torch.full_like(idx, na + 1), slot)
     slot = torch.where(env.v3_perdeu, torch.full_like(idx, na + 2), slot)
     return torch.nn.functional.one_hot(slot, num_classes=N_ALVO_MACRO).float()
 

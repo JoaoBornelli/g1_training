@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 
+import torch
 from mjlab.rl import MjlabOnPolicyRunner
 
 __all__ = ["RunnerV3"]
@@ -88,8 +89,17 @@ class RunnerV3(MjlabOnPolicyRunner):
         infos = {**(infos or {}), "v3_curriculo": self.env.unwrapped.v3_cur.estado()}
         super().save(path, infos)
 
-    def load(self, path: str, *a, **kw) -> dict:
-        carregado = super().load(path, *a, **kw)
+    def load(self, path: str, load_cfg: dict | None = None, strict: bool = True, map_location: str | None = None) -> dict:
+        # 23/11, T14: o `alvo_macro` do crítico mudou de forma (13 → 11 canais) e o `load_state_dict` estrito falha. Com a forma
+        # do crítico do checkpoint diferente da atual, carrega só o ator e a iteração (o `load_cfg` do rsl_rl 5.4.0,
+        # `ppo.py:372`): o crítico e o otimizador nascem novos. O ator não muda de forma.
+        critico = torch.load(path, map_location="cpu", weights_only=False).get("critic_state_dict", {})
+        atual = self.alg._raw_critic.state_dict()
+        if load_cfg is None and any(k not in atual or atual[k].shape != v.shape for k, v in critico.items()):
+            load_cfg = {"actor": True, "critic": False, "optimizer": False, "iteration": True}
+            print("[g1_v3] a forma do crítico do checkpoint difere da atual: carrega só o ator e a iteração; "
+                  "o crítico e o otimizador nascem novos.")
+        carregado = super().load(path, load_cfg, strict, map_location)
         estado = (carregado or {}).get("v3_curriculo")
         if not estado:
             # ⚠ Não falha: um checkpoint anterior à v3 não tem a chave, e o currículo novo

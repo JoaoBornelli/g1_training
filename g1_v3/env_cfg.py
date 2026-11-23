@@ -33,8 +33,8 @@ TODAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 ANDAR_CARREGAR = ("ANDAR", "CARREGAR")
 PEGAR_BOTAR = ("PEGAR", "BOTAR")
 PEGAR_CARREGAR_BOTAR = ("PEGAR", "CARREGAR", "BOTAR")
-# 10/11: o `progresso` vale em todas as tarefas. Era E11 R1 (29/10): o CARREGAR ficava fora porque o índice fica no P4 e o
-# termo por diferença cobraria (1 − γ)·w_p·Φ(P4). Como renda por segundo, o CARREGAR entra com etapa 5: sem ele, a troca
+# 10/11: o `progresso` vale em todas as tarefas. Era E11 R1 (29/10): o CARREGAR ficava fora porque o índice fica no P3 e o
+# termo por diferença cobraria (1 − γ)·w_p·Φ(P3). Como renda por segundo, o CARREGAR entra com etapa 4: sem ele, a troca
 # PEGAR → CARREGAR cortaria a renda.
 
 # §6.5, na ordem do dict. Nome = função em `recompensas` = campo de `knobs.Recompensa` (o peso cru). Rastreio só no ANDAR e no CARREGAR (medida de 09/11: com comando zero ele cobrava 0,76/s no PEGAR por mover a base; o cerca_recuo já segura a base).

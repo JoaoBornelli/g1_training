@@ -74,7 +74,7 @@ ROTEIROS = {
           "pegar:PEGAR:7.0,"
           "espera:CARREGAR:1.0,"
           # ⚠ 7,0 s, a mesma janela do PEGAR. No treino o BOTAR termina pelo detector (mais U[0; 1,5] s de atraso), com
-          # B2 + B3 + B4 = 1,3 s de permanência e o trajeto até a laje. O aviso sai em `aviso_fim`, e o roteiro não corta nele.
+          # B1 + B2 + B3 = 1,3 s de permanência e o trajeto até a laje. O aviso sai em `aviso_fim`, e o roteiro não corta nele.
           # M11 (F9): a duração se confere pela coluna `aviso_fim` na fase I (o treino troca em aviso + U[0; 1,5] s).
           "botar:BOTAR:7.0,"
           "parado:ANDAR:1.5"),
@@ -422,7 +422,7 @@ def main() -> None:
                     ln = {"passo": passo, "t": round(passo * dt, 4),
                           "fase": fase.rotulo, "tarefa": fase.tarefa, "relogio": fase_relogio, "ckpt": ckpt, **sub}
                     # O alvo gravado é o PONTO do PEGAR (a caixa vista) ou o de soltura do BOTAR (a laje, F7), o que o
-                    # driver manda; I §4.1. O `alvos.caixa_alvo_w` pede o índice P0..B4, que o driver não tem.
+                    # driver manda; I §4.1. O `alvos.caixa_alvo_w` pede o índice P0..B3, que o driver não tem.
                     ax, ay, az = (visao.alvo_w[0].tolist() if fase.tarefa in ("PEGAR", "BOTAR") and visao.aberto
                                   else (float("nan"),) * 3)
                     ln.update(alvo_x=ax, alvo_y=ay, alvo_z=az)

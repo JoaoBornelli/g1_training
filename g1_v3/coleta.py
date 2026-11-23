@@ -1,6 +1,6 @@
 """Coleta os dados brutos, passo a passo, de uma política treinada da v3 (18/11). A análise roda fora do pod.
 
-Por quê: o `model_8150` pega a caixa, devolve à laje e solta no P4 (a medida de 18/11), e o ANDAR parou no nível 6.
+Por quê: o `model_8150` pega a caixa, devolve à laje e solta no P4 antigo (a medida de 18/11), e o ANDAR parou no nível 6.
 Em vez de um script por pergunta, este grava uma linha por env e por passo: o estado ANTES da ação (locomoção, caixa,
 mãos, cadeia: d, σ, Φ e os 6 portões), o valor do crítico e, DEPOIS do passo, todos os termos de recompensa (por
 segundo, com o peso), as terminações e o fim do episódio. Metade dos episódios novos cai no ANDAR e metade na fatia B
@@ -24,7 +24,7 @@ import torch
 
 import g1_v3.tarefa as tarefa  # registra a task
 from g1_v3 import alvos, cena, recompensas
-from g1_v3.alvos import P4
+from g1_v3.alvos import P3
 from g1_v3.env_cfg import make_env_cfg
 from g1_v3.metricas import CAIXA_ROBO
 from g1_v3.runner import RunnerV3
@@ -97,7 +97,7 @@ with torch.inference_mode():
             - u.v3_meia[:, None]
         site_y = m["palmas_c"][..., 1] * lado - u.v3_meia[:, None]  # o site até a face lateral (o alvo do P2 é palma_face)
         caixa_b = quat_apply_inverse(m["base_q"], m["caixa_p"] - m["base_p"])
-        e_p4 = quat_apply_inverse(m["base_q"], m["caixa_p"] - recompensas.alvo_da_caixa_w(u, torch.full_like(u.v3_alvo_idx, P4)))
+        e_transporte = quat_apply_inverse(m["base_q"], m["caixa_p"] - recompensas.alvo_da_caixa_w(u, torch.full_like(u.v3_alvo_idx, P3)))
         cmd = u.command_manager.get_command("twist")
         acao = policy(obs, stochastic_output=args.amostra)
         x = {
@@ -117,14 +117,14 @@ with torch.inference_mode():
             "d": cap["d"], "sigma": cap["sigma"], "phi": phi, "q_palmas": conq[:, 0], "q_pega": conq[:, 1],
             **{f"p_{n}": cap[n] for n in ("desloc", "incl", "maos", "tronco", "recuo", "com")},
             "h_renda": u.v3_h, "phi_melhor": u.v3_phi_melhor, "relogio_alvo": u.v3_relogio_alvo,
-            "e_p4_frente": e_p4[:, 0], "e_p4_lado": e_p4[:, 1], "e_p4_z": e_p4[:, 2],
+            "e_transporte_frente": e_transporte[:, 0], "e_transporte_lado": e_transporte[:, 1], "e_transporte_z": e_transporte[:, 2],
             "topo": u.v3_topo, "meia": u.v3_meia, "massa": u.v3_massa,
             "valor": critico(obs).flatten(), "acao_norma": acao.norm(dim=-1),
         }
         i = {
             "fatia": u.v3_fatia, "tarefa": u.v3_tarefa, "trecho": u.v3_trecho, "alvo": u.v3_alvo_idx, "celula": twist.seg_cel,
-            "passo_ep": u.episode_length_buf, "pegou": u.v3_pegou, "perdeu": u.v3_perdeu, "p4_fechado": u.v3_p4_fechado,
-            "b4_fechado": u.v3_b4_fechado,
+            "passo_ep": u.episode_length_buf, "pegou": u.v3_pegou, "perdeu": u.v3_perdeu, "pega_fechada": u.v3_pega_fechada,
+            "bota_fechada": u.v3_bota_fechada,
         }
         obs, _, fim, _ = env.step(acao)
         # DEPOIS do passo: a recompensa e as terminações do passo (calculadas antes do reset do env que acabou)

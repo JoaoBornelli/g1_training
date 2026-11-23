@@ -20,7 +20,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommand, UniformVelocityComm
 from mjlab.utils.lab_api.math import quat_apply_inverse, wrap_to_pi
 
 from g1_v3 import alvos, balanceador, estimador, eventos, recompensas
-from g1_v3.alvos import B1, B2, B3, B4, P0, P1, P2, P3, P4
+from g1_v3.alvos import B1, B2, B3, P0, P1, P2, P3
 from g1_v3.curriculo import garante_v3
 from g1_v3.knobs import ALVOS, ATIVO, TAREFAS, Alvos, Cadeia, Comando, Estimador
 from g1_v3.observacoes import z_pe_min
@@ -37,22 +37,21 @@ A, T, CENA = ATIVO.alvos, ATIVO.terminacao, ATIVO.cena
 
 # --- núcleos do PEGAR e da caixa (§6.3, E3; S §8.2, §10, §11.3; PD-50) ---------------------------------------
 
-def ok_agora_pegar(indice, d_palmas, contatos, apoio, incl_graus, incl_lim_graus, subida, d_caixa_p4, d_pelve_p4,
-                   invariantes, k) -> torch.Tensor:
+def ok_agora_pegar(indice, d_palmas, contatos, apoio, subida, d_transporte, d_pelve, invariantes, k) -> torch.Tensor:
     """(E,) bool: a condição de cada alvo de PEGAR, `& (invariantes == 1)` (S §8.2: o invariante impede o avanço).
-    ⚠ B1..B4 e −1 dão False. Os B vêm de `ok_agora_botar` (F1), na cadeia, e não por esta condição.
-    18/11, T8: `subida` (E,) m = fundo da caixa sobre o topo da laje da pega. O P3 exige a caixa fora da laje E levantada
-    (subida ≥ p3_alto − tol_caixa_p3); o P4 também exige a caixa fora da laje.
-    20/11, T13: `k` é o `Alvos` efetivo da zona (`env.v3_alvos`); o `tol_palma` dele é um escalar ou um valor por etapa (9,),
+    ⚠ B1..B3 e −1 dão False. Os B vêm de `ok_agora_botar` (F1), na cadeia, e não por esta condição.
+    18/11, T8: `subida` (E,) m = fundo da caixa sobre o topo da laje da pega. 23/11, T14: o P3 fecha na pose final do
+    transporte (molde do g1_limpo): a caixa subiu (`subida_min_p3`), está no ponto (`d_transporte`), a pelve no lugar
+    (`d_pelve`) e fora da laje (`~apoio`); o relógio do `avanca` exige tudo sem interrupção por `tempo_p3`. A inclinação
+    e as duas palmas vêm do invariante.
+    20/11, T13: `k` é o `Alvos` efetivo da zona (`env.v3_alvos`); o `tol_palma` dele é um escalar ou um valor por etapa (7,),
     porque P0 e P1 têm z próprios."""
     tol = torch.as_tensor(k.tol_palma, device=indice.device)
     tol = tol[indice.clamp(min=0)] if tol.ndim else tol
     p01 = (d_palmas <= tol[..., None]).all(-1)
     p2 = contatos.all(-1)
-    p3 = ~apoio & (incl_graus <= incl_lim_graus) & (subida >= k.p3_alto - k.tol_caixa_p3)
-    p4 = (d_caixa_p4 <= k.tol_caixa_p4) & (d_pelve_p4 <= k.tol_pelve_p4) & ~apoio
-    ok = (((indice == P0) | (indice == P1)) & p01) | ((indice == P2) & p2) | ((indice == P3) & p3) \
-        | ((indice == P4) & p4)
+    p3 = (subida >= k.subida_min_p3) & (d_transporte <= k.tol_transporte_p3) & (d_pelve <= k.tol_pelve_p3) & ~apoio
+    ok = (((indice == P0) | (indice == P1)) & p01) | ((indice == P2) & p2) | ((indice == P3) & p3)
     return ok & (invariantes == 1.0)
 
 
@@ -65,30 +64,32 @@ def caixa_perdida_agora(fundo_sobre_chao, v_rel, fora_do_alvo, pegou, indice, so
     return caiu | arremesso | fora_da_laje
 
 
-def sucesso_do_pegar(p4_fechado, falhou, perdeu) -> torch.Tensor:
-    """(E,) bool = P4 fechado, sem falha e sem caixa perdida (S §11.3, PD-50). O invólucro decide quando registra."""
-    return p4_fechado & ~falhou & ~perdeu
+def sucesso_do_pegar(pega_fechada, falhou, perdeu) -> torch.Tensor:
+    """(E,) bool = P3 fechado, sem falha e sem caixa perdida (S §11.3, PD-50). O invólucro decide quando registra."""
+    return pega_fechada & ~falhou & ~perdeu
 
 
-def ok_agora_botar(indice, d_horiz_b1, d_caixa_b2, apoio_N, peso_N, afasta_palmas, apoiada, v_caixa,
+def ok_agora_botar(indice, d_caixa_b1, apoio_N, peso_N, afasta_palmas, apoiada, v_caixa,
                    dpelve, dtronco_graus, dpalmas, invariantes, k: Alvos) -> torch.Tensor:
     """(E,) bool: a condição de cada alvo de BOTAR, `& (invariantes == 1)` (S §8.2). Formas: v_caixa (E,3) m/s;
     afasta_palmas (E,2) m, uma por palma; apoio_N e peso_N (E,) N; dpalmas (E,) m, a maior das duas distâncias palma–pose
-    de pé no frame da base (13/11, A9). B1..B4 são os índices 5..8; P0..P4 e −1 dão False.
-    ⚠ O B4 da caixa perdida (E3) usa este núcleo com `invariantes` = 1: sem o portão desloc (E11)."""
-    b1 = d_horiz_b1 <= k.tol_b1_horizontal
+    de pé no frame da base (13/11, A9). B1..B3 são os índices 4..6; P0..P3 e −1 dão False.
+    23/11, T14: o B1 leva ao destino e apoia num fecho só (a caixa no raio, com `apoio_b1_mg` do peso na laje e parada); a
+    zona nunca afrouxa o `apoio_b1_mg`.
+    ⚠ O B3 da caixa perdida (E3) usa este núcleo com `invariantes` = 1: sem o portão desloc (E11)."""
     # 13/11, A4: a caixa parada no fecho, para o ponto de apoio (`v3_ponto_apoio`) sair sem deslizamento
-    b2 = (d_caixa_b2 <= k.raio_b2) & (apoio_N >= k.apoio_b2_mg * peso_N) & (v_caixa.norm(dim=-1) < k.v_parada_b3)
-    b3 = (afasta_palmas >= k.b3_afasta).all(-1) & apoiada & (v_caixa.norm(dim=-1) < k.v_parada_b3)
-    # 13/11, A9: as mãos ao lado do tronco (§4.5) entram no fecho do B4
-    b4 = (dpelve.abs() <= k.tol_pelve_b4) & (dtronco_graus.abs() <= k.tol_tronco_b4_graus) & (dpalmas <= k.tol_palmas_b4)
-    ok = ((indice == B1) & b1) | ((indice == B2) & b2) | ((indice == B3) & b3) | ((indice == B4) & b4)
+    parada = v_caixa.norm(dim=-1) < k.v_parada
+    b1 = (d_caixa_b1 <= k.raio_b1) & (apoio_N >= k.apoio_b1_mg * peso_N) & parada
+    b2 = (afasta_palmas >= k.b2_afasta).all(-1) & apoiada & parada
+    # 13/11, A9: as mãos ao lado do tronco (§4.5) entram no fecho do B3
+    b3 = (dpelve.abs() <= k.tol_pelve_b3) & (dtronco_graus.abs() <= k.tol_tronco_b3_graus) & (dpalmas <= k.tol_palmas_b3)
+    ok = ((indice == B1) & b1) | ((indice == B2) & b2) | ((indice == B3) & b3)
     return ok & (invariantes == 1.0)
 
 
-def sucesso_do_botar(b4_fechado, falhou, perdeu) -> torch.Tensor:
-    """(E,) bool = B4 fechado, sem falha e sem caixa perdida (S §11.3, PD-50)."""
-    return b4_fechado & ~falhou & ~perdeu
+def sucesso_do_botar(bota_fechada, falhou, perdeu) -> torch.Tensor:
+    """(E,) bool = B3 fechado, sem falha e sem caixa perdida (S §11.3, PD-50)."""
+    return bota_fechada & ~falhou & ~perdeu
 
 
 # --- sorteio de velocidade (§6.3, D3 item 1) ----------------------------------------------------------
@@ -153,7 +154,7 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
 @dataclass
 class TabelaTrechos:  # a tabela da D3 achatada nas três fatias; tensores (T,)
     tarefa: torch.Tensor  # long, índice em TAREFAS publicado no trecho
-    por_detector: torch.Tensor  # bool: o trecho acaba pelo aviso (o fecho do P4 ou do B4, 13/11, M6) mais o atraso
+    por_detector: torch.Tensor  # bool: o trecho acaba pelo aviso (o fecho do P3 ou do B3, 13/11, M6) mais o atraso
     proximo: torch.Tensor  # long, −1 = fim da cadeia
     inicio: torch.Tensor  # (3,) long, o primeiro trecho de ANDAR, B e C
 
@@ -190,7 +191,7 @@ def monta_tabela_trechos(k_cad: Cadeia, device) -> TabelaTrechos:
 
 def avanca_trecho(trecho, relogio, duracao, aviso, atraso, dt, tabela: TabelaTrechos):
     """(novo_trecho, novo_relogio, avancou, fim). Por tempo: relógio corre sempre, avança com relógio ≥ duração.
-    Por aviso (o latch do fecho do P4 ou do B4): relógio corre só com o aviso, avança com aviso e relógio ≥ atraso. Ao
+    Por aviso (o latch do fecho do P3 ou do B3): relógio corre só com o aviso, avança com aviso e relógio ≥ atraso. Ao
     avançar, relógio = 0.
     A tarefa publicada é `tabela.tarefa[trecho]`: no atraso do BOTAR, o one-hot fica em BOTAR (§6.3).
     ⚠ O aviso é exigido também para avançar: com atraso 0, um trecho por aviso sem aviso não pode avançar."""
@@ -271,9 +272,9 @@ class CadeiaCmdCfg(CommandTermCfg):
 
 class CadeiaCmd(CommandTerm):
     """Tarefa publicada, trechos da fatia (S §7) e alvos do PEGAR (§6.2 `Alvos`, E3). Escreve v3_trecho, v3_tarefa,
-    v3_fim, v3_aviso (latch do trecho, F9 P5; 13/11, M6: o fecho do P4 no PEGAR e o do B4 no BOTAR), v3_freio, v3_degrau,
-    v3_alvo_idx, v3_alvo_w, v3_caixa_pega_w, v3_sigma, v3_relogio_alvo, v3_avancou, v3_pegou, v3_p4_fechado, v3_b4_fechado,
-    v3_perdeu, v3_perdeu_agora, v3_ponto_apoio (fecho do B2, F9 S2), v3_v_chegada (primeiro toque do BOTAR, F9 P3), v3_vz_caixa_ant (F-2: a vz da caixa, todo env, todo
+    v3_fim, v3_aviso (latch do trecho, F9 P5; 13/11, M6: o fecho do P3 no PEGAR e o do B3 no BOTAR), v3_freio, v3_degrau,
+    v3_alvo_idx, v3_alvo_w, v3_caixa_pega_w, v3_sigma, v3_relogio_alvo, v3_avancou, v3_pegou, v3_pega_fechada, v3_bota_fechada,
+    v3_perdeu, v3_perdeu_agora, v3_ponto_apoio (fecho do B1, F9 S2), v3_v_chegada (primeiro toque do BOTAR, F9 P3), v3_vz_caixa_ant (F-2: a vz da caixa, todo env, todo
     passo); dá o `passo` da `v3_odo` uma vez por passo (PD-44)."""
 
     cfg: CadeiaCmdCfg
@@ -306,7 +307,7 @@ class CadeiaCmd(CommandTerm):
 
     def _mede(self) -> dict:
         """Medidas do passo (E,...): base, caixa (verdade), laje, palmas, contatos, tronco (§6.2 `Alvos`) e a pelve sobre o
-        pé mais baixo (`pelve`, R6 da E11: a medida do B4, também o da caixa perdida) e a distância das palmas à pose de
+        pé mais baixo (`pelve`, R6 da E11: a medida do B3, também o da caixa perdida) e a distância das palmas à pose de
         pé (`dpalmas`, 13/11, A9)."""
         env, d = self._env, self.robot.data
         caixa, laje = env.scene["box"].data, env.scene["table"].data
@@ -338,16 +339,16 @@ class CadeiaCmd(CommandTerm):
     def _dist(self, m, indice) -> torch.Tensor:
         # d do alvo `indice` no estado do passo (E4, `recompensas.distancia_do_alvo`); usado no σ. O alvo da caixa é o
         # da recompensa, com o chão local (S10): uma conta só.
-        # σ = distância inicial da mesma medida que o Φ do B4 usa (`distancia_do_alvo`, pela `h` do sensor altura_pelve).
+        # σ = distância inicial da mesma medida que o Φ do B3 usa (`distancia_do_alvo`, pela `h` do sensor altura_pelve).
         env = self._env
         dpelve = m["h"] - env.v3_ref.pelve_de_pe
         alvo = recompensas.alvo_da_caixa_w(env, indice)
-        deficit = torch.relu(1.0 - m["apoio_N"] / (A.apoio_b2_mg * m["peso_N"]))  # 13/11, A3: o do `_phi_env`
+        deficit = torch.relu(1.0 - m["apoio_N"] / (A.apoio_b1_mg * m["peso_N"]))  # 13/11, A3: o do `_phi_env`
         return recompensas.distancia_do_alvo(indice, m["palmas_c"], m["caixa_p"], alvo, dpelve, m["tronco_graus"],
                                              m["dpalmas"], deficit, env.v3_meia, A)
 
     def _sigma(self, m, indice) -> torch.Tensor:
-        # 20/11, T13: piso por etapa (`sigma_min_etapa`); o B4 é adimensional e o piso dele é 0 (M12).
+        # 20/11, T13: piso por etapa (`sigma_min_etapa`); o B3 é adimensional e o piso dele é 0 (M12).
         d = self._dist(m, indice)
         return torch.maximum(d, self.sigma_min[indice.clamp(min=0)])
 
@@ -360,7 +361,7 @@ class CadeiaCmd(CommandTerm):
     def _abre_p0(self, m) -> None:
         # Abre P0 do PEGAR na primeira leitura VÁLIDA da caixa (E11 S5b, decisão do dono): idade < idade_max, que só
         # acontece com a caixa já vista (sem leitura, a idade é idade_max). Até lá o trecho fica sem alvo (−1) e o robô
-        # espera em pé: sem alvo não há fecho do P4, e o relógio do PEGAR não corre. A pega e o alvo saem da caixa ESTIMADA (com os
+        # espera em pé: sem alvo não há fecho do P3, e o relógio do PEGAR não corre. A pega e o alvo saem da caixa ESTIMADA (com os
         # erros do estimador, S §6.4); o frame volta ao mundo pela odometria (`do_frame_da_base`, S5a). σ = distância
         # inicial das palmas a P0.
         env = self._env
@@ -390,11 +391,11 @@ class CadeiaCmd(CommandTerm):
         # Caso 6: no primeiro passo do episódio (`episode_length_buf` == 0) o `h_caixa` é o do fim do episódio anterior
         # (o `sense()` ainda não rodou sobre o estado novo). Por isso a perda não vale nesse passo: senão um PEGAR que
         # nasce com a caixa no chão, pelo dado velho, marcaria perda falsa e, com a chave, viraria ANDAR.
-        # Com a chave, a caixa perdida vira ANDAR parado até o fim (PD-27): o alvo passa a B4, com σ = a distância à pose
+        # Com a chave, a caixa perdida vira ANDAR parado até o fim (PD-27): o alvo passa a B3, com σ = a distância à pose
         # de pé no instante da perda.
         env = self._env
         tar = env.v3_tarefa
-        longe = (m["caixa_p"] - env.v3_alvo_w).norm(dim=-1) > A.raio_b2
+        longe = (m["caixa_p"] - env.v3_alvo_w).norm(dim=-1) > A.raio_b1
         fora = torch.where(tar == BOTAR, longe, torch.ones_like(longe))  # fora do alvo de soltura, só no BOTAR
         perda = caixa_perdida_agora(m["h_caixa"] - env.v3_meia, m["v_rel"], fora, env.v3_pegou, env.v3_alvo_idx,
                                     m["sobre"], T) & (tar != ANDAR) & (env.episode_length_buf > 0)
@@ -402,17 +403,17 @@ class CadeiaCmd(CommandTerm):
         if self.cfg.k.caixa_perdida_vira_andar and perda.any():
             ids = perda.nonzero().flatten()
             env.v3_perdeu[ids] = True
-            env.v3_alvo_idx[ids] = B4
-            env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>`; o progresso grava o Φ do B4 no passo seguinte
+            env.v3_alvo_idx[ids] = B3
+            env.v3_phi[ids] = -1.0  # sentinela das métricas `phi_<alvo>`; o progresso grava o Φ do B3 no passo seguinte
             env.v3_h[ids], env.v3_phi_melhor[ids] = 1.0, 0.0  # 13/11, M5
             env.v3_relogio_alvo[ids] = 0.0
-            env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B4))[ids]
+            env.v3_sigma[ids] = self._sigma(m, torch.full_like(env.v3_alvo_idx, B3))[ids]
             self._publica(ids, torch.full_like(ids, ANDAR))
 
     def _alvos(self, m, dt) -> None:
         # Alvos do PEGAR (E3, item 2; S §8.2) e do BOTAR (F1), num passo só: o `ok_agora` do alvo corrente, `alvos.avanca`
-        # e os buffers do avanço. ⚠ Um só `avanca`: dois sobre o mesmo relógio se zerariam. O índice fica em P4 depois do
-        # P4 (a troca de tarefa leva a B1). O B4 da caixa perdida fecha pela pose de pé, sem o portão desloc (E11).
+        # e os buffers do avanço. ⚠ Um só `avanca`: dois sobre o mesmo relógio se zerariam. O índice fica em P3 depois do
+        # P3 (a troca de tarefa leva a B1). O B3 da caixa perdida fecha pela pose de pé, sem o portão desloc (E11).
         env = self._env
         idx, a, ref, tar, cur = env.v3_alvo_idx, env.v3_meia, env.v3_ref, env.v3_tarefa, env.v3_cur
         if self.it_zona != cur.it:
@@ -429,24 +430,24 @@ class CadeiaCmd(CommandTerm):
                 else:
                     efetivo[campo] = v
             env.v3_alvos = replace(A, tol_palma=torch.tensor(palma, device=self.device), **efetivo)
-            self.tempos = torch.tensor([0.0, 0.0, efetivo["tempo_p2"], efetivo["tempo_p3"], efetivo["tempo_p4"], 0.0,
-                                        efetivo["tempo_b2"], efetivo["tempo_b3"], efetivo["tempo_b4"]], device=self.device)
+            self.tempos = torch.tensor([0.0, 0.0, efetivo["tempo_p2"], efetivo["tempo_p3"], efetivo["tempo_b1"],
+                                        efetivo["tempo_b2"], efetivo["tempo_b3"]], device=self.device)
         # 20/11, T13: visitas da zona. Uma visita é a etapa aberta. Ela acaba com o fecho (conta fecho e visita) ou sem
         # fecho (conta só visita): `zona_t_visita` desde a abertura, a perda da caixa ou a troca da etapa por fora (a tarefa
         # mudou). O reset conta em `_resample`. Depois de encerrada a visita não reabre até a etapa mudar (nada conta duas vezes)
-        etapa = torch.where((idx >= 0) & ~((idx == P4) & env.v3_p4_fechado) & ~env.v3_perdeu, idx, -1)
+        etapa = torch.where((idx >= 0) & ~((idx == P3) & env.v3_pega_fechada) & ~env.v3_perdeu, idx, -1)
         mudou = etapa != self.vis_e
         acaba = torch.where((self.t_vis >= 0) & mudou, self.vis_e, -1)
         self.vis_e = etapa
         self.t_vis = torch.where(mudou, torch.where(etapa >= 0, 0.0, -1.0), self.t_vis)
         self.t_vis = torch.where(self.t_vis >= 0, self.t_vis + dt, self.t_vis)
         zero = torch.zeros_like(m["h"])
-        botar = (tar == BOTAR) | env.v3_perdeu  # B1..B4, e o B4 da caixa perdida (E3)
+        botar = (tar == BOTAR) | env.v3_perdeu  # B1..B3, e o B3 da caixa perdida (E3)
         desl = (m["caixa_p"][:, :2] - env.v3_caixa_pega_w[:, :2]).norm(dim=-1)
-        # F9 S2/P1: o ponto de apoio é a caixa no fecho do B2 (gravado depois do `avanca`); o portão desloc de B3–B4 lê dele
+        # F9 S2/P1: o ponto de apoio é a caixa no fecho do B1 (gravado depois do `avanca`); o portão desloc de B2–B3 lê dele
         desl_apoio = (m["caixa_p"][:, :2] - env.v3_ponto_apoio[:, :2]).norm(dim=-1)
         # 13/11, A5: cada deslocamento no argumento do próprio portão (antes, o do apoio ia no lugar do da pega e o
-        # zero no lugar do do apoio: o fecho do B3 e do B4 ignorava o arrasto). Sem perda; a caixa perdida zera os dois.
+        # zero no lugar do do apoio: o fecho do B2 e do B3 ignorava o arrasto). Sem perda; a caixa perdida zera os dois.
         desl_pega = torch.where((tar != BOTAR) & ~env.v3_perdeu, desl, zero)
         desl_apoio = torch.where((tar == BOTAR) & ~env.v3_perdeu, desl_apoio, zero)
         # Invariante = desloc · incl · maos (§6.3). Tronco, recuo e CoM não entram nele: ficam em zero (rampa 1).
@@ -456,17 +457,17 @@ class CadeiaCmd(CommandTerm):
         inv = g["desloc"] * g["incl"] * g["maos"]
         # PEGAR
         d_palmas = (m["palmas_c"] - alvos.palmas_alvo_caixa(idx, a, A)).norm(dim=-1)
-        d_caixa_p4 = (m["caixa_p"] - recompensas.alvo_da_caixa_w(env, torch.full_like(idx, P4))).norm(dim=-1)
-        d_pelve_p4 = (m["h"] - ref.pelve_com_caixa(a)).abs()
-        pega = (tar == PEGAR) & ~env.v3_p4_fechado
-        ok = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"], m["incl_graus"], recompensas.incl_lim(env),
+        d_transporte = (m["caixa_p"] - recompensas.alvo_da_caixa_w(env, torch.full_like(idx, P3))).norm(dim=-1)
+        d_pelve = (m["h"] - ref.pelve_com_caixa(a)).abs()
+        pega = (tar == PEGAR) & ~env.v3_pega_fechada
+        ok = ok_agora_pegar(idx, d_palmas, m["contatos"], m["apoio"],
                             m["h_caixa"] - a - env.v3_topo,  # fundo da caixa sobre a laje (verdade, não a estimada)
-                            d_caixa_p4, d_pelve_p4, inv, env.v3_alvos) & pega
-        if botar.any():  # BOTAR (B1..B4); o B4 da caixa perdida cai aqui com `inv` = 1 (o `desl` zerado)
+                            d_transporte, d_pelve, inv, env.v3_alvos) & pega
+        if botar.any():  # BOTAR (B1..B3); o B3 da caixa perdida cai aqui com `inv` = 1 (o `desl` zerado)
             dif = m["caixa_p"] - recompensas.alvo_da_caixa_w(env, idx)
             # F9 S3: a palma mede da face, a + palma_face (o sítio da palma com a almofada encostada fica a palma_face da face; T11a)
             afasta = (m["palmas_c"].abs() - (a + A.palma_face)[:, None, None]).amax(-1)
-            ok = ok | ok_agora_botar(idx, dif[:, :2].norm(dim=-1), dif.norm(dim=-1), m["apoio_N"], m["peso_N"], afasta,
+            ok = ok | ok_agora_botar(idx, dif.norm(dim=-1), m["apoio_N"], m["peso_N"], afasta,
                                      m["apoio"], m["v_caixa"], m["pelve"] - ref.pelve_de_pe, m["tronco_graus"], m["dpalmas"],
                                      inv, env.v3_alvos)
         novo, rel, av = alvos.avanca(idx, ok, env.v3_relogio_alvo, dt, self.tempos)
@@ -479,17 +480,17 @@ class CadeiaCmd(CommandTerm):
             cur.vis_acum[e] += v
             cur.fech_acum[e] += f
         self.t_vis = torch.where(encerra, -1.0, self.t_vis)
-        fecha_p4 = av & (idx == P4)
-        novo = torch.where(fecha_p4, idx, novo)
-        fecha_b2 = av & (idx == B2)
-        env.v3_ponto_apoio[fecha_b2] = m["caixa_p"][fecha_b2]
-        env.v3_p4_fechado |= fecha_p4
+        fecha_p3 = av & (idx == P3)
+        novo = torch.where(fecha_p3, idx, novo)
+        fecha_b1 = av & (idx == B1)
+        env.v3_ponto_apoio[fecha_b1] = m["caixa_p"][fecha_b1]
+        env.v3_pega_fechada |= fecha_p3
         env.v3_pegou |= av & (idx == P2)  # a caixa passou ao P3: pega feita
-        env.v3_b4_fechado |= av & (idx == B4)
+        env.v3_bota_fechada |= av & (idx == B3)
         env.v3_avancou[:] = av
         env.v3_relogio_alvo[:] = rel
         env.v3_alvo_idx[:] = novo
-        troca = av & ~fecha_p4 & (novo >= 0)
+        troca = av & ~fecha_p3 & (novo >= 0)
         env.v3_sigma[:] = torch.where(troca, self._sigma(m, novo), env.v3_sigma)
         env.v3_h[troca], env.v3_phi_melhor[troca] = 1.0, 0.0  # 13/11, M5: a etapa nova começa com h cheio
 
@@ -521,10 +522,10 @@ class CadeiaCmd(CommandTerm):
         # 20/11, T13: o sucesso só conta com o critério final, o z da cadeia da tarefa todo em 0; antes disso entra como falha
         # (o nível, o subnível, o refino e as travas do DR da tarefa só avançam com o critério final)
         if botar:
-            suc = sucesso_do_botar(env.v3_b4_fechado[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[5:]) == 0.0)
+            suc = sucesso_do_botar(env.v3_bota_fechada[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[4:]) == 0.0)
             celula = env.v3_cur.id_celula("BOTAR", "botar")
         else:
-            suc = sucesso_do_pegar(env.v3_p4_fechado[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[:5]) == 0.0)
+            suc = sucesso_do_pegar(env.v3_pega_fechada[ids], falhou, env.v3_perdeu[ids]) & (max(env.v3_cur.z[:4]) == 0.0)
             celula = env.v3_cur.id_celula("PEGAR", "pegar")
         env.v3_cur.registra(celula, int(ids.numel()), int(suc.sum()))
         pend[ids] = False
@@ -532,14 +533,14 @@ class CadeiaCmd(CommandTerm):
     def _abre_botar(self, ids, m) -> None:
         # Abertura do BOTAR (F1; PD-47): a laje de destino dá o ponto de soltura no topo, e o alvo sobe `a` (a caixa
         # fica com o centro a meia aresta acima). Alvo corrente B1, σ pelo `_sigma` como o P0 do PEGAR, e o salto
-        # (`v3_phi` = −1 é a sentinela das métricas). O ponto de apoio (F9 S2) zera aqui e é gravado no fecho do B2; o
+        # (`v3_phi` = −1 é a sentinela das métricas). O ponto de apoio (F9 S2) zera aqui e é gravado no fecho do B1; o
         # primeiro toque (F9 P3) também volta a −1.
         env = self._env
         soltura = eventos.posiciona_destino(env, ids).to(env.v3_alvo_w.dtype)
         soltura[:, 2] += env.v3_meia[ids]
         if env.v3_gerador is not None:
             # P22: o robô real só conhece o alvo estimado, então o viés do alvo entra no `v3_alvo_w` (vale para a
-            # observação, o Φ do B1 e do B2 e o raio da perda). ‖viés‖ ≤ 7,7 cm < 0,10 m do enunciado
+            # observação, o Φ do B1 e o raio da perda). ‖viés‖ ≤ 7,7 cm < 0,10 m do enunciado
             g, d = env.v3_cur.degrau_global(), ATIVO.balanceador.degraus
             k = self.cfg.est
             vxy, vz = (balanceador.no_degrau(p[0], p[1], g, d) for p in (k.vies_alvo_botar_xy, k.vies_alvo_botar_z))
@@ -591,9 +592,9 @@ class CadeiaCmd(CommandTerm):
         env.extras["v3_perdeu_agora"] = env.v3_perdeu_agora
         self._abre_p0(m)
         self._alvos(m, dt)
-        # 13/11, M6: o aviso do trecho é o fecho do alvo dele (P4 no PEGAR, B4 no BOTAR), só nos trechos por aviso. O
+        # 13/11, M6: o aviso do trecho é o fecho do alvo dele (P3 no PEGAR, B3 no BOTAR), só nos trechos por aviso. O
         # latch fica, e o `avanca_trecho` lê o latch, e não o fecho do instante (F9 P5). O atraso sorteado segue.
-        fecho = torch.where(env.v3_tarefa == BOTAR, env.v3_b4_fechado, env.v3_p4_fechado)
+        fecho = torch.where(env.v3_tarefa == BOTAR, env.v3_bota_fechada, env.v3_pega_fechada)
         env.v3_aviso[:] = env.v3_aviso | (fecho & self.tab.por_detector[env.v3_trecho])
         novo, self.relogio, avancou, fim = avanca_trecho(
             env.v3_trecho, self.relogio, self.alvo_s, env.v3_aviso, self.alvo_s, dt, self.tab)
@@ -629,7 +630,7 @@ class CadeiaCmd(CommandTerm):
     def _resample(self, env_ids) -> None:  # chamado no reset do episódio (CommandTerm.reset)
         env = self._env
         # o PEGAR e o BOTAR abertos se registram no reset: queda ou outra terminação conta como falha (S §11.3); o
-        # `time_out` não é terminação (S §10), então um BOTAR com B4 fechado que o tempo corta conta sucesso (F9 P7)
+        # `time_out` não é terminação (S §10), então um BOTAR com B3 fechado que o tempo corta conta sucesso (F9 P7)
         falhou = ~env.termination_manager.time_outs[env_ids]
         self._registra(env_ids, falhou)
         self._registra(env_ids, falhou, botar=True)
@@ -638,7 +639,7 @@ class CadeiaCmd(CommandTerm):
         for e in aberta.tolist():
             env.v3_cur.vis_acum[e] += 1
         self.vis_e[env_ids], self.t_vis[env_ids] = -1, -1.0
-        for nome in ("v3_pegou", "v3_perdeu", "v3_p4_fechado", "v3_b4_fechado", "v3_perdeu_agora", "v3_avancou",
+        for nome in ("v3_pegou", "v3_perdeu", "v3_pega_fechada", "v3_bota_fechada", "v3_perdeu_agora", "v3_avancou",
                      "v3_aviso", "v3_fim"):
             getattr(env, nome)[env_ids] = False
         env.v3_relogio_alvo[env_ids] = 0.0

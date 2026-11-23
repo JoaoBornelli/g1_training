@@ -76,7 +76,7 @@ Os campos de `nomes_juntas` a `envelope_treino` saem de `coleta_cena`; os de `qp
 | `blocos_ator` | list[dict] | um dict por bloco, na ordem: `{"nome", "canais", "escala", "historico", "dim"}`; `dim` = canais × max(historico, 1) |
 | `dim_ator` | int | 1457 |
 | `tarefas` | list[str] (6) | `knobs.TAREFAS`; a ordem é o índice do one-hot |
-| `alvos` | list[str] (9) | `knobs.ALVOS`; só para o log |
+| `alvos` | list[str] (7) | `knobs.ALVOS`; só para o log |
 | `mapa` | dict | `{"celula_m": 0.10, "n_recorte": 21, "n_interno": 51, "altura_clip": 1.0, "canais": 882, "ordem": "..."}` |
 | `T_BASE_SENSOR` | list[list[float]] (4, 4) | pose do site `robot/mid360` no frame do body base, em q_de_pé; m |
 | `base`, `sensor_site` | str | nome completo do body base e do site, com o prefixo do robô (`"robot/pelvis"` e `"robot/mid360"`) |
