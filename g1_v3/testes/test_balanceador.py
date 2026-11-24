@@ -22,7 +22,7 @@ COM = ATIVO.comando
 TER = ATIVO.terreno
 TAREFAS = ("ANDAR", "PEGAR", "CARREGAR", "BOTAR")
 PORTAO = B.portao  # 0,75 (S §11.2): as tarefas fora do ANDAR
-PORTAO_ANDAR = B.portao_andar  # 0,80 (16/11, A4)
+PORTAO_ANDAR = B.portao_andar  # 0,75 (24/11, T15; era 0,80)
 ALFA = B.alfa      # 0,05 (PD-13)
 NIVEL_B = B.nivel_abre_b  # 5 (16/11, B1)
 SEM_CARENCIA = dataclasses.replace(B, iters_nivel=10 ** 6)
@@ -283,10 +283,19 @@ class TestSubidaDeNivel(unittest.TestCase):
         cur.fecha_iteracao()
         self.assertEqual(cur.nivel("CARREGAR"), 1)
 
+    def test_passa_media_compara_com_a_media_dos_portoes_das_celulas_abertas(self):
+        # 24/11, T15: as células abertas do ANDAR (`andar` 0,75 e `terreno` 0,50) passam com a média de s ≥ a média dos portões
+        # (0,625); a média de 0,65 passa, e a de 0,60 não. O portão da 1ª célula sozinho (0,75) reprovaria os dois
+        cur = novo()
+        ids = [cid(cur, "ANDAR", "andar"), cid(cur, "ANDAR", "terreno")]
+        for s_andar, s_ter, passa in ((0.70, 0.60, True), (0.60, 0.60, False), (0.75, 0.50, True)):
+            cur.celulas[ids[0]].s, cur.celulas[ids[1]].s = s_andar, s_ter
+            self.assertEqual(cur._passa_media(ids), passa, (s_andar, s_ter))
+
     def test_estatua_com_nota_abaixo_do_portao_do_andar_nao_sobe_o_nivel_e_a_B_fica_fechada(self):
-        # 16/11, A1 e A4: a estátua com faixa de 0,5 tira 0,69 no núcleo da Unitree, abaixo do portão 0,80. O nível do
-        # ANDAR fica em 0 por 3000 fechos e a B fica fechada. Com 0,79 (acima do portão 0,75 das outras tarefas) também.
-        for nota in (0.69, 0.79):
+        # 16/11, A1 e A4: a estátua com faixa de 0,5 tira 0,69 no núcleo da Unitree, abaixo do portão. O nível do
+        # ANDAR fica em 0 por 3000 fechos e a B fica fechada. 24/11, T15: o portão é 0,75; com 0,74 também.
+        for nota in (0.69, 0.74):
             with self.subTest(nota=nota):
                 cur = novo()
                 andar = cid(cur, "ANDAR", "andar")
@@ -298,7 +307,7 @@ class TestSubidaDeNivel(unittest.TestCase):
                 self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
 
     def test_nota_0_85_sobe_o_nivel_a_cada_50_fechos_ate_7(self):
-        # 16/11, A4: a cada 50 fechos seguidos com s ≥ 0,8 o nível sobe 1, até o máximo; depois fica. 24/11, T15: o máximo do
+        # 16/11, A4: a cada 50 fechos seguidos com s ≥ o portão (0,75) o nível sobe 1, até o máximo; depois fica. 24/11, T15: o máximo do
         # ANDAR é 7 (a frente vai de 0,3 a 1,0 m/s) e o do CARREGAR, 4
         cur = novo()
         andar = cid(cur, "ANDAR", "andar")
@@ -325,13 +334,13 @@ class TestSubidaDeNivel(unittest.TestCase):
         self.assertEqual(cur.nivel_terreno("ANDAR"), 1)
 
     def test_contagem_zera_com_uma_queda_e_conta_da_volta(self):
-        # 16/11, A4: nota 0,85 por 40 fechos, 0,0 por 2, 0,85 depois. No fecho 50 o nível não sobe; ele sobe só
-        # depois de 50 fechos seguidos com s ≥ 0,8, contados da volta (a EMA leva alguns fechos para voltar a 0,8)
+        # 16/11, A4: nota 0,85 por 40 fechos, 0,0 por 4, 0,85 depois. No fecho 50 o nível não sobe; ele sobe só
+        # depois de 50 fechos seguidos com s ≥ o portão (24/11, T15: 0,75), contados da volta (a EMA leva alguns fechos para voltar)
         cur = novo()
         andar = cid(cur, "ANDAR", "andar")
         for _ in range(40):
             fecha(cur, notas={andar: 0.85})
-        for _ in range(2):
+        for _ in range(4):
             fecha(cur, notas={andar: 0.0})
         self.assertLess(cur.celulas[andar].s, PORTAO_ANDAR)
         seguidas = 0
@@ -434,6 +443,19 @@ class TestSubnivel(unittest.TestCase):
 
 
 class TestRetomada(unittest.TestCase):
+
+    def test_estado_com_nivel_acima_do_maximo_atual_e_limitado(self):
+        # 24/11, T15: um estado antigo do ANDAR no nível 10 (o máximo era 10) trava se o nível ficar acima do máximo atual (7)
+        cur = novo()
+        est = cur.estado()
+        est["tarefas"]["ANDAR"]["nivel"] = 10
+        est["tarefas"]["CARREGAR"]["nivel"] = 9
+        cur.carrega(est)
+        self.assertEqual((cur.nivel("ANDAR"), cur.nivel("CARREGAR")), (7, 4))
+        self.assertEqual(cur.max_nivel["ANDAR"], 7)
+        # o restabelecido segue o fluxo: no máximo, a célula `terreno` abre depois do portão
+        fecha(cur)
+        self.assertTrue(cur.celulas[cid(cur, "ANDAR", "terreno")].aberta)
 
     def test_carregado_20_its_depois_de_uma_subida_espera_mais_30(self):
         # §6.3: a subida em 51; carregado em 70, o próximo nível sai em 101 (50 fechos seguidos depois da subida),

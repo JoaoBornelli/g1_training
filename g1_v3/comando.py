@@ -137,6 +137,7 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
         v[:, 0] = semi_x * r * torch.cos(ang)
         v[:, 1] = lado * r * torch.sin(ang)
         v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
+        v[:, 2][v[:, 2].abs() < k.giro_min] = 0.0  # 24/11, T15: giro pequeno é ruído para a razão ω̄/c_z: zero ou ≥ `giro_min`
         v[_u(n, gerador) < k.andar_parado] = 0.0
         return v
     frente = k.frente_tetos[nivel]

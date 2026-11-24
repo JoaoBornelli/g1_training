@@ -125,7 +125,6 @@ m = (d["reg"] > 0) & (nome_cel != "sem célula")
 d = {n: v[m] for n, v in d.items()}
 nome_cel = nome_cel[m]
 arumo = np.abs(d["rumo"])
-p = cur.k.portao_andar
 com_t = d["t_ancora"] > 0  # os percentis de taxa só valem com âncora feita (t ≤ 0: fechou antes da âncora)
 t = np.where(com_t, d["t_ancora"], np.nan)
 q = lambda x, p: float(np.percentile(x, p)) if len(x) else float("nan")
@@ -139,6 +138,7 @@ cab = ["celula", "n", "nota", "%seg≥portão", "lin", "giro",
 print(" | ".join(cab))
 for cel in celulas:
     g = nome_cel == cel
+    p = cur._portao[nomes.index(cel)]  # o portão da célula (0,50 no terreno do ANDAR)
     gt = g & com_t
     rv, pv = arumo[gt] / t[gt], d["dpos"][gt] / t[gt]
     vies = float(np.mean(d["rumo"][gt] / t[gt])) if gt.any() else float("nan")
@@ -151,6 +151,7 @@ if celulas:
     fig, ax = plt.subplots(len(celulas), 2, figsize=(10, 2.6 * len(celulas)), squeeze=False)
     for i, cel in enumerate(celulas):
         g = nome_cel == cel
+        p = cur._portao[nomes.index(cel)]
         ax[i, 0].hist(d["x"][g], bins=40, range=(0, 1), alpha=0.6, label="nota")
         ax[i, 1].hist(d["nota_lin"][g], bins=40, range=(0, 1), alpha=0.6, label="lin")
         ax[i, 1].hist(d["nota_giro"][g], bins=40, range=(0, 1), alpha=0.6, label="giro")

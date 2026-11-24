@@ -182,6 +182,21 @@ class FiltroDaVelocidade(unittest.TestCase):
         self.assertGreaterEqual(sum(pagas) / len(pagas), 0.9)
         self.assertGreaterEqual(min(pagas), 0.85)
 
+    def test_o_mesmo_balanco_no_alvo_de_1_m_s_separa_a_tenda_filtrada_do_nucleo_antigo(self):
+        # medido (alvo 1,0, balanço ±0,15 m/s a 1,25 Hz, depois do transitório): tenda filtrada média 0,971 e mínimo 0,952; o núcleo
+        # instantâneo de antes, exp(−e²/σ²), média 0,957 e mínimo 0,914; a tenda sem filtro, média 0,905 e mínimo 0,850. Com mínimo
+        # ≥ 0,94 e média ≥ 0,96 só a tenda filtrada passa
+        obj = _twist((1.0, 0.0, 0.0))
+        pagas = []
+        with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
+            for i in range(300):
+                obj.robot.data.root_link_lin_vel_b[:, 0] = 1.0 + 0.15 * math.sin(2 * math.pi * 1.25 * i * DT)
+                obj._update_metrics()
+                if i >= 100:
+                    pagas.append(self._recompensa(obj))
+        self.assertGreaterEqual(sum(pagas) / len(pagas), 0.96)
+        self.assertGreaterEqual(min(pagas), 0.94)
+
     def test_a_velocidade_filtrada_sobe_com_a_constante_de_tempo(self):
         # degrau de 0,5 m/s: depois de τ = 0,4 s (20 passos) o filtro chega a 1 − e⁻¹ do degrau
         obj = _twist((0.5, 0.0, 0.0))
@@ -260,6 +275,14 @@ class NotaDoSegmento(unittest.TestCase):
     def test_a_conta_vem_da_ancora(self):
         # os 70 passos antes da âncora (parado) não contam: depois dela, o comando é cumprido
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), antes=(0.0, 0.0, 0.0)), 1.0, places=5)
+
+    def test_comando_abaixo_do_limiar_do_canal_conta_como_sem_comando(self):
+        # `limiar_canal` = 0,02: um comando de 0,015 (linear ou giro) é canal sem comando, e parado vale a deriva 1; de 0,05 é
+        # comandado e parado vale razão 0 (média 0,5)
+        self.assertAlmostEqual(self._nota((0.015, 0.0, 0.0), (0.0, 0.0, 0.0)), 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.015), (0.0, 0.0, 0.0)), 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.05, 0.0, 0.0), (0.0, 0.0, 0.0)), 0.5, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.05), (0.0, 0.0, 0.0)), 0.5, places=5)
 
     def test_comando_zero_usa_a_media_das_duas_derivas(self):
         self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), 1.0, places=5)

@@ -388,7 +388,8 @@ class Curriculo:
         self._acum_suc = [a[1] for a in estado["acum"]]
         for t in TAREFAS:
             d = estado["tarefas"][t]
-            self._nivel[t], self._nivel_ter[t] = d["nivel"], d["nivel_ter"]
+            # 24/11, T15: o nível restaurado não passa do máximo atual (um estado do ANDAR com 10 níveis travava)
+            self._nivel[t], self._nivel_ter[t] = min(d["nivel"], self.max_nivel[t]), d["nivel_ter"]
             self._seguidas[t], self._degrau[t], self._cont[t] = d.get("seguidas", 0), d["degrau"], d["cont"]
             if t in self._sub:
                 self._sub[t] = d.get("sub", self._sub_max)  # estado sem a chave: vale o último subnível

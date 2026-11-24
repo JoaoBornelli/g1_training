@@ -136,6 +136,37 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         self.assertGreaterEqual(float(v[:, 0].min()), -K.tras_teto_max - 1e-6)
         self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
 
+    def test_andar_giro_e_zero_ou_pelo_menos_giro_min(self):
+        # 24/11, T15: abaixo de 0,1 rad/s a razão ω̄/c_z é ruído; o sorteio que cai aí vira 0. 10 000 sorteios por nível
+        g = torch.Generator().manual_seed(3)
+        for nivel in range(9):
+            for tipo in ("andar", "terreno"):
+                v = comando.sorteia_velocidade(tipo, nivel, "ANDAR", 10_000, g, K)
+                with self.subTest(nivel=nivel, tipo=tipo):
+                    wz = v[:, 2].abs()
+                    self.assertFalse(bool(((wz > 0) & (wz < K.giro_min - 1e-7)).any()))
+                    self.assertGreater(float((wz >= K.giro_min - 1e-7).float().mean()), 0.3)  # o giro não some
+        # nível 0 (teto 0,3): o terço do sorteio em |wz| < 0,1 vira zero, entre os segmentos com comando linear
+        v = amostra("andar", 0, "ANDAR")
+        ativo = (v[:, :2] != 0).any(dim=1)
+        self.assertAlmostEqual(float((v[ativo, 2] == 0).float().mean()), 1 / 3, delta=0.02)
+
+    def test_carregar_giro_respeita_o_piso(self):
+        # o CARREGAR sorteia o giro em ±U[0,25; teto]: já está acima de `giro_min`
+        for nivel in range(len(K.frente_tetos)):
+            for tipo in ("arco", "giro_lugar"):
+                wz = amostra(tipo, nivel)[:, 2].abs()
+                self.assertGreaterEqual(float(wz.min()), max(K.piso_velocidade, K.giro_min) - 1e-6)
+
+    def test_carregar_lado_tem_piso_de_0_2_e_frente_de_0_25(self):
+        # 24/11, T15: o piso do lado é `piso_lado` (0,2) e o do resto do linear, `piso_velocidade` (0,25)
+        v = amostra("reto", len(K.frente_tetos) - 1)
+        lado = (v[:, 0] == 0) & (v[:, 1] != 0)
+        resto = v[:, 1] == 0
+        self.assertGreaterEqual(float(v[lado, 1].abs().min()), K.piso_lado - 1e-6)
+        self.assertLess(float(v[lado, 1].abs().min()), K.piso_lado + 0.01)  # o piso é atingido
+        self.assertGreaterEqual(float(v[resto, 0].abs().min()), K.piso_velocidade - 1e-6)
+
     def test_andar_sobe_0_1_por_nivel(self):
         # cada nível soma `andar_passo` ao teto de cada canal: no nível 1, frente e trás 0,4, lado 0,3 e giro 0,4
         v = amostra("andar", 1, "ANDAR")

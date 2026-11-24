@@ -129,6 +129,7 @@ class Comando:  # S §7, §11.2, §19
     andar_inicio: float = 0.3  # 24/11, T15: teto inicial de frente e trás no ANDAR (m/s); o nível máximo é (1,0 − 0,3) / passo = 7
     andar_lado_inicio: float = 0.2  # 24/11, T15: teto inicial do lado no ANDAR (m/s)
     andar_giro_inicio: float = 0.3  # 24/11, T15: teto inicial do giro no ANDAR (rad/s)
+    giro_min: float = 0.1  # 24/11, T15: o giro sorteado no ANDAR é zero ou ≥ isto (rad/s); abaixo disso a razão ω̄/c_z é ruído
     andar_passo: float = 0.1  # 16/11, A2: quanto cada nível soma aos tetos do ANDAR (o passo da Unitree)
     andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
     tau_fracao: float = 0.4  # 24/11, T15: τ do filtro exponencial da velocidade da base (s) na fração entregue; um ciclo de marcha dura 0,8 s
@@ -386,7 +387,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     piso_sub: float = 0.10  # S §11.2; PD-13: piso de fração por subtarefa
     eps: float = 0.02  # S §11; PD-13: ε da fração de déficit
     portao: float = 0.75  # S §11.3: portão de sucesso da célula (as tarefas fora do ANDAR)
-    portao_andar: float = 0.80  # 16/11, A4: portão da célula do ANDAR, a nota média ≥ 0,8 (o critério da Unitree)
+    portao_andar: float = 0.75  # 24/11, T15: era 0,80 (16/11, A4, o critério da Unitree). Quem entrega o pedido tira 0,79 a 0,875 pela variação entre segmentos (revisão de 24/11): com 0,80 o nível quase não sobe
     portao_andar_terreno: float = 0.50  # 24/11, T15: portão da célula `terreno` do ANDAR: a linha sobe com o robô a meia velocidade
     alfa: float = 0.05  # S §11; PD-13: taxa da EMA do sucesso
     iters_nivel: int = 50  # 16/11, A4 (P3, P8): iterações seguidas no portão para subir (nas 4 tarefas); ~1 episódio de 20 s

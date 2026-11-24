@@ -125,10 +125,10 @@ class TestPortaoDoPegarNivel0(unittest.TestCase):
         self.assertTrue(depois["atrito_laje"])
         self.assertEqual(depois["atraso_max"], 0)  # restricao 0: nenhum nível subiu ainda
 
-    def test_vies_imu_liga_com_a_celula_andar_no_portao_de_0_80(self):
-        # 16/11 (A6): "vies_imu" liga com a célula `andar` do ANDAR no portão do ANDAR (0,80). Com 0,79 (acima do 0,75
-        # das outras tarefas) fica desligado; com 0,81 liga
-        for nota, liga in ((0.79, False), (0.81, True)):
+    def test_vies_imu_liga_com_a_celula_andar_no_portao_do_andar(self):
+        # 16/11 (A6): "vies_imu" liga com a célula `andar` do ANDAR no portão do ANDAR (24/11, T15: 0,75). Com 0,74
+        # fica desligado; com 0,76 liga
+        for nota, liga in ((0.74, False), (0.76, True)):
             with self.subTest(nota=nota):
                 cur = novo()
                 for _ in range(5):
