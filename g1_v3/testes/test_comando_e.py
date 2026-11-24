@@ -208,10 +208,11 @@ class TestOkAgoraPegar(unittest.TestCase):
         idx, rel = torch.tensor([P2], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
         idx, rel, _ = alvos.avanca(idx, ok(fase(P2)), rel, DT, TEMPOS)
         self.assertEqual(int(idx), P2)
-        passos = 1
-        while int(idx) == P2:
+        passos, teto = 1, round(A.tempo_p2 / DT) + 5  # o teto evita travar a suíte se o P2 nunca fechar
+        while int(idx) == P2 and passos < teto:
             idx, rel, _ = alvos.avanca(idx, ok(fase(P2)), rel, DT, TEMPOS)
             passos += 1
+        self.assertNotEqual(int(idx), P2, "o P2 não fechou dentro do teto de passos")
         self.assertEqual(passos, round(A.tempo_p2 / DT))
         idx, rel = torch.tensor([P2], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
         for _ in range(5):

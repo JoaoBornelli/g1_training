@@ -203,6 +203,7 @@ class TestAberturaDeFatiaB(unittest.TestCase):
         cur = novo(SEM_CARENCIA, andar=NIVEL_B)
         while cur.fracoes_fatias()[1].item() == 0:  # abre a B
             fecha(cur)
+            self.assertLess(cur.it, 200, "a B não abriu")
         fecha(cur)
         self.assertGreater(cur.fracoes_fatias()[2].item(), 0.0, "a C deveria abrir no fecho seguinte à B")
         self.assertAlmostEqual(cur.fracoes_fatias()[2].item(), 0.05)
@@ -217,6 +218,7 @@ class TestAberturaDeFatiaC(unittest.TestCase):
         pegar = cid(cur, "PEGAR", "pegar")
         while cur.fracoes_fatias()[1].item() == 0:  # abre a B com sucesso total
             fecha(cur)
+            self.assertLess(cur.it, 200, "a B não abriu")
         k_b = cur.it
         self.assertTrue(cur.celulas[pegar].aberta, "o PEGAR nível 0 deveria abrir junto com a B")
         # primeira medida do PEGAR falha (s = 0); depois, sucesso total
