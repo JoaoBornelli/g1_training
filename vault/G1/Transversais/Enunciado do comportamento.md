@@ -228,10 +228,11 @@ passo numa tarefa sem relógio, quebra a progressão. O desenho está em `specs/
 parado. Marcha alternada. Ao comando cair a zero, freia em poucos passos e fixa os pés.
 Sem comando, fica parado, sem deriva de rumo nem de posição.
 
-**Velocidade.** A faixa de treino vai até 1,5 m/s para a frente e 1,0 m/s para trás e de
-lado, com giro de até 1,0 rad/s para os dois lados: o robô gira 180° em no máximo 4 s (dono,
-05/10; antes, 1 m/s e 0,5 rad/s). O robô aprende o máximo que consegue executar. Em campo, o
-controlador nunca pede o máximo.
+**Velocidade.** A faixa de treino vai até 1,0 m/s para a frente, 0,5 m/s para trás e 0,3 m/s
+de lado, com giro de até 0,5 rad/s para os dois lados: o robô gira 180° em cerca de 6 s (dono,
+05/10; antes, 1 m/s e 0,5 rad/s; 24/11: tetos da receita da Unitree, T15). O robô aprende o
+máximo que consegue executar. Em campo, o controlador nunca pede o máximo. No terreno, o robô
+pode andar abaixo da velocidade pedida.
 
 **Fecho.** Não tem. ANDAR dura enquanto o controlador pedir.
 
