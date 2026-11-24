@@ -242,10 +242,11 @@ class TestOkAgoraPegar(unittest.TestCase):
         # 23/11, T14: "a caixa que saiu da laje não volta": a condição vale em todo o tempo do fecho. Com o apoio de volta
         # no meio dos 0,5 s, o relógio zera; sem a interrupção, o P3 fecha em tempo_p3 seguidos (25 passos)
         idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
-        passos = 0
-        while int(idx) == P3:
+        passos, teto = 0, round(A.tempo_p3 / DT) + 5  # o teto evita travar a suíte se o P3 nunca fechar
+        while int(idx) == P3 and passos < teto:
             idx, rel, _ = alvos.avanca(idx, ok(fase(P3)), rel, DT, TEMPOS)
             passos += 1
+        self.assertNotEqual(int(idx), P3, "o P3 não fechou dentro do teto de passos")
         self.assertEqual(passos, round(A.tempo_p3 / DT))
         idx, rel = torch.tensor([P3], dtype=torch.long), torch.zeros(1, dtype=torch.float64)
         for _ in range(12):

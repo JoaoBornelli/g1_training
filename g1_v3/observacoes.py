@@ -283,7 +283,7 @@ def alvo_macro(env: ManagerBasedRlEnv) -> torch.Tensor:
     """One-hot (E,11) do estado da cadeia (13/11, M7; 23/11, T14): 0–6 o índice de ALVOS (P0–B3), 7 pega fechada, 8 bota
     fechada, 9 perda, 10 nenhum. Prioridade: perda, bota fechada, pega fechada (com o índice no P3), índice < 0, índice.
 
-    ⚠ O crítico precisa ver o que a renda lê: a pega fechada paga 24/s e a aberta 18·h + 3Φ·c; o ANDAR final (bota fechada)
+    ⚠ O crítico precisa ver o que a renda lê: a pega fechada paga 24/s e a aberta 18·h + 3Φ·c·q; o ANDAR final (bota fechada)
     paga 42/s e o ANDAR depois da perda 0, e os três tinham o mesmo "nenhum". O `PPOPorTarefa._grupo` lê esta fatia.
     """
     na = len(knobs.ALVOS)

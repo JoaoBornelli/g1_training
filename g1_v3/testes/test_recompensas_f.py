@@ -15,6 +15,7 @@ import torch
 
 from g1_v3 import potencial, recompensas
 from g1_v3.knobs import ATIVO, TAREFAS
+from g1_v3.testes.test_recompensas_e import _buffers_m5, _sinal_m5
 
 A = ATIVO.alvos
 B1, B2, B3, P3 = 4, 5, 6, 3  # 23/11, T14: P0..P3 = 0..3, B1..B3 = 4..6
@@ -146,13 +147,31 @@ class F9PortaoDoTronco(unittest.TestCase):
         self.assertEqual(self._portoes(P3, 0.0, 0.0)["maos"].item(), 1.0)
         self.assertEqual(self._portoes(0, 0.0, 0.0)["maos"].item(), 1.0)
 
-    def test_conquista_do_peso_nas_maos_e_o_complemento_do_apoio(self):
+    def test_conquista_do_peso_pago_e_o_complemento_do_apoio_vezes_a_pega(self):
         # 23/11, T14: c = clamp(1 − apoio_N / peso_N, 0, 1), com o peso m·g = 9,81 N (1 kg): 0 com a caixa toda na laje,
-        # 1 com a laje sem carga, e a fração no meio; nunca fora de [0, 1] (o apoio pode passar do peso no pouso)
-        peso = 9.81
-        for apoio, esperado in ((peso, 0.0), (0.0, 1.0), (0.4 * peso, 0.6), (1.5 * peso, 0.0)):
+        # 1 com a laje sem carga, e a fração no meio; nunca fora de [0, 1] (o apoio pode passar do peso no pouso).
+        # 24/11: a terceira conquista é c · q, com q a pega firme (20 N por palma: tanh(0,9786) = 0,7526)
+        peso, q = 9.81, 0.7526
+        for apoio, c in ((peso, 0.0), (0.0, 1.0), (0.4 * peso, 0.6), (1.5 * peso, 0.0)):
             with self.subTest(apoio=apoio):
-                self.assertAlmostEqual(self._portoes(P3, 0.0, 0.0, apoio_N=apoio)["peso"].item(), esperado, places=5)
+                self.assertAlmostEqual(
+                    self._portoes(P3, 0.0, 0.0, forca_N=20.0, apoio_N=apoio)["peso"].item(), c * q, delta=1e-3)
+
+    def test_caixa_fora_da_laje_sem_aperto_lateral_paga_zero_de_peso_e_de_phi_no_p3(self):
+        # 24/11, T14: a caixa escorada no tronco tem c = 1 (laje sem carga) e q = 0 (sem força nas faces): o peso pago é 0,
+        # e no `progresso` o P3 paga só a etapa (18), sem Φ e sem peso
+        conquistas = self._portoes(P3, 0.0, 0.0, forca_N=0.0, apoio_N=0.0)
+        self.assertEqual(conquistas["peso"].item(), 0.0)
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=torch.tensor([P3]), v3_tarefa=torch.tensor([TAREFAS.index("PEGAR")]),
+            v3_perdeu=torch.zeros(1, dtype=torch.bool), v3_bota_fechada=torch.zeros(1, dtype=torch.bool),
+            v3_pega_fechada=torch.zeros(1, dtype=torch.bool), v3_sigma=torch.ones(1), v3_phi=torch.zeros(1),
+            **_buffers_m5(1))
+        conq = torch.stack([torch.zeros(1), conquistas["pega"], conquistas["peso"]], dim=-1)
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.full((1,), 0.8), conq)), \
+                _sinal_m5(1), mock.patch.object(recompensas, "n_pressa", lambda h, ganho, dt, tau, rec: h):
+            r = recompensas.progresso(env, TODAS)
+        self.assertAlmostEqual(float(r[0]), 6 * P3 * 1.0, places=4)
 
     def test_conquista_das_palmas_pela_distancia_as_faces(self):
         # 18/11, T10: palmas no centro da caixa de meia aresta 0,10: a + palma_face de cada alvo do P2 (0,145 m com a T11a).

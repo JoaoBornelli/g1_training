@@ -329,7 +329,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     # de cada etapa sempre subir a renda (proposta-renda-em-escada.md §3).
     renda_phi: float = 3.0
     renda_etapa: float = 6.0
-    # 18/11, T10: conquistas mantidas (palmas nas faces e pega firme), somadas no P3, no B1 e no CARREGAR (T11b: e no P2; T14: a terceira, o peso nas mãos, só no P3 e depois do fecho do P3). Como portão, a
+    # 18/11, T10: conquistas mantidas (palmas nas faces e pega firme), somadas no P3, no B1 e no CARREGAR (T11b: e no P2; T14: a terceira, o peso nas mãos vezes a pega firme, só no P3 e depois do fecho do P3). Como portão, a
     # pega zerava o Φ inteiro com uma palma fora (model_9150: 71 a 78 % dos passos do P3 sem palma na caixa, Φ 0,03).
     # renda_conquista < 2,3: o fecho do B1 perde as duas e a abertura do B2 tem de pagar mais (30 + 3·0,54 > 24 + 3 + 2·w)
     renda_conquista: float = 2.0

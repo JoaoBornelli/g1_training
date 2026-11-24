@@ -502,10 +502,11 @@ def _recuo_ref(env, indice):
 def _phi_env(env, indice, sigma):
     """(Φ (E,), conquistas (E,3)) do alvo `indice` no estado corrente, pelos núcleos (E4; −1 → Φ 0). `indice` pode ser o
     alvo velho no passo do avanço (D1), e `sigma` é o σ dele (S3, 29/10): posições e referências saem do próprio índice.
-    18/11, T10: conquistas = [palmas nas faces, pega firme, peso nas mãos], cada uma em [0, 1] e sem máscara de etapa (o
+    18/11, T10: conquistas = [palmas nas faces, pega firme, peso pago], cada uma em [0, 1] e sem máscara de etapa (o
     `progresso` decide onde somam; T11b: no P2 ele multiplica a pega firme pelo contato das almofadas). A pega firme saiu dos
     portões do Φ: lá ela zerava o Φ inteiro com uma palma fora da caixa. 23/11, T14: o peso nas mãos é c = clamp(1 − apoio/peso,
-    0, 1): 0 com a caixa toda na laje, 1 com a laje sem carga (o molde do `unload` do g1_limpo)."""
+    0, 1): 0 com a caixa toda na laje, 1 com a laje sem carga (o molde do `unload` do g1_limpo). 24/11: o peso pago é
+    c · pega firme (o `unload` multiplicava a descarga pela preensão): a caixa escorada no tronco tem c = 1 e pega 0."""
     robo, caixa = env.scene["robot"], env.scene["box"]
     a, ref = env.v3_meia, env.v3_ref
     caixa_w, quat = caixa.data.root_link_pos_w, caixa.data.root_link_quat_w
@@ -541,7 +542,8 @@ def _phi_env(env, indice, sigma):
         *forcas_por_face(faces.normal, faces.force, faces.found > 0, R_caixa), f_pega))
     d_faces = (palmas_c - alvos.palmas_alvo_caixa(torch.full_like(indice, alvos.P2), a, K)).norm(dim=-1).mean(-1)
     peso_nas_maos = torch.clamp(1.0 - apoio_N / peso_N, 0.0, 1.0)
-    conquistas = torch.stack([1 - torch.tanh(d_faces / (K.largura_tanh * R.sigma_palmas)), maos, peso_nas_maos], dim=-1)
+    # 24/11, T14: o peso pago é c · pega firme: a caixa escorada no tronco dá c = 1 mas não dá pega
+    conquistas = torch.stack([1 - torch.tanh(d_faces / (K.largura_tanh * R.sigma_palmas)), maos, peso_nas_maos * maos], dim=-1)
     portoes = portoes_do_alvo(
         indice, (xy - env.v3_caixa_pega_w[:, :2]).norm(dim=-1), desloc_apoio,
         torch.rad2deg(alvos.inclinacao_da_caixa(quat)), incl_lim(env), torch.ones_like(maos),
@@ -791,12 +793,12 @@ def progresso(env, tarefas):
     | `~v3_pega_fechada` e tarefa ≠ PEGAR (sem a caixa na mão)  | 0     | 0         |
     | `v3_bota_fechada` (ANDAR final)                           | 7     | 0         |
     | `v3_pega_fechada` e alvo < B1 (CARREGAR, fecho do P3)     | 4     | 0         |
-    | alvo ≥ 0                                                  | alvo  | Φ do alvo; no P3, Φ · c |
+    | alvo ≥ 0                                                  | alvo  | Φ do alvo; no P3, Φ · c · q |
     | resto                                                     | 0     | 0         |
 
     Conquistas (máscara `mantem`: sem a caixa perdida e sem a bota fechada): P2 palmas + pega × almofadas; P3 e depois do
-    fecho do P3 (PEGAR e CARREGAR) palmas + pega + peso `c`; B1 palmas + pega; B2, B3 e o resto, nenhuma. Sequência por
-    produto (molde do g1_limpo): no P3 o Φ só paga com o peso nas mãos, Φ · c, e o `c` paga 2·c/s. A recarga do h e o melhor Φ também leem Φ·c no P3.
+    fecho do P3 (PEGAR e CARREGAR) palmas + pega + peso `c · q` (q = pega firme); B1 palmas + pega; B2, B3 e o resto, nenhuma. Sequência por
+    produto (molde do g1_limpo): no P3 o Φ só paga com o peso nas mãos presas, Φ · c · q, e o `c · q` paga 2·c·q/s. A recarga do h e o melhor Φ também leem Φ · c · q no P3.
 
     Por quê: a etapa 4 só vale com a pega feita (`v3_pega_fechada`). A tarefa CARREGAR sozinha não prova a pega: o aviso do
     PEGAR é o fecho do P3 e o do BOTAR é o do B3 (M6). Depois da perda a renda é 0, sem Φ: com Φ do B3 pago, fechar o
@@ -812,7 +814,7 @@ def progresso(env, tarefas):
     idx = env.v3_alvo_idx
     phi_alvo, conquistas = _phi_env(env, idx, env.v3_sigma)  # Φ: 0 onde idx < 0
     pega_fechada, bota_fechada = env.v3_pega_fechada, env.v3_bota_fechada
-    # 23/11, T14: no P3 o Φ que paga, recarrega o h e vira o melhor Φ é Φ·c (c = o peso nas mãos): arrastar a caixa pela laje
+    # 23/11, T14: no P3 o Φ que paga, recarrega o h e vira o melhor Φ é Φ · c · q (c = o peso nas mãos, q = a pega firme): arrastar a caixa pela laje
     # sobe o Φ cru sem tirá-la da laje e não pode recarregar a renda da etapa. `v3_phi` (métricas) segue com o Φ cru
     phi_c = torch.where(idx == _P3, phi_alvo * conquistas[:, 2], phi_alvo)
     sem_caixa = env.v3_perdeu | (~pega_fechada & (env.v3_tarefa != TAREFAS.index("PEGAR")))
@@ -835,7 +837,7 @@ def progresso(env, tarefas):
     h_ef = torch.where(com_alvo | carrega, env.v3_h, torch.ones_like(env.v3_h))
     # 18/11, T10: onde a pega tem de continuar. T11b: e no P2, onde o fecho testa o contato das duas almofadas e nenhum
     # termo o pagava (model_10850: 3,02/s sem palma e 3,44/s com as duas). `_CAIXA_ALVO` não muda: outros termos o leem.
-    # 23/11, T14: o peso nas mãos só paga no P3 e depois do fecho do P3, e o Φ do P3 vale Φ · c
+    # 23/11, T14: o peso pago (c · q) só paga no P3 e depois do fecho do P3, e o Φ do P3 vale Φ · c · q
     no_p2, no_p3 = idx == alvos.P2, idx == _P3
     mantem = ~sem_caixa & ~bota_fechada & (fecho_pega | _em(idx, _CAIXA_ALVO) | no_p2)
     almofadas = torch.where(no_p2, _contato_palmas(env).float().mean(-1), torch.ones_like(phi_alvo))

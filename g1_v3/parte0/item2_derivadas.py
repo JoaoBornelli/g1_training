@@ -119,7 +119,7 @@ def main() -> int:
     linhas.append(f"   inclinação: {K.delta_incl_graus:.0f}°")
     linhas.append("")
     total = len(ALVOS) + len(rampas)
-    linhas.append(f"Resultado: {total - len(falhas)} de {total} derivadas ≠ 0 (9 de Φ, {len(rampas)} de rampa)"
+    linhas.append(f"Resultado: {total - len(falhas)} de {total} derivadas ≠ 0 ({len(ALVOS)} de Φ, {len(rampas)} de rampa)"
                   + ("" if not falhas else f"; FALHAS: {', '.join(falhas)}"))
 
     texto = "\n".join(linhas)
