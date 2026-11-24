@@ -49,71 +49,100 @@ def segmento(cmd, iproj, icmd, dpos, drum, tf, ta, perdeu=False, carregar=False)
 class SorteiaVelocidadeTest(unittest.TestCase):
 
     def test_reto_nivel_2_modulos_e_quatro_direcoes(self):
-        # CARREGAR: nível 2 → frente_tetos[2] = 1,0 para frente (11/11: era 0,75), e min(1,0; 1,0) = 1,0 para trás e de lado (S §11.2)
+        # CARREGAR: nível 2 → frente_tetos[2] = 0,7 para frente (24/11, T15), min(0,7; 0,5) = 0,5 para trás e min(0,7; 0,3) = 0,3
+        # de lado (S §11.2); o piso é 0,25 e o do lado, 0,2
         v = amostra("reto", 2)
         self.assertTrue(bool((v[:, 2] == 0).all()))  # reto não gira
         modulo = v[:, :2].norm(dim=1)
-        self.assertGreaterEqual(float(modulo.min()), 0.25 - 1e-6)
-        self.assertLessEqual(float(modulo.max()), 1.0 + 1e-6)
-        self.assertGreater(float(modulo.max()), 0.99)  # o teto é atingido, não só o piso
+        self.assertGreaterEqual(float(modulo.min()), K.piso_lado - 1e-6)
+        self.assertLessEqual(float(modulo.max()), 0.7 + 1e-6)
+        self.assertGreater(float(modulo.max()), 0.69)  # o teto é atingido, não só o piso
         eixo_x = v[:, 0].abs() > v[:, 1].abs()
         dirs = torch.stack([eixo_x & (v[:, 0] > 0), eixo_x & (v[:, 0] < 0),
                             ~eixo_x & (v[:, 1] > 0), ~eixo_x & (v[:, 1] < 0)]).float().mean(dim=1)
         for f in dirs.tolist():
             self.assertAlmostEqual(f, 0.25, delta=0.01)
 
+    def test_carregar_nenhum_sorteio_passa_dos_tetos_por_canal(self):
+        # 24/11, T15: frente 1,0, trás 0,5, lado 0,3 m/s e giro 0,5 rad/s, em todos os níveis e tipos do CARREGAR
+        for nivel in range(len(K.frente_tetos)):
+            for tipo in ("reto", "terreno", "arco", "giro_lugar"):
+                v = amostra(tipo, nivel)
+                with self.subTest(nivel=nivel, tipo=tipo):
+                    self.assertLessEqual(float(v[:, 0].max()), min(K.frente_tetos[nivel], 1.0) + 1e-6)
+                    self.assertGreaterEqual(float(v[:, 0].min()), -min(K.frente_tetos[nivel], 0.5) - 1e-6)
+                    self.assertLessEqual(float(v[:, 1].abs().max()), min(K.frente_tetos[nivel], 0.3) + 1e-6)
+                    self.assertLessEqual(float(v[:, 2].abs().max()), 0.5 + 1e-6)
+        # no último nível os tetos são atingidos
+        v = amostra("arco", len(K.frente_tetos) - 1)
+        self.assertAlmostEqual(float(v[:, 0].max()), 1.0, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 0].min()), -0.5, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 1].abs().max()), 0.3, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 2].abs().max()), 0.5, delta=0.01)
+
     def test_giro_lugar_nao_anda(self):
         v = amostra("giro_lugar", 2)
         self.assertTrue(bool((v[:, :2] == 0).all()))
 
-    def test_andar_nivel_0_fica_em_0_5_com_10_por_cento_parado(self):
-        # 16/11, A3: o nível 0 do ANDAR começa em 0,5, 10 % zerados; 17/11, T7: (vx, vy) no disco de raio 0,5 e wz
-        # independente em ±0,5
+    def test_andar_nivel_0_comeca_em_0_3_com_10_por_cento_parado(self):
+        # 24/11, T15: o nível 0 do ANDAR começa em 0,3 (frente e trás), 0,2 (lado) e 0,3 rad/s (giro), 10 % zerados; (vx, vy)
+        # na elipse e wz independente
         v = amostra("andar", 0, "ANDAR")
         self.assertLessEqual(float(v[:, 0].abs().max()), K.andar_inicio + 1e-6)
-        self.assertLessEqual(float(v[:, 1].abs().max()), K.andar_inicio + 1e-6)
+        self.assertLessEqual(float(v[:, 1].abs().max()), K.andar_lado_inicio + 1e-6)
         self.assertLessEqual(float(v[:, 2].abs().max()), K.andar_giro_inicio + 1e-6)
-        self.assertGreater(float(v[:, 0].max()), 0.49)  # a faixa é usada até o teto, nos dois sentidos
-        self.assertLess(float(v[:, 0].min()), -0.49)
+        self.assertGreater(float(v[:, 0].max()), 0.29)  # a faixa é usada até o teto, nos dois sentidos
+        self.assertLess(float(v[:, 0].min()), -0.29)
         parado = (v == 0).all(dim=1).float().mean()
         self.assertAlmostEqual(float(parado), K.andar_parado, delta=0.01)
         # independentes: um canal ligado não liga os outros; o giro anda junto com o linear
         ativo = ~(v == 0).all(dim=1)
         self.assertGreater(float(((v[:, 2] != 0) & (v[:, :2].norm(dim=1) > 0.1))[ativo].float().mean()), 0.5)
 
-    def test_andar_nivel_10_vai_aos_tetos_do_dono(self):
-        # frente 1,5, trás e lado 1,0, giro 1,0 (16/11, A2); vx desce só até −1,0
-        v = amostra("andar", 10, "ANDAR")
-        self.assertAlmostEqual(float(v[:, 0].max()), 1.5, delta=0.01)
-        self.assertAlmostEqual(float(v[:, 0].min()), -1.0, delta=0.01)
-        self.assertAlmostEqual(float(v[:, 1].abs().max()), 1.0, delta=0.01)
-        self.assertAlmostEqual(float(v[:, 2].abs().max()), 1.0, delta=0.01)
-        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+    def test_andar_nivel_7_vai_aos_tetos_finais_e_nenhum_nivel_passa_deles(self):
+        # 24/11, T15: frente 1,0, trás 0,5, lado 0,3 m/s e giro 0,5 rad/s; o nível 7 é o máximo do plano
+        for nivel in (7, 12):
+            v = amostra("andar", nivel, "ANDAR")
+            self.assertAlmostEqual(float(v[:, 0].max()), 1.0, delta=0.01)
+            self.assertAlmostEqual(float(v[:, 0].min()), -0.5, delta=0.01)
+            self.assertAlmostEqual(float(v[:, 1].abs().max()), 0.3, delta=0.01)
+            self.assertAlmostEqual(float(v[:, 2].abs().max()), 0.5, delta=0.01)
+            self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+        for nivel in range(13):
+            for tipo in ("andar", "terreno"):
+                v = amostra(tipo, nivel, "ANDAR", seed=nivel)
+                with self.subTest(nivel=nivel, tipo=tipo):
+                    self.assertLessEqual(float(v[:, 0].max()), 1.0 + 1e-6)
+                    self.assertGreaterEqual(float(v[:, 0].min()), -0.5 - 1e-6)
+                    self.assertLessEqual(float(v[:, 1].abs().max()), 0.3 + 1e-6)
+                    self.assertLessEqual(float(v[:, 2].abs().max()), 0.5 + 1e-6)
 
     def test_andar_sorteia_vx_vy_na_elipse_dos_tetos(self):
         # 17/11, T7: (vx, vy) uniforme na elipse dos tetos; no quadrado de antes, (vx/semieixo)² + (vy/lado)² chegava a 2
-        v = amostra("andar", 10, "ANDAR")
+        v = amostra("andar", 7, "ANDAR")
         ativo = ~(v == 0).all(dim=1)
         vx, vy = v[ativo, 0], v[ativo, 1]
-        frente, tras = K.frente_tetos[-1], K.tras_lado_teto_max
-        rho2 = (vx / torch.where(vx > 0, frente, tras)) ** 2 + (vy / K.tras_lado_teto_max) ** 2
+        frente, tras = K.frente_tetos[-1], K.tras_teto_max
+        rho2 = (vx / torch.where(vx > 0, frente, tras)) ** 2 + (vy / K.lado_teto_max) ** 2
         self.assertLessEqual(float(rho2.max()), 1.0 + 1e-5)
         # uniforme na área: metade da elipse fica em rho² ≤ 0,5; a frente tem frente/(frente+tras) da área
         self.assertAlmostEqual(float((rho2 <= 0.5).float().mean()), 0.5, delta=0.01)
         self.assertAlmostEqual(float((vx > 0).float().mean()), frente / (frente + tras), delta=0.01)
 
     def test_andar_terreno_limita_vx_a_terreno_v_max(self):
-        v = amostra("terreno", 10, "ANDAR")
+        v = amostra("terreno", 7, "ANDAR")
         self.assertLessEqual(float(v[:, 0].max()), K.terreno_v_max + 1e-6)
         self.assertGreater(float(v[:, 0].max()), K.terreno_v_max - 0.01)
-        self.assertGreaterEqual(float(v[:, 0].min()), -K.terreno_v_max - 1e-6)
+        self.assertGreaterEqual(float(v[:, 0].min()), -K.tras_teto_max - 1e-6)
         self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
 
     def test_andar_sobe_0_1_por_nivel(self):
-        # cada nível soma `andar_passo` ao teto: no nível 3, frente 0,8 e giro 0,8
-        v = amostra("andar", 3, "ANDAR")
-        self.assertAlmostEqual(float(v[:, 0].max()), 0.8, delta=0.01)
-        self.assertAlmostEqual(float(v[:, 2].abs().max()), 0.8, delta=0.01)
+        # cada nível soma `andar_passo` ao teto de cada canal: no nível 1, frente e trás 0,4, lado 0,3 e giro 0,4
+        v = amostra("andar", 1, "ANDAR")
+        self.assertAlmostEqual(float(v[:, 0].max()), 0.4, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 0].min()), -0.4, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 1].abs().max()), 0.3, delta=0.01)
+        self.assertAlmostEqual(float(v[:, 2].abs().max()), 0.4, delta=0.01)
 
 
 class CadeiaDeTrechosTest(unittest.TestCase):

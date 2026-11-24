@@ -81,8 +81,8 @@ class TestDegrauGlobal(unittest.TestCase):
 class TestRestricao(unittest.TestCase):
 
     def test_restricao_e_o_menor_nivel_relativo_entre_as_quatro(self):
-        # 11/11 (§2): restricao = min de nível/max_nivel; 0 enquanto alguma tarefa está no nível 0. 16/11: o ANDAR tem
-        # max_nivel 10, as outras 4
+        # 11/11 (§2): restricao = min de nível/max_nivel; 0 enquanto alguma tarefa está no nível 0. 24/11, T15: o ANDAR tem
+        # max_nivel 7, as outras 4
         def com_niveis(niveis):
             cur = novo()
             for t, n in zip(TAREFAS, niveis):
@@ -90,9 +90,9 @@ class TestRestricao(unittest.TestCase):
             return cur
         self.assertEqual(novo().restricao(), 0.0)
         self.assertEqual(com_niveis((1, 1, 1, 0)).restricao(), 0.0)
-        self.assertAlmostEqual(com_niveis((1, 1, 1, 1)).restricao(), 0.1, places=TOL)  # o ANDAR: 1/10
-        self.assertAlmostEqual(com_niveis((4, 4, 4, 4)).restricao(), 0.4, places=TOL)  # o ANDAR: 4/10
-        self.assertAlmostEqual(com_niveis((10, 4, 4, 4)).restricao(), 1.0, places=TOL)
+        self.assertAlmostEqual(com_niveis((1, 1, 1, 1)).restricao(), 1 / 7, places=TOL)  # o ANDAR: 1/7
+        self.assertAlmostEqual(com_niveis((4, 4, 4, 4)).restricao(), 4 / 7, places=TOL)  # o ANDAR: 4/7
+        self.assertAlmostEqual(com_niveis((7, 4, 4, 4)).restricao(), 1.0, places=TOL)
 
 
 class TestDrDoRefino(unittest.TestCase):

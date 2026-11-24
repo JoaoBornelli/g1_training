@@ -49,7 +49,7 @@ rl = tarefa.rl_cfg()
 env = ManagerBasedRlEnv(cfg=env_cfg, device=args.device)
 env = RslRlVecEnvWrapper(env, clip_actions=rl.clip_actions)
 runner = RunnerV3(env, asdict(rl), device=args.device)
-runner.load(args.checkpoint, load_cfg={"actor": True, "critic": True}, strict=True, map_location=args.device)
+runner.load(args.checkpoint, load_cfg=None, strict=True, map_location=args.device)
 policy = runner.get_inference_policy(device=args.device)
 critico = runner.alg.critic
 u = env.unwrapped
@@ -99,9 +99,15 @@ with torch.inference_mode():
         caixa_b = quat_apply_inverse(m["base_q"], m["caixa_p"] - m["base_p"])
         e_transporte = quat_apply_inverse(m["base_q"], m["caixa_p"] - recompensas.alvo_da_caixa_w(u, torch.full_like(u.v3_alvo_idx, P3)))
         cmd = u.command_manager.get_command("twist")
+        # 24/11, T15: a fração entregue (v̄ filtrada, a da recompensa) e a razão do segmento até aqui (média desde a âncora), por canal
+        den = torch.stack([cmd[:, :2].norm(dim=-1), cmd[:, 2].abs()], -1).clamp(min=twist.k.limiar_canal)
+        v_seg = twist.seg_nota / twist.seg_dur[:, None].clamp(min=1e-6)
+        frac, razao = (torch.stack([(v[:, :2] * cmd[:, :2]).sum(-1) / den[:, 0], v[:, 2] * cmd[:, 2].sign()], -1) / den
+                       for v in (twist.v_filt, v_seg))
         acao = policy(obs, stochastic_output=args.amostra)
         x = {
             "cmd_vx": cmd[:, 0], "cmd_vy": cmd[:, 1], "cmd_wz": cmd[:, 2],
+            "frac_lin": frac[:, 0], "frac_giro": frac[:, 1], "razao_lin": razao[:, 0], "razao_giro": razao[:, 1],
             "v_bx": d.root_link_lin_vel_b[:, 0], "v_by": d.root_link_lin_vel_b[:, 1], "v_bz": d.root_link_lin_vel_b[:, 2],
             "w_bz": d.root_link_ang_vel_b[:, 2], "h_pelve": m["h"], "pelve_sobre_pe": m["pelve"],
             "tronco_graus": m["tronco_graus"], "dpalmas": m["dpalmas"],

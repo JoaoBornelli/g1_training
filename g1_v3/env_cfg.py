@@ -113,7 +113,7 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
         cfg.observations["actor"].enable_corruption = False
 
     # ------------------------------------------------------------ 4. comandos: `cadeia` primeiro, `twist` depois
-    teto_frente, teto_lado, teto_giro = k.comando.frente_tetos[-1], k.comando.tras_lado_teto_max, k.comando.giro_tetos[-1]
+    teto_frente, teto_lado, teto_giro = k.comando.frente_tetos[-1], k.comando.lado_teto_max, k.comando.giro_tetos[-1]
     cfg.commands = {
         "cadeia": comando.CadeiaCmdCfg(k=k.cadeia, est=k.estimador, entity_name="robot"),
         # `ranges` é o envelope do `knobs` que o exportador lê (`envelope_treino`); o sorteio não o usa.

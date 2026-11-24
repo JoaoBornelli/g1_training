@@ -216,10 +216,15 @@ class TestEnvCfg(unittest.TestCase):
             with self.subTest(termo=nome):
                 self.assertEqual(cfg.rewards[nome].weight, getattr(ATIVO.recompensa, nome))
 
-    def test_pesos_do_rastreio_da_unitree(self):
-        # 16/11, T3: pesos 1,0 (linear) e 0,5 (angular), os da Unitree
+    def test_pesos_do_rastreio_da_fracao_entregue(self):
+        # 24/11, T15: pesos 2,0 (linear) e 1,0 (angular) da tenda da fração entregue
         cfg = env_cfg.make_env_cfg()
-        self.assertEqual((cfg.rewards["rastreio_linear"].weight, cfg.rewards["rastreio_angular"].weight), (1.0, 0.5))
+        self.assertEqual((cfg.rewards["rastreio_linear"].weight, cfg.rewards["rastreio_angular"].weight), (2.0, 1.0))
+
+    def test_envelope_do_comando_leva_os_tetos_finais(self):
+        # 24/11, T15: o envelope que o driver lê (frente 1,0, lado 0,3 m/s, giro 0,5 rad/s)
+        r = env_cfg.make_env_cfg().commands["twist"].ranges
+        self.assertEqual((r.lin_vel_x, r.lin_vel_y, r.ang_vel_z), ((-1.0, 1.0), (-0.3, 0.3), (-0.5, 0.5)))
 
     def test_tarefas_de_cada_recompensa_da_d5(self):
         cfg = env_cfg.make_env_cfg()

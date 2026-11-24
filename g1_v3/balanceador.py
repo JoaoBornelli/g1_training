@@ -2,8 +2,9 @@
 
 Dois balanceadores: o de fatias (ANDAR, B, C; S §11.1) e o de células dentro de cada tarefa (S §11.2),
 sobre a tabela de abertura da §6.3 e as células de PD-12. Os knobs entram como argumento (PD-43).
-16/11: o ANDAR tem uma célula de velocidade (`andar`) e a nota dela é a média do núcleo da Unitree no segmento
-(0 a 1); o portão dela é `portao_andar`, o das outras tarefas é `portao` (sucesso 0 ou 1 por segmento). O nível sobe
+16/11: o ANDAR tem uma célula de velocidade (`andar`) e a nota dela é a média da fração entregue no segmento
+(0 a 1, T15); o portão dela é `portao_andar` (`portao_andar_terreno` na célula `terreno`), o das outras tarefas é `portao`
+(sucesso 0 ou 1 por segmento). O nível sobe
 com o portão por `iters_nivel` iterações seguidas, nas 4 tarefas.
 20/11, T13: cada etapa do PEGAR e do BOTAR (P0..P3, B1..B3) tem uma escala de zona z em [0, 1] (1 = critério largo, 0 = o final);
 ela sobe e desce pela taxa de fecho por visita. Visitas e fechos acumulam no `vis_acum` e no `fech_acum`, que a cadeia preenche.
@@ -86,7 +87,9 @@ class Curriculo:
         # 16/11, A4 e P8: iterações seguidas no portão de cada tarefa (a carência por tempo saiu). Uma tarefa que abre
         # tarde começa em 0. Vai no estado
         self._seguidas = dict.fromkeys(TAREFAS, 0)
-        self._portao = {t: k_bal.portao_andar if t == "ANDAR" else k_bal.portao for t in TAREFAS}
+        # 24/11, T15: o portão é de cada célula: o ANDAR no plano 0,80 e na célula `terreno` 0,50; as outras tarefas, `portao`
+        self._portao = [k_bal.portao_andar_terreno if lay == ("ANDAR", "terreno") else
+                        k_bal.portao_andar if lay[0] == "ANDAR" else k_bal.portao for lay in LAYOUT]
         self._degrau = dict.fromkeys(TAREFAS, 0)
         self._cont = dict.fromkeys(TAREFAS, 0)
         # travas do DR (§6.8): só ligam, nunca desligam. "portao0": o PEGAR passou no portão do nível 0;
@@ -111,12 +114,12 @@ class Curriculo:
         self.celulas[_POS[(t, tp)]].aberta = True
 
     def _passa(self, i):
-        return self.celulas[i].s >= self._portao[self.celulas[i].tarefa]
+        return self.celulas[i].s >= self._portao[i]
 
     def _passa_media(self, ids):
         # 11/11: a média das células no portão. O portão conjuntivo (todas ≥ portão ao mesmo tempo) nunca abriu
         # em 13 TensorBoards; o refino (`_conta_refino`) já usava a média. Os `ids` são de uma tarefa só.
-        return bool(ids) and sum(self.celulas[i].s for i in ids) / len(ids) >= self._portao[self.celulas[ids[0]].tarefa]
+        return bool(ids) and sum(self.celulas[i].s for i in ids) / len(ids) >= sum(self._portao[i] for i in ids) / len(ids)
 
     def _de(self, t):
         return [i for i, c in enumerate(self.celulas) if c.tarefa == t]
@@ -126,7 +129,7 @@ class Curriculo:
 
     def _deficit(self, ids):
         return deficit(torch.tensor([self.celulas[i].s for i in ids], dtype=torch.float64),
-                       torch.tensor([self._portao[self.celulas[i].tarefa] for i in ids], dtype=torch.float64))
+                       torch.tensor([self._portao[i] for i in ids], dtype=torch.float64))
 
     # --- registro e fecho da iteração -----------------------------------------------------------
 

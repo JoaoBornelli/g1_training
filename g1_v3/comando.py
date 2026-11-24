@@ -11,6 +11,7 @@ e a razão de marcha ficam só como diagnóstico, que o §6.7 loga).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 
 import torch
@@ -98,11 +99,12 @@ def _u(n, g):  # U[0,1) no device do gerador (None: default)
     return torch.rand(n, generator=g, device=None if g is None else g.device)
 
 
-def _anda(n, lo, frente, tras, g):
-    # 4 direções uniformes; módulo U[lo; teto], teto = `frente` para +x e `tras` para as outras três (S §11.2)
+def _anda(n, lo, lo_lado, frente, tras, lado, g):
+    # 4 direções uniformes; módulo U[piso; teto], teto = `frente` para +x, `tras` para −x e `lado` para ±y (S §11.2; 24/11, T15)
     eixo = torch.randint(0, 4, (n,), generator=g, device=None if g is None else g.device)
-    teto = tras + (frente - tras) * (eixo == 0).float()
-    mod = lo + (teto - lo) * _u(n, g)
+    teto = torch.where(eixo == 0, frente, torch.where(eixo == 1, tras, lado))
+    piso = torch.where(eixo < 2, lo, lo_lado)
+    mod = piso + (teto - piso) * _u(n, g)
     vx = mod * ((eixo == 0).float() - (eixo == 1).float())
     vy = mod * ((eixo == 2).float() - (eixo == 3).float())
     return torch.stack([vx, vy], dim=1)
@@ -120,10 +122,11 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
     `tarefa` não muda a faixa: o `tipo` já diz o que anda (CARREGAR: `reto`, `giro_lugar`, `arco`, `terreno`)."""
     v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
     if tarefa == "ANDAR":
-        lado = min(k.andar_inicio + k.andar_passo * nivel, k.tras_lado_teto_max)
+        # 24/11, T15: cada canal sobe do seu início até o seu teto final, `andar_passo` por nível
+        lado = min(k.andar_lado_inicio + k.andar_passo * nivel, k.lado_teto_max)
         frente = min(k.andar_inicio + k.andar_passo * nivel, k.frente_tetos[-1])
+        tras = min(k.andar_inicio + k.andar_passo * nivel, k.tras_teto_max)
         giro = min(k.andar_giro_inicio + k.andar_passo * nivel, k.giro_tetos[-1])
-        tras = lado
         if tipo == "terreno":  # PD-12: o terreno usa o teto de `terreno_v_max` para frente e para trás
             frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
         # 17/11, T7: elipse, e não o quadrado de vx e vy independentes: no quadrado a diagonal passava do teto em até 41 %,
@@ -137,13 +140,13 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
         v[_u(n, gerador) < k.andar_parado] = 0.0
         return v
     frente = k.frente_tetos[nivel]
-    tras = min(frente, k.tras_lado_teto_max)
+    tras, lado = min(frente, k.tras_teto_max), min(frente, k.lado_teto_max)
     giro = k.giro_tetos[min(nivel, 3)]
     if tipo == "terreno":  # PD-12: o terreno usa o reto do nível, com teto de `terreno_v_max`
         frente, tras = min(frente, k.terreno_v_max), min(tras, k.terreno_v_max)
     # reto/terreno: só linear; arco: linear + giro; giro_lugar: só giro (linear 0, §11.2)
     if tipo in ("reto", "terreno", "arco"):
-        v[:, :2] = _anda(n, k.piso_velocidade, frente, tras, gerador)
+        v[:, :2] = _anda(n, k.piso_velocidade, k.piso_lado, frente, tras, lado, gerador)
     if tipo in ("arco", "giro_lugar"):
         v[:, 2] = _giro(n, k.piso_velocidade, giro, gerador)
     return v
@@ -705,7 +708,9 @@ class TwistV3(UniformVelocityCommand):
         self.seg_carrega = torch.zeros(n, dtype=torch.bool, device=dev)
         self.seg_proj = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ(v·ĉ)dt, Σ(ω·sinal)dt
         self.seg_int = torch.zeros(n, 2, device=dev)  # [linear, giro]: Σ|c|dt, Σ|wz|dt
-        self.seg_nota = torch.zeros(n, 2, device=dev)  # 16/11, A1 e T4; 17/11, T5: [linear: Σ núcleo·dt; giro: Σ (c_z − ω_z)·dt], depois da âncora
+        # 24/11, T15: Σ v·dt desde a âncora, [vx, vy, ωz]. Com o comando fixo no segmento, a razão do canal sai da média: (v̄·ĉ)/‖c‖
+        self.seg_nota = torch.zeros(n, 3, device=dev)
+        self.v_filt = torch.zeros(n, 3, device=dev)  # 24/11, T15: velocidade da base filtrada [vx, vy, ωz], a que a recompensa lê; zera no reset
         self.seg_dur = torch.zeros(n, device=dev)  # 16/11, A1: Σ dt depois da âncora
         self.t_ab = torch.zeros(n, device=dev)  # instante da abertura do segmento (base da âncora)
         self.ancora_feita = torch.zeros(n, dtype=torch.bool, device=dev)
@@ -750,15 +755,22 @@ class TwistV3(UniformVelocityCommand):
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
             terreno, k,
             deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, env.v3_cur.restricao(), 1))
-        # 16/11, A1 e T4; 17/11, T5: o ANDAR registra o mínimo de dois canais (0 na queda). O linear é a média do núcleo no
-        # segmento. O giro é o núcleo do erro médio de ω_z no segmento: o balanço da pelve dentro da passada se anula na média,
-        # e a recompensa (`rastreio_angular`) segue a cobrar o giro instantâneo (T3). As tarefas com caixa seguem com o
-        # sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda.
+        # 24/11, T15: a nota do ANDAR é a média, nos canais comandados, de min(razão, 1) com a razão desde a âncora,
+        # (v̄·ĉ)/‖c‖ no linear e ω̄/c_z no giro (a razão negativa vale 0, o excesso vale 1: o balanço da passada se anula na
+        # média). Sem canal comandado, a nota é a deriva, o núcleo exp(−v̄²/σ²) da média do segmento. Queda: 0. As tarefas com
+        # caixa seguem com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda.
         # 17/11, T6: o ANDAR não usa a regra da âncora do `sucesso_do_segmento`: depois de cada empurrão só as
         # quedas registravam, e a EMA tomava zeros
-        media = self.seg_nota[ids] / self.seg_dur[ids, None].clamp(min=1e-6)
-        giro = torch.exp(-media[:, 1] ** 2 / k.sigma_nota ** 2)
-        nota = torch.minimum(media[:, 0], giro)
+        c = self.seg_cmd[ids]
+        v_med = self.seg_nota[ids] / self.seg_dur[ids, None].clamp(min=1e-6)
+        den = torch.stack([c[:, :2].norm(dim=1), c[:, 2].abs()], dim=1)
+        ativo = den >= k.limiar_canal
+        den = den.clamp(min=k.limiar_canal)
+        proj = torch.stack([(v_med[:, :2] * c[:, :2]).sum(dim=1) / den[:, 0], v_med[:, 2] * c[:, 2].sign()], dim=1)
+        razao = (proj / den).clamp(0.0, 1.0)
+        deriva = torch.exp(-torch.stack([v_med[:, :2].pow(2).sum(dim=1), v_med[:, 2].pow(2)], dim=1) / ATIVO.recompensa.sigma_rastreio ** 2)
+        nota = torch.where(ativo.any(dim=1), (razao * ativo).sum(dim=1) / ativo.sum(dim=1).clamp(min=1),
+                           deriva.min(dim=1).values)
         x = torch.where(self.seg_carrega[ids], suc.float(), nota) * (~falha).float()
         reg = torch.where(self.seg_carrega[ids], reg, self.seg_dur[ids] > 0) | falha
         cel = self.seg_cel[ids]
@@ -821,16 +833,14 @@ class TwistV3(UniformVelocityCommand):
         soma = self.soma_cmd_marcha
         self.metrics["razao_marcha"][:] = torch.where(
             soma > 0.0, 1.0 - self.soma_erro_marcha / soma.clamp(min=1e-6), torch.zeros_like(soma))
-        # 16/11, A1: nota do segmento desde a âncora. 16/11, T3: velocidade instantânea (`vel`, `wz` do bloco 2), a da
-        # Unitree; a média de 0,8 s anulava a torção da pelve. 16/11, T4: os dois canais ficam separados e o `_fecha` toma o
-        # mínimo. 17/11, T5: o canal do giro acumula o erro com sinal, sem núcleo; o `_fecha` pune o erro médio do segmento,
-        # e o balanço da pelve dentro da passada se anula. O canal sem comando entra com c = 0: ficar parado vale 1, e a
-        # deriva cobra pelo erro.
+        # 24/11, T15: a velocidade do passo (`vel`, `wz` do bloco 2) soma desde a âncora (a razão da nota sai da média no `_fecha`)
+        # e entra no filtro exponencial de τ `tau_fracao` que a recompensa lê. O filtro só vale para o canal comandado: a deriva
+        # do canal sem comando e o `giro_xy` seguem instantâneos (16/11, T3: a média anulava a torção da pelve).
+        v3 = torch.cat([vel, wz[:, None]], dim=1)
         apos = (self._agora >= env.v3_ancora[:, 3]).float()
-        e_lin = ((cmd[:, :2] - vel) ** 2).sum(dim=1)
-        erro_ang = cmd[:, 2] - wz
-        self.seg_nota += torch.stack([torch.exp(-e_lin / k.sigma_nota ** 2), erro_ang], dim=1) * (apos * dt)[:, None]
+        self.seg_nota += v3 * (apos * dt)[:, None]
         self.seg_dur += apos * dt
+        self.v_filt += -math.expm1(-dt / k.tau_fracao) * (v3 - self.v_filt)
         # 5. relógio de marcha (16/11, R: a forma do `feet_gait` da Unitree): roda depois das recompensas, então o
         # `passo` do passo t lê a fase do passo t − 1. 19/11, T12: a fase é o tempo com comando (`on`: ‖comando‖ >
         # limiar) sobre o período fixo; com comando zero ela para onde estava e volta dali. Sem isso, o P3 (comando
@@ -850,6 +860,7 @@ class TwistV3(UniformVelocityCommand):
         self._fecha(env_ids, falha=~time_out)
         self._agora[env_ids] = 0.0
         self._fase_t[env_ids] = 0.0
+        self.v_filt[env_ids] = 0.0  # o filtro é estado do episódio: não vaza para o seguinte
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0
         self.soma_acerto[env_ids] = 0.0

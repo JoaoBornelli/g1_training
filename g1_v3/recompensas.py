@@ -369,11 +369,13 @@ def _incl_graus(quat):
 
 
 def _rastreio(env, linear, normalizado=False):
-    """Rastreio com a velocidade instantânea da base no frame da base, como o comando (16/11, T3).
+    """Rastreio da base no frame da base, como o comando.
 
-    `normalizado=False` (rastreio da Unitree): linear exp(−‖cmd_xy − v_xy‖²/σ²), angular exp(−(cmd_z − wz)²/σ²), com σ =
-    `sigma_rastreio`. O canal sem comando entra no mesmo núcleo (c = 0). A média de 0,8 s escondia a torção da pelve;
-    a velocidade instantânea a cobra.
+    `normalizado=False` (24/11, T15): canal com comando (c ≥ `limiar_canal`) paga a tenda da fração entregue, f = clamp(1 − |1 − p|,
+    0, 1), com p = (v̄·ĉ)/‖c‖ no linear e p = ω̄/c_z no giro, e v̄ a velocidade filtrada do `twist` (τ `tau_fracao`). Parado vale 0, o
+    alvo vale 1 e o dobro do alvo vale 0, em qualquer tamanho de alvo. No linear, a velocidade perpendicular ao comando multiplica
+    a tenda por exp(−v̄⊥²/σ²). O canal sem comando fica com o núcleo da Unitree sobre a velocidade instantânea (16/11, T3):
+    exp(−v²/σ²) com σ = `sigma_rastreio`; parado vale 1 e a deriva é cobrada.
     `normalizado=True` (S §19, conflito 5; PD-49): `potencial.rastreio_normalizado`, com c = ‖cmd_xy‖ (linear) ou |wz|
     (angular), o σ₀ e o piso. Só o sinal de progresso do CARREGAR (M5) o usa."""
     cmd = env.command_manager.get_command("twist")  # (E,3): vx, vy, wz (§6.3, comando)
@@ -386,10 +388,18 @@ def _rastreio(env, linear, normalizado=False):
         erro2 = (cmd[:, 2] - wz).pow(2)
         c, v2 = cmd[:, 2].abs(), wz.pow(2)
         sigma_zero = balanceador.no_degrau(R.sigma_zero_ang_inicio, R.sigma_zero_ang, env.v3_cur.restricao(), 1)
-    if not normalizado:
-        return torch.exp(-erro2 / R.sigma_rastreio ** 2)
-    return potencial.rastreio_normalizado(erro2, c, v2, R.sigma_rastreio, sigma_zero, C.limiar_canal,
-                                          R.piso_rastreio)
+    if normalizado:
+        return potencial.rastreio_normalizado(erro2, c, v2, R.sigma_rastreio, sigma_zero, C.limiar_canal,
+                                              R.piso_rastreio)
+    v_med = env.command_manager.get_term("twist").v_filt  # (E,3): vx, vy, wz filtrados; zera no reset do episódio
+    den = c.clamp(min=C.limiar_canal)  # o canal sem comando não usa a tenda; o piso só evita a divisão por zero
+    if linear:
+        proj = (v_med[:, :2] * cmd[:, :2]).sum(-1) / den  # v̄·ĉ
+        perp2 = (v_med[:, :2].pow(2).sum(-1) - proj.pow(2)).clamp(min=0)
+    else:
+        proj, perp2 = v_med[:, 2] * cmd[:, 2].sign(), torch.zeros_like(c)
+    tenda = (1.0 - (1.0 - proj / den).abs()).clamp(0.0, 1.0) * torch.exp(-perp2 / R.sigma_rastreio ** 2)
+    return torch.where(c >= C.limiar_canal, tenda, torch.exp(-erro2 / R.sigma_rastreio ** 2))
 
 
 def _q_alvo(env, q):
@@ -571,21 +581,19 @@ def _qualidade(env):
 
 
 def _rastreio_com_qualidade(env, linear):
-    """Rastreio da Unitree (núcleo cru, velocidade instantânea); no CARREGAR a qualidade escala só a parte positiva
-    (PD-37)."""
+    """Rastreio da fração entregue (T15); no CARREGAR a qualidade escala só a parte positiva (PD-37)."""
     r = _rastreio(env, linear)
     carrega = env.v3_tarefa == TAREFAS.index("CARREGAR")
     return torch.where(carrega, aplica_qualidade(r, _qualidade(env)[0]), r)
 
 
 def rastreio_linear(env, tarefas):
-    """Rastreio linear da Unitree: exp(−‖cmd_xy − v_xy‖²/σ²), velocidade instantânea. Todas as tarefas (§6.6 da D5).
-    CARREGAR: qualidade (E4)."""
+    """Rastreio linear: a tenda da fração entregue do comando (T15). ANDAR e CARREGAR. CARREGAR: qualidade (E4)."""
     return _fim(env, tarefas, _rastreio_com_qualidade(env, True), paga=True)
 
 
 def rastreio_angular(env, tarefas):
-    """Rastreio do giro da Unitree: exp(−(cmd_z − wz)²/σ²), velocidade instantânea. CARREGAR: qualidade (E4, PD-37)."""
+    """Rastreio do giro: a tenda da fração entregue do comando (T15). CARREGAR: qualidade (E4, PD-37)."""
     return _fim(env, tarefas, _rastreio_com_qualidade(env, False), paga=True)
 
 

@@ -1,10 +1,11 @@
 """Mede a deriva de posição e de rumo por segmento de comando de uma política treinada da v3.
 
 Responde: por que o ANDAR fica abaixo do portão? Cada segmento fechado grava dpos, rumo com sinal, tempo desde a
-âncora e os canais da nota (linear e giro), nas condições do treino. 17/11, T5: o giro da nota é o núcleo do erro médio de
-ω_z no segmento. 17/11: o `s` do treino ficou ~0,13 abaixo da nota medida aqui; o script imprime também a EMA do
-balanceador (que roda junto, com os mesmos registros), o `x` de cada fecho de iteração e o núcleo linear de todos os
-passos (o `rastreio_linear` do TB, sem o peso), com os episódios fora de fase como no treino.
+âncora e os canais da nota (linear e giro), nas condições do treino. 24/11, T15: cada canal é a razão min(razão, 1) desde a
+âncora, e a nota é a média dos canais comandados (a deriva sem comando). 17/11: o `s` do treino ficou ~0,13 abaixo da nota
+medida aqui; o script imprime também a EMA do balanceador (que roda junto, com os mesmos registros), o `x` de cada fecho de
+iteração e o rastreio linear de todos os passos (o `rastreio_linear` do TB, sem o peso), com os episódios fora de fase como
+no treino.
 
 Uso:
     python -m g1_v3.mede_deriva --checkpoint CAMINHO/model_N.pt [--num-envs 1024] [--passos 3000] [--amostra]
@@ -22,9 +23,10 @@ import numpy as np
 import torch
 
 import g1_v3.tarefa as tarefa  # registra a task
-from g1_v3 import balanceador
+from g1_v3 import balanceador, recompensas
 from g1_v3.comando import sucesso_do_segmento
 from g1_v3.env_cfg import make_env_cfg
+from g1_v3.knobs import ATIVO
 from g1_v3.runner import RunnerV3
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
@@ -72,17 +74,23 @@ def fecha_medindo(ids, falha):
         env_.v3_perdeu[ids], twist.seg_carrega[ids], env_.v3_incl_max_seg[ids], terreno, k,
         deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, cur.restricao(), 1))
     cmd = twist.seg_cmd[ids]
-    # o `_fecha` registra o mínimo dos dois canais da média do segmento; o giro é o núcleo do erro médio de ω_z (17/11, T5)
-    media = twist.seg_nota[ids] / twist.seg_dur[ids, None].clamp(min=1e-6)
-    giro = torch.exp(-media[:, 1] ** 2 / k.sigma_nota ** 2)
+    # o `_fecha` registra a média das razões dos canais comandados (T15); a razão de cada canal, de 0 a 1, sai da média da
+    # velocidade desde a âncora: (v̄·ĉ)/‖c‖ no linear e ω̄/c_z no giro. Sem canal comandado, a nota é a deriva
+    v_med = twist.seg_nota[ids] / twist.seg_dur[ids, None].clamp(min=1e-6)
+    den = torch.stack([cmd[:, :2].norm(dim=1), cmd[:, 2].abs()], dim=1)
+    ativo = den >= k.limiar_canal
+    den = den.clamp(min=k.limiar_canal)
+    razao = (torch.stack([(v_med[:, :2] * cmd[:, :2]).sum(dim=1) / den[:, 0], v_med[:, 2] * cmd[:, 2].sign()], dim=1) / den).clamp(0.0, 1.0)
+    deriva = torch.exp(-torch.stack([v_med[:, :2].pow(2).sum(dim=1), v_med[:, 2].pow(2)], dim=1) / ATIVO.recompensa.sigma_rastreio ** 2)
+    nota = torch.where(ativo.any(dim=1), (razao * ativo).sum(dim=1) / ativo.sum(dim=1).clamp(min=1), deriva.min(dim=1).values)
     carrega, ok = twist.seg_carrega[ids], (~falha).float()
     linhas.append({
         "cel": cel, "vx": cmd[:, 0], "vy": cmd[:, 1], "wz": cmd[:, 2], "dpos": dpos, "rumo": rumo,
         "t_ancora": twist._agora[ids] - ancora[:, 3], "falha": falha.clone(),
         "reg": torch.where(carrega, reg, twist.seg_dur[ids] > 0) | falha,  # o registro do `_fecha` (17/11, T6)
-        "nota_lin": media[:, 0], "nota_giro": giro, "erro_giro": media[:, 1],
+        "nota_lin": razao[:, 0], "nota_giro": razao[:, 1], "v_med_giro": v_med[:, 2],
         # o x que o `_fecha` registra (a tarefa com caixa segue com o sucesso)
-        "x": torch.where(carrega, suc.float(), torch.minimum(media[:, 0], giro)) * ok,
+        "x": torch.where(carrega, suc.float(), nota) * ok,
     })
     fecha_original(ids, falha)
 
@@ -102,8 +110,7 @@ with torch.inference_mode():
         if andar.n_medidas != n_ant:
             xs.append(s_ant + (andar.s - s_ant) / cur.k.alfa)
         s_ant, n_ant = andar.s, andar.n_medidas
-        erro2 = ((twist.vel_command_b[:, :2] - twist.robot.data.root_link_lin_vel_b[:, :2]) ** 2).sum(dim=1)
-        soma_lin += torch.exp(-erro2 / k.sigma_nota ** 2).mean().item()  # σ 0,5, o mesmo do `rastreio_linear`
+        soma_lin += recompensas._rastreio(env.unwrapped, True).mean().item()  # a tenda do `rastreio_linear`, sem o peso e sem a qualidade
 
 d = {n: torch.cat([l[n] for l in linhas]).float().cpu().numpy() for n in linhas[0]}
 nome_cel = np.array([nomes[int(c)] if c >= 0 else "sem célula" for c in d["cel"]])
@@ -156,5 +163,5 @@ if celulas:
 xs = np.array(xs)
 print(f"EMA do ANDAR andar: s {s0:.3f} → {andar.s:.3f}; fechos com medida {len(xs)}; x por fecho: média "
       f"{xs.mean() if len(xs) else float('nan'):.3f}, p10 {q(xs, 10):.3f}, p50 {q(xs, 50):.3f}, p90 {q(xs, 90):.3f}")
-print(f"núcleo linear em todos os passos (o `rastreio_linear` do TB, sem o peso): {soma_lin / args.passos:.3f}")
+print(f"rastreio linear em todos os passos (o `rastreio_linear` do TB, sem o peso): {soma_lin / args.passos:.3f}")
 print(f"saída em {saida.resolve()}")

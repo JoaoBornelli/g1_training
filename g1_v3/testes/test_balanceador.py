@@ -28,6 +28,10 @@ NIVEL_B = B.nivel_abre_b  # 5 (16/11, B1)
 SEM_CARENCIA = dataclasses.replace(B, iters_nivel=10 ** 6)
 
 
+def balanceador_max_andar():
+    return balanceador.Curriculo(B, N, COM, TER).max_nivel["ANDAR"]
+
+
 def novo(k_bal=B, sub_final=True, andar=0):
     # 13/11, M3: por padrão o PEGAR e o BOTAR já estão no último subnível (o nível 0 de antes); os testes do
     # subnível passam `sub_final=False`. 16/11: `andar` é o nível do ANDAR; com `NIVEL_B` a fatia B abre no 1º fecho
@@ -293,14 +297,32 @@ class TestSubidaDeNivel(unittest.TestCase):
                 self.assertFalse(cur.celulas[cid(cur, "CARREGAR", "reto")].aberta)
                 self.assertEqual(cur.fracoes_fatias()[1].item(), 0.0)
 
-    def test_nota_0_85_sobe_o_nivel_a_cada_50_fechos_ate_10(self):
-        # 16/11, A4: a cada 50 fechos seguidos com s ≥ 0,8 o nível sobe 1, até o máximo (10); depois fica
+    def test_nota_0_85_sobe_o_nivel_a_cada_50_fechos_ate_7(self):
+        # 16/11, A4: a cada 50 fechos seguidos com s ≥ 0,8 o nível sobe 1, até o máximo; depois fica. 24/11, T15: o máximo do
+        # ANDAR é 7 (a frente vai de 0,3 a 1,0 m/s) e o do CARREGAR, 4
         cur = novo()
         andar = cid(cur, "ANDAR", "andar")
-        self.assertEqual(cur.max_nivel["ANDAR"], 10)
-        for k in range(1, 701):
+        self.assertEqual((cur.max_nivel["ANDAR"], cur.max_nivel["CARREGAR"]), (7, 4))
+        for k in range(1, 501):
             fecha(cur, notas={andar: 0.85})
-            self.assertEqual(cur.nivel("ANDAR"), min(k // 50, 10), f"fecho {k}")
+            self.assertEqual(cur.nivel("ANDAR"), min(k // 50, 7), f"fecho {k}")
+
+    def test_portao_da_celula_terreno_do_andar_e_0_50_e_o_do_plano_0_80(self):
+        # 24/11, T15: nota 0,6 passa no terreno do ANDAR (0,50) e não no plano (0,80); o terreno do CARREGAR segue com 0,75
+        cur = novo(andar=balanceador_max_andar())
+        andar, ter = cid(cur, "ANDAR", "andar"), cid(cur, "ANDAR", "terreno")
+        carregar_ter = cid(cur, "CARREGAR", "terreno")
+        cur.celulas[andar].s = cur.celulas[ter].s = cur.celulas[carregar_ter].s = 0.6
+        self.assertFalse(cur._passa(andar))
+        self.assertTrue(cur._passa(ter))
+        self.assertFalse(cur._passa(carregar_ter))
+        # a linha de terreno sobe com a célula `terreno` aberta, no nível máximo do plano, a 0,6 por 50 fechos
+        cur.celulas[ter].aberta = True
+        cur.celulas[ter].n_medidas = 1
+        for _ in range(B.iters_nivel):
+            cur.registra(ter, 10, 6.0)
+            cur.fecha_iteracao()
+        self.assertEqual(cur.nivel_terreno("ANDAR"), 1)
 
     def test_contagem_zera_com_uma_queda_e_conta_da_volta(self):
         # 16/11, A4: nota 0,85 por 40 fechos, 0,0 por 2, 0,85 depois. No fecho 50 o nível não sobe; ele sobe só

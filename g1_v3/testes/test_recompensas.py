@@ -153,32 +153,66 @@ class TestLimiteJunta(unittest.TestCase):
 
 
 class TestRastreioUnitree(unittest.TestCase):
-    """T3 (16/11): `_rastreio` lê a velocidade instantânea da base. Núcleo cru da Unitree por padrão; `normalizado=True`
-    é a conta do sinal de progresso do CARREGAR."""
+    """T3 (16/11) e T15 (24/11): `_rastreio` paga a tenda da fração entregue (velocidade filtrada `v_filt` do `twist`) no canal com
+    comando e o núcleo da Unitree (velocidade instantânea) no canal sem comando; `normalizado=True` é a conta do sinal de
+    progresso do CARREGAR e segue com a velocidade instantânea."""
 
-    def _env(self, cmd, v_xy, wz):
+    def _env(self, cmd, v_xy, wz, v_filt=None):
+        # `v_filt` (vx, vy, wz): a velocidade filtrada; sem ela, vale a instantânea (a base em regime)
         dados = types.SimpleNamespace(root_link_lin_vel_b=t(*v_xy, 0.0).reshape(1, 3),
                                       root_link_ang_vel_b=t(0.0, 0.0, wz).reshape(1, 3))
+        twist = types.SimpleNamespace(v_filt=t(*(v_filt or (*v_xy, wz))).reshape(1, 3))
         return types.SimpleNamespace(
-            command_manager=types.SimpleNamespace(get_command=lambda nome: t(*cmd).reshape(1, 3)),
+            command_manager=types.SimpleNamespace(get_command=lambda nome: t(*cmd).reshape(1, 3),
+                                                  get_term=lambda nome: twist),
             scene={"robot": types.SimpleNamespace(data=dados)},
             v3_cur=types.SimpleNamespace(restricao=lambda: 1.0))
 
-    def test_parado_com_comando_de_0_5_m_s(self):
-        env = self._env((0.5, 0.0, 0.0), (0.0, 0.0), 0.0)
-        self.assertAlmostEqual(float(recompensas._rastreio(env, True)[0]), math.exp(-1), places=5)
-        self.assertAlmostEqual(float(recompensas._rastreio(env, False)[0]), 1.0, places=5)
+    def _r(self, cmd, v_filt, linear=True, v_inst=(0.0, 0.0, 0.0)):
+        env = self._env(cmd, v_inst[:2], v_inst[2], v_filt)
+        return float(recompensas._rastreio(env, linear)[0])
 
-    def test_comando_cumprido_vale_1(self):
-        env = self._env((0.5, 0.2, 0.3), (0.5, 0.2), 0.3)
-        self.assertAlmostEqual(float(recompensas._rastreio(env, True)[0]), 1.0, places=5)
-        self.assertAlmostEqual(float(recompensas._rastreio(env, False)[0]), 1.0, places=5)
+    def test_parado_com_comando_paga_0_em_qualquer_alvo(self):
+        # T15: o núcleo de hoje pagava 70 % parado com lado 0,3 e 37 % com giro 0,5; a tenda paga 0 nos dois canais
+        for alvo in (0.1, 0.3, 0.5, 1.0):
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (0.0, 0.0, 0.0)), 0.0, places=6, msg=f"linear {alvo}")
+            self.assertAlmostEqual(self._r((0.0, alvo, 0.0), (0.0, 0.0, 0.0)), 0.0, places=6, msg=f"lado {alvo}")
+            self.assertAlmostEqual(self._r((0.0, 0.0, alvo), (0.0, 0.0, 0.0), linear=False), 0.0, places=6, msg=f"giro {alvo}")
 
-    def test_oscilacao_instantanea_do_giro_zera_o_termo_angular(self):
-        # ±1,65 rad/s em torno do comando 0,3: exp(−1,65²/0,25) ≈ 2e−5, nos dois sentidos (a média de 0,8 s dava 1)
-        for wz in (0.3 + 1.65, 0.3 - 1.65):
-            env = self._env((0.0, 0.0, 0.3), (0.0, 0.0), wz)
-            self.assertLess(float(recompensas._rastreio(env, False)[0]), 1e-3)
+    def test_tenda_vale_1_no_alvo_e_0_no_dobro_e_nunca_negativa(self):
+        for alvo in (0.3, 0.5, 1.0):
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (alvo, 0.0, 0.0)), 1.0, places=5)
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (0.5 * alvo, 0.0, 0.0)), 0.5, places=5)
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (1.5 * alvo, 0.0, 0.0)), 0.5, places=5)
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (2.0 * alvo, 0.0, 0.0)), 0.0, places=5)
+            self.assertAlmostEqual(self._r((alvo, 0.0, 0.0), (3.0 * alvo, 0.0, 0.0)), 0.0, places=5)
+            self.assertAlmostEqual(self._r((0.0, 0.0, alvo), (0.0, 0.0, alvo), linear=False), 1.0, places=5)
+            self.assertAlmostEqual(self._r((0.0, 0.0, alvo), (0.0, 0.0, 2.0 * alvo), linear=False), 0.0, places=5)
+
+    def test_canal_sem_comando_fica_com_o_nucleo_da_velocidade_instantanea(self):
+        # parado vale 1 e a deriva é cobrada (exp(−v²/σ²), σ = 0,5); o filtro não entra aqui
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.3), (0.0, 0.0, 0.0), linear=True), 1.0, places=5)
+        self.assertAlmostEqual(self._r((0.5, 0.0, 0.0), (0.0, 0.0, 0.0), linear=False), 1.0, places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), v_inst=(0.5, 0.0, 0.0)), math.exp(-1), places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), linear=False, v_inst=(0.0, 0.0, 0.5)), math.exp(-1), places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.5, 0.0, 0.0), v_inst=(0.0, 0.0, 0.0)), 1.0, places=5)  # o filtro não conta
+
+    def test_velocidade_perpendicular_ao_comando_reduz_o_termo(self):
+        # comando 0,5 em x, entrega 0,5 em x e 0,5 em y: a tenda dá 1 e o perpendicular multiplica por exp(−0,25/0,25)
+        self.assertAlmostEqual(self._r((0.5, 0.0, 0.0), (0.5, 0.5, 0.0)), math.exp(-1), places=5)
+        # comando na diagonal: a parte perpendicular de (0,3; 0,3) sobre ĉ = (1, 0) é 0,3
+        self.assertAlmostEqual(self._r((0.3, 0.0, 0.0), (0.3, 0.3, 0.0)), math.exp(-0.09 / 0.25), places=5)
+
+    def test_re_lado_e_giro_negativo_dao_a_mesma_fracao_que_frente_e_giro_positivo(self):
+        ref = self._r((0.4, 0.0, 0.0), (0.3, 0.0, 0.0))
+        self.assertAlmostEqual(ref, 0.75, places=5)
+        self.assertAlmostEqual(self._r((-0.4, 0.0, 0.0), (-0.3, 0.0, 0.0)), ref, places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.4, 0.0), (0.0, 0.3, 0.0)), ref, places=5)
+        self.assertAlmostEqual(self._r((0.0, -0.4, 0.0), (0.0, -0.3, 0.0)), ref, places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, -0.4), (0.0, 0.0, -0.3), linear=False), ref, places=5)
+        # o sentido errado paga 0
+        self.assertAlmostEqual(self._r((-0.4, 0.0, 0.0), (0.3, 0.0, 0.0)), 0.0, places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, -0.4), (0.0, 0.0, 0.3), linear=False), 0.0, places=5)
 
     def test_normalizado_parado_com_comando_vale_0(self):
         env = self._env((0.5, 0.0, 0.3), (0.0, 0.0), 0.0)
@@ -187,7 +221,7 @@ class TestRastreioUnitree(unittest.TestCase):
 
     def test_normalizado_usa_a_velocidade_instantanea(self):
         # cumprido: 1; erro de 0,3 m/s com comando 0,5: (exp(−0,09/0,25) − exp(−1)) / (1 − exp(−1)) do `rastreio_normalizado`
-        env = self._env((0.5, 0.0, 0.0), (0.2, 0.0), 0.0)
+        env = self._env((0.5, 0.0, 0.0), (0.2, 0.0), 0.0, v_filt=(0.5, 0.0, 0.0))
         esperado = (math.exp(-0.09 / 0.25) - math.exp(-1)) / (1 - math.exp(-1))
         self.assertAlmostEqual(float(recompensas._rastreio(env, True, normalizado=True)[0]), esperado, places=5)
 

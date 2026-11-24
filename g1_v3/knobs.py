@@ -117,16 +117,21 @@ class Cena:  # S §11.2, §12; PD-9, PD-46, PD-47; g1_limpo/knobs.py Cena e Nive
 
 @dataclass(frozen=True)
 class Comando:  # S §7, §11.2, §19
-    frente_tetos: tuple = (0.5, 0.75, 1.0, 1.25, 1.5)  # S §11.2: tetos para a frente (m/s); 11/11: 5 valores, era 6 (§4.1)
-    tras_lado_teto_max: float = 1.0  # S §11.2: teto para trás e de lado (m/s)
-    giro_tetos: tuple = (0.25, 0.5, 0.75, 1.0)  # S §11.2: tetos de giro (rad/s)
+    # 24/11, T15: tetos finais da receita da Unitree (G1 29dof): frente 1,0, trás 0,5, lado 0,3 m/s, giro 0,5 rad/s. A tabela do
+    # CARREGAR (5 níveis) termina neles; o ANDAR sobe de `andar_*inicio` a eles
+    frente_tetos: tuple = (0.4, 0.55, 0.7, 0.85, 1.0)  # S §11.2: tetos para a frente do CARREGAR (m/s); o último é o final do ANDAR também
+    tras_teto_max: float = 0.5  # 24/11, T15: teto para trás (m/s)
+    lado_teto_max: float = 0.3  # 24/11, T15: teto de lado (m/s)
+    giro_tetos: tuple = (0.3, 0.4, 0.5, 0.5)  # S §11.2: tetos de giro do CARREGAR (rad/s); o último é o final do ANDAR também
     piso_velocidade: float = 0.25  # S §11.2: "entre 0,25 e o teto"
+    piso_lado: float = 0.2  # 24/11, T15: o piso do lado (o teto do lado é 0,3)
     # 16/11, A: nível do ANDAR pela receita da Unitree; o sorteio é uniforme na faixa do nível (a célula `baixo` saiu)
-    andar_inicio: float = 0.5  # 16/11, A2: teto inicial de frente, trás e lado no ANDAR (m/s); com 0,1 a estátua passa na nota
-    andar_giro_inicio: float = 0.5  # 16/11, A2: teto inicial do giro no ANDAR (rad/s), pelo mesmo motivo
+    andar_inicio: float = 0.3  # 24/11, T15: teto inicial de frente e trás no ANDAR (m/s); o nível máximo é (1,0 − 0,3) / passo = 7
+    andar_lado_inicio: float = 0.2  # 24/11, T15: teto inicial do lado no ANDAR (m/s)
+    andar_giro_inicio: float = 0.3  # 24/11, T15: teto inicial do giro no ANDAR (rad/s)
     andar_passo: float = 0.1  # 16/11, A2: quanto cada nível soma aos tetos do ANDAR (o passo da Unitree)
     andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
-    sigma_nota: float = 0.5  # 16/11, A1 (P1): σ do núcleo cru da nota do segmento, o da Unitree
+    tau_fracao: float = 0.4  # 24/11, T15: τ do filtro exponencial da velocidade da base (s) na fração entregue; um ciclo de marcha dura 0,8 s
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     fase_apoio: float = 0.55  # 13/11, M4: fração do ciclo com o pé no chão (`feet_gait` do unitree_rl_lab)
@@ -226,8 +231,8 @@ class Alvos:  # S §8.2; PD-23
 
 @dataclass(frozen=True)
 class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
-    rastreio_linear: float = 1.0  # 16/11, T3: pesos da Unitree; o 2,0 de 11/11 compensava a renda negativa do rastreio normalizado
-    rastreio_angular: float = 0.5  # 16/11, T3: pesos da Unitree; o 2,0 de 11/11 compensava a renda negativa do rastreio normalizado
+    rastreio_linear: float = 2.0  # 24/11, T15: a tenda da fração entregue paga ≥ 0 (parado vale 0); o Isaac Lab usa 2,0 no G1
+    rastreio_angular: float = 1.0  # 24/11, T15: idem
     sigma_rastreio: float = 0.5  # S §19: σ do rastreio (receita da Unitree)
     piso_rastreio: float = -1.0  # S §19, conflito 5: piso do rastreio normalizado; 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
     # ⚠ σ₀ do canal sem comando (dono, 15/10). Com σ 0,5, deslizar a 0,05 m/s custava 0,01.
@@ -382,6 +387,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     eps: float = 0.02  # S §11; PD-13: ε da fração de déficit
     portao: float = 0.75  # S §11.3: portão de sucesso da célula (as tarefas fora do ANDAR)
     portao_andar: float = 0.80  # 16/11, A4: portão da célula do ANDAR, a nota média ≥ 0,8 (o critério da Unitree)
+    portao_andar_terreno: float = 0.50  # 24/11, T15: portão da célula `terreno` do ANDAR: a linha sobe com o robô a meia velocidade
     alfa: float = 0.05  # S §11; PD-13: taxa da EMA do sucesso
     iters_nivel: int = 50  # 16/11, A4 (P3, P8): iterações seguidas no portão para subir (nas 4 tarefas); ~1 episódio de 20 s
     nivel_abre_b: int = 5  # 16/11, B1 (P5): nível do ANDAR que abre a fatia B; a 1,0 m/s o arrasto já não cumpre o rastreio

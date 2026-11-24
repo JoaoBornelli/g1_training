@@ -166,7 +166,7 @@ class TestAtrasoPelaRestricao(unittest.TestCase):
 
     def test_atraso_max_segue_a_restricao_com_teto_ceil_de_2(self):
         # 11/11 (§2): com o degrau global 0, o teto do atraso é ceil(atraso_portao[1] · restricao): 0, 1, 1, 2, 2
-        # 16/11: o ANDAR tem 10 níveis; o nível dele entra na mesma fração (nivel/4 do máximo)
+        # 24/11, T15: o ANDAR tem 7 níveis; o nível dele entra na mesma fração (nivel/4 do máximo)
         for nivel, esperado in ((0, 0), (1, 1), (2, 1), (3, 2), (4, 2)):
             with self.subTest(nivel=nivel):
                 cur = novo()

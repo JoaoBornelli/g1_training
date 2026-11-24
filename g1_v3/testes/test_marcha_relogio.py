@@ -76,7 +76,7 @@ def _twist(cmd, n=1):
     obj._fase_t = torch.zeros(n)
     obj.command_counter, obj.seg_visto = torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.long)
     obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
-    obj.seg_nota, obj.seg_dur = torch.zeros(n, 2), torch.zeros(n)
+    obj.seg_nota, obj.seg_dur, obj.v_filt = torch.zeros(n, 3), torch.zeros(n), torch.zeros(n, 3)
     obj.seg_cmd, obj.seg_cel, obj.seg_carrega = obj.vel_command_b.clone(), torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.bool)
     obj.soma_erro_marcha, obj.soma_cmd_marcha = torch.zeros(n), torch.zeros(n)
     obj.soma_acerto, obj.passos_on, obj.pose_ult = torch.zeros(n), torch.zeros(n), torch.zeros(n, 3)
@@ -157,49 +157,110 @@ class RelogioDoTwist(unittest.TestCase):
         self.assertAlmostEqual(float(obj.metrics["acerto_relogio"][0]), 0.5, places=6)
 
 
-class NotaDoSegmento(unittest.TestCase):
-    # 16/11, A1, T3 e T4; 17/11, T5: a nota do ANDAR é o MÍNIMO de dois canais, depois da âncora. Linear: o núcleo médio
-    # exp(−‖c_xy − v_xy‖²/σ²), com a velocidade instantânea da base. Giro: o núcleo do erro médio, exp(−(média de c_z − ω_z)²/σ²),
-    # que ignora o balanço da pelve dentro da passada. σ = 0,5.
-    # 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+class FiltroDaVelocidade(unittest.TestCase):
+    # 24/11, T15: a recompensa lê a velocidade da base filtrada (média móvel exponencial, τ = `tau_fracao` = 0,4 s) que o `twist`
+    # guarda por ambiente; ela zera no reset do episódio
 
-    def _nota(self, cmd, vel, falha=False):
-        # devolve (a nota acumulada pelo `_update_metrics`, o que o `_fecha` registra para o segmento)
+    def _recompensa(self, obj):
+        # o `_rastreio` real sobre o `twist` de teste: comando, velocidade instantânea e a filtrada
+        env = types.SimpleNamespace(
+            command_manager=types.SimpleNamespace(get_command=lambda _: obj.vel_command_b, get_term=lambda _: obj),
+            scene={"robot": obj.robot}, v3_cur=types.SimpleNamespace(restricao=lambda: 1.0))
+        return float(recompensas._rastreio(env, True)[0])
+
+    def test_balanco_de_0_15_m_s_a_1_25_hz_em_torno_do_alvo_paga_0_9_ou_mais(self):
+        # a passada balança a velocidade; o filtro deixa ~30 % da oscilação e a tenda quase não a cobra. Instantânea, o mesmo
+        # balanço rende ~0,8
+        obj = _twist((0.5, 0.0, 0.0))
+        pagas = []
+        with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
+            for i in range(300):
+                obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5 + 0.15 * math.sin(2 * math.pi * 1.25 * i * DT)
+                obj._update_metrics()
+                if i >= 100:  # depois do transitório do filtro (τ 0,4 s)
+                    pagas.append(self._recompensa(obj))
+        self.assertGreaterEqual(sum(pagas) / len(pagas), 0.9)
+        self.assertGreaterEqual(min(pagas), 0.85)
+
+    def test_a_velocidade_filtrada_sobe_com_a_constante_de_tempo(self):
+        # degrau de 0,5 m/s: depois de τ = 0,4 s (20 passos) o filtro chega a 1 − e⁻¹ do degrau
+        obj = _twist((0.5, 0.0, 0.0))
+        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        _passos_do_relogio(obj, 20)
+        self.assertAlmostEqual(float(obj.v_filt[0, 0]), 0.5 * (1 - math.exp(-1)), places=4)
+
+    def test_reset_zera_o_filtro_e_nao_vaza_para_o_episodio_seguinte(self):
+        obj = _twist((0.5, 0.0, 0.3))
+        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
+        obj.robot.data.root_link_ang_vel_b[:, 2] = 0.3
+        _passos_do_relogio(obj, 30)
+        self.assertGreater(float(obj.v_filt[0, 0]), 0.3)
+        obj._env.termination_manager = types.SimpleNamespace(time_outs=torch.zeros(1, dtype=torch.bool))
+        with mock.patch.object(comando.TwistV3, "_fecha"), mock.patch.object(comando.TwistV3, "_abre"), \
+                mock.patch.object(comando.UniformVelocityCommand, "reset", return_value={}):
+            obj.reset(torch.tensor([0]))
+        self.assertEqual(obj.v_filt[0].tolist(), [0.0, 0.0, 0.0])
+        obj.robot.data.root_link_lin_vel_b[:] = 0.0  # o robô novo nasce parado
+        obj.robot.data.root_link_ang_vel_b[:] = 0.0
+        _passos_do_relogio(obj, 1)
+        self.assertEqual(obj.v_filt[0].tolist(), [0.0, 0.0, 0.0])
+
+
+class NotaDoSegmento(unittest.TestCase):
+    # 24/11, T15: a nota do ANDAR é a média, nos canais comandados, de min(razão, 1), com a razão desde a âncora: (v̄·ĉ)/‖c‖ no
+    # linear e ω̄/c_z no giro (razão negativa vale 0). Sem canal comandado, a nota é a deriva exp(−v̄²/σ²) da média (o mínimo dos
+    # dois canais). Queda: 0. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+
+    def _nota(self, cmd, vel, falha=False, antes=None):
+        # devolve o que o `_fecha` registra para o segmento. `antes`: velocidade nos 70 passos antes da âncora (os 30 restantes
+        # passam por ela)
         obj = _twist(cmd)
+        if antes is not None:
+            obj.robot.data.root_link_lin_vel_b[:] = torch.tensor(antes[:2] + (0.0,))
+            obj.robot.data.root_link_ang_vel_b[:, 2] = antes[2]
+            _passos_do_relogio(obj, 70)
         obj.robot.data.root_link_lin_vel_b[:] = torch.tensor(vel[:2] + (0.0,))
         obj.robot.data.root_link_ang_vel_b[:, 2] = vel[2]
-        _passos_do_relogio(obj, 100)
-        media = obj.seg_nota[0] / obj.seg_dur[0].clamp(min=1e-6)
-        acumulada = min(float(media[0]), math.exp(-float(media[1]) ** 2 / C.sigma_nota ** 2))
+        _passos_do_relogio(obj, 100 - (70 if antes is not None else 0))
         obj._fecha(torch.tensor([0]), torch.tensor([falha]))
         registra = obj._env.v3_cur.registra
         registra.assert_called_once()
         celula, n, soma = registra.call_args.args
         self.assertEqual((celula, n), (0, 1))
-        return acumulada, float(soma)
+        return float(soma)
 
     def test_rastreio_perfeito_da_nota_1(self):
-        acumulada, registrada = self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.3))
-        self.assertAlmostEqual(acumulada, 1.0, places=5)
-        self.assertAlmostEqual(registrada, 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.3)), 1.0, places=5)
 
-    def test_robo_parado_com_comando_de_0_5_m_s_da_exp_menos_1(self):
-        # linear: exp(−0,25/0,25) = e⁻¹; giro (comando 0, parado): 1 → o mínimo é e⁻¹ ≈ 0,368 (pela média dava 0,684)
-        acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0))
-        self.assertAlmostEqual(acumulada, math.exp(-1), places=5)
-        self.assertAlmostEqual(registrada, math.exp(-1), places=5)
+    def test_robo_parado_com_comando_de_0_5_m_s_da_0(self):
+        # só o linear é comandado: razão 0 (antes, e⁻¹ pelo núcleo)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0)), 0.0, places=5)
 
-    def test_andar_certo_no_linear_sem_girar_com_comando_de_giro_0_5_da_exp_menos_1(self):
-        # T4: o linear rende 1, o giro (comando 0,5 rad/s, ω = 0) rende exp(−0,25/0,25) = e⁻¹: o mínimo é e⁻¹.
-        # Pela média, a nota seria 0,684 e passaria o portão de 0,8 só com esse erro pequeno de giro nos níveis baixos
-        acumulada, registrada = self._nota((0.5, 0.0, 0.5), (0.5, 0.0, 0.0))
-        self.assertAlmostEqual(acumulada, math.exp(-1), places=5)
-        self.assertAlmostEqual(registrada, math.exp(-1), places=5)
+    def test_media_dos_canais_comandados(self):
+        # linear perfeito (1) e giro de 0,5 rad/s sem girar (0): média 0,5. Um canal sem comando não entra na média
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.5), (0.5, 0.0, 0.0)), 0.5, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.4, 0.0, 0.0)), 0.8, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.4, 0.0, 0.3)), 0.8, places=5)  # o giro sem comando não pesa
+
+    def test_razao_de_1_3_vale_1_e_razao_negativa_vale_0(self):
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.65, 0.0, 0.0)), 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.39)), 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (-0.3, 0.0, 0.0)), 0.0, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.3), (0.0, 0.0, -0.3)), 0.0, places=5)
+        # ré e giro negativo: a mesma razão que frente e giro positivo
+        self.assertAlmostEqual(self._nota((-0.5, 0.0, -0.3), (-0.4, 0.0, -0.24)), 0.8, places=5)
+
+    def test_a_conta_vem_da_ancora(self):
+        # os 70 passos antes da âncora (parado) não contam: depois dela, o comando é cumprido
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), antes=(0.0, 0.0, 0.0)), 1.0, places=5)
+
+    def test_comando_zero_usa_a_deriva_da_media(self):
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), 1.0, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)), math.exp(-1), places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.5)), math.exp(-1), places=5)
 
     def test_queda_da_nota_0_mesmo_com_rastreio_perfeito_acumulado(self):
-        acumulada, registrada = self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True)
-        self.assertAlmostEqual(acumulada, 1.0, places=5)  # o segmento rastreou até cair
-        self.assertEqual(registrada, 0.0)
+        self.assertEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True), 0.0)
 
     def test_empurrao_depois_da_ancora_nao_tira_o_registro(self):
         # 17/11, T6: o empurrão leva a âncora a 3,4 s, à frente do relógio (2,02 s). Pela regra antiga, o segmento
@@ -216,9 +277,17 @@ class NotaDoSegmento(unittest.TestCase):
         self.assertEqual((celula, n), (0, 1))
         self.assertAlmostEqual(float(soma), 1.0, places=5)
 
+    def test_segmento_sem_tempo_depois_da_ancora_nao_registra_mas_a_queda_registra(self):
+        obj = _twist((0.5, 0.0, 0.0))
+        _passos_do_relogio(obj, 10)  # 0,2 s: antes da âncora
+        obj._fecha(torch.tensor([0]), torch.tensor([False]))
+        obj._env.v3_cur.registra.assert_not_called()
+        obj._fecha(torch.tensor([0]), torch.tensor([True]))
+        obj._env.v3_cur.registra.assert_called_once()
+
     def test_balanco_do_giro_em_torno_do_comando_nao_baixa_a_nota(self):
-        # ω̄ = c_z = 0,3: erro médio zero, o giro rende 1; o linear (perfeito) rende 1. Pelo núcleo instantâneo, dava ≈ 0.
-        # `t_ab` em −10 põe a âncora (1,5 s) antes dos 100 passos, e 100 é par: a oscilação fecha a média em zero
+        # ω̄ = c_z = 0,3: razão 1; o linear (perfeito) rende 1. `t_ab` em −10 põe a âncora (1,5 s) antes dos 100 passos, e 100
+        # é par: a oscilação fecha a média em zero
         obj = _twist((0.5, 0.0, 0.3))
         obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
         obj.t_ab[:] = -10.0
@@ -230,21 +299,6 @@ class NotaDoSegmento(unittest.TestCase):
         registra = obj._env.v3_cur.registra
         registra.assert_called_once()
         self.assertAlmostEqual(float(registra.call_args.args[2]), 1.0, places=5)
-
-    def test_vies_de_giro_com_balanco_cobra_pelo_erro_medio(self):
-        # ω̄ = 0,5 e c_z = 0,3: erro médio −0,2, o giro rende exp(−0,04/0,25) = exp(−0,16) ≈ 0,8521; o linear rende 1
-        # `t_ab` em −10, como no teste anterior: os 100 passos contam depois da âncora
-        obj = _twist((0.5, 0.0, 0.3))
-        obj.robot.data.root_link_lin_vel_b[:, 0] = 0.5
-        obj.t_ab[:] = -10.0
-        with mock.patch.object(comando.UniformVelocityCommand, "_update_metrics"):
-            for i in range(100):
-                obj.robot.data.root_link_ang_vel_b[:, 2] = 0.5 + (1.65 if i % 2 == 0 else -1.65)
-                obj._update_metrics()
-        obj._fecha(torch.tensor([0]), torch.tensor([False]))
-        registra = obj._env.v3_cur.registra
-        registra.assert_called_once()
-        self.assertAlmostEqual(float(registra.call_args.args[2]), math.exp(-0.16), places=3)
 
 
 if __name__ == "__main__":
