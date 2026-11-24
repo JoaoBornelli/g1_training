@@ -390,7 +390,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     portao_andar_terreno: float = 0.50  # 24/11, T15: portão da célula `terreno` do ANDAR: a linha sobe com o robô a meia velocidade
     alfa: float = 0.05  # S §11; PD-13: taxa da EMA do sucesso
     iters_nivel: int = 50  # 16/11, A4 (P3, P8): iterações seguidas no portão para subir (nas 4 tarefas); ~1 episódio de 20 s
-    nivel_abre_b: int = 5  # 16/11, B1 (P5): nível do ANDAR que abre a fatia B; a 1,0 m/s o arrasto já não cumpre o rastreio
+    nivel_abre_b: int = 5  # 16/11, B1 (P5): nível do ANDAR que abre a fatia B; no nível 5 a frente chega a 0,8 m/s (T15) e o arrasto já não cumpre o rastreio
     rampa_fatia_inicio: float = 0.05  # 11/11 (§5.3): teto da fração de uma fatia nova ao abrir
     rampa_fatia_passo: float = 0.02  # 11/11 (§5.3): quanto o teto da fatia sobe a cada rampa_fatia_its fechos
     rampa_fatia_its: int = 12  # 11/11 (§5.3): fechos de iteração por degrau da rampa da fatia

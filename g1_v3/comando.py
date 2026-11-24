@@ -755,10 +755,10 @@ class TwistV3(UniformVelocityCommand):
             self._agora[ids], ancora[:, 3], env.v3_perdeu[ids], self.seg_carrega[ids], env.v3_incl_max_seg[ids],
             terreno, k,
             deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, env.v3_cur.restricao(), 1))
-        # 24/11, T15: a nota do ANDAR é a média, nos canais comandados, de min(razão, 1) com a razão desde a âncora,
+        # 24/11, T15: a nota do ANDAR é a média dos dois canais. Canal comandado: min(razão, 1) com a razão desde a âncora,
         # (v̄·ĉ)/‖c‖ no linear e ω̄/c_z no giro (a razão negativa vale 0, o excesso vale 1: o balanço da passada se anula na
-        # média). Sem canal comandado, a nota é a deriva, o núcleo exp(−v̄²/σ²) da média do segmento. Queda: 0. As tarefas com
-        # caixa seguem com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda.
+        # média). Canal sem comando: a deriva, o núcleo exp(−v̄²/σ²) da média do segmento (o giro parado que gira é defeito
+        # medido). Queda: 0. As tarefas com caixa seguem com o sucesso. Um segmento do ANDAR sem tempo depois da âncora não registra, a não ser que acabe em queda.
         # 17/11, T6: o ANDAR não usa a regra da âncora do `sucesso_do_segmento`: depois de cada empurrão só as
         # quedas registravam, e a EMA tomava zeros
         c = self.seg_cmd[ids]
@@ -769,8 +769,7 @@ class TwistV3(UniformVelocityCommand):
         proj = torch.stack([(v_med[:, :2] * c[:, :2]).sum(dim=1) / den[:, 0], v_med[:, 2] * c[:, 2].sign()], dim=1)
         razao = (proj / den).clamp(0.0, 1.0)
         deriva = torch.exp(-torch.stack([v_med[:, :2].pow(2).sum(dim=1), v_med[:, 2].pow(2)], dim=1) / ATIVO.recompensa.sigma_rastreio ** 2)
-        nota = torch.where(ativo.any(dim=1), (razao * ativo).sum(dim=1) / ativo.sum(dim=1).clamp(min=1),
-                           deriva.min(dim=1).values)
+        nota = torch.where(ativo, razao, deriva).mean(dim=1)
         x = torch.where(self.seg_carrega[ids], suc.float(), nota) * (~falha).float()
         reg = torch.where(self.seg_carrega[ids], reg, self.seg_dur[ids] > 0) | falha
         cel = self.seg_cel[ids]

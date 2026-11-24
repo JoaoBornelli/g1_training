@@ -2,7 +2,7 @@
 
 Responde: por que o ANDAR fica abaixo do portão? Cada segmento fechado grava dpos, rumo com sinal, tempo desde a
 âncora e os canais da nota (linear e giro), nas condições do treino. 24/11, T15: cada canal é a razão min(razão, 1) desde a
-âncora, e a nota é a média dos canais comandados (a deriva sem comando). 17/11: o `s` do treino ficou ~0,13 abaixo da nota
+âncora, e a nota é a média dos dois canais (o canal sem comando vale a deriva). 17/11: o `s` do treino ficou ~0,13 abaixo da nota
 medida aqui; o script imprime também a EMA do balanceador (que roda junto, com os mesmos registros), o `x` de cada fecho de
 iteração e o rastreio linear de todos os passos (o `rastreio_linear` do TB, sem o peso), com os episódios fora de fase como
 no treino.
@@ -74,15 +74,15 @@ def fecha_medindo(ids, falha):
         env_.v3_perdeu[ids], twist.seg_carrega[ids], env_.v3_incl_max_seg[ids], terreno, k,
         deriva_pos_m=balanceador.no_degrau(k.deriva_pos_inicio, k.deriva_pos_m, cur.restricao(), 1))
     cmd = twist.seg_cmd[ids]
-    # o `_fecha` registra a média das razões dos canais comandados (T15); a razão de cada canal, de 0 a 1, sai da média da
-    # velocidade desde a âncora: (v̄·ĉ)/‖c‖ no linear e ω̄/c_z no giro. Sem canal comandado, a nota é a deriva
+    # o `_fecha` registra a média dos dois canais (T15); a razão de cada canal comandado, de 0 a 1, sai da média da
+    # velocidade desde a âncora: (v̄·ĉ)/‖c‖ no linear e ω̄/c_z no giro. O canal sem comando vale a deriva
     v_med = twist.seg_nota[ids] / twist.seg_dur[ids, None].clamp(min=1e-6)
     den = torch.stack([cmd[:, :2].norm(dim=1), cmd[:, 2].abs()], dim=1)
     ativo = den >= k.limiar_canal
     den = den.clamp(min=k.limiar_canal)
     razao = (torch.stack([(v_med[:, :2] * cmd[:, :2]).sum(dim=1) / den[:, 0], v_med[:, 2] * cmd[:, 2].sign()], dim=1) / den).clamp(0.0, 1.0)
     deriva = torch.exp(-torch.stack([v_med[:, :2].pow(2).sum(dim=1), v_med[:, 2].pow(2)], dim=1) / ATIVO.recompensa.sigma_rastreio ** 2)
-    nota = torch.where(ativo.any(dim=1), (razao * ativo).sum(dim=1) / ativo.sum(dim=1).clamp(min=1), deriva.min(dim=1).values)
+    nota = torch.where(ativo, razao, deriva).mean(dim=1)
     carrega, ok = twist.seg_carrega[ids], (~falha).float()
     linhas.append({
         "cel": cel, "vx": cmd[:, 0], "vy": cmd[:, 1], "wz": cmd[:, 2], "dpos": dpos, "rumo": rumo,

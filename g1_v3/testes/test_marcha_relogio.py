@@ -207,9 +207,8 @@ class FiltroDaVelocidade(unittest.TestCase):
 
 
 class NotaDoSegmento(unittest.TestCase):
-    # 24/11, T15: a nota do ANDAR é a média, nos canais comandados, de min(razão, 1), com a razão desde a âncora: (v̄·ĉ)/‖c‖ no
-    # linear e ω̄/c_z no giro (razão negativa vale 0). Sem canal comandado, a nota é a deriva exp(−v̄²/σ²) da média (o mínimo dos
-    # dois canais). Queda: 0. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
+    # 24/11, T15: a nota do ANDAR é a média dos dois canais. Canal comandado: min(razão, 1), com a razão desde a âncora: (v̄·ĉ)/‖c‖ no
+    # linear e ω̄/c_z no giro (razão negativa vale 0). Canal sem comando: a deriva exp(−v̄²/σ²) da média do segmento. Queda: 0. 100 passos de 0,02 s = 2 s: a âncora (1,5 s) deixa 0,5 s de nota.
 
     def _nota(self, cmd, vel, falha=False, antes=None):
         # devolve o que o `_fecha` registra para o segmento. `antes`: velocidade nos 70 passos antes da âncora (os 30 restantes
@@ -232,21 +231,29 @@ class NotaDoSegmento(unittest.TestCase):
     def test_rastreio_perfeito_da_nota_1(self):
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.3)), 1.0, places=5)
 
-    def test_robo_parado_com_comando_de_0_5_m_s_da_0(self):
-        # só o linear é comandado: razão 0 (antes, e⁻¹ pelo núcleo)
-        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0)), 0.0, places=5)
+    def test_robo_parado_com_comando_de_0_5_m_s_da_0_5(self):
+        # linear comandado: razão 0; giro sem comando e parado: deriva 1; média 0,5 (antes, e⁻¹ pelo núcleo)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.0, 0.0, 0.0)), 0.5, places=5)
 
-    def test_media_dos_canais_comandados(self):
-        # linear perfeito (1) e giro de 0,5 rad/s sem girar (0): média 0,5. Um canal sem comando não entra na média
+    def test_media_dos_dois_canais(self):
+        # linear perfeito (1) e giro de 0,5 rad/s sem girar (0): média 0,5
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.5), (0.5, 0.0, 0.0)), 0.5, places=5)
-        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.4, 0.0, 0.0)), 0.8, places=5)
-        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.4, 0.0, 0.3)), 0.8, places=5)  # o giro sem comando não pesa
+        # linear 0,8 e giro sem comando e parado (deriva 1): média 0,9
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.4, 0.0, 0.0)), 0.9, places=5)
+
+    def test_canal_sem_comando_entra_na_media_com_a_deriva(self):
+        # linear comandado com razão 1 e giro sem comando derivando 0,5 rad/s: (1 + e⁻¹) / 2. O giro parado que gira é cobrado
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.5)), (1 + math.exp(-1)) / 2, places=5)
+        # giro comandado com razão 1 e linear sem comando derivando 0,5 m/s: o mesmo
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.3), (0.5, 0.0, 0.3)), (1 + math.exp(-1)) / 2, places=5)
 
     def test_razao_de_1_3_vale_1_e_razao_negativa_vale_0(self):
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.65, 0.0, 0.0)), 1.0, places=5)
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.3), (0.5, 0.0, 0.39)), 1.0, places=5)
-        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (-0.3, 0.0, 0.0)), 0.0, places=5)
-        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.3), (0.0, 0.0, -0.3)), 0.0, places=5)
+        # (o outro canal, sem comando e sem deriva, vale 1: a média é 0,5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (-0.3, 0.0, 0.0)), 0.5, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.3), (0.0, 0.0, -0.3)), 0.5, places=5)
+        self.assertAlmostEqual(self._nota((0.5, 0.0, 0.3), (-0.3, 0.0, -0.3)), 0.0, places=5)
         # ré e giro negativo: a mesma razão que frente e giro positivo
         self.assertAlmostEqual(self._nota((-0.5, 0.0, -0.3), (-0.4, 0.0, -0.24)), 0.8, places=5)
 
@@ -254,10 +261,11 @@ class NotaDoSegmento(unittest.TestCase):
         # os 70 passos antes da âncora (parado) não contam: depois dela, o comando é cumprido
         self.assertAlmostEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), antes=(0.0, 0.0, 0.0)), 1.0, places=5)
 
-    def test_comando_zero_usa_a_deriva_da_media(self):
+    def test_comando_zero_usa_a_media_das_duas_derivas(self):
         self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), 1.0, places=5)
-        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)), math.exp(-1), places=5)
-        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.5)), math.exp(-1), places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)), (1 + math.exp(-1)) / 2, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.0, 0.0, 0.5)), (1 + math.exp(-1)) / 2, places=5)
+        self.assertAlmostEqual(self._nota((0.0, 0.0, 0.0), (0.5, 0.0, 0.5)), math.exp(-1), places=5)
 
     def test_queda_da_nota_0_mesmo_com_rastreio_perfeito_acumulado(self):
         self.assertEqual(self._nota((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), falha=True), 0.0)
