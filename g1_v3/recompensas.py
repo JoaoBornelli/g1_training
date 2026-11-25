@@ -71,11 +71,13 @@ def comprimento_do_passo(p_toque_w, p_apoio_w, c_w, p0_toque_b, p0_apoio_b, c_b)
     return ((p_toque_w - p_apoio_w) * c_w).sum(-1) - ((p0_toque_b - p0_apoio_b) * c_b).sum(-1)
 
 
-def n_passo(contato, fase, fase_apoio) -> torch.Tensor:
+def n_passo(contato, fase, fase_apoio, on) -> torch.Tensor:
     """(E,2) 1 onde o contato do pé bate com o relógio (unitree_rl_lab `feet_gait`). Pé esquerdo na `fase`, direito na
-    fase + 0,5; apoio com fase < `fase_apoio`. O comando não entra aqui: quem o lê é o `passo`."""
+    fase + 0,5; apoio com fase < `fase_apoio`. `on` (E,) bool: o relógio ligado (‖comando‖ > `limiar_marcha`). 24/11, T16: com o
+    relógio parado o alvo dos dois pés é o chão (cada pé em contato vale 1: pés fixos, e não marchar no lugar). O `passo` e o
+    `TwistV3._update_metrics` (acerto, filtro e g da T16) chamam esta função com os mesmos contato, fase e `on`."""
     fases = torch.stack([fase, torch.remainder(fase + 0.5, 1.0)], dim=-1)
-    apoio = fases < fase_apoio
+    apoio = (fases < fase_apoio) | ~on[:, None]
     return (contato == apoio).float()
 
 
@@ -374,7 +376,8 @@ def _rastreio(env, linear, normalizado=False):
     `normalizado=False` (24/11, T15): canal com comando (c ≥ `limiar_canal`) paga a tenda da fração entregue, f = clamp(1 − |1 − p|,
     0, 1), com p = (v̄·ĉ)/‖c‖ no linear e p = ω̄/c_z no giro, e v̄ a velocidade filtrada do `twist` (τ `tau_fracao`). Parado vale 0, o
     alvo vale 1 e o dobro do alvo vale 0, em qualquer tamanho de alvo. No linear, a velocidade perpendicular ao comando multiplica
-    a tenda por exp(−v̄⊥²/σ²). O canal sem comando fica com o núcleo da Unitree sobre a velocidade instantânea (16/11, T3):
+    a tenda por exp(−v̄⊥²/σ²). 24/11, T16: a tenda vale × `g_marcha` do `twist`, g = clamp(2·q̄ − 1, 0, 1), com q̄ o acerto do
+    relógio de marcha dos dois pés filtrado (τ `tau_fracao`): acaso vale 0 e acerto total vale 1. O canal sem comando fica com o núcleo da Unitree sobre a velocidade instantânea (16/11, T3):
     exp(−v²/σ²) com σ = `sigma_rastreio`; parado vale 1 e a deriva é cobrada.
     `normalizado=True` (S §19, conflito 5; PD-49): `potencial.rastreio_normalizado`, com c = ‖cmd_xy‖ (linear) ou |wz|
     (angular), o σ₀ e o piso. Só o sinal de progresso do CARREGAR (M5) o usa."""
@@ -391,7 +394,8 @@ def _rastreio(env, linear, normalizado=False):
     if normalizado:
         return potencial.rastreio_normalizado(erro2, c, v2, R.sigma_rastreio, sigma_zero, C.limiar_canal,
                                               R.piso_rastreio)
-    v_med = env.command_manager.get_term("twist").v_filt  # (E,3): vx, vy, wz filtrados; zera no reset do episódio
+    twist = env.command_manager.get_term("twist")
+    v_med = twist.v_filt  # (E,3): vx, vy, wz filtrados; zera no reset do episódio
     den = c.clamp(min=C.limiar_canal)  # o canal sem comando não usa a tenda; o piso só evita a divisão por zero
     if linear:
         proj = (v_med[:, :2] * cmd[:, :2]).sum(-1) / den  # v̄·ĉ
@@ -399,7 +403,8 @@ def _rastreio(env, linear, normalizado=False):
     else:
         proj, perp2 = v_med[:, 2] * cmd[:, 2].sign(), torch.zeros_like(c)
     tenda = (1.0 - (1.0 - proj / den).abs()).clamp(0.0, 1.0) * torch.exp(-perp2 / R.sigma_rastreio ** 2)
-    return torch.where(c >= C.limiar_canal, tenda, torch.exp(-erro2 / R.sigma_rastreio ** 2))
+    # 24/11, T16: a tenda vale × g (a marcha do relógio, filtrada até o passo anterior); o canal sem comando não muda
+    return torch.where(c >= C.limiar_canal, tenda * twist.g_marcha, torch.exp(-erro2 / R.sigma_rastreio ** 2))
 
 
 def _q_alvo(env, q):
@@ -602,17 +607,15 @@ def passo(env, tarefas):
 
     O relógio mora no `TwistV3._update_metrics`: período fixo de 0,8 s, fase pelo tempo com comando acima de
     `limiar_marcha` (19/11, T12: com comando zero ela para), pés defasados em meio ciclo, sem recomeço. Cada pé paga 1
-    quando o contato bate com a fase, e o termo vale × (‖comando‖ > limiar), com o comando do passo corrente. ⚠ Não há
-    portão de velocidade: marchar no lugar com comando paga até 1,0/s (peso 0,5 × 2 pés). Quem impede que isso sirva é
-    o nível do ANDAR (T2), que não sobe sem rastreio. A taxa de acerto vai para `v3_acerto_marcha` (métrica
-    `acerto_relogio`).
+    quando o contato bate com a fase, com o comando do passo corrente. ⚠ Não há portão de velocidade: marchar no lugar com
+    comando paga até 1,0/s (peso 0,5 × 2 pés). Quem impede que isso sirva é o nível do ANDAR (T2) e o g do rastreio (T16).
+    24/11, T16: com o relógio parado (‖comando‖ ≤ limiar) cada pé em contato com o chão paga 1 (pés fixos: até 1,0/s parado).
+    O acerto, o filtro dele e o g moram no `TwistV3._update_metrics` (o mjlab pula um termo de peso 0); aqui só o valor
+    do passo corrente, que chega antes do `command_manager.compute`.
     """
-    cmd = env.command_manager.get_command("twist")
-    on = cmd.norm(dim=-1) > C.limiar_marcha
+    on = env.command_manager.get_command("twist").norm(dim=-1) > C.limiar_marcha
     contato = env.scene["pes_chao"].data.found > 0  # (E,2)
-    acerto = n_passo(contato, env.v3_fase_marcha, C.fase_apoio)
-    env.v3_acerto_marcha[:] = acerto.mean(-1)
-    return _fim(env, tarefas, acerto.sum(-1) * on.float(), paga=True)
+    return _fim(env, tarefas, n_passo(contato, env.v3_fase_marcha, C.fase_apoio, on).sum(-1), paga=True)
 
 
 def vivo(env, tarefas):
@@ -836,7 +839,9 @@ def progresso(env, tarefas):
     cmd = env.command_manager.get_command("twist")
     com_lin, com_ang = cmd[:, :2].norm(dim=-1) >= C.limiar_canal, cmd[:, 2].abs() >= C.limiar_canal
     r_lin, r_ang = _rastreio(env, True, normalizado=True), _rastreio(env, False, normalizado=True)
-    comandado = (com_lin * r_lin.clamp(0, 1) + com_ang * r_ang.clamp(0, 1)) / (com_lin.float() + com_ang).clamp(min=1)
+    # 24/11, T16: o g da marcha multiplica só o sinal comandado (o deslize parado não tem comando nem relógio)
+    g = env.command_manager.get_term("twist").g_marcha
+    comandado = g * (com_lin * r_lin.clamp(0, 1) + com_ang * r_ang.clamp(0, 1)) / (com_lin.float() + com_ang).clamp(min=1)
     sinal = torch.where(com_lin | com_ang, comandado, ((1 + r_lin) * (1 + r_ang)).clamp(0, 1))
     sinal = sinal * potencial.rampa(_qualidade(env)[1], *R.qualidade_larga)
     h_carga = env.v3_h + (dt / tau) * (sinal - env.v3_h)

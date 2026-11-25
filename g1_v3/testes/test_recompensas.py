@@ -30,8 +30,8 @@ def _tau_max():
 class TestPasso(unittest.TestCase):
     """16/11, R: n_passo é o relógio do `feet_gait`. Pé E na `fase`, pé D na fase + 0,5; apoio com fase < 0,55."""
 
-    def n(self, contato, fase=0.2):
-        return recompensas.n_passo(torch.tensor([contato]), t(fase), ATIVO.comando.fase_apoio)[0].tolist()
+    def n(self, contato, fase=0.2, on=True):
+        return recompensas.n_passo(torch.tensor([contato]), t(fase), ATIVO.comando.fase_apoio, torch.tensor([on]))[0].tolist()
 
     def test_fase_02_e_apoio_e_d_em_balanco(self):
         # E: 0,2 < 0,55 apoio; D: 0,7 balanço
@@ -44,9 +44,16 @@ class TestPasso(unittest.TestCase):
 
     def test_dois_pes_no_chao_acertam_055_do_ciclo_por_pe(self):
         fases = torch.arange(1000, dtype=F) / 1000.0
-        acerto = recompensas.n_passo(torch.ones(1000, 2, dtype=torch.bool), fases, ATIVO.comando.fase_apoio)
+        acerto = recompensas.n_passo(torch.ones(1000, 2, dtype=torch.bool), fases, ATIVO.comando.fase_apoio,
+                                     torch.ones(1000, dtype=torch.bool))
         for pe in (0, 1):
             self.assertAlmostEqual(acerto[:, pe].mean().item(), 0.55, places=2)
+
+    def test_relogio_parado_o_alvo_e_o_chao_em_qualquer_fase(self):
+        # 24/11, T16: com `on` falso cada pé em contato vale 1 e cada pé no ar vale 0, seja qual for a fase
+        for fase in (0.2, 0.7):
+            self.assertEqual(self.n((True, True), fase=fase, on=False), [1.0, 1.0])
+            self.assertEqual(self.n((True, False), fase=fase, on=False), [1.0, 0.0])
 
 
 class TestVivo(unittest.TestCase):
@@ -157,19 +164,19 @@ class TestRastreioUnitree(unittest.TestCase):
     comando e o núcleo da Unitree (velocidade instantânea) no canal sem comando; `normalizado=True` é a conta do sinal de
     progresso do CARREGAR e segue com a velocidade instantânea."""
 
-    def _env(self, cmd, v_xy, wz, v_filt=None):
-        # `v_filt` (vx, vy, wz): a velocidade filtrada; sem ela, vale a instantânea (a base em regime)
+    def _env(self, cmd, v_xy, wz, v_filt=None, g=1.0):
+        # `v_filt` (vx, vy, wz): a velocidade filtrada; sem ela, vale a instantânea (a base em regime). `g`: o `g_marcha` do `twist`
         dados = types.SimpleNamespace(root_link_lin_vel_b=t(*v_xy, 0.0).reshape(1, 3),
                                       root_link_ang_vel_b=t(0.0, 0.0, wz).reshape(1, 3))
-        twist = types.SimpleNamespace(v_filt=t(*(v_filt or (*v_xy, wz))).reshape(1, 3))
+        twist = types.SimpleNamespace(v_filt=t(*(v_filt or (*v_xy, wz))).reshape(1, 3), g_marcha=t(g))
         return types.SimpleNamespace(
             command_manager=types.SimpleNamespace(get_command=lambda nome: t(*cmd).reshape(1, 3),
                                                   get_term=lambda nome: twist),
             scene={"robot": types.SimpleNamespace(data=dados)},
             v3_cur=types.SimpleNamespace(restricao=lambda: 1.0))
 
-    def _r(self, cmd, v_filt, linear=True, v_inst=(0.0, 0.0, 0.0)):
-        env = self._env(cmd, v_inst[:2], v_inst[2], v_filt)
+    def _r(self, cmd, v_filt, linear=True, v_inst=(0.0, 0.0, 0.0), g=1.0):
+        env = self._env(cmd, v_inst[:2], v_inst[2], v_filt, g)
         return float(recompensas._rastreio(env, linear)[0])
 
     def test_parado_com_comando_paga_0_em_qualquer_alvo(self):
@@ -213,6 +220,20 @@ class TestRastreioUnitree(unittest.TestCase):
         # o sentido errado paga 0
         self.assertAlmostEqual(self._r((-0.4, 0.0, 0.0), (0.3, 0.0, 0.0)), 0.0, places=5)
         self.assertAlmostEqual(self._r((0.0, 0.0, -0.4), (0.0, 0.0, 0.3), linear=False), 0.0, places=5)
+
+    def test_g_da_marcha_multiplica_a_tenda_do_canal_com_comando(self):
+        # T16: velocidade no alvo; acerto 0,5 (g 0) paga 0, acerto 1 (g 1) paga o valor de antes; 0,61 → g 0,22 e 0,91 → g 0,82
+        for linear, cmd in ((True, (0.5, 0.0, 0.0)), (False, (0.0, 0.0, 0.5))):
+            for q, esperado in ((0.5, 0.0), (1.0, 1.0), (0.61, 0.22), (0.91, 0.82)):
+                g = min(max(2 * q - 1, 0.0), 1.0)
+                self.assertAlmostEqual(self._r(cmd, cmd, linear=linear, g=g), esperado, places=5, msg=f"{cmd} q {q}")
+
+    def test_g_nao_muda_o_canal_sem_comando_nem_o_normalizado(self):
+        # T16: o canal sem comando (núcleo da velocidade instantânea) e o `normalizado` valem o mesmo com g = 0
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.3), (0.0, 0.0, 0.0), g=0.0), 1.0, places=5)
+        self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), v_inst=(0.5, 0.0, 0.0), g=0.0), math.exp(-1), places=5)
+        env = self._env((0.5, 0.0, 0.0), (0.5, 0.0), 0.0, g=0.0)
+        self.assertAlmostEqual(float(recompensas._rastreio(env, True, normalizado=True)[0]), 1.0, places=5)
 
     def test_normalizado_parado_com_comando_vale_0(self):
         env = self._env((0.5, 0.0, 0.3), (0.0, 0.0), 0.0)

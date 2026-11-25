@@ -132,7 +132,7 @@ class Comando:  # S §7, §11.2, §19
     giro_min: float = 0.1  # 24/11, T15: o giro sorteado no ANDAR é zero ou ≥ isto (rad/s); abaixo disso a razão ω̄/c_z é ruído
     andar_passo: float = 0.1  # 16/11, A2: quanto cada nível soma aos tetos do ANDAR (o passo da Unitree)
     andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
-    tau_fracao: float = 0.4  # 24/11, T15: τ do filtro exponencial da velocidade da base (s) na fração entregue; um ciclo de marcha dura 0,8 s
+    tau_fracao: float = 0.4  # 24/11, T15: τ do filtro exponencial (s) da velocidade da base na fração entregue e, na T16, do acerto do relógio dos dois pés (q̄, que dá o g do rastreio); um ciclo de marcha dura 0,8 s
     reamostra_s: tuple = (3.0, 8.0)  # S §7: intervalo de reamostra do comando (s)
     limiar_canal: float = 0.02  # S §19, conflito 5: canal "sem comando" abaixo disto
     fase_apoio: float = 0.55  # 13/11, M4: fração do ciclo com o pé no chão (`feet_gait` do unitree_rl_lab)

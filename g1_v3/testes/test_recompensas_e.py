@@ -174,7 +174,8 @@ def _buffers_m5(n):
     # 18/11, T11b: o `progresso` lê os sensores das almofadas (`_contato_palmas`); aqui as duas tocam a caixa
     toque = types.SimpleNamespace(data=types.SimpleNamespace(found=torch.ones(n, 1)))
     return dict(v3_h=torch.ones(n), v3_phi_melhor=torch.zeros(n), step_dt=DT, scene={"palma_E": toque, "palma_D": toque},
-                command_manager=types.SimpleNamespace(get_command=lambda nome: torch.zeros(n, 3)))
+                command_manager=types.SimpleNamespace(get_command=lambda nome: torch.zeros(n, 3),
+                                                       get_term=lambda nome: types.SimpleNamespace(g_marcha=torch.ones(n))))
 
 
 def _sinal_m5(n):
@@ -437,7 +438,8 @@ class TestEtapaDoProgresso(unittest.TestCase):
             v3_pega_fechada=torch.ones(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
             **{**_buffers_m5(2), "v3_h": torch.tensor([0.5, 0.5])})
         env.command_manager = types.SimpleNamespace(
-            get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]))
+            get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+            get_term=lambda nome: types.SimpleNamespace(g_marcha=torch.ones(2)))
         r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
         with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(2), torch.zeros(2, 3))), \
                 mock.patch.object(recompensas, "_rastreio",
@@ -449,6 +451,26 @@ class TestEtapaDoProgresso(unittest.TestCase):
         for i in range(2):
             self.assertAlmostEqual(float(env.v3_h[i]), esperado[i], places=5)
             self.assertAlmostEqual(float(r[i]), 24.0 * esperado[i], places=4)  # etapa 4, Φ não paga
+
+    def test_g_da_marcha_multiplica_so_o_sinal_comandado_do_h(self):
+        # T16: mesmo caso do teste anterior com g = 0,5. Env 0 (comando): sinal 0,5 · 0,6 = 0,3. Env 1 (deslize parado): 0,16, sem g
+        env = types.SimpleNamespace(
+            device="cpu", v3_alvo_idx=torch.tensor([3, 3]), v3_tarefa=torch.full((2,), TAREFAS.index("CARREGAR")),
+            v3_perdeu=torch.zeros(2, dtype=torch.bool), v3_bota_fechada=torch.zeros(2, dtype=torch.bool),
+            v3_pega_fechada=torch.ones(2, dtype=torch.bool), v3_sigma=torch.ones(2), v3_phi=torch.zeros(2),
+            **{**_buffers_m5(2), "v3_h": torch.tensor([0.5, 0.5])})
+        env.command_manager = types.SimpleNamespace(
+            get_command=lambda nome: torch.tensor([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+            get_term=lambda nome: types.SimpleNamespace(g_marcha=torch.full((2,), 0.5)))
+        r_lin, r_ang = torch.tensor([0.6, -0.5]), torch.tensor([-0.8, -0.2])
+        with mock.patch.object(recompensas, "_phi_env", lambda e, indice, sigma: (torch.ones(2), torch.zeros(2, 3))), \
+                mock.patch.object(recompensas, "_rastreio",
+                                  lambda e, linear, normalizado=False: r_lin if linear else r_ang), \
+                mock.patch.object(recompensas, "_qualidade", lambda e: (torch.ones(2), torch.tensor([0.0, 0.20]))):
+            recompensas.progresso(env, TODAS_TAREFAS)
+        passo = DT / R.tau_renda
+        for i, sinal in enumerate((0.3, 0.16)):
+            self.assertAlmostEqual(float(env.v3_h[i]), 0.5 + passo * (sinal - 0.5), places=5)
 
 
 class TestQualidade(unittest.TestCase):

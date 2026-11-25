@@ -712,6 +712,9 @@ class TwistV3(UniformVelocityCommand):
         # 24/11, T15: Σ v·dt desde a âncora, [vx, vy, ωz]. Com o comando fixo no segmento, a razão do canal sai da média: (v̄·ĉ)/‖c‖
         self.seg_nota = torch.zeros(n, 3, device=dev)
         self.v_filt = torch.zeros(n, 3, device=dev)  # 24/11, T15: velocidade da base filtrada [vx, vy, ωz], a que a recompensa lê; zera no reset
+        # 24/11, T16: q̄ = acerto do relógio dos dois pés filtrado (τ `tau_fracao`) e g = clamp(2·q̄ − 1, 0, 1), o fator do rastreio; zeram no reset
+        self.q_filt = torch.zeros(n, device=dev)
+        self.g_marcha = torch.zeros(n, device=dev)
         self.seg_dur = torch.zeros(n, device=dev)  # 16/11, A1: Σ dt depois da âncora
         self.t_ab = torch.zeros(n, device=dev)  # instante da abertura do segmento (base da âncora)
         self.ancora_feita = torch.zeros(n, dtype=torch.bool, device=dev)
@@ -846,6 +849,14 @@ class TwistV3(UniformVelocityCommand):
         # limiar) sobre o período fixo; com comando zero ela para onde estava e volta dali. Sem isso, o P3 (comando
         # zero) via a fase correr e levantava a caixa no pulso dela, numa janela menor que o `tempo_p3`.
         on = cmd.norm(dim=1) > k.limiar_marcha
+        # 24/11, T16: o acerto (fase do passo anterior, contato de agora: o mesmo número do `passo`) filtra em q̄ e dá o g que o rastreio
+        # lê no passo seguinte. Com o relógio parado o acerto mede os pés no chão (≈ 1): na troca de parado para comando q̄ zera, senão
+        # os passinhos pagariam a velocidade cheia por ~0,4 s (g 0,82 aos 0,1 s, medido a 0,6 de acerto) até o filtro descer ao real
+        contato = env.scene["pes_chao"].data.found > 0
+        env.v3_acerto_marcha[:] = recompensas.n_passo(contato, env.v3_fase_marcha, k.fase_apoio, on).mean(-1)
+        self.q_filt[on & ~env.v3_marcha_on] = 0.0
+        self.q_filt += -math.expm1(-dt / k.tau_fracao) * (env.v3_acerto_marcha - self.q_filt)
+        self.g_marcha[:] = (2.0 * self.q_filt - 1.0).clamp(0.0, 1.0)
         self._fase_t += dt * on
         env.v3_fase_marcha[:] = torch.remainder(self._fase_t / k.periodo_marcha, 1.0)
         env.v3_marcha_on[:] = on
@@ -861,6 +872,8 @@ class TwistV3(UniformVelocityCommand):
         self._agora[env_ids] = 0.0
         self._fase_t[env_ids] = 0.0
         self.v_filt[env_ids] = 0.0  # o filtro é estado do episódio: não vaza para o seguinte
+        self.q_filt[env_ids] = 0.0  # T16: o filtro do acerto também
+        self.g_marcha[env_ids] = 0.0
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0
         self.soma_acerto[env_ids] = 0.0

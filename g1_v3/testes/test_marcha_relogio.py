@@ -32,9 +32,14 @@ def _passo(env):
 
 class TermoPasso(unittest.TestCase):
 
-    def test_comando_no_limiar_ou_abaixo_da_zero(self):
-        self.assertAlmostEqual(_passo(_env_passo((0.0, 0.0, 0.0))), 0.0, places=5)
-        self.assertAlmostEqual(_passo(_env_passo((0.05, 0.0, 0.0))), 0.0, places=5)
+    def test_relogio_parado_paga_um_por_pe_em_contato_com_o_chao(self):
+        # 24/11, T16: comando zero ou até o limiar (‖c‖ ≤ 0,1): o alvo dos dois pés é o chão, em qualquer fase. Dois pés no chão
+        # pagam o máximo (2, o 1,0/s do peso 0,5), um pé no ar paga metade, os dois no ar pagam 0
+        for cmd in ((0.0, 0.0, 0.0), (0.05, 0.0, 0.0), (0.1, 0.0, 0.0)):
+            for fase in (0.2, 0.7):
+                self.assertAlmostEqual(_passo(_env_passo(cmd, fase=fase, contato=(True, True))), 2.0, places=5, msg=str(cmd))
+                self.assertAlmostEqual(_passo(_env_passo(cmd, fase=fase, contato=(True, False))), 1.0, places=5, msg=str(cmd))
+                self.assertAlmostEqual(_passo(_env_passo(cmd, fase=fase, contato=(False, False))), 0.0, places=5, msg=str(cmd))
 
     def test_com_comando_paga_a_soma_dos_acertos(self):
         self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0))), 2.0, places=5)
@@ -50,22 +55,27 @@ class TermoPasso(unittest.TestCase):
         # o env não tem velocidade nenhuma: o termo não a lê, e o comando de 0,5 m/s paga os 2 acertos
         self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0))), 2.0, places=5)
 
-    def test_grava_o_acerto_mesmo_sem_comando_e_zera_com_a_caixa_perdida(self):
-        env = _env_passo((0.0, 0.0, 0.0), contato=(True, True))  # E acerta, D erra
-        self.assertAlmostEqual(_passo(env), 0.0, places=5)
-        self.assertAlmostEqual(float(env.v3_acerto_marcha[0]), 0.5, places=5)
+    def test_zera_com_a_caixa_perdida_e_nao_grava_o_acerto(self):
+        # o acerto que o g lê mora no `TwistV3._update_metrics`: o termo não o grava (o mjlab pula um termo de peso 0)
+        env = _env_passo((0.5, 0.0, 0.0))
+        self.assertAlmostEqual(_passo(env), 2.0, places=5)
+        self.assertEqual(float(env.v3_acerto_marcha[0]), 0.0)
         self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), perdeu=True)), 0.0, places=5)
+        self.assertAlmostEqual(_passo(_env_passo((0.0, 0.0, 0.0), contato=(True, True), perdeu=True)), 0.0, places=5)
 
 
-def _twist(cmd, n=1):
-    # `TwistV3` sem o `__init__`: só o que `_update_metrics` lê, com o fabricante e a âncora fora
+def _twist(cmd, n=1, contato=(True, True)):
+    # `TwistV3` sem o `__init__`: só o que `_update_metrics` lê, com o fabricante e a âncora fora. `contato`: os pés em contato
+    # (T16: o acerto, q̄ e g saem daqui); padrão, os dois no chão
     env = types.SimpleNamespace(
         step_dt=DT, v3_fase_marcha=torch.zeros(n), v3_marcha_on=torch.zeros(n, dtype=torch.bool),
         v3_acerto_marcha=torch.ones(n), v3_t_empurrao=torch.full((n,), float("-inf")), v3_ancora=torch.zeros(n, 4),
         v3_incl_max_seg=torch.zeros(n), v3_perdeu=torch.zeros(n, dtype=torch.bool),
         v3_cur=types.SimpleNamespace(id_celula=lambda tarefa, tipo: 1, restricao=lambda: 1.0, registra=mock.Mock()),
         scene={"box": types.SimpleNamespace(data=types.SimpleNamespace(
-            root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(n, 1)))})
+                   root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(n, 1))),
+               "pes_chao": types.SimpleNamespace(data=types.SimpleNamespace(
+                   found=torch.tensor([[int(c) for c in contato]]).repeat(n, 1)))})
     obj = comando.TwistV3.__new__(comando.TwistV3)
     obj._env, obj.k = env, C
     obj.robot = types.SimpleNamespace(data=types.SimpleNamespace(
@@ -77,6 +87,7 @@ def _twist(cmd, n=1):
     obj.command_counter, obj.seg_visto = torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.long)
     obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
     obj.seg_nota, obj.seg_dur, obj.v_filt = torch.zeros(n, 3), torch.zeros(n), torch.zeros(n, 3)
+    obj.q_filt, obj.g_marcha = torch.zeros(n), torch.zeros(n)
     obj.seg_cmd, obj.seg_cel, obj.seg_carrega = obj.vel_command_b.clone(), torch.zeros(n, dtype=torch.long), torch.zeros(n, dtype=torch.bool)
     obj.soma_erro_marcha, obj.soma_cmd_marcha = torch.zeros(n), torch.zeros(n)
     obj.soma_acerto, obj.passos_on, obj.pose_ult = torch.zeros(n), torch.zeros(n), torch.zeros(n, 3)
@@ -149,11 +160,13 @@ class RelogioDoTwist(unittest.TestCase):
             self.assertEqual(bool(obj._env.v3_marcha_on[0]), esperado, cmd)
 
     def test_metrica_acerto_conta_so_os_passos_com_comando(self):
+        # fase 0,2: E em apoio, D em balanço; os dois no chão: E acerta e D erra, acerto 0,5
         obj = _twist((0.5, 0.0, 0.0))
-        obj._env.v3_acerto_marcha[:] = 0.5
+        obj._env.v3_fase_marcha[:] = 0.2
         _passos_do_relogio(obj, 1)
+        self.assertAlmostEqual(float(obj._env.v3_acerto_marcha[0]), 0.5, places=6)
         obj.vel_command_b[:] = 0.0
-        _passos_do_relogio(obj, 1)  # sem comando: não entra na média
+        _passos_do_relogio(obj, 1)  # sem comando: o acerto mede os pés no chão (1,0) e não entra na média
         self.assertAlmostEqual(float(obj.metrics["acerto_relogio"][0]), 0.5, places=6)
 
 
@@ -162,9 +175,10 @@ class FiltroDaVelocidade(unittest.TestCase):
     # guarda por ambiente; ela zera no reset do episódio
 
     def _recompensa(self, obj):
-        # o `_rastreio` real sobre o `twist` de teste: comando, velocidade instantânea e a filtrada
+        # o `_rastreio` real sobre o `twist` de teste: comando, velocidade instantânea e a filtrada (g = 1: aqui só a tenda)
         env = types.SimpleNamespace(
-            command_manager=types.SimpleNamespace(get_command=lambda _: obj.vel_command_b, get_term=lambda _: obj),
+            command_manager=types.SimpleNamespace(get_command=lambda _: obj.vel_command_b,
+                                                  get_term=lambda _: types.SimpleNamespace(v_filt=obj.v_filt, g_marcha=torch.ones(1))),
             scene={"robot": obj.robot}, v3_cur=types.SimpleNamespace(restricao=lambda: 1.0))
         return float(recompensas._rastreio(env, True)[0])
 
@@ -219,6 +233,72 @@ class FiltroDaVelocidade(unittest.TestCase):
         obj.robot.data.root_link_ang_vel_b[:] = 0.0
         _passos_do_relogio(obj, 1)
         self.assertEqual(obj.v_filt[0].tolist(), [0.0, 0.0, 0.0])
+
+
+class AcertoFiltradoEG(unittest.TestCase):
+    # 24/11, T16: o acerto do relógio dos dois pés e q̄ (filtro de τ `tau_fracao`) moram no `_update_metrics`; g = clamp(2·q̄ − 1, 0, 1)
+
+    def test_g_vale_sem_o_termo_passo(self):
+        # o `passo` nunca roda aqui (o mjlab pula um termo de peso 0): o acerto, q̄ e g saem só do `_update_metrics`.
+        # Comando zero e os dois pés no chão: acerto 1, q̄ = 1 − e⁻¹ aos 20 passos (τ 0,4 s), g = 2q̄ − 1
+        obj = _twist((0.0, 0.0, 0.0))
+        _passos_do_relogio(obj, 20)
+        q = 1 - math.exp(-1)
+        self.assertAlmostEqual(float(obj.q_filt[0]), q, places=4)
+        self.assertAlmostEqual(float(obj.g_marcha[0]), 2 * q - 1, places=4)
+
+    def test_g_e_zero_no_acaso_e_um_no_acerto_total(self):
+        # comando zero (alvo: o chão): só o pé E no chão acerta 0,5 → q̄ → 0,5, g → 0; os dois no chão → g → 1
+        obj = _twist((0.0, 0.0, 0.0), contato=(True, False))
+        _passos_do_relogio(obj, 400)
+        self.assertAlmostEqual(float(obj.q_filt[0]), 0.5, places=3)
+        self.assertAlmostEqual(float(obj.g_marcha[0]), 0.0, places=2)
+        obj = _twist((0.0, 0.0, 0.0))
+        _passos_do_relogio(obj, 400)
+        self.assertAlmostEqual(float(obj.g_marcha[0]), 1.0, places=2)
+        # acerto 0 (os dois pés no ar, alvo o chão): q̄ = 0 e g não fica negativo
+        obj = _twist((0.0, 0.0, 0.0), contato=(False, False))
+        _passos_do_relogio(obj, 50)
+        self.assertEqual(float(obj.g_marcha[0]), 0.0)
+
+    def test_acerto_com_comando_e_o_do_relogio_com_a_fase_do_passo_anterior(self):
+        # fase 0,2: E em apoio, D em balanço. (E no chão, D no ar) acerta os dois; (E, D no chão) acerta um
+        for contato, esperado in (((True, False), 1.0), ((True, True), 0.5), ((False, True), 0.0)):
+            obj = _twist((0.5, 0.0, 0.0), contato=contato)
+            obj._env.v3_fase_marcha[:] = 0.2
+            _passos_do_relogio(obj, 1)
+            self.assertAlmostEqual(float(obj._env.v3_acerto_marcha[0]), esperado, places=6, msg=str(contato))
+
+    def test_q_zera_na_troca_de_parado_para_comando(self):
+        # parado muito tempo com os dois pés no chão: q̄ ≈ 1. Quando o comando volta ele parte de 0, e não de ≈ 1: senão os
+        # passinhos pagariam a velocidade quase cheia nos primeiros 0,4 s. 1º passo com comando, fase 0,2, (E no chão, D no ar): acerto 1
+        obj = _twist((0.0, 0.0, 0.0))
+        _passos_do_relogio(obj, 100)
+        self.assertGreater(float(obj.q_filt[0]), 0.95)
+        obj.vel_command_b[:] = torch.tensor([0.5, 0.0, 0.0])
+        obj._env.scene["pes_chao"].data.found[:] = torch.tensor([[1, 0]])
+        obj._env.v3_fase_marcha[:] = 0.2
+        _passos_do_relogio(obj, 1)
+        self.assertAlmostEqual(float(obj.q_filt[0]), (1 - math.exp(-DT / 0.4)) * 1.0, places=5)
+        self.assertEqual(float(obj.g_marcha[0]), 0.0)
+        # e na troca de comando para parado (sem prêmio a vigiar): o filtro segue sem zerar
+        obj.vel_command_b[:] = 0.0
+        q = float(obj.q_filt[0])
+        _passos_do_relogio(obj, 1)
+        self.assertGreater(float(obj.q_filt[0]), 0.9 * q)
+
+    def test_reset_zera_q_e_g_e_nao_vazam(self):
+        obj = _twist((0.0, 0.0, 0.0))
+        _passos_do_relogio(obj, 100)
+        self.assertGreater(float(obj.g_marcha[0]), 0.5)
+        obj._env.termination_manager = types.SimpleNamespace(time_outs=torch.zeros(1, dtype=torch.bool))
+        with mock.patch.object(comando.TwistV3, "_fecha"), mock.patch.object(comando.TwistV3, "_abre"), \
+                mock.patch.object(comando.UniformVelocityCommand, "reset", return_value={}):
+            obj.reset(torch.tensor([0]))
+        self.assertEqual((float(obj.q_filt[0]), float(obj.g_marcha[0])), (0.0, 0.0))
+        obj._env.scene["pes_chao"].data.found[:] = 0  # o robô novo nasce com os pés no ar: nada do episódio antigo sobra
+        _passos_do_relogio(obj, 1)
+        self.assertEqual((float(obj.q_filt[0]), float(obj.g_marcha[0])), (0.0, 0.0))
 
 
 class NotaDoSegmento(unittest.TestCase):

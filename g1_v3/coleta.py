@@ -120,6 +120,7 @@ with torch.inference_mode():
             "F_pad_E": u.scene["palma_E"].data.force.norm(dim=-1).sum(-1), "F_pad_D": u.scene["palma_D"].data.force.norm(dim=-1).sum(-1),
             "site_E_y": site_y[:, 0], "site_D_y": site_y[:, 1], "pad_E_x": pad_c[:, 0, 0], "pad_E_z": pad_c[:, 0, 2],
             "pad_D_x": pad_c[:, 1, 0], "pad_D_z": pad_c[:, 1, 2], "fase": u.v3_fase_marcha, "degrau": u.v3_degrau,
+            "q_marcha": twist.q_filt, "g_marcha": twist.g_marcha,
             "d": cap["d"], "sigma": cap["sigma"], "phi": phi, "q_palmas": conq[:, 0], "q_pega": conq[:, 1], "q_peso": conq[:, 2],
             **{f"p_{n}": cap[n] for n in ("desloc", "incl", "maos", "tronco", "recuo", "com")},
             "h_renda": u.v3_h, "phi_melhor": u.v3_phi_melhor, "relogio_alvo": u.v3_relogio_alvo,
