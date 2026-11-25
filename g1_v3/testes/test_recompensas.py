@@ -76,6 +76,11 @@ class TestAlturaPe(unittest.TestCase):
         self.assertAlmostEqual(alto, 1.0, places=5)
         self.assertLess(baixo, 0.5)
 
+    def test_roll_de_9_graus_custa_mais_de_um_terco_do_ganho_do_pe(self):
+        # T18: com −5 o roll de 9° custava ~0,12/s no pico, barato contra os +0,4/s do pé de 7 → 10 cm
+        g = t(0.0, math.sin(math.radians(9.0))).reshape(1, 2)
+        self.assertGreater(-R.tronco_plano * recompensas.n_tronco_plano(g).item(), 0.4 / 3)
+
 
 class TestCercas(unittest.TestCase):
     def test_cerca_giro_hip_yaw_e_menos_40_da_10(self):

@@ -263,7 +263,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     desvio_bracos: float = -0.1  # S §9.2: peso do desvio dos braços
     desvio_cintura: float = -1.0  # S §9.2: peso do desvio da cintura
     desvio_quadril: float = -1.0  # S §9.2: peso do desvio de hip_roll e hip_yaw
-    tronco_plano: float = -5.0  # S §9.2: peso do tronco plano
+    tronco_plano: float = -20.0  # S §9.2: peso do tronco plano. 25/11, T18: era −5; com o pé pago pela T17, o model_2950 ergueu o pé inclinando mais o tronco para o lado (roll 14° → 18°, joelho igual), porque ±9° de roll custavam 0,07/s contra +0,4/s do pé. Com −20 custam ~0,27/s; a inclinação do model_14000 (~6°) custa ~0,06/s
     altura_base: float = -10.0  # S §9.2: peso da altura da base
     alvo_base: float = 0.78  # S §9.2: altura alvo da base (m)
     cerca_sola: float = -0.05475  # S §9.3; PD-30; escada medida 09/11 (−0,5·G ÷ média, G = 1,406/s); D4
