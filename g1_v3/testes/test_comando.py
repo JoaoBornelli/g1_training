@@ -93,8 +93,10 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         self.assertLessEqual(float(v[:, 2].abs().max()), K.andar_giro_inicio + 1e-6)
         self.assertGreater(float(v[:, 0].max()), 0.29)  # a faixa é usada até o teto, nos dois sentidos
         self.assertLess(float(v[:, 0].min()), -0.29)
-        parado = (v == 0).all(dim=1).float().mean()
-        self.assertAlmostEqual(float(parado), K.andar_parado, delta=0.01)
+        # 24/11, T16: os 10 % mais o sorteio com ‖c_xy‖ < `linear_min` (a elipse 0,3 × 0,2 perde o disco de 0,1: 1/6) e |giro| < `giro_min` (1/3)
+        parado = K.andar_parado + (1 - K.andar_parado) * K.linear_min ** 2 / (K.andar_inicio * K.andar_lado_inicio) \
+            * K.giro_min / K.andar_giro_inicio
+        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), parado, delta=0.01)
         # independentes: um canal ligado não liga os outros; o giro anda junto com o linear
         ativo = ~(v == 0).all(dim=1)
         self.assertGreater(float(((v[:, 2] != 0) & (v[:, :2].norm(dim=1) > 0.1))[ativo].float().mean()), 0.5)
@@ -120,14 +122,18 @@ class SorteiaVelocidadeTest(unittest.TestCase):
     def test_andar_sorteia_vx_vy_na_elipse_dos_tetos(self):
         # 17/11, T7: (vx, vy) uniforme na elipse dos tetos; no quadrado de antes, (vx/semieixo)² + (vy/lado)² chegava a 2
         v = amostra("andar", 7, "ANDAR")
-        ativo = ~(v == 0).all(dim=1)
+        ativo = v[:, :2].norm(dim=-1) > 0  # com linear: T16, o linear zerado (parado ou ‖c_xy‖ < `linear_min`) sai da conta
         vx, vy = v[ativo, 0], v[ativo, 1]
         frente, tras = K.frente_tetos[-1], K.tras_teto_max
+        # T16: o disco ‖c_xy‖ < `linear_min` sai da elipse; P(corte) = 2·r²/((frente + trás)·lado), as duas metades somadas
+        corte = 2 * K.linear_min ** 2 / ((frente + tras) * K.lado_teto_max)
         rho2 = (vx / torch.where(vx > 0, frente, tras)) ** 2 + (vy / K.lado_teto_max) ** 2
         self.assertLessEqual(float(rho2.max()), 1.0 + 1e-5)
-        # uniforme na área: metade da elipse fica em rho² ≤ 0,5; a frente tem frente/(frente+tras) da área
-        self.assertAlmostEqual(float((rho2 <= 0.5).float().mean()), 0.5, delta=0.01)
-        self.assertAlmostEqual(float((vx > 0).float().mean()), frente / (frente + tras), delta=0.01)
+        # uniforme na área: metade da elipse fica em rho² ≤ 0,5 (menos o disco cortado, que cai todo aí); a frente tem
+        # (frente − r²/lado)/(frente + trás − 2r²/lado) do que sobra
+        self.assertAlmostEqual(float((rho2 <= 0.5).float().mean()), (0.5 - corte) / (1 - corte), delta=0.01)
+        self.assertAlmostEqual(float((vx > 0).float().mean()), (frente - K.linear_min ** 2 / K.lado_teto_max)
+                               / (frente + tras - 2 * K.linear_min ** 2 / K.lado_teto_max), delta=0.01)
 
     def test_andar_terreno_limita_vx_a_terreno_v_max(self):
         v = amostra("terreno", 7, "ANDAR")
@@ -150,6 +156,23 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         v = amostra("andar", 0, "ANDAR")
         ativo = (v[:, :2] != 0).any(dim=1)
         self.assertAlmostEqual(float((v[ativo, 2] == 0).float().mean()), 1 / 3, delta=0.02)
+
+    def test_andar_linear_e_zero_ou_pelo_menos_linear_min(self):
+        # 24/11, T16: com ‖c‖ ≤ `limiar_marcha` o relógio fica parado e o g ≈ 1 pagaria a velocidade sem marcha. 10 000 sorteios por
+        # nível: nenhum com 0 < ‖c_xy‖ < `linear_min`, e nenhum comando (linear + giro) com ‖c‖ ≤ `limiar_marcha` e um canal
+        # ≥ `limiar_canal`. Vale também para o CARREGAR (pisos 0,25, 0,2 e 0,25)
+        g = torch.Generator().manual_seed(5)
+        casos = [("ANDAR", tipo, n) for n in range(9) for tipo in ("andar", "terreno")]
+        casos += [("CARREGAR", tipo, n) for n in range(len(K.frente_tetos)) for tipo in ("reto", "arco", "giro_lugar", "terreno")]
+        for tarefa, tipo, nivel in casos:
+            v = comando.sorteia_velocidade(tipo, nivel, tarefa, 10_000, g, K)
+            with self.subTest(tarefa=tarefa, nivel=nivel, tipo=tipo):
+                lin = v[:, :2].norm(dim=-1)
+                self.assertFalse(bool(((lin > 0) & (lin < K.linear_min)).any()))
+                canal = (v[:, :2].abs() >= K.limiar_canal).any(dim=-1) | (v[:, 2].abs() >= K.limiar_canal)
+                self.assertFalse(bool((canal & (v.norm(dim=-1) <= K.limiar_marcha)).any()))
+                if tarefa == "ANDAR":
+                    self.assertGreater(float((lin >= K.linear_min).float().mean()), 0.3)  # o linear não some
 
     def test_carregar_giro_respeita_o_piso(self):
         # o CARREGAR sorteia o giro em ±U[0,25; teto]: já está acima de `giro_min`

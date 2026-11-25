@@ -130,6 +130,7 @@ class Comando:  # S §7, §11.2, §19
     andar_lado_inicio: float = 0.2  # 24/11, T15: teto inicial do lado no ANDAR (m/s)
     andar_giro_inicio: float = 0.3  # 24/11, T15: teto inicial do giro no ANDAR (rad/s)
     giro_min: float = 0.1  # 24/11, T15: o giro sorteado no ANDAR é zero ou ≥ isto (rad/s); abaixo disso a razão ω̄/c_z é ruído
+    linear_min: float = 0.1  # 24/11, T16: o linear sorteado no ANDAR é zero ou ‖c_xy‖ ≥ isto (m/s): com ‖c‖ ≤ `limiar_marcha` o relógio fica parado e o g ≈ 1 pagaria a velocidade sem marcha
     andar_passo: float = 0.1  # 16/11, A2: quanto cada nível soma aos tetos do ANDAR (o passo da Unitree)
     andar_parado: float = 0.10  # 16/11, A3 (P4): fração dos sorteios do ANDAR com comando zero; o ANDAR precisa parar e esperar
     tau_fracao: float = 0.4  # 24/11, T15: τ do filtro exponencial (s) da velocidade da base na fração entregue e, na T16, do acerto do relógio dos dois pés (q̄, que dá o g do rastreio); um ciclo de marcha dura 0,8 s

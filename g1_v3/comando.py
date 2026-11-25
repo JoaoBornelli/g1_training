@@ -138,6 +138,7 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
         v[:, 1] = lado * r * torch.sin(ang)
         v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
         v[:, 2][v[:, 2].abs() < k.giro_min] = 0.0  # 24/11, T15: giro pequeno é ruído para a razão ω̄/c_z: zero ou ≥ `giro_min`
+        v[:, :2][v[:, :2].norm(dim=-1) < k.linear_min] = 0.0  # 24/11, T16: linear zero ou ‖c_xy‖ ≥ `linear_min` (= `limiar_marcha`): sem relógio parado com comando
         v[_u(n, gerador) < k.andar_parado] = 0.0
         return v
     frente = k.frente_tetos[nivel]
@@ -850,11 +851,11 @@ class TwistV3(UniformVelocityCommand):
         # zero) via a fase correr e levantava a caixa no pulso dela, numa janela menor que o `tempo_p3`.
         on = cmd.norm(dim=1) > k.limiar_marcha
         # 24/11, T16: o acerto (fase do passo anterior, contato de agora: o mesmo número do `passo`) filtra em q̄ e dá o g que o rastreio
-        # lê no passo seguinte. Com o relógio parado o acerto mede os pés no chão (≈ 1): na troca de parado para comando q̄ zera, senão
-        # os passinhos pagariam a velocidade cheia por ~0,4 s (g 0,82 aos 0,1 s, medido a 0,6 de acerto) até o filtro descer ao real
+        # lê no passo seguinte. Com o relógio parado o acerto mede os pés no chão (≈ 1): na troca de parado para comando q̄ volta ao
+        # acaso (0,5), senão os passinhos pagariam a velocidade cheia por ~0,4 s (g 0,82 aos 0,1 s, medido a 0,6 de acerto)
         contato = env.scene["pes_chao"].data.found > 0
         env.v3_acerto_marcha[:] = recompensas.n_passo(contato, env.v3_fase_marcha, k.fase_apoio, on).mean(-1)
-        self.q_filt[on & ~env.v3_marcha_on] = 0.0
+        self.q_filt[on & ~env.v3_marcha_on] = 0.5  # parte do acaso: g = 0 no instante e sobe já no 1º passo (de 0 ficava ~0,3 s morto)
         self.q_filt += -math.expm1(-dt / k.tau_fracao) * (env.v3_acerto_marcha - self.q_filt)
         self.g_marcha[:] = (2.0 * self.q_filt - 1.0).clamp(0.0, 1.0)
         self._fase_t += dt * on
@@ -872,7 +873,7 @@ class TwistV3(UniformVelocityCommand):
         self._agora[env_ids] = 0.0
         self._fase_t[env_ids] = 0.0
         self.v_filt[env_ids] = 0.0  # o filtro é estado do episódio: não vaza para o seguinte
-        self.q_filt[env_ids] = 0.0  # T16: o filtro do acerto também
+        self.q_filt[env_ids] = 0.5  # T16: o filtro do acerto também, partindo do acaso (g = 0)
         self.g_marcha[env_ids] = 0.0
         self.soma_erro_marcha[env_ids] = 0.0
         self.soma_cmd_marcha[env_ids] = 0.0
