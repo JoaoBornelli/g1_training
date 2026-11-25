@@ -247,7 +247,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     vivo: float = 1.0  # S §9.2: peso do "vivo" (zero depois da caixa perdida); 11/11: era 0,15, a recompensa do início paga ficar de pé (§1)
     altura_pe: float = 1.0  # S §9.2: peso da altura do pé; foot_clearance_reward (unitree_rl_lab)
     alvo_pe: float = 0.10  # S §9.2: altura alvo do pé (m); foot_clearance_reward
-    std_pe: float = 0.05  # S §9.2: σ da altura do pé (m); foot_clearance_reward
+    std_pe: float = 0.0025  # S §9.2: divide o erro AO QUADRADO, então é σ² (m²): σ = 5 cm. 25/11, T17: era 0,05 (σ ≈ 22 cm), e o pé a 5 cm pagava 0,96 contra 1,0 a 10 cm; a política tirava o pé do chão jogando o tronco para o lado, de perna reta (model_1900: roll 14° contra 6°, joelho no balanço 19–25° contra 71–74° do model_14000)
     tanh_pe: float = 2.0  # S §9.2: escala tanh da altura do pé; foot_clearance_reward
     escorrego: float = -0.2  # S §9.2: peso do escorregão do pé (receita da Unitree)
     vz: float = -2.0  # S §9.2: peso da velocidade vertical da base
