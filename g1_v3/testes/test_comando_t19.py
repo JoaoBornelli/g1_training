@@ -5,6 +5,7 @@
 import math
 import types
 import unittest
+from unittest import mock
 
 import torch
 
@@ -22,8 +23,11 @@ def _twist(yaw, coluna, tarefa, fatia):
     n = len(yaw)
     cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, K, ATIVO.terreno)
     cur._nivel["CARREGAR"] = 1  # um nível em que o `sorteia_velocidade` do CARREGAR de terreno anda
-    qpos = torch.zeros(n, 7)
-    qpos[:, 3], qpos[:, 6] = torch.cos(torch.tensor(yaw) / 2), torch.sin(torch.tensor(yaw) / 2)
+    # o free joint começa na coluna 5 do `qpos` (endereço 5..11: pos em 5..7, quat w x y z em 8..11), com lixo nas colunas 0..4:
+    # uma leitura de `qpos[:, 3:7]` sem o endereço lê o lixo e o rumo sai errado
+    qpos = torch.zeros(n, 12)
+    qpos[:, :5] = 3.0
+    qpos[:, 8], qpos[:, 11] = torch.cos(torch.tensor(yaw) / 2), torch.sin(torch.tensor(yaw) / 2)
     env = types.SimpleNamespace(
         device="cpu", num_envs=n, v3_cur=cur, v3_gerador=torch.Generator().manual_seed(0),
         v3_tarefa=torch.tensor(tarefa), v3_fatia=torch.tensor(fatia), v3_celula=torch.full((n,), -1, dtype=torch.long),
@@ -34,7 +38,7 @@ def _twist(yaw, coluna, tarefa, fatia):
     obj.cfg = types.SimpleNamespace(heading_command=True, heading_control_stiffness=1.0,
                                     ranges=types.SimpleNamespace(ang_vel_z=(-TETO_GIRO, TETO_GIRO)))
     obj.robot = types.SimpleNamespace(
-        indexing=types.SimpleNamespace(free_joint_q_adr=torch.arange(7)),
+        indexing=types.SimpleNamespace(free_joint_q_adr=torch.arange(5, 12)),
         data=types.SimpleNamespace(forward_vec_b=torch.tensor([[1.0, 0.0, 0.0]]).repeat(n, 1), heading_w=torch.zeros(n)))
     obj.vel_command_b, obj.vel_command_w = torch.zeros(n, 3), torch.zeros(n, 3)
     obj.time_left, obj._agora = torch.zeros(n), torch.zeros(n)
@@ -77,15 +81,40 @@ class ResampleDoRumo(unittest.TestCase):
         obj = _twist(yaw=[2.0], coluna=[4], tarefa=[ANDAR], fatia=[FATIA_ANDAR])
         obj.heading_target[:] = 0.7
         obj._agora[:] = 5.0
-        obj._resample_command(torch.arange(1))
+        with mock.patch.object(comando, "sorteia_velocidade", return_value=torch.tensor([[0.4, 0.0, 0.0]])):  # com linear: o rumo liga
+            obj._resample_command(torch.arange(1))
         self.assertAlmostEqual(float(obj.heading_target[0]), 0.7, places=6)
         self.assertTrue(bool(obj.is_heading_env[0]))
 
     def test_so_reamostra_os_envs_pedidos(self):
         obj = _twist(yaw=[2.0, 2.0], coluna=[4, 4], tarefa=[ANDAR] * 2, fatia=[FATIA_ANDAR] * 2)
-        obj._resample_command(torch.tensor([1]))
+        with mock.patch.object(comando, "sorteia_velocidade", return_value=torch.tensor([[0.4, 0.0, 0.0]])):
+            obj._resample_command(torch.tensor([1]))
         self.assertEqual(obj.is_heading_env.tolist(), [False, True])
         self.assertEqual(float(obj.heading_target[0]), 0.0)
+
+    def _resample_com_linear(self, vx, yaw=2.0):
+        # um env de ANDAR de terreno cujo sorteio de velocidade devolve `vx` (o resto do comando fica 0)
+        obj = _twist(yaw=[yaw], coluna=[4], tarefa=[ANDAR], fatia=[FATIA_ANDAR])
+        with mock.patch.object(comando, "sorteia_velocidade", return_value=torch.tensor([[vx, 0.0, 0.0]])):
+            obj._resample_command(torch.arange(1))
+        return obj
+
+    def test_comando_linear_parado_no_terreno_nao_liga_o_rumo_e_o_alvo_fica_gravado(self):
+        # 27/11, T19 §12.2: `andar_parado` ou `linear_min` zera o linear; "parado" não vira "gira até alinhar"
+        obj = self._resample_com_linear(0.0)
+        self.assertFalse(bool(obj.is_heading_env[0]))
+        self.assertAlmostEqual(float(obj.heading_target[0]) / (math.pi / 2), 1.0, places=5)  # o alvo vale para o segmento seguinte
+        obj.heading_target[:] = 0.5  # erro de rumo de 0,5 rad (o robô está em 0)
+        obj._update_command()
+        self.assertEqual(float(obj.vel_command_b[0, 2]), 0.0)
+
+    def test_comando_linear_acima_do_limiar_liga_o_rumo_e_o_wz_segue_o_erro(self):
+        obj = self._resample_com_linear(K.linear_min)
+        self.assertTrue(bool(obj.is_heading_env[0]))
+        obj.heading_target[:] = 0.3
+        obj._update_command()
+        self.assertAlmostEqual(float(obj.vel_command_b[0, 2]), 0.3, places=6)
 
 
 class UpdateDoRumo(unittest.TestCase):
@@ -132,6 +161,51 @@ class UpdateDoRumo(unittest.TestCase):
         obj.heading_target[:] = 0.3
         obj._update_command()
         self.assertTrue(bool((obj.vel_command_b[:, :2] == antes).all()))
+
+class NotaDoSegmentoDeRumo(unittest.TestCase):
+    """27/11, T19 §12.1: o `_abre` não copia o giro de rumo para o `seg_cmd`. `_abre` e `_fecha` reais, sem o `__init__`."""
+
+    DUR = 4.0
+
+    def _abre(self, rumo, wz=0.3):
+        n = 1
+        env = types.SimpleNamespace(
+            v3_incl_max_seg=torch.zeros(n), v3_celula=torch.tensor([0]), v3_tarefa=torch.tensor([ANDAR]),
+            v3_ancora=torch.tensor([[0.0, 0.0, 0.0, 1.5]]), v3_perdeu=torch.zeros(n, dtype=torch.bool),
+            v3_cur=types.SimpleNamespace(id_celula=lambda tarefa, tipo: -1, restricao=lambda: 1.0, registra=mock.Mock()))
+        obj = comando.TwistV3.__new__(comando.TwistV3)
+        obj._env, obj.k = env, K
+        obj._agora, obj.t_ab = torch.zeros(n), torch.zeros(n)
+        obj.vel_command_b = torch.tensor([[0.4, 0.0, wz]])
+        obj.is_heading_env = torch.tensor([rumo])
+        obj.seg_cmd, obj.seg_cel = torch.zeros(n, 3), torch.full((n,), -1, dtype=torch.long)
+        obj.seg_carrega, obj.seg_visto = torch.zeros(n, dtype=torch.bool), torch.zeros(n, dtype=torch.long)
+        obj.command_counter = torch.zeros(n, dtype=torch.long)
+        obj.seg_proj, obj.seg_int = torch.zeros(n, 2), torch.zeros(n, 2)
+        obj.seg_nota, obj.seg_dur = torch.zeros(n, 3), torch.zeros(n)
+        obj.ancora_feita = torch.zeros(n, dtype=torch.bool)
+        obj._abre(torch.arange(n))
+        return obj
+
+    def test_env_de_rumo_abre_o_segmento_sem_comando_de_giro(self):
+        self.assertEqual(self._abre(True).seg_cmd[0].tolist(), [torch.tensor(0.4).item(), 0.0, 0.0])
+
+    def test_env_sem_rumo_copia_o_wz(self):
+        self.assertEqual(self._abre(False).seg_cmd[0].tolist(), [torch.tensor(0.4).item(), 0.0, torch.tensor(0.3).item()])
+
+    def test_segmento_de_rumo_com_linear_entregue_e_giro_medio_zero_tira_nota_1(self):
+        # o robô anda a 0,4 m/s (o linear comandado) e corrige o rumo em menos de 1 s: o giro médio do segmento é ~0
+        obj = self._abre(True)
+        obj.seg_nota[0] = torch.tensor([0.4, 0.0, 0.0]) * self.DUR
+        obj.seg_dur[0] = self.DUR
+        obj.seg_proj[0], obj.seg_int[0] = torch.tensor([0.4 * self.DUR, 0.0]), torch.tensor([0.4 * self.DUR, 0.3 * 0.5])
+        obj.pose_ult, obj._agora = torch.zeros(1, 3), torch.tensor([5.0])
+        obj.metrics = {k: torch.zeros(1) for k in ("eficiencia_min", "eficiencia_media", "segmentos")}
+        obj._fecha(torch.tensor([0]), torch.tensor([False]))
+        celula, n, soma = obj._env.v3_cur.registra.call_args.args
+        self.assertEqual((celula, n), (0, 1))
+        self.assertAlmostEqual(soma, 1.0, places=5)
+
 
 if __name__ == "__main__":
     unittest.main()

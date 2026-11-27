@@ -736,6 +736,10 @@ class TwistV3(UniformVelocityCommand):
         env = self._env
         self.t_ab[ids] = self._agora[ids]
         self.seg_cmd[ids] = self.vel_command_b[ids]
+        # 27/11, T19 §12.1: nos envs de rumo o wz muda a cada passo (é o giro de alinhamento, e não um comando fixo do segmento);
+        # copiá-lo faria a nota cobrar um giro que o robô corrige em menos de 1 s. O canal de giro fica "sem comando" (cobra a deriva).
+        # O `_resample_command` (que liga o `is_heading_env`) roda antes do `_abre`, no reset e na troca de segmento
+        self.seg_cmd[ids[self.is_heading_env[ids]], 2] = 0.0
         self.seg_cel[ids] = env.v3_celula[ids]
         self.seg_carrega[ids] = env.v3_tarefa[ids] != ANDAR
         self.seg_visto[ids] = self.command_counter[ids]
@@ -923,7 +927,9 @@ class TwistV3(UniformVelocityCommand):
                 # 27/11, T19: o ANDAR de terreno segue o rumo. No começo do episódio (`_agora` = 0: o `reset` zera antes do
                 # `super().reset`) o alvo é o múltiplo de π/2 mais próximo do rumo de partida (a normal de uma face da célula).
                 # ⚠ O rumo vem do `qpos` (a base acabou de ser escrita; o `xquat` ainda é o do fim do episódio anterior)
-                self.is_heading_env[ids] = ter
+                # 27/11, T19 §12.2: comando linear parado (`andar_parado` ou `linear_min`) fica parado: sem rumo. O alvo, porém,
+                # vale para todo env de terreno: um segmento seguinte pode ter comando linear
+                self.is_heading_env[ids] = ter & (self.vel_command_b[ids, :2].norm(dim=1) >= self.k.limiar_canal)
                 novo = ids[ter & (self._agora[ids] == 0)]
                 if novo.numel():
                     q = env.sim.data.qpos[novo][:, self.robot.indexing.free_joint_q_adr][:, 3:7]

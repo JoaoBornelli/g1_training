@@ -291,10 +291,11 @@ def s07_terreno_na_coluna_e_linha_certas():
         for _ in range(3):
             env.reset()
             tipos, niveis = ter.terrain_types, ter.terrain_levels
-            nivel_max = env.v3_cur.nivel_terreno("ANDAR")  # ANDAR é a única fatia no começo (S §11.1)
+            # ANDAR é a única fatia no começo (S §11.1); 27/11, T19: o teto é por coluna, ⌈linha[coluna]⌉ (a coluna 0 fica em 0)
+            teto = torch.tensor([math.ceil(x) for x in env.v3_cur.linha], device=niveis.device)[tipos]
             check("coluna dentro de 0..8", bool(((tipos >= 0) & (tipos < n_colunas)).all()))
-            check("linha ≤ nível de terreno da tarefa (ANDAR)", bool((niveis <= nivel_max).all()),
-                  f"máx {int(niveis.max())} > {nivel_max}")
+            check("linha ≤ ⌈linha da coluna⌉ (ANDAR)", bool((niveis <= teto).all()),
+                  f"máx {int((niveis - teto).max())} acima do teto da coluna")
             check("env_origins = terrain_origins[linha, coluna]",
                   torch.allclose(env.scene.env_origins, tabela[niveis, tipos], atol=1e-5))
     finally:

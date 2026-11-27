@@ -71,6 +71,7 @@ def _twist_falso(env, n=1):
     obj.seg_nota, obj.seg_dur = torch.zeros(n, 3), torch.zeros(n)
     obj.ancora_feita = torch.zeros(n, dtype=torch.bool)
     obj.t_ab = torch.zeros(n)
+    obj.is_heading_env = torch.zeros(n, dtype=torch.bool)  # T19: o `_abre` lê
     return obj
 
 

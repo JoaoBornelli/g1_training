@@ -388,7 +388,7 @@ class Curriculo:
             "it": self.it,
             "celulas": [{"aberta": c.aberta, "s": c.s, "n": c.n_medidas} for c in self.celulas],
             "acum": [[n, s] for n, s in zip(self._acum_n, self._acum_suc)],
-            "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self._nivel_ter[t], "seguidas": self._seguidas[t],
+            "tarefas": {t: {"nivel": self._nivel[t], "nivel_ter": self.nivel_terreno(t), "seguidas": self._seguidas[t],
                             "degrau": self._degrau[t], "cont": self._cont[t], "sub": self.subnivel(t)} for t in TAREFAS},
             "dr": dict(self._dr),
             "it_abertura": list(self._it_abertura),
@@ -406,7 +406,9 @@ class Curriculo:
         for t in TAREFAS:
             d = estado["tarefas"][t]
             # 24/11, T15: o nível restaurado não passa do máximo atual (um estado do ANDAR com 10 níveis travava)
-            self._nivel[t], self._nivel_ter[t] = min(d["nivel"], self.max_nivel[t]), d["nivel_ter"]
+            self._nivel[t] = min(d["nivel"], self.max_nivel[t])
+            if t != "ANDAR":  # 27/11, T19 §12.3: o nível de terreno do ANDAR é a linha por coluna (abaixo); o `nivel_ter` antigo dele não volta
+                self._nivel_ter[t] = d["nivel_ter"]
             self._seguidas[t], self._degrau[t], self._cont[t] = d.get("seguidas", 0), d["degrau"], d["cont"]
             if t in self._sub:
                 self._sub[t] = d.get("sub", self._sub_max)  # estado sem a chave: vale o último subnível

@@ -103,13 +103,19 @@ class TestRegistroDaTravessia(unittest.TestCase):
         # um env por linha; o `pedido` (m) é a distância comandada no episódio, `d` (m) a distância final da origem da célula
         n = len(fatia)
         cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, T)
+        # origens diferentes de zero: a antiga (uma por env) e as da tabela, que o sorteio novo escreve em `env_origins`. Quem lê
+        # `env_origins` depois da sobrescrita mede a distância até a célula nova (>= 100 m) e erra a travessia
+        origens = torch.stack([10.0 + torch.arange(n), 20.0 - torch.arange(n), torch.zeros(n)], dim=1)
         pose_ult = torch.zeros(n, 3)
-        pose_ult[:, 0] = torch.tensor(d)
+        pose_ult[:, :2] = origens[:, :2] + torch.stack([torch.tensor(d), torch.zeros(n)], dim=1)
+        tabela = torch.zeros(T.linhas, len(NOMES), 3)
+        tabela[..., 0] = 100.0 + 10.0 * torch.arange(len(NOMES))[None, :] + torch.arange(T.linhas)[:, None]
+        tabela[..., 1] = -50.0
         terreno = types.SimpleNamespace(terrain_types=torch.tensor(coluna), terrain_levels=torch.zeros(n, dtype=torch.long),
-                                        terrain_origins=torch.zeros(T.linhas, len(NOMES), 3))
+                                        terrain_origins=tabela)
         env = types.SimpleNamespace(
             device="cpu", step_dt=self.DT, v3_cur=cur, v3_gerador=torch.Generator().manual_seed(0),
-            v3_fatia=torch.tensor(fatia), v3_t_empurrao=torch.zeros(n), scene=_Cena(terreno, torch.zeros(n, 3)),
+            v3_fatia=torch.tensor(fatia), v3_t_empurrao=torch.zeros(n), scene=_Cena(terreno, origens.clone()),
             command_manager=types.SimpleNamespace(get_term=lambda nome: types.SimpleNamespace(
                 pose_ult=pose_ult, soma_cmd_marcha=torch.tensor(pedido) / self.DT)),
             termination_manager=types.SimpleNamespace(terminated=torch.tensor(caiu)))

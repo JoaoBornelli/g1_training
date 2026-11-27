@@ -618,6 +618,22 @@ class TestLinhaDeTerrenoDoAndar(unittest.TestCase):
         self.assertEqual(cur2.linha, [0.0] * len(TER.colunas))
         self.assertEqual((cur2.vis_ter, cur2.trav_ter), ([0] * len(TER.colunas), [0] * len(TER.colunas)))
 
+    def test_o_nivel_ter_do_andar_no_estado_e_o_da_linha_e_o_do_checkpoint_antigo_nao_volta(self):
+        # 27/11, T19 §12.3: o `model_4000` guarda `nivel_ter` 12 no ANDAR e não tem a chave "terreno"
+        est = novo().estado()
+        est["tarefas"]["ANDAR"]["nivel_ter"], est["tarefas"]["CARREGAR"]["nivel_ter"] = 12, 4
+        del est["terreno"]
+        cur = novo()
+        cur.carrega(est)
+        self.assertEqual({t: d["nivel_ter"] for t, d in cur.estado()["tarefas"].items()},
+                         {"ANDAR": 0, "PEGAR": 0, "CARREGAR": 4, "BOTAR": 0})
+        cur.linha[1:] = [3.4] * (len(cur.linha) - 1)
+        self.assertEqual(cur.estado()["tarefas"]["ANDAR"]["nivel_ter"], 3)
+        cur2 = novo()
+        cur2.carrega(cur.estado())  # o CARREGAR vai e volta igual, e o ANDAR segue o da linha
+        self.assertEqual(cur2.estado(), cur.estado())
+        self.assertEqual(cur2.nivel_terreno("CARREGAR"), 4)
+
     def test_o_terreno_do_carregar_so_abre_com_a_media_das_linhas_do_andar_em_1_ou_mais(self):
         cur = novo()
         cur._nivel["CARREGAR"] = cur.max_nivel["CARREGAR"]
