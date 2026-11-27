@@ -149,6 +149,11 @@ class TestKnobs(unittest.TestCase):
         self.assertFalse(hasattr(e, "sigma_ori_graus"))
         self.assertFalse(hasattr(e, "ori_persistente"))
 
+    def test_alvo_pe_da_t20(self):
+        # 27/11, T20 §11.2: 0,10 → 0,12 com o desconto da inclinação da pelve. Os testes do `altura_pe` leem o knob e não pegam a volta a 0,10
+        self.assertEqual(Recompensa().alvo_pe, 0.12)
+        self.assertEqual(ATIVO.recompensa.alvo_pe, 0.12)
+
     def test_refino_sem_os_campos_mortos(self):
         # §12.4 H1 (P1): saem Refino.regras, fator_por_degrau e tarefas_fator; fica degrau_batente
         campos = {f.name for f in dataclasses.fields(Refino)}

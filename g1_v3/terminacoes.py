@@ -61,8 +61,11 @@ def fim_da_cadeia(env: ManagerBasedRlEnv) -> torch.Tensor:
     27/11, T19 §13.3: o episódio de terreno do ANDAR também acaba na travessia (a base a mais de `dist_travessia` da origem
     da célula, no plano xy), como o `terrain_edge_reached` do mjlab (`velocity/mdp/terminations.py:71`): `time_out`, sem
     penalidade. ⚠ `episode_length_buf > 2`: no reset a posição lida ainda é a velha (a guarda do mjlab).
+    ⚠ T19 §13.8: lê o `twist.pose_ult` (gravado no `compute` do passo anterior, no frame do mundo), e não `root_link_pos_w`. O registro
+    do `sorteia_fatia` lê o mesmo buffer; com a leitura direta, no passo do término o `pose_ult` ainda estaria a ≤ `dist_travessia` e a
+    travessia não contaria. O término sai um passo depois.
     """
-    d = (env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]).norm(dim=-1)
+    d = (env.command_manager.get_term("twist").pose_ult[:, :2] - env.scene.env_origins[:, :2]).norm(dim=-1)
     atravessou = ((env.v3_fatia == FATIAS.index("ANDAR")) & (env.scene["terrain"].terrain_types != 0)
                   & (d > ATIVO.terreno.dist_travessia) & (env.episode_length_buf > 2))
     return n_fim_da_cadeia(env.episode_length_buf, env.max_episode_length, env.v3_fim) | atravessou

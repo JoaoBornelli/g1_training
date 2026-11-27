@@ -8,7 +8,7 @@ import unittest
 
 import torch
 
-from g1_v3 import terminacoes
+from g1_v3 import balanceador, eventos, terminacoes
 from g1_v3.knobs import ATIVO, TAREFAS
 
 K = ATIVO.terminacao
@@ -46,15 +46,21 @@ class TestQueda(unittest.TestCase):
 
 
 class TestFimDaCadeiaNaTravessia(unittest.TestCase):
-    """27/11, T19 §13.3: o episódio de terreno do ANDAR acaba (`time_out`) quando a base passa de `dist_travessia` da origem da célula."""
+    """27/11, T19 §13.3: o episódio de terreno do ANDAR acaba (`time_out`) quando a base passa de `dist_travessia` da origem da célula.
+    T19 §13.8: a posição lida é a do `twist.pose_ult` (x, y e rumo no mundo, do passo anterior), a mesma do registro do `sorteia_fatia`."""
 
-    def _fim(self, fatia, coluna, d, passo, max_ep=1000, fim=False):
-        origem = torch.tensor([[10.0, -5.0, 0.0]])
-        base = origem + torch.tensor([[d * 0.6, d * 0.8, 0.3]])  # a distância no plano xy é `d`; o z não entra
+    def _fim(self, fatia, coluna, d, passo, max_ep=1000, fim=False, d_raiz=None, dz=0.0):
+        # `d` é a distância no plano xy do `pose_ult` à origem; `d_raiz` a do `root_link_pos_w` (igual a `d` se None); a base fica
+        # `dz` acima da origem da célula. A 3ª coluna do `pose_ult` é o rumo (0), e não o z
+        origem = torch.tensor([[10.0, -5.0, -dz]])
+        dr = d if d_raiz is None else d_raiz
         env = types.SimpleNamespace(
             episode_length_buf=torch.tensor([passo]), max_episode_length=max_ep, v3_fim=torch.tensor([fim]),
             v3_fatia=torch.tensor([fatia]),
-            scene=_Cena(origem, torch.tensor([coluna]), base))
+            command_manager=types.SimpleNamespace(get_term=lambda nome: types.SimpleNamespace(
+                pose_ult=torch.tensor([[10.0 + d * 0.6, -5.0 + d * 0.8, 0.0]]))),
+            scene=_Cena(origem, types.SimpleNamespace(terrain_types=torch.tensor([coluna])),
+                        torch.tensor([[10.0 + dr * 0.6, -5.0 + dr * 0.8, 0.0]])))
         return bool(terminacoes.fim_da_cadeia(env)[0])
 
     def test_andar_em_terreno_com_d_3_1_m_no_passo_10_termina(self):
@@ -73,17 +79,63 @@ class TestFimDaCadeiaNaTravessia(unittest.TestCase):
         # a guarda do mjlab: no reset a posição lida ainda é a velha
         self.assertFalse(self._fim(fatia=0, coluna=2, d=5.0, passo=2))
 
+    def test_no_passo_3_termina_com_d_5_m(self):
+        # a guarda é `> 2`: com `> 3` o passo 3 não terminaria
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=5.0, passo=3))
+
+    def test_d_3_02_m_termina(self):
+        # o limiar é o `dist_travessia` (3,0 m), e não um valor acima dele
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=ATIVO.terreno.dist_travessia + 0.02, passo=10))
+
+    def test_o_z_nao_entra(self):
+        # base 0,78 m acima da origem com 2,9 m no plano: a norma 3D daria 3,003 m e terminaria
+        self.assertFalse(self._fim(fatia=0, coluna=2, d=2.9, passo=10, dz=0.78))
+
+    def test_segue_o_pose_ult_e_nao_o_root_link_pos_w(self):
+        # a leitura de `root_link_pos_w` inverte os dois casos
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=3.1, passo=10, d_raiz=2.9))
+        self.assertFalse(self._fim(fatia=0, coluna=2, d=2.9, passo=10, d_raiz=3.1))
+
     def test_as_regras_de_hoje_seguem(self):
         self.assertTrue(self._fim(fatia=0, coluna=0, d=0.0, passo=1000, max_ep=1000))  # `max_episode_length`
         self.assertTrue(self._fim(fatia=0, coluna=0, d=0.0, passo=10, fim=True))  # `v3_fim`
 
 
+class TestTerminoERegistroLeemAMesmaPosicao(unittest.TestCase):
+    """T19 §13.8: a ordem de um passo do mjlab (`docs/treino/10-tarefa-andar.md` §2.11) é terminações, recompensas, reset (o
+    `sorteia_fatia` é o primeiro evento), `sim.forward` e o `compute` dos comandos, que grava o `pose_ult`. No passo k, o
+    `root_link_pos_w` é a posição k e o `pose_ult` a k−1. No passo em que o término dispara, o registro tem de contar a travessia."""
+
+    def test_no_passo_do_termino_o_registro_conta_visita_e_travessia(self):
+        T, dt = ATIVO.terreno, 0.02
+        origem = torch.tensor([[10.0, -5.0, 0.0]])
+        xs = [2.95, 2.99, 3.01, 3.05]  # distância da base à origem da célula, passo a passo
+        terreno = types.SimpleNamespace(terrain_types=torch.tensor([2]), terrain_levels=torch.zeros(1, dtype=torch.long),
+                                        terrain_origins=torch.zeros(T.linhas, len(T.colunas), 3))
+        twist = types.SimpleNamespace(pose_ult=None, soma_cmd_marcha=torch.tensor([2.5 / dt]))  # pedido de 2,5 m: a visita vem do d
+        cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, T)
+        env = types.SimpleNamespace(
+            device="cpu", step_dt=dt, v3_cur=cur, v3_gerador=torch.Generator().manual_seed(0), v3_fatia=torch.tensor([0]),
+            v3_t_empurrao=torch.zeros(1), max_episode_length=1000, v3_fim=torch.tensor([False]),
+            command_manager=types.SimpleNamespace(get_term=lambda nome: twist),
+            termination_manager=types.SimpleNamespace(terminated=torch.tensor([False])))  # o `time_out` não entra em `terminated`
+        for k in range(1, len(xs)):
+            env.episode_length_buf = torch.tensor([10 + k])
+            twist.pose_ult = origem + torch.tensor([[xs[k - 1], 0.0, 0.0]])  # x, y e rumo (0), gravados no passo k−1
+            env.scene = _Cena(origem.clone(), terreno, origem + torch.tensor([[xs[k], 0.0, 0.78]]))
+            if terminacoes.fim_da_cadeia(env)[0]:
+                break
+        else:
+            self.fail("o término não disparou")
+        eventos.sorteia_fatia(env, torch.arange(1), T)
+        self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (1, 1))
+
+
 class _Cena:
-    # `env.scene["robot"].data.root_link_pos_w`, `env.scene["terrain"].terrain_types` e `env.scene.env_origins`, como a cena do mjlab
-    def __init__(self, origem, coluna, base):
+    # `env.scene["robot"].data.root_link_pos_w`, `env.scene["terrain"]` e `env.scene.env_origins`, como a cena do mjlab
+    def __init__(self, origem, terreno, base):
         self.env_origins = origem
-        self._itens = {"robot": types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=base)),
-                       "terrain": types.SimpleNamespace(terrain_types=coluna)}
+        self._itens = {"robot": types.SimpleNamespace(data=types.SimpleNamespace(root_link_pos_w=base)), "terrain": terreno}
 
     def __getitem__(self, nome):
         return self._itens[nome]
