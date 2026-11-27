@@ -116,6 +116,12 @@ class TestFracoes(unittest.TestCase):
 
 class TestAberturaInicial(unittest.TestCase):
 
+    def test_a_celula_terreno_do_andar_nasce_aberta(self):
+        # 27/11, T19: o degrau aparece com a marcha ainda se formando; a célula `terreno` do ANDAR abre no começo (as outras, não)
+        c = novo()
+        self.assertTrue(c.celulas[cid(c, "ANDAR", "terreno")].aberta)
+        self.assertFalse(c.celulas[cid(c, "CARREGAR", "terreno")].aberta)
+
     def test_so_o_andar_abre_no_comeco(self):
         # S §11.1: "só o ANDAR abre no começo (fase 0, 100%)".
         f = novo().fracoes_fatias()
@@ -325,13 +331,29 @@ class TestSubidaDeNivel(unittest.TestCase):
         self.assertFalse(cur._passa(andar))
         self.assertTrue(cur._passa(ter))
         self.assertFalse(cur._passa(carregar_ter))
-        # a linha de terreno sobe com a célula `terreno` aberta, no nível máximo do plano, a 0,6 por 50 fechos
-        cur.celulas[ter].aberta = True
+        # 27/11, T19: a nota da célula `terreno` do ANDAR não move mais a linha (ela dava ~0,65 ao robô parado na plataforma):
+        # no nível máximo do plano, a 0,6 por 50 fechos, a linha fica em 0. A do CARREGAR, com a mesma nota no portão dela
+        # (0,75), ainda sobe
         cur.celulas[ter].n_medidas = 1
         for _ in range(B.iters_nivel):
             cur.registra(ter, 10, 6.0)
             cur.fecha_iteracao()
-        self.assertEqual(cur.nivel_terreno("ANDAR"), 1)
+        self.assertEqual((cur.nivel_terreno("ANDAR"), cur.linha), (0, [0.0] * len(TER.colunas)))
+        cur = novo(andar=0)
+        cur._nivel["CARREGAR"] = cur.max_nivel["CARREGAR"]
+        cur.linha[1:] = [1.0] * (len(cur.linha) - 1)  # o terreno do CARREGAR abre com o ANDAR fora da linha 0
+        for tp in balanceador.VELOCIDADE["CARREGAR"]:
+            cur.celulas[cid(cur, "CARREGAR", tp)].aberta, cur.celulas[cid(cur, "CARREGAR", tp)].s = True, 1.0
+        cur.fecha_iteracao()
+        carregar = cid(cur, "CARREGAR", "terreno")
+        self.assertTrue(cur.celulas[carregar].aberta)
+        cur.celulas[carregar].s, cur.celulas[carregar].n_medidas = 1.0, 1
+        for _ in range(B.iters_nivel):
+            cur.registra(carregar, 10, 10.0)
+            for tp in balanceador.VELOCIDADE["CARREGAR"]:
+                cur.registra(cid(cur, "CARREGAR", tp), 10, 10.0)
+            cur.fecha_iteracao()
+        self.assertEqual(cur.nivel_terreno("CARREGAR"), 1)
 
     def test_contagem_zera_com_uma_queda_e_conta_da_volta(self):
         # 16/11, A4: nota 0,85 por 40 fechos, 0,0 por 4, 0,85 depois. No fecho 50 o nível não sobe; ele sobe só
@@ -506,33 +528,108 @@ class TestRefino(unittest.TestCase):
 
 class TestNivelDeTerreno(unittest.TestCase):
 
-    def test_terreno_sobe_uma_linha_por_carencia_ate_o_teto_e_o_refino_espera(self):
-        # B3 e §6.3 (29/10): a linha do gerador sobe dentro da célula `terreno`, pela regra dos níveis;
-        # teto 12 no ANDAR (linhas − 1) e 9 no CARREGAR (o maior `linha_max_carregar`, PD-20). O refino
-        # do ANDAR espera o último nível de terreno.
+    def test_terreno_do_carregar_sobe_uma_linha_por_carencia_e_o_do_andar_pela_linha_por_coluna(self):
+        # B3 e §6.3 (29/10): a linha do CARREGAR sobe dentro da célula `terreno`, pela regra dos níveis, até 9 (o maior
+        # `linha_max_carregar`, PD-20). 27/11, T19: a do ANDAR sobe por coluna pela taxa de travessia (aqui, 1,0 em toda coluna a
+        # cada fecho: +1,0 linha), até 12 (linhas − 1). O refino do ANDAR espera o último nível de terreno.
         cur = novo(andar=NIVEL_B)
         teto_andar = TER.linhas - 1
         teto_carregar = max(v for _nome, v in TER.linha_max_carregar)
-        ter_andar = cid(cur, "ANDAR", "terreno")
+        ter_carregar = cid(cur, "CARREGAR", "terreno")
         historico = []
         for _ in range(2000):
-            antes = cur.nivel_terreno("ANDAR")
+            antes = cur.nivel_terreno("CARREGAR")
+            cur.vis_ter[1:] = cur.trav_ter[1:] = [B.linha_n_min] * (len(cur.linha) - 1)
             fecha(cur)
-            depois = cur.nivel_terreno("ANDAR")
+            depois = cur.nivel_terreno("CARREGAR")
             self.assertIn(depois - antes, (0, 1), f"it {cur.it}: o terreno pulou linha")
             if depois > antes:
                 historico.append(cur.it)
             if depois > 0:
-                self.assertTrue(cur.celulas[ter_andar].aberta, "linha de terreno sem a célula aberta")
-            if depois < teto_andar:
+                self.assertTrue(cur.celulas[ter_carregar].aberta, "linha de terreno sem a célula aberta")
+            if cur.nivel_terreno("ANDAR") < teto_andar:
                 self.assertEqual(cur.degrau("ANDAR"), 0, f"it {cur.it}: refino antes do último terreno")
             self.assertLessEqual(cur.nivel_terreno("CARREGAR"), teto_carregar)
             self.assertEqual(cur.nivel_terreno("PEGAR"), 0)
         self.assertEqual(cur.nivel_terreno("ANDAR"), teto_andar)
+        self.assertEqual(cur.linha[1:], [float(teto_andar)] * (len(cur.linha) - 1))
         self.assertEqual(cur.nivel_terreno("CARREGAR"), teto_carregar)
         for a, b in zip(historico, historico[1:]):
             self.assertGreaterEqual(b - a, B.iters_nivel, "subida de terreno sem as 50 seguidas")
         self.assertGreaterEqual(cur.degrau("ANDAR"), 1)  # com sucesso total, o refino chega
+
+
+class TestLinhaDeTerrenoDoAndar(unittest.TestCase):
+    """27/11, T19: a linha de terreno do ANDAR por coluna, pela taxa de travessia (o molde da zona do PEGAR)."""
+
+    def _fecha_coluna(self, cur, c, vis, trav):
+        cur.vis_ter[c], cur.trav_ter[c] = vis, trav
+        cur.fecha_iteracao()
+
+    def test_nao_muda_abaixo_de_linha_n_min_visitas_e_os_contadores_ficam(self):
+        cur = novo()
+        self._fecha_coluna(cur, 1, B.linha_n_min - 1, B.linha_n_min - 1)
+        self.assertEqual(cur.linha, [0.0] * len(TER.colunas))
+        self.assertEqual((cur.vis_ter[1], cur.trav_ter[1]), (B.linha_n_min - 1, B.linha_n_min - 1))
+
+    def test_taxa_um_sobe_linha_ganho_vezes_um_menos_o_alvo_e_zera_os_contadores(self):
+        cur = novo()
+        self._fecha_coluna(cur, 2, B.linha_n_min, B.linha_n_min)
+        self.assertAlmostEqual(cur.linha[2], B.linha_ganho * (1.0 - B.zona_t_alvo))  # 1,0
+        self.assertEqual([cur.linha[c] for c in range(len(cur.linha)) if c != 2], [0.0] * (len(cur.linha) - 1))
+        self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (0, 0))
+
+    def test_taxa_no_alvo_fica_e_taxa_zero_desce_e_para_em_zero(self):
+        cur = novo()
+        cur.linha[3] = 4.0
+        self._fecha_coluna(cur, 3, 100, 60)  # taxa 0,6 = `zona_t_alvo`
+        self.assertAlmostEqual(cur.linha[3], 4.0)
+        self._fecha_coluna(cur, 3, 100, 0)
+        self.assertAlmostEqual(cur.linha[3], 4.0 - B.linha_ganho * B.zona_t_alvo)  # 2,5
+        for _ in range(3):
+            self._fecha_coluna(cur, 3, 100, 0)
+        self.assertEqual(cur.linha[3], 0.0)
+
+    def test_para_em_linhas_menos_um(self):
+        cur = novo()
+        for _ in range(20):
+            self._fecha_coluna(cur, 1, 100, 100)
+        self.assertEqual(cur.linha[1], float(TER.linhas - 1))
+
+    def test_nivel_terreno_do_andar_e_o_piso_da_media_das_colunas_de_terreno(self):
+        cur = novo()
+        cur.linha[1:] = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 1.9]
+        self.assertEqual(cur.nivel_terreno("ANDAR"), 1)  # média 1,9875: a coluna 0 (plano) não entra
+        cur.linha[1:] = [2.0] * (len(cur.linha) - 1)
+        self.assertEqual(cur.nivel_terreno("ANDAR"), 2)
+
+    def test_a_linha_vai_ao_estado_e_volta_e_estado_sem_a_chave_carrega_zeros(self):
+        cur = novo()
+        cur.linha[1:] = [1.5] * (len(cur.linha) - 1)
+        cur.vis_ter[4], cur.trav_ter[4] = 30, 12
+        est = cur.estado()
+        self.assertTrue(so_tipos_python(est))
+        self.assertEqual(est["terreno"], {"linha": cur.linha, "visitas": cur.vis_ter, "travessias": cur.trav_ter})
+        cur2 = novo()
+        cur2.carrega(est)
+        self.assertEqual(cur2.estado(), est)
+        del est["terreno"]  # o model_4000 não tem a chave
+        cur2.carrega(est)
+        self.assertEqual(cur2.linha, [0.0] * len(TER.colunas))
+        self.assertEqual((cur2.vis_ter, cur2.trav_ter), ([0] * len(TER.colunas), [0] * len(TER.colunas)))
+
+    def test_o_terreno_do_carregar_so_abre_com_a_media_das_linhas_do_andar_em_1_ou_mais(self):
+        cur = novo()
+        cur._nivel["CARREGAR"] = cur.max_nivel["CARREGAR"]
+        for tp in balanceador.VELOCIDADE["CARREGAR"]:
+            cur.celulas[cid(cur, "CARREGAR", tp)].aberta, cur.celulas[cid(cur, "CARREGAR", tp)].s = True, 1.0
+        cur.celulas[cid(cur, "ANDAR", "terreno")].s = 1.0  # a nota do ANDAR não abre mais o terreno do CARREGAR
+        cur.linha[1:] = [0.99] * (len(cur.linha) - 1)
+        cur.fecha_iteracao()
+        self.assertFalse(cur.celulas[cid(cur, "CARREGAR", "terreno")].aberta)
+        cur.linha[1:] = [1.0] * (len(cur.linha) - 1)
+        cur.fecha_iteracao()
+        self.assertTrue(cur.celulas[cid(cur, "CARREGAR", "terreno")].aberta)
 
 
 class TestSorteioDeFatias(unittest.TestCase):

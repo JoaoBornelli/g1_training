@@ -23,7 +23,8 @@ LAYOUT = (("ANDAR", "andar"), ("ANDAR", "terreno"),
           ("CARREGAR", "reto"), ("CARREGAR", "giro_lugar"), ("CARREGAR", "arco"), ("CARREGAR", "terreno"),
           ("PEGAR", "pegar"), ("BOTAR", "botar"))
 _POS = {lay: i for i, lay in enumerate(LAYOUT)}
-ABERTAS_NO_COMECO = (("ANDAR", "andar"),)  # S §11.1: só o ANDAR abre no começo
+# S §11.1: só o ANDAR abre no começo. 27/11, T19: com a célula `terreno` dele, para o degrau aparecer com a marcha ainda se formando
+ABERTAS_NO_COMECO = (("ANDAR", "andar"), ("ANDAR", "terreno"))
 # células de velocidade: o nível sobe quando todas estão abertas e no portão
 VELOCIDADE = {"ANDAR": ("andar",),
               "CARREGAR": ("reto", "giro_lugar", "arco"), "PEGAR": ("pegar",), "BOTAR": ("botar",)}
@@ -80,7 +81,12 @@ class Curriculo:
         self._acum_n = [0] * len(LAYOUT)  # contagens da iteração corrente (zeradas no fecho)
         self._acum_suc = [0] * len(LAYOUT)
         self._nivel = dict.fromkeys(TAREFAS, 0)
-        self._nivel_ter = dict.fromkeys(TAREFAS, 0)  # só ANDAR e CARREGAR sobem; PEGAR e BOTAR ficam em 0
+        self._nivel_ter = dict.fromkeys(TAREFAS, 0)  # só o CARREGAR sobe aqui; o ANDAR tem a linha por coluna (abaixo); PEGAR e BOTAR ficam em 0
+        # 27/11, T19: linha de terreno do ANDAR por coluna (a 0, `plano`, não é usada), movida no fecho pela taxa de travessia.
+        # O `eventos.sorteia_fatia` preenche as visitas e as travessias da iteração (o molde de `vis_acum` e `fech_acum`)
+        self.linha = [0.0] * len(k_ter.colunas)
+        self.vis_ter = [0] * len(k_ter.colunas)
+        self.trav_ter = [0] * len(k_ter.colunas)
         # 13/11, M3: subnível do nível 0 do PEGAR e do BOTAR (laje alta primeiro). O índice do nível não muda com ele
         self._sub = {"PEGAR": 0, "BOTAR": 0}
         self._sub_max = len(k_niv.subnivel_extra) - 1
@@ -162,6 +168,12 @@ class Curriculo:
                 self.vis_acum[e] = self.fech_acum[e] = 0
         for e in (*range(1, 4), *range(5, 7)):  # P1..P3 e B2..B3: o P0 e o B1 abrem a cadeia
             self.z[e] = max(self.z[e], self.z[e - 1] - self.k.zona_folga_cadeia)
+        # 27/11, T19: a linha de terreno de cada coluna do ANDAR sobe com a taxa de travessia acima de `zona_t_alvo` e desce abaixo
+        for c, n in enumerate(self.vis_ter):
+            if c > 0 and n >= self.k.linha_n_min:
+                taxa = self.trav_ter[c] / n
+                self.linha[c] = min(max(self.linha[c] + self.k.linha_ganho * (taxa - self.k.zona_t_alvo), 0.0), float(self._max_ter["ANDAR"]))
+                self.vis_ter[c] = self.trav_ter[c] = 0
         for t in TAREFAS:
             self._conta_refino(t)
         self._abre()
@@ -199,11 +211,11 @@ class Curriculo:
                 self._abre_cel(t, fechadas[0])
         for t in CADEIA:
             # terreno: depois do último nível de velocidade, com todas as abertas no portão.
-            # ⚠ no CARREGAR, também com o terreno do ANDAR já passado no portão no nível de terreno 0
-            # (S §11.2): ou o ANDAR já subiu de linha, ou a célula dele passa agora.
+            # ⚠ no CARREGAR, também com o ANDAR já fora da linha 0 (S §11.2). 27/11, T19: a nota da célula `terreno` do ANDAR
+            # saiu desta conta (dava ~0,65 ao robô parado na plataforma); o ANDAR abre a célula `terreno` no começo
             if self._nivel[t] != self.max_nivel[t] or self._aberta(t, "terreno"):
                 continue
-            if t == "CARREGAR" and not (self._nivel_ter["ANDAR"] >= 1 or self._passa(_POS[("ANDAR", "terreno")])):
+            if t == "CARREGAR" and self.nivel_terreno("ANDAR") < 1:
                 continue
             if self._passa_media(self._abertos(t)):
                 self._abre_cel(t, "terreno")
@@ -218,7 +230,7 @@ class Curriculo:
         if self._degrau[t] >= self.k.degraus:
             return
         ultimo = self._nivel[t] == self.max_nivel[t] and (
-            t not in CADEIA or (self._aberta(t, "terreno") and self._nivel_ter[t] == self._max_ter[t]))
+            t not in CADEIA or (self._aberta(t, "terreno") and self.nivel_terreno(t) == self._max_ter[t]))
         abertas = self._abertos(t)
         if ultimo and self._passa_media(abertas):
             self._cont[t] += 1
@@ -231,14 +243,15 @@ class Curriculo:
     def _sobe(self) -> None:
         # 16/11, A4 e P8: a tarefa sobe depois de `iters_nivel` fechos seguidos no portão; um fecho abaixo zera a contagem.
         # No nível abaixo do máximo, `ok` é: todas as células de velocidade abertas e a média no portão (PD-12, S §11.2).
-        # No máximo, numa tarefa de cadeia com a linha de terreno abaixo do teto: a célula `terreno` aberta e no portão.
+        # No máximo, no CARREGAR com a linha de terreno abaixo do teto: a célula `terreno` aberta e no portão. 27/11, T19: a
+        # linha do ANDAR não sobe aqui, sobe por coluna pela taxa de travessia (`fecha_iteracao`).
         # O que sobe: o subnível (13/11, M3: só PEGAR e BOTAR no nível 0), o nível ou a linha de terreno.
         for t in TAREFAS:
             ids = [_POS[(t, tp)] for tp in VELOCIDADE[t]]
             ter = _POS.get((t, "terreno"))
             if self._nivel[t] < self.max_nivel[t]:
                 ok = all(self.celulas[i].aberta for i in ids) and self._passa_media(ids)
-            elif t in CADEIA and self._nivel_ter[t] < self._max_ter[t]:
+            elif t == "CARREGAR" and self._nivel_ter[t] < self._max_ter[t]:
                 ok = self.celulas[ter].aberta and self._passa(ter)
             else:
                 ok = False
@@ -307,6 +320,9 @@ class Curriculo:
         return self._sub.get(tarefa, self._sub_max)
 
     def nivel_terreno(self, tarefa: str) -> int:
+        # 27/11, T19: o ANDAR tem a linha por coluna; o nível é o piso da média das 8 colunas de terreno
+        if tarefa == "ANDAR":
+            return math.floor(sum(self.linha[1:]) / (len(self.linha) - 1))
         return self._nivel_ter[tarefa]
 
     def niveis_abertos(self, tarefa: str) -> int:
@@ -378,6 +394,7 @@ class Curriculo:
             "it_abertura": list(self._it_abertura),
             "rampa": list(self._rampa),
             "zona": {"z": list(self.z), "visitas": list(self.vis_acum), "fechos": list(self.fech_acum)},
+            "terreno": {"linha": list(self.linha), "visitas": list(self.vis_ter), "travessias": list(self.trav_ter)},
         }
 
     def carrega(self, estado: dict) -> None:
@@ -401,6 +418,12 @@ class Curriculo:
         self.z = list(zona.get("z", [1.0] * N_ETAPAS))
         self.vis_acum = list(zona.get("visitas", [0] * N_ETAPAS))
         self.fech_acum = list(zona.get("fechos", [0] * N_ETAPAS))
+        # 27/11, T19: estado sem a chave (checkpoint antigo): todas as colunas na linha 0, sem visitas
+        ter = estado.get("terreno", {})
+        n = len(self.linha)
+        self.linha = list(ter.get("linha", [0.0] * n))
+        self.vis_ter = list(ter.get("visitas", [0] * n))
+        self.trav_ter = list(ter.get("travessias", [0] * n))
         if len(self.z) != N_ETAPAS:
             # 23/11, T14: o estado da zona de 9 etapas guarda só o P0, P1 e P2 (os mesmos índices); as etapas novas recomeçam
             # largas, sem visitas, e a taxa volta a −1 (sem medida)

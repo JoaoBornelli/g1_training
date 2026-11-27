@@ -33,11 +33,11 @@ def cel(cur, tarefa, tipo):
 
 
 def prepara_carregar_no_portao(cur):
-    # as células de velocidade do CARREGAR abertas e no portão; a célula `terreno` do ANDAR passada (s ≥ portão)
+    # as células de velocidade do CARREGAR abertas e no portão; o ANDAR já fora da linha 0 (27/11, T19: a média das linhas ≥ 1)
     for tp in balanceador.VELOCIDADE["CARREGAR"]:
         c = cel(cur, "CARREGAR", tp)
         c.aberta, c.s = True, 1.0
-    cel(cur, "ANDAR", "terreno").s = 1.0
+    cur.linha[1:] = [1.0] * (len(cur.linha) - 1)
 
 
 class TestCelulaTerrenoDoCarregar(unittest.TestCase):
@@ -54,16 +54,17 @@ class TestCelulaTerrenoDoCarregar(unittest.TestCase):
         cur.fecha_iteracao()
         self.assertTrue(cel(cur, "CARREGAR", "terreno").aberta)
 
-    def test_terreno_do_carregar_espera_o_terreno_do_andar_passar(self):
-        # S §11.2: no último nível, a célula só abre com o terreno do ANDAR passado (s ≥ portão) ou com o
-        # nível de terreno do ANDAR já em 1 ou mais. Sem nenhum dos dois, fica fechada.
+    def test_terreno_do_carregar_espera_o_terreno_do_andar_sair_da_linha_0(self):
+        # S §11.2: no último nível, a célula só abre com o nível de terreno do ANDAR (o piso da média das linhas por coluna) em 1 ou
+        # mais. 27/11, T19: a nota da célula `terreno` do ANDAR saiu desta conta (dava ~0,65 ao robô parado na plataforma).
         cur = novo()
         prepara_carregar_no_portao(cur)
         cur._nivel["CARREGAR"] = MAX_CARREGAR
-        cel(cur, "ANDAR", "terreno").s = 0.0
+        cur.linha[1:] = [0.0] * (len(cur.linha) - 1)
+        cel(cur, "ANDAR", "terreno").s = 1.0
         cur.fecha_iteracao()
         self.assertFalse(cel(cur, "CARREGAR", "terreno").aberta)
-        cur._nivel_ter["ANDAR"] = 1  # a linha do ANDAR já subiu: o terreno do ANDAR conta como passado
+        cur.linha[1:] = [1.0] * (len(cur.linha) - 1)  # a linha do ANDAR já subiu
         cur.fecha_iteracao()
         self.assertTrue(cel(cur, "CARREGAR", "terreno").aberta)
 
@@ -105,7 +106,7 @@ class TestSorteioDeTerrenoDaFatiaB(unittest.TestCase):
             g = torch.Generator().manual_seed(0)
             coluna, linha = escolhe_celula_terreno(
                 torch.full((n,), FATIA_B, dtype=torch.long), torch.ones(n, dtype=torch.bool),
-                torch.full((n,), nivel, dtype=torch.long), TER, g)
+                torch.full((n,), nivel, dtype=torch.long), torch.zeros(len(TER.colunas), dtype=torch.float64), TER, g)
             teto = teto_da_coluna[coluna]
             self.assertTrue((teto >= 0).all(), "a fatia B sorteou coluna sem plataforma")
             self.assertTrue((linha <= teto).all(), "a linha passou do teto da coluna")

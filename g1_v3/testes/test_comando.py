@@ -139,8 +139,27 @@ class SorteiaVelocidadeTest(unittest.TestCase):
         v = amostra("terreno", 7, "ANDAR")
         self.assertLessEqual(float(v[:, 0].max()), K.terreno_v_max + 1e-6)
         self.assertGreater(float(v[:, 0].max()), K.terreno_v_max - 0.01)
-        self.assertGreaterEqual(float(v[:, 0].min()), -K.tras_teto_max - 1e-6)
-        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), K.andar_parado, delta=0.01)
+        self.assertGreaterEqual(float(v[:, 0].min()), 0.0)
+        # 27/11, T19: vx = frente·r (r = √U): zero também quando vx < `linear_min`, P = (linear_min/frente)²
+        frente = min(K.frente_tetos[-1], K.terreno_v_max)
+        parado = K.andar_parado + (1 - K.andar_parado) * (K.linear_min / frente) ** 2
+        self.assertAlmostEqual(float((v == 0).all(dim=1).float().mean()), parado, delta=0.01)
+
+    def test_andar_terreno_e_so_frente_e_rumo(self):
+        # 27/11, T19: no terreno do ANDAR o sorteio é "frente + rumo": vy = 0 e wz = 0 (o rumo é do `TwistV3._update_command`), vx de 0 até
+        # `frente` (o teto do nível, com `terreno_v_max`), e as regras `linear_min` e `andar_parado` continuam. O `andar` (plano) não muda
+        for nivel in range(8):
+            v = amostra("terreno", nivel, "ANDAR", seed=nivel)
+            frente = min(K.andar_inicio + K.andar_passo * nivel, K.frente_tetos[-1], K.terreno_v_max)
+            with self.subTest(nivel=nivel):
+                self.assertTrue(bool((v[:, 1] == 0).all()))
+                self.assertTrue(bool((v[:, 2] == 0).all()))
+                self.assertGreaterEqual(float(v[:, 0].min()), 0.0)
+                self.assertAlmostEqual(float(v[:, 0].max()), frente, delta=0.01)
+                self.assertFalse(bool(((v[:, 0] > 0) & (v[:, 0] < K.linear_min)).any()))
+        v = amostra("andar", 7, "ANDAR")
+        self.assertGreater(float(v[:, 1].abs().max()), 0.2)  # fora do terreno vy e wz seguem sorteados
+        self.assertGreater(float(v[:, 2].abs().max()), 0.4)
 
     def test_andar_giro_e_zero_ou_pelo_menos_giro_min(self):
         # 24/11, T15: abaixo de 0,1 rad/s a razão ω̄/c_z é ruído; o sorteio que cai aí vira 0. 10 000 sorteios por nível
@@ -151,7 +170,8 @@ class SorteiaVelocidadeTest(unittest.TestCase):
                 with self.subTest(nivel=nivel, tipo=tipo):
                     wz = v[:, 2].abs()
                     self.assertFalse(bool(((wz > 0) & (wz < K.giro_min - 1e-7)).any()))
-                    self.assertGreater(float((wz >= K.giro_min - 1e-7).float().mean()), 0.3)  # o giro não some
+                    if tipo == "andar":  # 27/11, T19: no terreno o wz sorteado é 0 (o rumo faz o giro)
+                        self.assertGreater(float((wz >= K.giro_min - 1e-7).float().mean()), 0.3)  # o giro não some
         # nível 0 (teto 0,3): o terço do sorteio em |wz| < 0,1 vira zero, entre os segmentos com comando linear
         v = amostra("andar", 0, "ANDAR")
         ativo = (v[:, :2] != 0).any(dim=1)

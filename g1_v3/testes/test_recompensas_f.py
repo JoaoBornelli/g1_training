@@ -246,13 +246,18 @@ class F9RecuoSolto(unittest.TestCase):
 class F9AlturaPeComComando(unittest.TestCase):
     """F9 P4: a `altura_pe` vale zero com o comando do twist zero (o ANDAR parado final pagava 1,0 com o pé parado)."""
 
-    def _env(self, cmd):
+    def _env(self, cmd, nivel=0, v_med=(0.0, 0.0, 0.0), g=0.0):
+        # 27/11, T19: o valor × `_avanco` (o `_rastreio` lê `v_filt` e `g_marcha` do twist; o nível do ANDAR dá o piso)
         pes = types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.full((1, 2), R.alvo_pe)))
-        robo = types.SimpleNamespace(data=types.SimpleNamespace(body_link_vel_w=torch.zeros(1, 2, 6)),
+        robo = types.SimpleNamespace(data=types.SimpleNamespace(body_link_vel_w=torch.zeros(1, 2, 6),
+                                                                root_link_lin_vel_b=torch.zeros(1, 3),
+                                                                root_link_ang_vel_b=torch.zeros(1, 3)),
                                      find_bodies=lambda nomes: ([0, 1], None))
+        twist = types.SimpleNamespace(v_filt=torch.tensor([v_med], dtype=torch.float32), g_marcha=torch.tensor([g]))
         return types.SimpleNamespace(
             device="cpu", scene={"altura_pes": pes, "robot": robo},
-            command_manager=types.SimpleNamespace(get_command=lambda nome: cmd),
+            command_manager=types.SimpleNamespace(get_command=lambda nome: cmd, get_term=lambda nome: twist),
+            v3_cur=types.SimpleNamespace(nivel=lambda tarefa: nivel, max_nivel={"ANDAR": 7}, restricao=lambda: 1.0),
             v3_tarefa=t(TAREFAS.index("ANDAR"), torch.long), v3_perdeu=torch.zeros(1, dtype=torch.bool))
 
     def test_pes_parados_com_comando_zero_nao_pagam(self):
@@ -262,6 +267,17 @@ class F9AlturaPeComComando(unittest.TestCase):
     def test_pes_parados_com_comando_de_marcha_pagam_um(self):
         r = recompensas.altura_pe(self._env(torch.tensor([[0.5, 0.0, 0.0]])), ("ANDAR", "CARREGAR"))
         self.assertAlmostEqual(float(r[0]), 1.0, places=6)
+
+    def test_no_nivel_maximo_sem_avanco_paga_o_piso_e_no_nivel_0_paga_inteiro(self):
+        # 27/11, T19: pés parados com comando (avanço 0) pagam `piso_avanco` no nível máximo do ANDAR e 1 no nível 0; com avanço 1, 1
+        cmd = torch.tensor([[0.5, 0.0, 0.0]])
+        tarefas = ("ANDAR", "CARREGAR")
+        self.assertAlmostEqual(float(recompensas.altura_pe(self._env(cmd, nivel=7), tarefas)[0]), R.piso_avanco, places=6)
+        self.assertAlmostEqual(float(recompensas.altura_pe(self._env(cmd, nivel=0), tarefas)[0]), 1.0, places=6)
+        r = recompensas.altura_pe(self._env(cmd, nivel=7, v_med=(0.5, 0.0, 0.0), g=1.0), tarefas)
+        self.assertAlmostEqual(float(r[0]), 1.0, places=6)
+        # comando zero segue zero (F9 P4), mesmo no nível máximo
+        self.assertAlmostEqual(float(recompensas.altura_pe(self._env(torch.zeros(1, 3), nivel=7), tarefas)[0]), 0.0, places=6)
 
 
 class F9RefDoAlvoPublica(unittest.TestCase):

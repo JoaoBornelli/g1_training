@@ -242,6 +242,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     sigma_zero_ang: float = 0.15  # PD-49: σ₀ do giro sem comando (rad/s); 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
     sigma_zero_ang_inicio: float = 0.5  # 11/11 (§2): o σ₀ DESCE de 0,5 (restricao 0) a sigma_zero_ang (restricao 1); 16/11, T3: só o sinal de progresso do CARREGAR (M5) o usa
     passo: float = 0.5  # 16/11, R: peso do `feet_gait` da Unitree (até 1,0/s nos dois pés); era 1,3 por pé
+    piso_avanco: float = 0.25  # 27/11, T19: fração do `passo` e do `altura_pe` que paga sem avanço, no nível máximo do ANDAR (o nível 0 paga 1,0). Com 0 uma corrida do zero nasce morta: `passo` → `g_marcha` → rastreio dependeriam um do outro
     L_min: float = 0.20  # S §19, conflito 6: comprimento mínimo do passo (m); 13/11, M4: o treino não lê; só `parte0/item8_passo.py`
     fator_T: tuple = (0.8, 1.4)  # S §19, conflito 6: faixa de L_alvo em × |v|; 13/11, M4: o treino não lê; só `parte0/item8_passo.py`
     vivo: float = 1.0  # S §9.2: peso do "vivo" (zero depois da caixa perdida); 11/11: era 0,15, a recompensa do início paga ficar de pé (§1)
@@ -405,6 +406,9 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     zona_n_min: int = 200  # 20/11, T13: visitas encerradas da etapa para atualizar o z (taxa com ruído de ~3 % a 200)
     zona_t_visita: float = 8.0  # 20/11, T13: s desde a abertura da etapa; sem fecho até lá a visita conta falha
     zona_folga_cadeia: float = 0.2  # 20/11, T13: uma etapa não fica mais apertada que a anterior por mais que isto
+    # 27/11, T19: linha de terreno do ANDAR por coluna, pela taxa de travessia (o molde da zona acima: `zona_t_alvo` é o alvo)
+    linha_n_min: int = 50  # 27/11, T19: visitas da coluna para atualizar a linha (~2 episódios de ANDAR por coluna por iteração com 4096 envs: ~25 its; ruído da taxa ~7 %)
+    linha_ganho: float = 2.5  # 27/11, T19: linha ← clip(linha + k·(taxa − `zona_t_alvo`)): taxa 1,0 sobe 1,0 linha; taxa 0 desce 1,5; taxa 0,6 fica
 
 
 @dataclass(frozen=True)
@@ -434,6 +438,7 @@ class Terreno:  # S §11.2, §12; PD-20
     linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
                                  ("escada_aleatoria", 6), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
+    dist_travessia: float = 3.0  # 27/11, T19: o ANDAR de terreno atravessou se o robô passou desta distância da origem da célula (m); os degraus acabam antes de 3,0 m (plataforma de 2 m, 6 degraus de 0,30 m)
     laje_do_centro: float = 0.75  # G1; S §12: o centro da laje a 0,75 m do centro da plataforma (m)
     # D1 (29/10: sai da cena.py): border_width do gerador de terreno (m)
     borda: float = 20.0

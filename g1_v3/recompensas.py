@@ -602,6 +602,18 @@ def rastreio_angular(env, tarefas):
     return _fim(env, tarefas, _rastreio_com_qualidade(env, False), paga=True)
 
 
+def _avanco(env):
+    """(E,) fator do `passo` e do `altura_pe` (27/11, T19): piso + (1 − piso)·p. O p é a tenda da fração entregue do comando
+    (`_rastreio`, já × g): a do linear se ele tem comando (≥ `limiar_canal`), senão a do giro se ele tem; sem comando, 1. O piso
+    segue o nível do ANDAR: 1 no nível 0 (sem corte: a partida do zero é a da T16) e `piso_avanco` no nível máximo. Marchar no
+    lugar com comando paga o piso; atravessar paga o valor inteiro."""
+    cmd = env.command_manager.get_command("twist")
+    lin, ang = cmd[:, :2].norm(dim=-1) >= C.limiar_canal, cmd[:, 2].abs() >= C.limiar_canal
+    p = torch.where(lin, _rastreio(env, True), torch.where(ang, _rastreio(env, False), torch.ones_like(cmd[:, 0])))
+    piso = balanceador.no_degrau(1.0, R.piso_avanco, env.v3_cur.nivel("ANDAR"), env.v3_cur.max_nivel["ANDAR"])
+    return piso + (1.0 - piso) * p
+
+
 def passo(env, tarefas):
     """Marcha por relógio, na forma do `feet_gait` do unitree_rl_lab (16/11, R). ANDAR e CARREGAR.
 
@@ -612,10 +624,11 @@ def passo(env, tarefas):
     24/11, T16: com o relógio parado (‖comando‖ ≤ limiar) cada pé em contato com o chão paga 1 (pés fixos: até 1,0/s parado).
     O acerto, o filtro dele e o g moram no `TwistV3._update_metrics` (o mjlab pula um termo de peso 0); aqui só o valor
     do passo corrente, que chega antes do `command_manager.compute`.
+    27/11, T19: o valor vale × `_avanco`: marchar no lugar com comando paga o piso (25 % no nível máximo do ANDAR).
     """
     on = env.command_manager.get_command("twist").norm(dim=-1) > C.limiar_marcha
     contato = env.scene["pes_chao"].data.found > 0  # (E,2)
-    return _fim(env, tarefas, n_passo(contato, env.v3_fase_marcha, C.fase_apoio, on).sum(-1), paga=True)
+    return _fim(env, tarefas, n_passo(contato, env.v3_fase_marcha, C.fase_apoio, on).sum(-1) * _avanco(env), paga=True)
 
 
 def vivo(env, tarefas):
@@ -632,7 +645,7 @@ def altura_pe(env, tarefas):
     v = robo.data.body_link_vel_w[:, robo.find_bodies(_PES_CORPOS)[0], :2]  # (E,2,2): [lin, ang] → lin xy
     cmd = env.command_manager.get_command("twist")
     anda = cmd.norm(dim=-1) > 0
-    valor = n_altura_pe(h, v, R.alvo_pe, R.std_pe, R.tanh_pe)
+    valor = n_altura_pe(h, v, R.alvo_pe, R.std_pe, R.tanh_pe) * _avanco(env)  # 27/11, T19: × o avanço, como o `passo`
     return _fim(env, tarefas, torch.where(anda, valor, torch.zeros_like(valor)), paga=True)
 
 

@@ -4,6 +4,7 @@ Só este arquivo chama make_env_cfg() e o registro. Nenhum teste constrói Manag
 a caixa e a laje são compiladas só como MjSpec (sem física). Números: as linhas "Teste" de D1 e D10 e a §6.3.
 """
 import dataclasses
+import math
 import re
 import unittest
 
@@ -225,6 +226,13 @@ class TestEnvCfg(unittest.TestCase):
         # 24/11, T15: o envelope que o driver lê (frente 1,0, lado 0,3 m/s, giro 0,5 rad/s)
         r = env_cfg.make_env_cfg().commands["twist"].ranges
         self.assertEqual((r.lin_vel_x, r.lin_vel_y, r.ang_vel_z), ((-1.0, 1.0), (-0.3, 0.3), (-0.5, 0.5)))
+
+    def test_twist_tem_rumo_com_a_faixa_de_pi(self):
+        # 27/11, T19: o ANDAR de terreno segue o rumo: a classe do fabricante exige `ranges.heading` com `heading_command`
+        cfg = env_cfg.make_env_cfg().commands["twist"]
+        self.assertTrue(cfg.heading_command)
+        self.assertEqual(cfg.ranges.heading, (-math.pi, math.pi))
+        self.assertEqual(cfg.rel_heading_envs, 0.0)
 
     def test_tarefas_de_cada_recompensa_da_d5(self):
         cfg = env_cfg.make_env_cfg()

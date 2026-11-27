@@ -18,7 +18,7 @@ import torch
 
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
-from mjlab.utils.lab_api.math import quat_apply_inverse, wrap_to_pi
+from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, wrap_to_pi
 
 from g1_v3 import alvos, balanceador, estimador, eventos, recompensas
 from g1_v3.alvos import B1, B2, B3, P0, P1, P2, P3
@@ -118,7 +118,8 @@ def _giro(n, lo, hi, g):  # ±U[lo; hi] (sinal sorteado por env)
 def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Tensor:
     """(n,3) de (vx, vy, wz). ANDAR (tipos `andar` e `terreno`, 16/11): (vx, vy) uniforme na elipse dos tetos do nível
     (semieixo x `frente` ou `tras`, semieixo y `lado`; 17/11, T7), wz independente em U(−giro; giro), com `andar_parado`
-    dos sorteios zerados. Fora do ANDAR
+    dos sorteios zerados. 27/11, T19: o ANDAR de `terreno` recebe só "frente + rumo": vx = frente·r, vy = 0 e wz = 0 (o rumo é do
+    `TwistV3._update_command`). Fora do ANDAR
     `tarefa` não muda a faixa: o `tipo` já diz o que anda (CARREGAR: `reto`, `giro_lugar`, `arco`, `terreno`)."""
     v = torch.zeros(n, 3, device=None if gerador is None else gerador.device)
     if tarefa == "ANDAR":
@@ -133,10 +134,13 @@ def sorteia_velocidade(tipo, nivel, tarefa, n, gerador, k: Comando) -> torch.Ten
         # e no nível 4 a nota linear caía a 0,58 com |v| > 0,9 (`segmentos.csv` do checkpoint da it 5605). Ponto uniforme
         # na meia unidade de disco com x ≥ 0 (raio √U); a meia elipse da frente sai com chance pela área, frente/(frente+tras)
         r, ang = _u(n, gerador).sqrt(), torch.pi * (_u(n, gerador) - 0.5)
-        semi_x = -tras + (frente + tras) * (_u(n, gerador) * (frente + tras) < frente).float()
-        v[:, 0] = semi_x * r * torch.cos(ang)
-        v[:, 1] = lado * r * torch.sin(ang)
-        v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
+        if tipo == "terreno":
+            v[:, 0] = frente * r
+        else:
+            semi_x = -tras + (frente + tras) * (_u(n, gerador) * (frente + tras) < frente).float()
+            v[:, 0] = semi_x * r * torch.cos(ang)
+            v[:, 1] = lado * r * torch.sin(ang)
+            v[:, 2] = giro * (2.0 * _u(n, gerador) - 1.0)
         v[:, 2][v[:, 2].abs() < k.giro_min] = 0.0  # 24/11, T15: giro pequeno é ruído para a razão ω̄/c_z: zero ou ≥ `giro_min`
         v[:, :2][v[:, :2].norm(dim=-1) < k.linear_min] = 0.0  # 24/11, T16: linear zero ou ‖c_xy‖ ≥ `linear_min` (= `limiar_marcha`): sem relógio parado com comando
         v[_u(n, gerador) < k.andar_parado] = 0.0
@@ -671,6 +675,7 @@ class CadeiaCmd(CommandTerm):
 @dataclass(kw_only=True)
 class TwistV3Cfg(UniformVelocityCommandCfg):
     k: Comando
+    heading_command: bool = True  # 27/11, T19: o ANDAR de terreno segue o rumo (`ranges.heading` no env_cfg); `rel_heading_envs` segue 0
     rel_heading_envs: float = 0.0  # o `parado` é célula, não sorteio do fabricante
     rel_standing_envs: float = 0.0
 
@@ -685,6 +690,8 @@ class TwistV3(UniformVelocityCommand):
     """Cópia do TwistComRazaoDeMarcha (g1_limpo/comando.py:2276) com o comando por célula e o sucesso por segmento.
     ⚠ Não chama `super()._resample_command`: o sorteio é da célula (§6.3), e o `standing`/`turning` do fabricante
     ficam fora. As `error_vel_*` do fabricante seguem em `metrics` (§6.7); o juiz é o sucesso por segmento.
+    27/11, T19: o `_update_command` do fabricante dá o wz de rumo (só nos envs com `is_heading_env`: o ANDAR de terreno). O
+    `is_standing_env` e o `is_world_env` ficam em False (nunca sorteados), então o resto dele não faz nada.
     ⚠ As somas da razão de marcha são acumuladores internos, fora de `metrics`: o log não as recebe."""
 
     cfg: TwistV3Cfg
@@ -889,6 +896,7 @@ class TwistV3(UniformVelocityCommand):
         tar, fat = env.v3_tarefa[env_ids], env.v3_fatia[env_ids]
         env.v3_celula[env_ids] = -1  # sem célula, sem registro: parado de trecho, PEGAR e BOTAR (fase D)
         self.vel_command_b[env_ids] = 0.0
+        self.is_heading_env[env_ids] = False  # T19: só o ANDAR de terreno liga (abaixo)
         # anda: ANDAR na fatia ANDAR, e CARREGAR na fatia B (S §7); o resto fica parado
         anda = ((tar == ANDAR) & (fat == FATIA_ANDAR)) | ((tar == CARREGAR) & (fat == FATIA_B))
         for tarefa_id, nome in ((ANDAR, "ANDAR"), (CARREGAR, "CARREGAR")):
@@ -911,10 +919,24 @@ class TwistV3(UniformVelocityCommand):
                 tipo = env.v3_cur.celulas[c].tipo
                 vel = sorteia_velocidade(tipo, nivel, nome, int(m.sum()), g, self.k)
                 self.vel_command_b[ids[m]] = vel.to(self.device)
+            if nome == "ANDAR":
+                # 27/11, T19: o ANDAR de terreno segue o rumo. No começo do episódio (`_agora` = 0: o `reset` zera antes do
+                # `super().reset`) o alvo é o múltiplo de π/2 mais próximo do rumo de partida (a normal de uma face da célula).
+                # ⚠ O rumo vem do `qpos` (a base acabou de ser escrita; o `xquat` ainda é o do fim do episódio anterior)
+                self.is_heading_env[ids] = ter
+                novo = ids[ter & (self._agora[ids] == 0)]
+                if novo.numel():
+                    q = env.sim.data.qpos[novo][:, self.robot.indexing.free_joint_q_adr][:, 3:7]
+                    fw = quat_apply(q, self.robot.data.forward_vec_b[novo])
+                    self.heading_target[novo] = torch.round(torch.atan2(fw[:, 1], fw[:, 0]) / (math.pi / 2)) * (math.pi / 2)
         self.vel_command_w[env_ids] = self.vel_command_b[env_ids]
         # CARREGAR de B: comando sorteado na abertura e fixo até o fim do trecho (S §7)
         fixo = env_ids[(tar == CARREGAR) & (fat == FATIA_B)]
         self.time_left[fixo] = float("inf")
 
     def _update_command(self) -> None:
-        pass  # sem heading, sem mundo e sem standing do fabricante: nada a atualizar (ver docstring)
+        # 27/11, T19: o fabricante põe wz = `heading_control_stiffness` × erro de rumo, com teto na faixa de giro, nos envs de rumo
+        super()._update_command()
+        # a regra da T15: giro pequeno é ruído para a razão ω̄/c_z; zero ou ≥ `giro_min` (tolerância de ±5,7° no rumo)
+        pequeno = self.is_heading_env & (self.vel_command_b[:, 2].abs() < self.k.giro_min)
+        self.vel_command_b[pequeno, 2] = 0.0

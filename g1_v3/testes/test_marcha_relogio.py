@@ -16,14 +16,20 @@ C = ATIVO.comando
 DT = 0.02
 
 
-def _env_passo(cmd, fase=0.2, contato=(True, False), perdeu=False):
+def _env_passo(cmd, fase=0.2, contato=(True, False), perdeu=False, nivel=0, v_med=(0.0, 0.0, 0.0), g=0.0):
     # fase 0,2: o pé E está em apoio (0,2 < 0,55) e o D em balanço (0,7); contato (E no chão, D no ar) acerta os dois.
-    # Sem `get_term`: o termo não lê mais a velocidade do robô (sem portão).
+    # 27/11, T19: o termo × `_avanco`, que lê o `_rastreio` (a velocidade filtrada `v_med` e o `g` do twist) e o nível do ANDAR.
+    # Nível 0 (padrão): piso 1, sem corte; o `v_med` e o `g` zero dão avanço 0
+    twist = types.SimpleNamespace(v_filt=torch.tensor([v_med], dtype=torch.float32), g_marcha=torch.tensor([g]))
     return types.SimpleNamespace(
         device="cpu", v3_tarefa=torch.tensor([TAREFAS.index("ANDAR")]), v3_perdeu=torch.tensor([perdeu]),
         v3_fase_marcha=torch.tensor([fase]), v3_acerto_marcha=torch.zeros(1),
-        scene={"pes_chao": types.SimpleNamespace(data=types.SimpleNamespace(found=torch.tensor([[int(c) for c in contato]])))},
-        command_manager=types.SimpleNamespace(get_command=lambda _: torch.tensor([cmd], dtype=torch.float32)))
+        v3_cur=types.SimpleNamespace(nivel=lambda t: nivel, max_nivel={"ANDAR": 7}, restricao=lambda: 1.0),
+        scene={"pes_chao": types.SimpleNamespace(data=types.SimpleNamespace(found=torch.tensor([[int(c) for c in contato]]))),
+               "robot": types.SimpleNamespace(data=types.SimpleNamespace(
+                   root_link_lin_vel_b=torch.zeros(1, 3), root_link_ang_vel_b=torch.zeros(1, 3)))},
+        command_manager=types.SimpleNamespace(get_command=lambda _: torch.tensor([cmd], dtype=torch.float32),
+                                              get_term=lambda _: twist))
 
 
 def _passo(env):
@@ -54,6 +60,29 @@ class TermoPasso(unittest.TestCase):
     def test_robo_parado_com_comando_recebe_pelos_acertos_sem_portao(self):
         # o env não tem velocidade nenhuma: o termo não a lê, e o comando de 0,5 m/s paga os 2 acertos
         self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0))), 2.0, places=5)
+
+    def test_no_nivel_maximo_sem_avanco_paga_o_piso_e_no_nivel_0_paga_inteiro(self):
+        # 27/11, T19: marchar no lugar com comando (avanço 0: v̄ = 0 e g = 0) paga `piso_avanco` (0,25) do valor no nível máximo
+        # do ANDAR e o valor inteiro no nível 0; com avanço 1 (v̄ = c e g = 1) paga o valor em qualquer nível
+        piso = ATIVO.recompensa.piso_avanco
+        self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), nivel=7)), 2.0 * piso, places=5)
+        self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), nivel=0)), 2.0, places=5)
+        self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), nivel=7, v_med=(0.5, 0.0, 0.0), g=1.0)), 2.0, places=5)
+        # o piso desce com o nível: no meio (3,5 de 7) vale a média de 1 e `piso_avanco`
+        self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), nivel=3.5)), 2.0 * (1 + piso) / 2, places=5)
+
+    def test_avanco_pela_metade_paga_piso_mais_a_parte_do_resto(self):
+        # avanço p = 0,5 (v̄ = 0,25 com comando 0,5, g = 1): fator = piso + (1 − piso)·0,5
+        piso = ATIVO.recompensa.piso_avanco
+        self.assertAlmostEqual(_passo(_env_passo((0.5, 0.0, 0.0), nivel=7, v_med=(0.25, 0.0, 0.0), g=1.0)),
+                               2.0 * (piso + (1 - piso) * 0.5), places=5)
+
+    def test_so_giro_com_comando_usa_o_avanco_do_giro_e_sem_comando_o_fator_e_um(self):
+        piso = ATIVO.recompensa.piso_avanco
+        self.assertAlmostEqual(_passo(_env_passo((0.0, 0.0, 0.5), nivel=7)), 2.0 * piso, places=5)  # giro parado: avanço 0
+        self.assertAlmostEqual(_passo(_env_passo((0.0, 0.0, 0.5), nivel=7, v_med=(0.0, 0.0, 0.5), g=1.0)), 2.0, places=5)
+        # comando zero: os pés fixos pagam como hoje, no nível máximo também
+        self.assertAlmostEqual(_passo(_env_passo((0.0, 0.0, 0.0), contato=(True, True), nivel=7)), 2.0, places=5)
 
     def test_zera_com_a_caixa_perdida_e_nao_grava_o_acerto(self):
         # o acerto que o g lê mora no `TwistV3._update_metrics`: o termo não o grava (o mjlab pula um termo de peso 0)

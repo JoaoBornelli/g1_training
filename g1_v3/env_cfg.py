@@ -11,6 +11,7 @@ dos pés e o episódio de play (D10).
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -122,7 +123,8 @@ def make_env_cfg(k: Knobs = ATIVO, play: bool = False) -> ManagerBasedRlEnvCfg:
             k=k.comando, entity_name="robot", resampling_time_range=k.comando.reamostra_s,
             ranges=UniformVelocityCommandCfg.Ranges(lin_vel_x=(-teto_frente, teto_frente),
                                                     lin_vel_y=(-teto_lado, teto_lado),
-                                                    ang_vel_z=(-teto_giro, teto_giro))),
+                                                    ang_vel_z=(-teto_giro, teto_giro),
+                                                    heading=(-math.pi, math.pi))),  # T19: a classe do fabricante exige com `heading_command`
     }
 
     # ------------------------------------------------------------ 5. recompensas (peso cru: o mjlab multiplica por dt)

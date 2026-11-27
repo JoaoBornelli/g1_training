@@ -79,6 +79,17 @@ class CurriculoTest(unittest.TestCase):
         self.assertEqual(log["nivel_terreno_ANDAR"], 0)
         self.assertEqual(log["nivel_terreno_CARREGAR"], 3)
 
+    def test_log_traz_a_linha_de_terreno_do_andar_por_coluna(self):
+        # 27/11, T19: `linha_<coluna>` para as 8 colunas de terreno (a 0, `plano`, não entra)
+        env = env_falso([0, 0, 0, 0])
+        curriculo.garante_v3(env)
+        env.v3_cur.linha[2] = 3.5
+        log = curriculo.v3(env, torch.arange(4))
+        nomes = ATIVO.terreno.colunas[1:]
+        self.assertEqual(sorted(k for k in log if k.startswith("linha_")), sorted(f"linha_{n}" for n in nomes))
+        self.assertEqual(log["linha_escada_inv"], 3.5)
+        self.assertEqual(log["linha_escada"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

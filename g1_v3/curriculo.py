@@ -106,7 +106,7 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
     1) Fecha a iteração do balanceador uma vez por iteração de `passos_por_iteracao` passos, e não por reset
        (a iteração é `common_step_counter // passos_por_iteracao`). A 1ª chamada só fixa a iteração corrente.
     2) Devolve as chaves `frac_*`, `s_<tarefa>_<tipo>`, `nivel_<tarefa>`, `nivel_terreno_<tarefa>` (ANDAR e
-       CARREGAR), `z_<etapa>` e `taxa_<etapa>` (20/11, T13), `degrau_<tarefa>`, `degrau_global` (P23) e, do `dr()`, `atraso_max` e `mu_min_pad` (H6, P23).
+       CARREGAR), `z_<etapa>` e `taxa_<etapa>` (20/11, T13), `linha_<coluna>` (27/11, T19: a linha de terreno do ANDAR por coluna), `degrau_<tarefa>`, `degrau_global` (P23) e, do `dr()`, `atraso_max` e `mu_min_pad` (H6, P23).
        O mjlab as publica como `Curriculum/v3/<k>`.
 
     ⚠ `v3_freio` e `v3_degrau` NÃO são escritos aqui: são do `comando.cadeia` (§6.4).
@@ -136,6 +136,8 @@ def v3(env: "ManagerBasedRlEnv", env_ids: torch.Tensor) -> dict:
         log[f"z_{nome}"], log[f"taxa_{nome}"] = cur.z[e], cur.taxa[e]
     for t in balanceador.CADEIA:  # só as cadeias têm linha de terreno (PD-20)
         log[f"nivel_terreno_{t}"] = cur.nivel_terreno(t)
+    for c, nome in enumerate(_K.terreno.colunas[1:], start=1):  # 27/11, T19: a linha de terreno do ANDAR em cada coluna (a 0 é o plano)
+        log[f"linha_{nome}"] = cur.linha[c]
     log.update(atraso_max=teto, mu_min_pad=dr["mu_min_pad"], degrau_global=cur.degrau_global(),
                restricao=cur.restricao())
     return log
