@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from g1_v3 import potencial
-from g1_v3.knobs import ATIVO, JUNTAS, TAREFAS, Terminacao
+from g1_v3.knobs import ATIVO, FATIAS, JUNTAS, TAREFAS, Terminacao
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -56,8 +56,16 @@ def n_fim_da_cadeia(passos, passos_max, fim) -> torch.Tensor:
 
 
 def fim_da_cadeia(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """`time_out=True` no env_cfg (§6.5). Não se mascara por tarefa: a cadeia inteira acaba aqui."""
-    return n_fim_da_cadeia(env.episode_length_buf, env.max_episode_length, env.v3_fim)
+    """`time_out=True` no env_cfg (§6.5). Não se mascara por tarefa: a cadeia inteira acaba aqui.
+
+    27/11, T19 §13.3: o episódio de terreno do ANDAR também acaba na travessia (a base a mais de `dist_travessia` da origem
+    da célula, no plano xy), como o `terrain_edge_reached` do mjlab (`velocity/mdp/terminations.py:71`): `time_out`, sem
+    penalidade. ⚠ `episode_length_buf > 2`: no reset a posição lida ainda é a velha (a guarda do mjlab).
+    """
+    d = (env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]).norm(dim=-1)
+    atravessou = ((env.v3_fatia == FATIAS.index("ANDAR")) & (env.scene["terrain"].terrain_types != 0)
+                  & (d > ATIVO.terreno.dist_travessia) & (env.episode_length_buf > 2))
+    return n_fim_da_cadeia(env.episode_length_buf, env.max_episode_length, env.v3_fim) | atravessou
 
 
 def n_caixa_perdida(perdeu_agora, vira_andar: bool) -> torch.Tensor:

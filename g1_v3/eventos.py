@@ -25,6 +25,7 @@ from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.utils.lab_api.math import matrix_from_quat, quat_from_euler_xyz, quat_mul
 
 from g1_v3 import alvos, estimador
+from g1_v3.balanceador import fracoes
 from g1_v3.knobs import ATIVO, TAREFAS, TAU_MAX, Cena, Niveis, Terreno
 
 # índices de FATIAS (knobs.py): ANDAR, B, C
@@ -42,7 +43,8 @@ def _fracao_terreno(cur, tarefa: str) -> float:
 def escolhe_celula_terreno(fatia, terreno_ep, nivel_terreno, linha_andar, k_ter, gerador):
     """Núcleo puro (PD-20, S §11.2): (coluna (E,), linha (E,)) de cada episódio, sobre o gerador do terreno.
 
-    ANDAR de terreno: coluna uniforme em 1..n−1 (a 0 é o plano), linha = floor(`linha_andar[coluna]` + u), com u uniforme
+    ANDAR de terreno: coluna em 1..n−1 (a 0 é o plano) sorteada pelo atraso da linha dela (27/11, T19: pesos de
+    `balanceador.fracoes`, com piso `Terreno.piso_coluna`; iguais se as linhas são iguais), linha = floor(`linha_andar[coluna]` + u), com u uniforme
     (27/11, T19: arredondamento estocástico; a média das linhas sorteadas é a `linha_andar` da coluna), com teto em `linhas − 1`.
     `linha_andar` (n_col,) float é a linha por coluna do `Curriculo`; `nivel_terreno` (E,) é o do CARREGAR.
     B de terreno: coluna uniforme entre as que têm plataforma (`linha_max_carregar`), linha uniforme em
@@ -56,7 +58,11 @@ def escolhe_celula_terreno(fatia, terreno_ep, nivel_terreno, linha_andar, k_ter,
     teto_b = torch.tensor(list(lim.values()), device=dev)
     # quatro uniformes por episódio: coluna e linha do ANDAR, coluna e linha da B
     u = torch.rand((4, fatia.shape[0]), generator=gerador, dtype=torch.float64, device=gerador.device).to(dev)
-    col_a = 1 + (u[0] * (n_col - 1)).long()
+    # 27/11, T19 §13.4: a coluna sai do mesmo u[0], pela inversa da soma acumulada dos pesos (fatia dinâmica: a coluna atrasada
+    # recebe mais, a vencida desce a `piso_coluna`). Com as linhas iguais os pesos são iguais e a coluna é a uniforme de antes.
+    atraso = 1.0 - linha_andar.to(dev, torch.float64)[1:] / (k_ter.linhas - 1)
+    acum = fracoes(atraso, k_ter.piso_coluna, ATIVO.balanceador.eps).cumsum(0)
+    col_a = 1 + torch.searchsorted(acum, u[0], right=True).clamp(max=n_col - 2)
     lin_a = torch.floor(linha_andar.to(dev, torch.float64)[col_a] + u[1]).long().clamp(max=k_ter.linhas - 1)
     j = (u[2] * len(lim)).long()
     col_b = cols_b[j]
@@ -136,15 +142,16 @@ def sorteia_fatia(env, env_ids, k_ter):
     g = env.v3_gerador
     # 27/11, T19: registra o episódio de ANDAR em terreno que acabou, ANTES de sobrescrever a fatia e o terreno de `env_ids`.
     # ⚠ Este evento roda antes do reset do `twist`: `pose_ult` e `soma_cmd_marcha` ainda são do episódio que acabou.
-    # Visita: o comando pediu `dist_travessia` ou o episódio acabou em queda (`terminated` não inclui o `time_out`; no 1º reset
-    # é tudo zero). Travessia: uma visita em que o robô passou de `dist_travessia` da origem da célula.
+    # Visita: o comando pediu `dist_travessia`, o episódio acabou em queda (`terminated` não inclui o `time_out`; no 1º reset
+    # é tudo zero) ou o robô passou de `dist_travessia` (§13.3: a travessia acaba o episódio, e o pedido pode ser menor, por
+    # causa do deslocamento de partida). Travessia: uma visita em que o robô passou de `dist_travessia` da origem da célula.
     terreno = env.scene["terrain"]
     twist = env.command_manager.get_term("twist")
     coluna_ant = terreno.terrain_types[env_ids]
     d = (twist.pose_ult[env_ids, :2] - env.scene.env_origins[env_ids, :2]).norm(dim=-1)
     pedido = twist.soma_cmd_marcha[env_ids] * env.step_dt
     visita = (env.v3_fatia[env_ids] == ANDAR) & (coluna_ant != 0) & (
-        (pedido >= k_ter.dist_travessia) | env.termination_manager.terminated[env_ids])
+        (pedido >= k_ter.dist_travessia) | env.termination_manager.terminated[env_ids] | (d > k_ter.dist_travessia))
     for lista, m in ((cur.vis_ter, visita), (cur.trav_ter, visita & (d > k_ter.dist_travessia))):
         for c, n in enumerate(torch.bincount(coluna_ant[m].long(), minlength=len(k_ter.colunas)).tolist()):
             lista[c] += n

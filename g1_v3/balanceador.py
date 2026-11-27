@@ -23,8 +23,8 @@ LAYOUT = (("ANDAR", "andar"), ("ANDAR", "terreno"),
           ("CARREGAR", "reto"), ("CARREGAR", "giro_lugar"), ("CARREGAR", "arco"), ("CARREGAR", "terreno"),
           ("PEGAR", "pegar"), ("BOTAR", "botar"))
 _POS = {lay: i for i, lay in enumerate(LAYOUT)}
-# S §11.1: só o ANDAR abre no começo. 27/11, T19: com a célula `terreno` dele, para o degrau aparecer com a marcha ainda se formando
-ABERTAS_NO_COMECO = (("ANDAR", "andar"), ("ANDAR", "terreno"))
+# S §11.1: só o ANDAR abre no começo. A célula `terreno` dele abre no nível `nivel_abre_terreno` (27/11, T19 §13.1)
+ABERTAS_NO_COMECO = (("ANDAR", "andar"),)
 # células de velocidade: o nível sobe quando todas estão abertas e no portão
 VELOCIDADE = {"ANDAR": ("andar",),
               "CARREGAR": ("reto", "giro_lugar", "arco"), "PEGAR": ("pegar",), "BOTAR": ("botar",)}
@@ -134,8 +134,14 @@ class Curriculo:
         return [i for i in self._de(t) if self.celulas[i].aberta]
 
     def _deficit(self, ids):
-        return deficit(torch.tensor([self.celulas[i].s for i in ids], dtype=torch.float64),
-                       torch.tensor([self._portao[i] for i in ids], dtype=torch.float64))
+        d = deficit(torch.tensor([self.celulas[i].s for i in ids], dtype=torch.float64),
+                    torch.tensor([self._portao[i] for i in ids], dtype=torch.float64))
+        # 27/11, T19 §13.2: o déficit da célula `terreno` do ANDAR é a distância das linhas ao topo, e não a nota dela: o robô
+        # parado na plataforma tira ~0,5 e zerava o déficit. A nota segue no refino (`_passa_media`)
+        i = _POS[("ANDAR", "terreno")]
+        if i in ids:
+            d[ids.index(i)] = 1.0 - sum(self.linha[1:]) / (len(self.linha) - 1) / self._max_ter["ANDAR"]
+        return d
 
     # --- registro e fecho da iteração -----------------------------------------------------------
 
@@ -210,10 +216,11 @@ class Curriculo:
             if abertas and fechadas and self._passa_media(abertas):
                 self._abre_cel(t, fechadas[0])
         for t in CADEIA:
-            # terreno: depois do último nível de velocidade, com todas as abertas no portão.
-            # ⚠ no CARREGAR, também com o ANDAR já fora da linha 0 (S §11.2). 27/11, T19: a nota da célula `terreno` do ANDAR
-            # saiu desta conta (dava ~0,65 ao robô parado na plataforma); o ANDAR abre a célula `terreno` no começo
-            if self._nivel[t] != self.max_nivel[t] or self._aberta(t, "terreno"):
+            # terreno: com todas as abertas no portão; o CARREGAR, depois do último nível de velocidade.
+            # ⚠ no CARREGAR, também com o ANDAR já fora da linha 0 (S §11.2). 27/11, T19 §13.1: o ANDAR abre a célula `terreno`
+            # no nível `nivel_abre_terreno` (a nota da célula `terreno` não entra: dava ~0,65 ao robô parado na plataforma)
+            nivel_ok = self._nivel[t] >= self.k.nivel_abre_terreno if t == "ANDAR" else self._nivel[t] == self.max_nivel[t]
+            if not nivel_ok or self._aberta(t, "terreno"):
                 continue
             if t == "CARREGAR" and self.nivel_terreno("ANDAR") < 1:
                 continue

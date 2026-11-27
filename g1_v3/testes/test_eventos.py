@@ -84,6 +84,33 @@ class TestEscolheCelulaTerreno(unittest.TestCase):
         self.assertTrue((linha == 0).all())
 
 
+class TestColunaPeloAtraso(unittest.TestCase):
+    """27/11, T19 §13.4: a coluna do terreno do ANDAR sai do mesmo `u0`, pela inversa da soma acumulada dos pesos de `fracoes`."""
+
+    def _frequencias(self, linhas):
+        la = torch.tensor([0.0] + linhas, dtype=torch.float64)
+        coluna, _ = sorteia(ANDAR, True, 0, linha_andar=la)
+        return [float((coluna == c).double().mean()) for c in range(1, len(NOMES))]
+
+    def test_com_as_linhas_do_exemplo_a_frequencia_segue_os_pesos(self):
+        # escadas (colunas 1 e 2) na linha 4, `escada_aleatoria` (5) na 6, as outras 5 na 12: 26 %, 26 %, 21 % e 5,6 % cada
+        f = self._frequencias([4, 4, 12, 12, 6, 12, 12, 12])
+        for c, esperado in zip(range(8), (0.26, 0.26, 0.056, 0.056, 0.21, 0.056, 0.056, 0.056)):
+            self.assertAlmostEqual(f[c], esperado, delta=0.015, msg=NOMES[c + 1])
+
+    def test_com_as_linhas_iguais_cada_coluna_recebe_12_5_por_cento(self):
+        for linha in (0, 7, 12):
+            for c, v in enumerate(self._frequencias([float(linha)] * 8)):
+                self.assertAlmostEqual(v, 0.125, delta=0.015, msg=(linha, NOMES[c + 1]))
+
+    def test_nenhuma_coluna_fica_abaixo_do_piso_com_uma_so_atrasada(self):
+        # só a coluna 3 na linha 0; as outras na 12: as sete vencidas ficam em ≥ `piso_coluna`
+        f = self._frequencias([12, 12, 0, 12, 12, 12, 12, 12])
+        self.assertGreater(f[2], 0.5)
+        for c, v in enumerate(f):
+            self.assertGreaterEqual(v, T.piso_coluna - 0.015, NOMES[c + 1])
+
+
 class _Cena:
     # `env.scene["terrain"]` e `env.scene.env_origins`, como a cena do mjlab
     def __init__(self, terreno, origens):
@@ -124,12 +151,17 @@ class TestRegistroDaTravessia(unittest.TestCase):
 
     def test_visita_por_pedido_ou_queda_e_travessia_acima_de_3_m(self):
         # env 0: pedido curto, sem queda (não é visita); env 1: pedido curto, queda (visita, sem travessia); env 2: pedido de 4 m e
-        # d = 3,5 m (visita e travessia); env 3: plano (coluna 0: não conta); env 4: fatia B (não conta); env 5: d = 3,5 m sem
-        # visita (nem travessia: a taxa não passa de 1)
+        # d = 3,5 m (visita e travessia); env 3: plano (coluna 0: não conta); env 4: fatia B (não conta); env 5: pedido de 2 m e
+        # d = 3,5 m (T19 §13.3: passar de `dist_travessia` conta visita e travessia, mesmo com o pedido curto)
         cur, env = self._roda(fatia=[0, 0, 0, 0, 1, 0], coluna=[1, 2, 3, 0, 4, 5], pedido=[2.0, 1.0, 4.0, 5.0, 5.0, 2.0],
                               caiu=[False, True, False, False, False, False], d=[0.5, 0.4, 3.5, 4.0, 4.0, 3.5])
-        self.assertEqual(cur.vis_ter, [0, 0, 1, 1, 0, 0, 0, 0, 0])
-        self.assertEqual(cur.trav_ter, [0, 0, 0, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(cur.vis_ter, [0, 0, 1, 1, 0, 1, 0, 0, 0])
+        self.assertEqual(cur.trav_ter, [0, 0, 0, 1, 0, 1, 0, 0, 0])
+
+    def test_pedido_de_2_5_m_sem_queda_e_d_3_2_m_conta_visita_e_travessia(self):
+        # §13.3: o deslocamento de partida a favor deixa o pedido abaixo de 3 m; a travessia conta mesmo assim
+        cur, env = self._roda(fatia=[0], coluna=[2], pedido=[2.5], caiu=[False], d=[3.2])
+        self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (1, 1))
 
     def test_o_registro_lê_o_episodio_antigo_e_nao_o_sorteio_novo(self):
         # o sorteio novo (fatia e coluna de cada env) sobrescreve `v3_fatia` e `terrain_types` depois do registro

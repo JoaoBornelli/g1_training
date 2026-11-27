@@ -116,11 +116,40 @@ class TestFracoes(unittest.TestCase):
 
 class TestAberturaInicial(unittest.TestCase):
 
-    def test_a_celula_terreno_do_andar_nasce_aberta(self):
-        # 27/11, T19: o degrau aparece com a marcha ainda se formando; a célula `terreno` do ANDAR abre no começo (as outras, não)
+    def test_a_celula_terreno_do_andar_nasce_fechada(self):
+        # 27/11, T19 §13.1: o robô aprende a andar antes da escada; a célula `terreno` do ANDAR abre no nível `nivel_abre_terreno`
         c = novo()
-        self.assertTrue(c.celulas[cid(c, "ANDAR", "terreno")].aberta)
+        self.assertFalse(c.celulas[cid(c, "ANDAR", "terreno")].aberta)
         self.assertFalse(c.celulas[cid(c, "CARREGAR", "terreno")].aberta)
+
+    def test_a_celula_terreno_do_andar_abre_no_nivel_2_com_o_plano_no_portao(self):
+        # §13.1: nível 1 com s = 1,0 não abre; nível 2 com s ≥ 0,75 abre no fecho; nível 2 com s = 0,5 não abre
+        self.assertEqual(B.nivel_abre_terreno, 2)
+        for nivel, s, abre in ((1, 1.0, False), (2, 0.80, True), (2, 0.5, False)):
+            with self.subTest(nivel=nivel, s=s):
+                cur = novo(SEM_CARENCIA, andar=nivel)
+                cur.celulas[cid(cur, "ANDAR", "andar")].s = s
+                cur.fecha_iteracao()
+                self.assertEqual(cur.celulas[cid(cur, "ANDAR", "terreno")].aberta, abre)
+
+    def test_o_deficit_da_celula_terreno_do_andar_e_a_distancia_das_linhas_ao_topo(self):
+        # §13.2: linhas em 0 → 1,0; todas em 6 → 0,5; todas em 12 → 0; a nota `s` da célula não muda o déficit
+        cur = novo()
+        andar, ter = cid(cur, "ANDAR", "andar"), cid(cur, "ANDAR", "terreno")
+        for linha, esperado in ((0.0, 1.0), (6.0, 0.5), (12.0, 0.0)):
+            cur.linha[1:] = [linha] * (len(cur.linha) - 1)
+            for s in (0.0, 1.0):
+                cur.celulas[ter].s = s
+                self.assertAlmostEqual(float(cur._deficit([andar, ter])[1]), esperado, msg=(linha, s))
+
+    def test_fracao_da_celula_terreno_com_as_linhas_em_0_e_o_plano_no_portao(self):
+        # §13.2: com as linhas em 0 e o `s` do plano no portão, a célula `terreno` recebe ~0,885 dos episódios do ANDAR
+        cur = novo()
+        andar, ter = cid(cur, "ANDAR", "andar"), cid(cur, "ANDAR", "terreno")
+        cur.celulas[ter].aberta = True
+        cur.celulas[andar].s = PORTAO_ANDAR
+        ids, f = cur.fracoes_celulas("ANDAR")
+        self.assertAlmostEqual(float(f[ids.index(ter)]), 0.885, delta=0.002)
 
     def test_so_o_andar_abre_no_comeco(self):
         # S §11.1: "só o ANDAR abre no começo (fase 0, 100%)".
