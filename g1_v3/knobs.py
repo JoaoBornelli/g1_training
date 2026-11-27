@@ -257,7 +257,7 @@ class Recompensa:  # S §9.1–9.4, §10, §11.4, §19; PD-45, PD-49
     acel_junta: float = -5e-8  # S §9.2 ÷5 (poc1, 05/11): −2,5e-7 dava 28% do negativo; o passo custava −0,036 ≈ a queda (−4) descontada
     taxa_acao: float = -0.01  # 13/11, M2: o par da corrida que formou marcha (12/11), com `entropy_coef` 0,001; −0,10 (unico3) não saiu do nível 0
     energia: float = -2e-5  # S §9.2: peso da energia
-    estilo_inicio: float = 0.25  # 11/11 (§2): fator dos termos de estilo no início; sobe a 1
+    estilo_inicio: float = 0.25  # 11/11 (§2): fator dos termos de estilo no início; sobe a 1. 27/11, T20: os três desvios do ANDAR não o usam (peso cheio desde a it 0)
     # ⚠ limite mole 95% pelo dono (08/10); a receita da Unitree usa 90%; a IK fica a 90%
     limite_junta: float = -5.0  # S §9.2: peso do limite de junta
     limite_mole: float = 0.95  # S §9.2, §6.5: fração do curso onde a rampa começa

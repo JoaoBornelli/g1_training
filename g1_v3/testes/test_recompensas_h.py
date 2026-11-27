@@ -244,8 +244,32 @@ class RestricaoPeloProgresso(unittest.TestCase):
         self.assertTrue(torch.allclose(f, torch.tensor([1.0, 1.0])))
 
     def test_por_restricao_so_andar_zera_so_o_andar(self):
-        f = recompensas.por_restricao(self._env(0.0), 0.0, so_andar=True)
+        f = recompensas.por_restricao(self._env(0.0), 0.0, so="ANDAR")
         self.assertTrue(torch.allclose(f, torch.tensor([0.0, 1.0])))
+
+    def test_por_restricao_so_carregar_so_pesa_o_carregar(self):
+        env = types.SimpleNamespace(num_envs=2, device="cpu", v3_tarefa=torch.tensor([self.ANDAR, TAREFAS.index("CARREGAR")]),
+                                    v3_cur=types.SimpleNamespace(restricao=lambda: 0.0))
+        f = recompensas.por_restricao(env, 0.25, so="CARREGAR")
+        self.assertTrue(torch.allclose(f, torch.tensor([1.0, 0.25])))
+
+    def test_desvios_do_andar_pagam_o_peso_cheio_desde_a_restricao_zero(self):
+        # T20: braços, cintura e quadril valem 1 no ANDAR com restricao 0; no CARREGAR seguem estilo_inicio
+        n = 2
+        env = types.SimpleNamespace(num_envs=n, device="cpu", v3_tarefa=torch.tensor([self.ANDAR, TAREFAS.index("CARREGAR")]),
+                                    v3_meia=torch.zeros(n), v3_cur=types.SimpleNamespace(restricao=lambda: 0.0),
+                                    v3_ref=types.SimpleNamespace(q_de_pe=torch.zeros(len(JUNTAS)),
+                                                                 q_com_caixa=lambda meia: torch.zeros(n, len(JUNTAS))),
+                                    scene={"robot": types.SimpleNamespace(data=types.SimpleNamespace(
+                                        joint_pos=torch.ones(n, len(JUNTAS))))})
+        ini = ATIVO.recompensa.estilo_inicio
+        for funcao, idx in ((recompensas.desvio_bracos, recompensas._BRACOS),
+                            (recompensas.desvio_cintura, recompensas._CINTURA),
+                            (recompensas.desvio_quadril, recompensas._QUADRIL)):
+            with self.subTest(funcao=funcao.__name__):
+                out = funcao(env, ("ANDAR", "CARREGAR"))
+                bruto = float(len(idx))  # |1 − 0| em cada junta do grupo
+                self.assertTrue(torch.allclose(out, torch.tensor([bruto, bruto * ini])))
 
     def test_vel_junta_com_restricao_zero_e_o_fator_do_inicio(self):
         qd = torch.full((2, len(JUNTAS)), 0.5)

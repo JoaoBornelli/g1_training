@@ -217,11 +217,13 @@ class TestRastreioUnitree(unittest.TestCase):
         self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), linear=False, v_inst=(0.0, 0.0, 0.5)), math.exp(-1), places=5)
         self.assertAlmostEqual(self._r((0.0, 0.0, 0.0), (0.5, 0.0, 0.0), v_inst=(0.0, 0.0, 0.0)), 1.0, places=5)  # o filtro não conta
 
-    def test_velocidade_perpendicular_ao_comando_reduz_o_termo(self):
-        # comando 0,5 em x, entrega 0,5 em x e 0,5 em y: a tenda dá 1 e o perpendicular multiplica por exp(−0,25/0,25)
-        self.assertAlmostEqual(self._r((0.5, 0.0, 0.0), (0.5, 0.5, 0.0)), math.exp(-1), places=5)
-        # comando na diagonal: a parte perpendicular de (0,3; 0,3) sobre ĉ = (1, 0) é 0,3
-        self.assertAlmostEqual(self._r((0.3, 0.0, 0.0), (0.3, 0.3, 0.0)), math.exp(-0.09 / 0.25), places=5)
+    def test_velocidade_perpendicular_instantanea_reduz_o_termo(self):
+        # T20: comando (0,5; 0), filtrada (0,5; 0), instantânea (0,5; 0,5): perpendicular 0,5 → exp(−0,25/0,25)
+        self.assertAlmostEqual(self._r((0.5, 0.0, 0.0), (0.5, 0.0, 0.0), v_inst=(0.5, 0.5, 0.0)), math.exp(-1), places=5)
+        # T20: a parte filtrada não entra no fator: filtrada (0,5; 0,5), instantânea (0,5; 0) → 1
+        self.assertAlmostEqual(self._r((0.5, 0.0, 0.0), (0.5, 0.5, 0.0), v_inst=(0.5, 0.0, 0.0)), 1.0, places=5)
+        # T20: comando 0,3, filtrada (0,3; 0), instantânea (0,3; 0,3): perpendicular 0,3 → exp(−0,09/0,25)
+        self.assertAlmostEqual(self._r((0.3, 0.0, 0.0), (0.3, 0.0, 0.0), v_inst=(0.3, 0.3, 0.0)), math.exp(-0.09 / 0.25), places=5)
 
     def test_re_lado_e_giro_negativo_dao_a_mesma_fracao_que_frente_e_giro_positivo(self):
         ref = self._r((0.4, 0.0, 0.0), (0.3, 0.0, 0.0))

@@ -375,8 +375,8 @@ def _rastreio(env, linear, normalizado=False):
 
     `normalizado=False` (24/11, T15): canal com comando (c ≥ `limiar_canal`) paga a tenda da fração entregue, f = clamp(1 − |1 − p|,
     0, 1), com p = (v̄·ĉ)/‖c‖ no linear e p = ω̄/c_z no giro, e v̄ a velocidade filtrada do `twist` (τ `tau_fracao`). Parado vale 0, o
-    alvo vale 1 e o dobro do alvo vale 0, em qualquer tamanho de alvo. No linear, a velocidade perpendicular ao comando multiplica
-    a tenda por exp(−v̄⊥²/σ²). 24/11, T16: a tenda vale × `g_marcha` do `twist`, g = clamp(2·q̄ − 1, 0, 1), com q̄ o acerto do
+    alvo vale 1 e o dobro do alvo vale 0, em qualquer tamanho de alvo. No linear, a velocidade perpendicular ao comando, instantânea
+    (27/11, T20; a regra de 16/11, T3), multiplica a tenda por exp(−v⊥²/σ²); a projeção da tenda segue na filtrada. 24/11, T16: a tenda vale × `g_marcha` do `twist`, g = clamp(2·q̄ − 1, 0, 1), com q̄ o acerto do
     relógio de marcha dos dois pés filtrado (τ `tau_fracao`): acaso vale 0 e acerto total vale 1. O canal sem comando fica com o núcleo da Unitree sobre a velocidade instantânea (16/11, T3):
     exp(−v²/σ²) com σ = `sigma_rastreio`; parado vale 1 e a deriva é cobrada.
     `normalizado=True` (S §19, conflito 5; PD-49): `potencial.rastreio_normalizado`, com c = ‖cmd_xy‖ (linear) ou |wz|
@@ -399,7 +399,8 @@ def _rastreio(env, linear, normalizado=False):
     den = c.clamp(min=C.limiar_canal)  # o canal sem comando não usa a tenda; o piso só evita a divisão por zero
     if linear:
         proj = (v_med[:, :2] * cmd[:, :2]).sum(-1) / den  # v̄·ĉ
-        perp2 = (v_med[:, :2].pow(2).sum(-1) - proj.pow(2)).clamp(min=0)
+        # 27/11, T20: a perpendicular sai da velocidade instantânea; a filtrada faz a média e some com o vaivém de uma passada
+        perp2 = (v2 - ((v_xy * cmd[:, :2]).sum(-1) / den).pow(2)).clamp(min=0)
     else:
         proj, perp2 = v_med[:, 2] * cmd[:, 2].sign(), torch.zeros_like(c)
     tenda = (1.0 - (1.0 - proj / den).abs()).clamp(0.0, 1.0) * torch.exp(-perp2 / R.sigma_rastreio ** 2)
@@ -448,12 +449,12 @@ def por_degrau(env, ini, fim):
     return balanceador.no_degrau(ini, fim, env.v3_degrau.float(), ATIVO.balanceador.degraus)
 
 
-def por_restricao(env, ini, so_andar=False):
+def por_restricao(env, ini, so=None):
     """Fator (E,) das restrições que seguem o progresso (11/11; specs/g1-v3-treino-unico.md §2): `ini` com
-    `restricao` 0 e 1 com `restricao` 1. `so_andar`: o fator vale só nos envs da tarefa ANDAR; nos outros, 1."""
+    `restricao` 0 e 1 com `restricao` 1. `so`: nome da tarefa; o fator vale só nos envs dela, e nos outros vale 1."""
     f = torch.full((env.num_envs,), balanceador.no_degrau(ini, 1.0, env.v3_cur.restricao(), 1), device=env.device)
-    if so_andar:
-        f = torch.where(env.v3_tarefa == TAREFAS.index("ANDAR"), f, torch.ones_like(f))
+    if so is not None:
+        f = torch.where(env.v3_tarefa == TAREFAS.index(so), f, torch.ones_like(f))
     return f
 
 
@@ -700,19 +701,19 @@ def limite_junta(env, tarefas):
 def desvio_bracos(env, tarefas):
     """Desvio dos 14 braços de `q_de_pe` (ANDAR) ou de `q_com_caixa` (CARREGAR)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _BRACOS)) * por_restricao(env, R.estilo_inicio)
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _BRACOS)) * por_restricao(env, R.estilo_inicio, so="CARREGAR")
 
 
 def desvio_cintura(env, tarefas):
     """Desvio das 3 juntas da cintura (mesmo alvo dos braços)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _CINTURA)) * por_restricao(env, R.estilo_inicio)
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _CINTURA)) * por_restricao(env, R.estilo_inicio, so="CARREGAR")
 
 
 def desvio_quadril(env, tarefas):
     """Desvio de hip_roll e hip_yaw das duas pernas (mesmo alvo dos braços)."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _QUADRIL)) * por_restricao(env, R.estilo_inicio)
+    return _fim(env, tarefas, n_desvio(q, _q_alvo(env, q), _QUADRIL)) * por_restricao(env, R.estilo_inicio, so="CARREGAR")
 
 
 def tronco_plano(env, tarefas):
@@ -737,7 +738,7 @@ def cerca_sola(env, tarefas):
 def cerca_giro(env, tarefas):
     """Giro do hip_yaw de cada perna para dentro, além de `lim_giro_graus` (S §9.3). Todas as tarefas."""
     q = env.scene["robot"].data.joint_pos
-    return _fim(env, tarefas, n_cerca_giro(q[:, _YAW_E], q[:, _YAW_D], R.lim_giro_graus)) * por_restricao(env, 0.0, so_andar=True)
+    return _fim(env, tarefas, n_cerca_giro(q[:, _YAW_E], q[:, _YAW_D], R.lim_giro_graus)) * por_restricao(env, 0.0, so="ANDAR")
 
 
 def cerca_tronco(env, tarefas):
@@ -748,13 +749,13 @@ def cerca_tronco(env, tarefas):
     incl = incl_torso(env)
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
     ik = torch.where(manip, torch.rad2deg(ref_do_alvo(env, env.v3_alvo_idx)[:, 7]), torch.zeros_like(incl))
-    return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus)) * por_restricao(env, 0.0, so_andar=True)
+    return _fim(env, tarefas, n_cerca_tronco(incl, ik, R.lim_tronco_graus)) * por_restricao(env, 0.0, so="ANDAR")
 
 
 def cerca_com(env, tarefas):
     """Margem do CoM combinado às arestas das solas, só com os dois pés em contato (PD-35; S §9.3)."""
     cantos, com, dois = _pes_e_com(env)
-    return _fim(env, tarefas, n_cerca_com(com, cantos, dois, R.lim_com)) * por_restricao(env, 0.0, so_andar=True)
+    return _fim(env, tarefas, n_cerca_com(com, cantos, dois, R.lim_com)) * por_restricao(env, 0.0, so="ANDAR")
 
 
 def cerca_torque(env, tarefas):
@@ -762,7 +763,7 @@ def cerca_torque(env, tarefas):
     tau = env.scene["robot"].data.qfrc_actuator  # (E,29): o mjlab já tira a base livre
     tau_max = torch.tensor(TAU_MAX, dtype=tau.dtype, device=tau.device)
     pares = _PARES.to(tau.device)
-    return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque)) * por_restricao(env, 0.0, so_andar=True)
+    return _fim(env, tarefas, n_cerca_torque(tau, tau_max, pares, R.tau_par, R.lim_torque, R.banda_torque)) * por_restricao(env, 0.0, so="ANDAR")
 
 
 def cerca_pelve(env, tarefas):
@@ -778,7 +779,7 @@ def cerca_pelve(env, tarefas):
     manip = (env.v3_tarefa == TAREFAS.index("PEGAR")) | (env.v3_tarefa == TAREFAS.index("BOTAR"))
     manip = manip & (env.v3_alvo_idx >= 0)
     ik = torch.where(manip, ref_do_alvo(env, env.v3_alvo_idx)[:, 6].to(h), ik)
-    return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve)) * por_restricao(env, 0.0, so_andar=True)
+    return _fim(env, tarefas, n_cerca_pelve(h, ik, R.lim_pelve)) * por_restricao(env, 0.0, so="ANDAR")
 
 
 def cerca_recuo(env, tarefas):
