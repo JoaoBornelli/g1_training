@@ -60,7 +60,7 @@ def fim_da_cadeia(env: ManagerBasedRlEnv) -> torch.Tensor:
 
     27/11, T19 §13.3: o episódio de terreno do ANDAR também acaba na travessia, sem penalidade (`time_out`). O mjlab tem o
     `terrain_edge_reached` (`velocity/mdp/terminations.py:71`), um retângulo a 95 % da meia célula (3,8 m); o daqui é um círculo
-    de `dist_travessia` (3,0 m) em torno da origem da célula, no plano xy. ⚠ `episode_length_buf > 2`: no reset a posição lida
+    de `dist_travessia` (3,5 m) em torno da origem da célula, no plano xy. ⚠ `episode_length_buf > 2`: no reset a posição lida
     ainda é a velha (a guarda do mjlab).
     ⚠ T19 §13.8: lê o `twist.pose_ult` (gravado no `compute` do passo anterior, no frame do mundo), e não `root_link_pos_w`. O registro
     do `sorteia_fatia` lê o mesmo buffer; com a leitura direta, no passo do término o `pose_ult` ainda estaria a ≤ `dist_travessia` e a
