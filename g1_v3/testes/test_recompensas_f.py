@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 import torch
+from mjlab.utils.lab_api.math import quat_apply
 
 from g1_v3 import potencial, recompensas
 from g1_v3.knobs import ATIVO, TAREFAS
@@ -246,13 +247,23 @@ class F9RecuoSolto(unittest.TestCase):
 class F9AlturaPeComComando(unittest.TestCase):
     """F9 P4: a `altura_pe` vale zero com o comando do twist zero (o ANDAR parado final pagava 1,0 com o pé parado)."""
 
-    def _env(self, cmd, nivel=0, v_med=(0.0, 0.0, 0.0), g=0.0):
+    # Quadris no frame da pelve (g1.xml, esquerdo e direito): só o teste os fixa; o código os tira da posição do corpo.
+    _P_QUADRIL = torch.tensor([[[0.0, 0.064452, -0.1027], [0.0, -0.064452, -0.1027]]])
+
+    def _env(self, cmd, nivel=0, v_med=(0.0, 0.0, 0.0), g=0.0, roll=0.0, folga=None, v_pe=0.0):
         # 27/11, T19: o valor × `_avanco` (o `_rastreio` lê `v_filt` e `g_marcha` do twist; o nível do ANDAR dá o piso)
-        pes = types.SimpleNamespace(data=types.SimpleNamespace(heights=torch.full((1, 2), R.alvo_pe)))
-        robo = types.SimpleNamespace(data=types.SimpleNamespace(body_link_vel_w=torch.zeros(1, 2, 6),
+        # 27/11, T20 §11.2: a pelve gira `roll` em torno de x; a posição mundial dos quadris vem da rotação do frame da pelve
+        quat = torch.tensor([[math.cos(roll / 2), math.sin(roll / 2), 0.0, 0.0]])
+        quadris = quat_apply(quat[:, None].expand(-1, 2, -1), self._P_QUADRIL)  # pelve na origem
+        h = torch.full((1, 2), R.alvo_pe) if folga is None else torch.tensor([folga])
+        vel = torch.zeros(1, 2, 6)
+        vel[..., 0] = v_pe
+        pes = types.SimpleNamespace(data=types.SimpleNamespace(heights=h))
+        robo = types.SimpleNamespace(data=types.SimpleNamespace(body_link_vel_w=vel, body_link_pos_w=quadris,
+                                                                root_link_pos_w=torch.zeros(1, 3), root_link_quat_w=quat,
                                                                 root_link_lin_vel_b=torch.zeros(1, 3),
                                                                 root_link_ang_vel_b=torch.zeros(1, 3)),
-                                     find_bodies=lambda nomes: ([0, 1], None))
+                                     find_bodies=lambda nomes, preserve_order=False: ([0, 1], None))
         twist = types.SimpleNamespace(v_filt=torch.tensor([v_med], dtype=torch.float32), g_marcha=torch.tensor([g]))
         return types.SimpleNamespace(
             device="cpu", scene={"altura_pes": pes, "robot": robo},
@@ -278,6 +289,30 @@ class F9AlturaPeComComando(unittest.TestCase):
         self.assertAlmostEqual(float(r[0]), 1.0, places=6)
         # comando zero segue zero (F9 P4), mesmo no nível máximo
         self.assertAlmostEqual(float(recompensas.altura_pe(self._env(torch.zeros(1, 3), nivel=7), tarefas)[0]), 0.0, places=6)
+
+    def test_pelve_nivelada_pe_no_ar_na_altura_do_alvo_paga_o_maximo(self):
+        # T20 §11.2: sem inclinação o desconto é 0 e a altura usada é a do sensor (guarda: passa também em 9653467)
+        env = self._env(torch.tensor([[0.5, 0.0, 0.0]]), folga=[R.alvo_pe, R.alvo_pe], v_pe=1.0)
+        self.assertAlmostEqual(float(recompensas.altura_pe(env, ("ANDAR", "CARREGAR"))[0]), 1.0, places=6)
+
+    def test_pelve_inclinada_desconta_a_subida_do_quadril_de_cada_lado_com_sinal(self):
+        # T20 §11.2: a pelve inclinada 0,3 rad ergue um quadril e baixa o outro. Desconto de cada lado em forma fechada:
+        # (z do quadril − z da pelve) − z no frame da pelve = y·sen(θ) + z·(cos(θ) − 1) (z = −0,1027, y = ±0,064452).
+        roll = 0.3
+        zc = -0.1027 * (math.cos(roll) - 1.0)
+        desc = [0.064452 * math.sin(roll) + zc, -0.064452 * math.sin(roll) + zc]  # ≈ +0,0237 e −0,0145: com sinal, e esq ≠ dir
+        cmd = torch.tensor([[0.5, 0.0, 0.0]])
+        tarefas = ("ANDAR", "CARREGAR")
+        # pés a alvo + desconto: a altura usada é o alvo, então paga o máximo. Falha em 9653467 (usa h cru, 0,024 e 0,014 de erro)
+        # e falha com o desconto da pelve nivelada (0) ou com os lados trocados.
+        env = self._env(cmd, roll=roll, folga=[R.alvo_pe + desc[0], R.alvo_pe + desc[1]], v_pe=1.0)
+        self.assertAlmostEqual(float(recompensas.altura_pe(env, tarefas)[0]), 1.0, places=5)
+        # o inverso: pés no alvo cru com a pelve inclinada pagam menos, no valor da altura descontada
+        env = self._env(cmd, roll=roll, folga=[R.alvo_pe, R.alvo_pe], v_pe=1.0)
+        h = torch.tensor([[R.alvo_pe - desc[0], R.alvo_pe - desc[1]]])
+        esperado = recompensas.n_altura_pe(h, torch.tensor([[[1.0, 0.0]] * 2]), R.alvo_pe, R.std_pe, R.tanh_pe)
+        self.assertAlmostEqual(float(recompensas.altura_pe(env, tarefas)[0]), float(esperado[0]), places=5)
+        self.assertLess(float(esperado[0]), 0.9)
 
 
 class F9RefDoAlvoPublica(unittest.TestCase):

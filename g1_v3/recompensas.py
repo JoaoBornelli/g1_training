@@ -34,6 +34,7 @@ K = ATIVO.alvos
 _EPS = 1e-6  # tolerância de "sobre a reta" no fecho convexo do CoM (metros)
 
 _PES_CORPOS = ("left_ankle_roll_link", "right_ankle_roll_link")  # PD-21: altura e velocidade do pé
+_QUADRIS_CORPOS = ("left_hip_pitch_link", "right_hip_pitch_link")  # mesma ordem esquerda/direita das colunas de `altura_pes`
 _BRACOS = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"shoulder|elbow|wrist", j))  # 14
 _CINTURA = tuple(i for i, j in enumerate(JUNTAS) if "waist" in j)  # 3
 _QUADRIL = tuple(i for i, j in enumerate(JUNTAS) if re.search(r"hip_(roll|yaw)", j))  # 4
@@ -642,7 +643,12 @@ def altura_pe(env, tarefas):
     F9 P4: zero com o comando do twist zero (o ANDAR parado final pagava 1,0/s com os pés parados).
     """
     robo = env.scene["robot"]
-    h = env.scene["altura_pes"].data.heights  # (E,2): folga do pé acima do terreno
+    # 27/11, T20 §11.2: a altura do pé sem a subida do quadril pela inclinação da pelve (o corpo que balança para erguer o pé não
+    # rende; a perna que encurta rende). Desconto = (z do quadril − z da pelve) − (z do quadril no frame da pelve): 0 com a pelve
+    # nivelada, com sinal. O segundo termo sai da posição do corpo no frame da pelve (−0,1027 m no g1.xml), sem número fixo.
+    q = robo.data.body_link_pos_w[:, robo.find_bodies(_QUADRIS_CORPOS, preserve_order=True)[0]] - robo.data.root_link_pos_w[:, None]
+    z_pelve = quat_apply_inverse(robo.data.root_link_quat_w[:, None].expand(-1, 2, -1), q)[..., 2]  # (E,2)
+    h = env.scene["altura_pes"].data.heights - (q[..., 2] - z_pelve)  # (E,2): folga do pé acima do terreno, descontada
     v = robo.data.body_link_vel_w[:, robo.find_bodies(_PES_CORPOS)[0], :2]  # (E,2,2): [lin, ang] → lin xy
     cmd = env.command_manager.get_command("twist")
     anda = cmd.norm(dim=-1) > 0

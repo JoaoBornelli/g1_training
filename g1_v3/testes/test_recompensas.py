@@ -68,11 +68,11 @@ class TestAlturaPe(unittest.TestCase):
         out = recompensas.n_altura_pe(h, v, R.alvo_pe, R.std_pe, R.tanh_pe)
         self.assertAlmostEqual(out.item(), 1.0, places=5)
 
-    def test_pe_a_5_cm_no_balanco_paga_bem_menos_que_a_10_cm(self):
-        # T17: com σ ≈ 22 cm o pé a 5 cm pagava 0,96; com σ = 5 cm paga ~0,37 (um pé no ar a 1 m/s, o outro parado)
+    def test_pe_5_cm_abaixo_do_alvo_no_balanco_paga_bem_menos_que_no_alvo(self):
+        # T17: com σ ≈ 22 cm o pé 5 cm abaixo do alvo pagava 0,96; com σ = 5 cm paga ~0,37 (um pé no ar a 1 m/s, o outro parado)
         v = torch.tensor([[[1.0, 0.0], [0.0, 0.0]]], dtype=F)
-        baixo = recompensas.n_altura_pe(t(0.05, 0.0).reshape(1, 2), v, R.alvo_pe, R.std_pe, R.tanh_pe).item()
-        alto = recompensas.n_altura_pe(t(0.10, 0.0).reshape(1, 2), v, R.alvo_pe, R.std_pe, R.tanh_pe).item()
+        baixo = recompensas.n_altura_pe(t(R.alvo_pe - 0.05, 0.0).reshape(1, 2), v, R.alvo_pe, R.std_pe, R.tanh_pe).item()
+        alto = recompensas.n_altura_pe(t(R.alvo_pe, 0.0).reshape(1, 2), v, R.alvo_pe, R.std_pe, R.tanh_pe).item()
         self.assertAlmostEqual(alto, 1.0, places=5)
         self.assertLess(baixo, 0.5)
 
