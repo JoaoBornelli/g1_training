@@ -126,7 +126,7 @@ class TestRegistroDaTravessia(unittest.TestCase):
 
     DT = 0.02
 
-    def _roda(self, fatia, coluna, pedido, caiu, d):
+    def _roda(self, fatia, coluna, pedido, caiu, d, passos=10, pose_no_mundo=False):
         # um env por linha; o `pedido` (m) é a distância comandada no episódio, `d` (m) a distância final da origem da célula
         n = len(fatia)
         cur = balanceador.Curriculo(ATIVO.balanceador, ATIVO.niveis, ATIVO.comando, T)
@@ -135,6 +135,8 @@ class TestRegistroDaTravessia(unittest.TestCase):
         origens = torch.stack([10.0 + torch.arange(n), 20.0 - torch.arange(n), torch.zeros(n)], dim=1)
         pose_ult = torch.zeros(n, 3)
         pose_ult[:, :2] = origens[:, :2] + torch.stack([torch.tensor(d), torch.zeros(n)], dim=1)
+        if pose_no_mundo:
+            pose_ult.zero_()  # o `pose_ult` nasce 0, no frame do mundo
         tabela = torch.zeros(T.linhas, len(NOMES), 3)
         tabela[..., 0] = 100.0 + 10.0 * torch.arange(len(NOMES))[None, :] + torch.arange(T.linhas)[:, None]
         tabela[..., 1] = -50.0
@@ -142,7 +144,8 @@ class TestRegistroDaTravessia(unittest.TestCase):
                                         terrain_origins=tabela)
         env = types.SimpleNamespace(
             device="cpu", step_dt=self.DT, v3_cur=cur, v3_gerador=torch.Generator().manual_seed(0),
-            v3_fatia=torch.tensor(fatia), v3_t_empurrao=torch.zeros(n), scene=_Cena(terreno, origens.clone()),
+            v3_fatia=torch.tensor(fatia), v3_t_empurrao=torch.zeros(n), episode_length_buf=torch.full((n,), passos),
+            scene=_Cena(terreno, origens.clone()),
             command_manager=types.SimpleNamespace(get_term=lambda nome: types.SimpleNamespace(
                 pose_ult=pose_ult, soma_cmd_marcha=torch.tensor(pedido) / self.DT)),
             termination_manager=types.SimpleNamespace(terminated=torch.tensor(caiu)))
@@ -168,6 +171,12 @@ class TestRegistroDaTravessia(unittest.TestCase):
         cur, env = self._roda(fatia=[0] * 8, coluna=[1] * 8, pedido=[4.0] * 8, caiu=[False] * 8, d=[3.5] * 8)
         self.assertEqual((cur.vis_ter[1], cur.trav_ter[1]), (8, 8))
         self.assertEqual(sum(cur.vis_ter), 8)
+
+    def test_o_primeiro_reset_sem_passos_nao_conta_visita_nem_travessia(self):
+        # §13.9: no 1º reset `episode_length_buf` é 0, `pose_ult` é 0 e a origem da célula está longe do mundo (~22 m, d > 3 m).
+        # Sem a guarda de passos, a coluna 1 registraria visita e travessia (falha em `c43605a`)
+        cur, env = self._roda(fatia=[0], coluna=[1], pedido=[0.0], caiu=[False], d=[0.0], passos=0, pose_no_mundo=True)
+        self.assertEqual((sum(cur.vis_ter), sum(cur.trav_ter)), (0, 0))
 
     def test_travessia_pede_d_acima_de_3_m(self):
         # pedido acima de `dist_travessia` é visita; com d = `dist_travessia` (estrito) ainda não é travessia

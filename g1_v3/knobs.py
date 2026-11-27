@@ -409,7 +409,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     # 27/11, T19: linha de terreno do ANDAR por coluna, pela taxa de travessia (o molde da zona acima: `zona_t_alvo` é o alvo)
     linha_n_min: int = 50  # 27/11, T19: visitas da coluna para atualizar a linha (~2 episódios de ANDAR por coluna por iteração com 4096 envs: ~25 its; ruído da taxa ~7 %)
     linha_ganho: float = 2.5  # 27/11, T19: linha ← clip(linha + k·(taxa − `zona_t_alvo`)): taxa 1,0 sobe 1,0 linha; taxa 0 desce 1,5; taxa 0,6 fica
-    nivel_abre_terreno: int = 2  # 27/11, T19 §13.1: nível do ANDAR em que a célula `terreno` dele abre (se as abertas passam no portão); o robô aprende a andar antes da escada. Simulação: com 70 % da velocidade entregue, ele passa de 3 m em 88 % dos episódios no nível 2 e em 38 % no nível 0
+    nivel_abre_terreno: int = 2  # 27/11, T19 §13.1: nível do ANDAR em que a célula `terreno` dele abre (se as abertas passam no portão); o robô aprende a andar antes da escada. Simulação dos sorteios: com 70 % da velocidade entregue, ele passa de 3 m em ~88 % das visitas (episódios que pedem ≥ 3 m) no nível 2 e em ~35 % no nível 0
 
 
 @dataclass(frozen=True)

@@ -142,15 +142,18 @@ def sorteia_fatia(env, env_ids, k_ter):
     g = env.v3_gerador
     # 27/11, T19: registra o episódio de ANDAR em terreno que acabou, ANTES de sobrescrever a fatia e o terreno de `env_ids`.
     # ⚠ Este evento roda antes do reset do `twist`: `pose_ult` e `soma_cmd_marcha` ainda são do episódio que acabou.
-    # Visita: o comando pediu `dist_travessia`, o episódio acabou em queda (`terminated` não inclui o `time_out`; no 1º reset
-    # é tudo zero) ou o robô passou de `dist_travessia` (§13.3: a travessia acaba o episódio, e o pedido pode ser menor, por
-    # causa do deslocamento de partida). Travessia: uma visita em que o robô passou de `dist_travessia` da origem da célula.
+    # Visita: o comando pediu `dist_travessia`, o episódio acabou em queda (`terminated` não inclui o `time_out`) ou o robô passou
+    # de `dist_travessia` (§13.3: a travessia acaba o episódio, e o pedido pode ser menor, por causa do deslocamento de partida).
+    # Travessia: uma visita em que o robô passou de `dist_travessia` da origem da célula.
+    # ⚠ T19 §13.9: no 1º reset (a construção do env) o mjlab já deu coluna e origem de terreno a cada env, o `v3_fatia` nasce 0 (ANDAR)
+    # e o `pose_ult` nasce 0: o d seria a distância da origem da célula ao mundo, quase sempre > `dist_travessia`. Quem exclui o 1º
+    # reset é a guarda de passos: o `episode_length_buf` só zera no fim do `_reset_idx` (depois dos eventos) e vale 0 nesse reset.
     terreno = env.scene["terrain"]
     twist = env.command_manager.get_term("twist")
     coluna_ant = terreno.terrain_types[env_ids]
     d = (twist.pose_ult[env_ids, :2] - env.scene.env_origins[env_ids, :2]).norm(dim=-1)
     pedido = twist.soma_cmd_marcha[env_ids] * env.step_dt
-    visita = (env.v3_fatia[env_ids] == ANDAR) & (coluna_ant != 0) & (
+    visita = (env.v3_fatia[env_ids] == ANDAR) & (coluna_ant != 0) & (env.episode_length_buf[env_ids] > 0) & (
         (pedido >= k_ter.dist_travessia) | env.termination_manager.terminated[env_ids] | (d > k_ter.dist_travessia))
     for lista, m in ((cur.vis_ter, visita), (cur.trav_ter, visita & (d > k_ter.dist_travessia))):
         for c, n in enumerate(torch.bincount(coluna_ant[m].long(), minlength=len(k_ter.colunas)).tolist()):
