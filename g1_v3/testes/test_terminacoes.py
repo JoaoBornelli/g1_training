@@ -12,6 +12,7 @@ from g1_v3 import balanceador, eventos, terminacoes
 from g1_v3.knobs import ATIVO, TAREFAS
 
 K = ATIVO.terminacao
+D_TRAV = ATIVO.terreno.dist_travessia
 F = torch.float32
 ANDAR = TAREFAS.index("ANDAR")  # 0
 PEGAR = TAREFAS.index("PEGAR")  # 1
@@ -63,11 +64,11 @@ class TestFimDaCadeiaNaTravessia(unittest.TestCase):
                         torch.tensor([[10.0 + dr * 0.6, -5.0 + dr * 0.8, 0.0]])))
         return bool(terminacoes.fim_da_cadeia(env)[0])
 
-    def test_andar_em_terreno_com_d_3_1_m_no_passo_10_termina(self):
-        self.assertTrue(self._fim(fatia=0, coluna=2, d=3.1, passo=10))
+    def test_andar_em_terreno_com_d_acima_da_travessia_no_passo_10_termina(self):
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=D_TRAV + 0.1, passo=10))
 
-    def test_d_2_9_m_nao_termina(self):
-        self.assertFalse(self._fim(fatia=0, coluna=2, d=2.9, passo=10))
+    def test_d_abaixo_da_travessia_nao_termina(self):
+        self.assertFalse(self._fim(fatia=0, coluna=2, d=D_TRAV - 0.1, passo=10))
 
     def test_no_plano_nao_termina_mesmo_com_d_5_m(self):
         self.assertFalse(self._fim(fatia=0, coluna=0, d=5.0, passo=10))
@@ -83,18 +84,19 @@ class TestFimDaCadeiaNaTravessia(unittest.TestCase):
         # a guarda é `> 2`: com `> 3` o passo 3 não terminaria
         self.assertTrue(self._fim(fatia=0, coluna=2, d=5.0, passo=3))
 
-    def test_d_3_02_m_termina(self):
-        # o limiar é o `dist_travessia` (3,0 m), e não um valor acima dele
-        self.assertTrue(self._fim(fatia=0, coluna=2, d=ATIVO.terreno.dist_travessia + 0.02, passo=10))
+    def test_d_logo_acima_da_travessia_termina(self):
+        # o limiar é o `dist_travessia`, e não um valor acima dele
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=D_TRAV + 0.02, passo=10))
 
     def test_o_z_nao_entra(self):
-        # base 0,78 m acima da origem com 2,9 m no plano: a norma 3D daria 3,003 m e terminaria
-        self.assertFalse(self._fim(fatia=0, coluna=2, d=2.9, passo=10, dz=0.78))
+        # base 1,0 m acima da origem com `dist_travessia` − 0,1 m no plano: a norma 3D passaria de `dist_travessia` e terminaria
+        self.assertGreater(math.hypot(D_TRAV - 0.1, 1.0), D_TRAV)
+        self.assertFalse(self._fim(fatia=0, coluna=2, d=D_TRAV - 0.1, passo=10, dz=1.0))
 
     def test_segue_o_pose_ult_e_nao_o_root_link_pos_w(self):
         # a leitura de `root_link_pos_w` inverte os dois casos
-        self.assertTrue(self._fim(fatia=0, coluna=2, d=3.1, passo=10, d_raiz=2.9))
-        self.assertFalse(self._fim(fatia=0, coluna=2, d=2.9, passo=10, d_raiz=3.1))
+        self.assertTrue(self._fim(fatia=0, coluna=2, d=D_TRAV + 0.1, passo=10, d_raiz=D_TRAV - 0.1))
+        self.assertFalse(self._fim(fatia=0, coluna=2, d=D_TRAV - 0.1, passo=10, d_raiz=D_TRAV + 0.1))
 
     def test_as_regras_de_hoje_seguem(self):
         self.assertTrue(self._fim(fatia=0, coluna=0, d=0.0, passo=1000, max_ep=1000))  # `max_episode_length`
@@ -109,7 +111,7 @@ class TestTerminoERegistroLeemAMesmaPosicao(unittest.TestCase):
     def test_no_passo_do_termino_o_registro_conta_visita_e_travessia(self):
         T, dt = ATIVO.terreno, 0.02
         origem = torch.tensor([[10.0, -5.0, 0.0]])
-        xs = [2.95, 2.99, 3.01, 3.05]  # distância da base à origem da célula, passo a passo
+        xs = [D_TRAV - 0.05, D_TRAV - 0.01, D_TRAV + 0.01, D_TRAV + 0.05]  # distância da base à origem da célula, passo a passo
         terreno = types.SimpleNamespace(terrain_types=torch.tensor([2]), terrain_levels=torch.zeros(1, dtype=torch.long),
                                         terrain_origins=torch.zeros(T.linhas, len(T.colunas), 3))
         twist = types.SimpleNamespace(pose_ult=None, soma_cmd_marcha=torch.tensor([2.5 / dt]))  # pedido de 2,5 m: a visita vem do d
@@ -127,6 +129,7 @@ class TestTerminoERegistroLeemAMesmaPosicao(unittest.TestCase):
                 break
         else:
             self.fail("o término não disparou")
+        self.assertEqual(k, 3)  # dispara no passo em que o `pose_ult` (a posição do passo anterior, xs[2]) passa de `dist_travessia`
         eventos.sorteia_fatia(env, torch.arange(1), T)
         self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (1, 1))
 

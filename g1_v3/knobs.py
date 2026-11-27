@@ -409,7 +409,7 @@ class Balanceador:  # S §11, §11.5; PD-12, PD-13
     # 27/11, T19: linha de terreno do ANDAR por coluna, pela taxa de travessia (o molde da zona acima: `zona_t_alvo` é o alvo)
     linha_n_min: int = 50  # 27/11, T19: visitas da coluna para atualizar a linha (~2 episódios de ANDAR por coluna por iteração com 4096 envs: ~25 its; ruído da taxa ~7 %)
     linha_ganho: float = 2.5  # 27/11, T19: linha ← clip(linha + k·(taxa − `zona_t_alvo`)): taxa 1,0 sobe 1,0 linha; taxa 0 desce 1,5; taxa 0,6 fica
-    nivel_abre_terreno: int = 2  # 27/11, T19 §13.1: nível do ANDAR em que a célula `terreno` dele abre (se as abertas passam no portão); o robô aprende a andar antes da escada. Simulação dos sorteios: com 70 % da velocidade entregue, ele passa de 3 m em ~88 % das visitas (episódios que pedem ≥ 3 m) no nível 2 e em ~35 % no nível 0
+    nivel_abre_terreno: int = 2  # 27/11, T19 §13.1: nível do ANDAR em que a célula `terreno` dele abre (se as abertas passam no portão); o robô aprende a andar antes da escada. Simulação dos sorteios (T19 §13.10, 3,5 m): com 70 % da velocidade entregue, ele passa de 3,5 m em ~79 % das visitas (episódios que pedem ≥ 3,5 m) no nível 2, em ~55 % no nível 1 e em ~11 % no nível 0
 
 
 @dataclass(frozen=True)
@@ -439,7 +439,7 @@ class Terreno:  # S §11.2, §12; PD-20
     linha_max_carregar: tuple = (("escada", 9), ("escada_inv", 9), ("rampa", 9), ("rampa_inv", 9),
                                  ("escada_aleatoria", 6), ("obstaculos", 8), ("caixas", 7))
     plataforma: float = 2.0  # S §12: plataforma plana em volta da laje (m)
-    dist_travessia: float = 3.0  # 27/11, T19: o ANDAR de terreno atravessou se o robô passou desta distância da origem da célula (m); os degraus acabam antes de 3,0 m (plataforma de 2 m, 6 degraus de 0,30 m)
+    dist_travessia: float = 3.5  # 27/11, T19 §13.10: o ANDAR de terreno atravessou se o robô passou desta distância da origem da célula (m); a escada tem topo central de 2,4 m e degraus de 1,2 a 3,0 m do centro (6 anéis de 0,30 m; o último em 3,0 m), e a borda plana da célula vai de 3,0 a 4,0 m: 3,5 m fica no meio dela
     piso_coluna: float = 0.05  # 27/11, T19 §13.4: fração mínima de cada coluna nos episódios de terreno do ANDAR; a coluna vencida desce até aqui e não some, para o robô não esquecer o terreno
     laje_do_centro: float = 0.75  # G1; S §12: o centro da laje a 0,75 m do centro da plataforma (m)
     # D1 (29/10: sai da cena.py): border_width do gerador de terreno (m)

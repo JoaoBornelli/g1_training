@@ -182,6 +182,10 @@ class TestKnobs(unittest.TestCase):
         self.assertEqual(ATIVO.terreno.laje_do_centro, 0.75)
         self.assertEqual(ATIVO.comando.incl_max_terreno_graus, 15.0)
 
+    def test_travessia_a_3_5_m(self):
+        # T19 §13.10: os degraus vão até 3,0 m do centro da célula e a borda plana vai de 3,0 a 4,0 m; 3,5 m fica no meio dela
+        self.assertEqual(ATIVO.terreno.dist_travessia, 3.5)
+
     def test_nenhum_none_no_ativo(self):
         # None = "sai da Parte 0": nenhum pode chegar ao treino. Anda tuplas e tuplas de tuplas.
         def achar_none(nome, valor):

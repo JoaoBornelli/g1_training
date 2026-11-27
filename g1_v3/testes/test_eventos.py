@@ -152,23 +152,25 @@ class TestRegistroDaTravessia(unittest.TestCase):
         eventos.sorteia_fatia(env, torch.arange(n), T)
         return cur, env
 
-    def test_visita_por_pedido_ou_queda_e_travessia_acima_de_3_m(self):
-        # env 0: pedido curto, sem queda (não é visita); env 1: pedido curto, queda (visita, sem travessia); env 2: pedido de 4 m e
-        # d = 3,5 m (visita e travessia); env 3: plano (coluna 0: não conta); env 4: fatia B (não conta); env 5: pedido de 2 m e
-        # d = 3,5 m (T19 §13.3: passar de `dist_travessia` conta visita e travessia, mesmo com o pedido curto)
-        cur, env = self._roda(fatia=[0, 0, 0, 0, 1, 0], coluna=[1, 2, 3, 0, 4, 5], pedido=[2.0, 1.0, 4.0, 5.0, 5.0, 2.0],
-                              caiu=[False, True, False, False, False, False], d=[0.5, 0.4, 3.5, 4.0, 4.0, 3.5])
+    def test_visita_por_pedido_ou_queda_e_travessia_acima_da_distancia(self):
+        # env 0: pedido curto, sem queda (não é visita); env 1: pedido curto, queda (visita, sem travessia); env 2: pedido e
+        # d acima de `dist_travessia` (visita e travessia); env 3: plano (coluna 0: não conta); env 4: fatia B (não conta); env 5:
+        # pedido de 2 m e d acima de `dist_travessia` (T19 §13.3: passar dela conta visita e travessia, mesmo com o pedido curto)
+        cur, env = self._roda(fatia=[0, 0, 0, 0, 1, 0], coluna=[1, 2, 3, 0, 4, 5],
+                              pedido=[2.0, 1.0, T.dist_travessia + 0.5, 5.0, 5.0, 2.0],
+                              caiu=[False, True, False, False, False, False],
+                              d=[0.5, 0.4, T.dist_travessia + 0.5, T.dist_travessia + 1.0, T.dist_travessia + 1.0, T.dist_travessia + 0.5])
         self.assertEqual(cur.vis_ter, [0, 0, 1, 1, 0, 1, 0, 0, 0])
         self.assertEqual(cur.trav_ter, [0, 0, 0, 1, 0, 1, 0, 0, 0])
 
-    def test_pedido_de_2_5_m_sem_queda_e_d_3_2_m_conta_visita_e_travessia(self):
-        # §13.3: o deslocamento de partida a favor deixa o pedido abaixo de 3 m; a travessia conta mesmo assim
-        cur, env = self._roda(fatia=[0], coluna=[2], pedido=[2.5], caiu=[False], d=[3.2])
+    def test_pedido_de_2_5_m_sem_queda_e_d_acima_da_travessia_conta_visita_e_travessia(self):
+        # §13.3: o deslocamento de partida a favor deixa o pedido abaixo de `dist_travessia`; a travessia conta mesmo assim
+        cur, env = self._roda(fatia=[0], coluna=[2], pedido=[2.5], caiu=[False], d=[T.dist_travessia + 0.2])
         self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (1, 1))
 
     def test_o_registro_lê_o_episodio_antigo_e_nao_o_sorteio_novo(self):
         # o sorteio novo (fatia e coluna de cada env) sobrescreve `v3_fatia` e `terrain_types` depois do registro
-        cur, env = self._roda(fatia=[0] * 8, coluna=[1] * 8, pedido=[4.0] * 8, caiu=[False] * 8, d=[3.5] * 8)
+        cur, env = self._roda(fatia=[0] * 8, coluna=[1] * 8, pedido=[T.dist_travessia + 0.5] * 8, caiu=[False] * 8, d=[T.dist_travessia + 0.5] * 8)
         self.assertEqual((cur.vis_ter[1], cur.trav_ter[1]), (8, 8))
         self.assertEqual(sum(cur.vis_ter), 8)
 
@@ -178,7 +180,7 @@ class TestRegistroDaTravessia(unittest.TestCase):
         cur, env = self._roda(fatia=[0], coluna=[1], pedido=[0.0], caiu=[False], d=[0.0], passos=0, pose_no_mundo=True)
         self.assertEqual((sum(cur.vis_ter), sum(cur.trav_ter)), (0, 0))
 
-    def test_travessia_pede_d_acima_de_3_m(self):
+    def test_travessia_pede_d_acima_da_distancia(self):
         # pedido acima de `dist_travessia` é visita; com d = `dist_travessia` (estrito) ainda não é travessia
         cur, env = self._roda(fatia=[0], coluna=[2], pedido=[T.dist_travessia + 0.01], caiu=[False], d=[T.dist_travessia])
         self.assertEqual((cur.vis_ter[2], cur.trav_ter[2]), (1, 0))
